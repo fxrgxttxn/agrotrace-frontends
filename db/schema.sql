@@ -32,20 +32,6 @@ COMMENT ON EXTENSION citext IS 'data type for case-insensitive character strings
 
 
 --
--- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
---
-
-CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
-
-
---
--- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
-
-
---
 -- Name: next_batch_code(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1832,20 +1818,6 @@ GRANT ALL ON FUNCTION public.citext(inet) TO agrotrace_app;
 
 
 --
--- Name: FUNCTION armor(bytea); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.armor(bytea) TO agrotrace_app;
-
-
---
--- Name: FUNCTION armor(bytea, text[], text[]); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.armor(bytea, text[], text[]) TO agrotrace_app;
-
-
---
 -- Name: FUNCTION citext_cmp(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
 --
 
@@ -1958,104 +1930,6 @@ GRANT ALL ON FUNCTION public.citext_smaller(public.citext, public.citext) TO agr
 
 
 --
--- Name: FUNCTION crypt(text, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.crypt(text, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION dearmor(text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.dearmor(text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION decrypt(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.decrypt(bytea, bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION decrypt_iv(bytea, bytea, bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.decrypt_iv(bytea, bytea, bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION digest(bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.digest(bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION digest(text, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.digest(text, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION encrypt(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.encrypt(bytea, bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION encrypt_iv(bytea, bytea, bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.encrypt_iv(bytea, bytea, bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION gen_random_bytes(integer); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.gen_random_bytes(integer) TO agrotrace_app;
-
-
---
--- Name: FUNCTION gen_random_uuid(); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.gen_random_uuid() TO agrotrace_app;
-
-
---
--- Name: FUNCTION gen_salt(text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.gen_salt(text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION gen_salt(text, integer); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.gen_salt(text, integer) TO agrotrace_app;
-
-
---
--- Name: FUNCTION hmac(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.hmac(bytea, bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION hmac(text, text, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.hmac(text, text, text) TO agrotrace_app;
-
-
---
 -- Name: FUNCTION next_batch_code(); Type: ACL; Schema: public; Owner: -
 --
 
@@ -2074,146 +1948,6 @@ GRANT ALL ON FUNCTION public.next_waybill_number() TO agrotrace_app;
 --
 
 GRANT ALL ON FUNCTION public.notify_notification() TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_armor_headers(text, OUT key text, OUT value text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_armor_headers(text, OUT key text, OUT value text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_key_id(bytea); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_key_id(bytea) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_pub_decrypt(bytea, bytea); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_pub_decrypt(bytea, bytea) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_pub_decrypt(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_pub_decrypt(bytea, bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_pub_decrypt(bytea, bytea, text, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_pub_decrypt(bytea, bytea, text, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_pub_decrypt_bytea(bytea, bytea); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_pub_decrypt_bytea(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_pub_decrypt_bytea(bytea, bytea, text, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_pub_encrypt(text, bytea); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_pub_encrypt(text, bytea) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_pub_encrypt(text, bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_pub_encrypt(text, bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_pub_encrypt_bytea(bytea, bytea); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_pub_encrypt_bytea(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_sym_decrypt(bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_sym_decrypt(bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_sym_decrypt(bytea, text, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_sym_decrypt(bytea, text, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_sym_decrypt_bytea(bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_sym_decrypt_bytea(bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_sym_decrypt_bytea(bytea, text, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_sym_decrypt_bytea(bytea, text, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_sym_encrypt(text, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_sym_encrypt(text, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_sym_encrypt(text, text, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_sym_encrypt(text, text, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_sym_encrypt_bytea(bytea, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_sym_encrypt_bytea(bytea, text) TO agrotrace_app;
-
-
---
--- Name: FUNCTION pgp_sym_encrypt_bytea(bytea, text, text); Type: ACL; Schema: public; Owner: -
---
-
-GRANT ALL ON FUNCTION public.pgp_sym_encrypt_bytea(bytea, text, text) TO agrotrace_app;
 
 
 --
@@ -2648,3 +2382,15 @@ ALTER DEFAULT PRIVILEGES FOR ROLE agrotrace_owner IN SCHEMA public GRANT SELECT,
 --
 
 
+
+--
+-- Dbmate schema migrations
+--
+
+INSERT INTO public.schema_migrations (version) VALUES
+    ('20260923000001'),
+    ('20260923000002'),
+    ('20260923000003'),
+    ('20260923000004'),
+    ('20260923000005'),
+    ('20260923000006');
