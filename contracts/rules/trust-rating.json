@@ -1,0 +1,6 @@
+{
+  "initial": 80,
+  "min": 0,
+  "max": 100,
+  "deltas": { "LAB_PASS": 2, "LAB_FAIL": -15, "RECALL_SOURCE": -10 }
+}

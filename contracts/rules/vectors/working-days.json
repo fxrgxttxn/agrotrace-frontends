@@ -1,0 +1,72 @@
+{
+  "rule": "WORKING-DAYS",
+  "fn": "addWorkingDays",
+  "description": "Adds N working days to an ISO instant, skipping Saturdays and Sundays by UTC calendar date; the time of day is preserved. Used by lab escalation (5 working days, БП-2). days=0 returns the input unchanged even if it falls on a weekend.",
+  "cases": [
+    {
+      "name": "add 1 working day from Thursday - lands on Friday",
+      "input": { "from": "2026-09-10T09:00:00.000Z", "days": 1 },
+      "expected": { "result": "2026-09-11T09:00:00.000Z" }
+    },
+    {
+      "name": "add 2 working days from Thursday - skips the weekend",
+      "input": { "from": "2026-09-10T09:00:00.000Z", "days": 2 },
+      "expected": { "result": "2026-09-14T09:00:00.000Z" }
+    },
+    {
+      "name": "add 1 working day from Friday - skips straight to Monday",
+      "input": { "from": "2026-09-11T09:00:00.000Z", "days": 1 },
+      "expected": { "result": "2026-09-14T09:00:00.000Z" }
+    },
+    {
+      "name": "add 3 working days from Friday - spans the weekend",
+      "input": { "from": "2026-09-11T09:00:00.000Z", "days": 3 },
+      "expected": { "result": "2026-09-16T09:00:00.000Z" }
+    },
+    {
+      "name": "lab escalation case - 5 working days from Monday (БП-2)",
+      "input": { "from": "2026-09-14T00:00:00.000Z", "days": 5 },
+      "expected": { "result": "2026-09-21T00:00:00.000Z" }
+    },
+    {
+      "name": "starting from a Saturday - counts from the following Monday",
+      "input": { "from": "2026-09-12T12:00:00.000Z", "days": 1 },
+      "expected": { "result": "2026-09-14T12:00:00.000Z" }
+    },
+    {
+      "name": "starting from a Sunday - counts from the following Monday",
+      "input": { "from": "2026-09-13T12:00:00.000Z", "days": 1 },
+      "expected": { "result": "2026-09-14T12:00:00.000Z" }
+    },
+    {
+      "name": "zero working days - returns the same instant unchanged",
+      "input": { "from": "2026-09-14T08:30:00.000Z", "days": 0 },
+      "expected": { "result": "2026-09-14T08:30:00.000Z" }
+    },
+    {
+      "name": "zero working days from a weekend start - unchanged even though not a working day",
+      "input": { "from": "2026-09-12T08:30:00.000Z", "days": 0 },
+      "expected": { "result": "2026-09-12T08:30:00.000Z" }
+    },
+    {
+      "name": "crosses a month boundary through a weekend",
+      "input": { "from": "2026-02-27T10:00:00.000Z", "days": 2 },
+      "expected": { "result": "2026-03-03T10:00:00.000Z" }
+    },
+    {
+      "name": "crosses a year boundary",
+      "input": { "from": "2026-12-31T15:45:00.000Z", "days": 1 },
+      "expected": { "result": "2027-01-01T15:45:00.000Z" }
+    },
+    {
+      "name": "spans two weekends over ten working days",
+      "input": { "from": "2026-09-14T00:00:00.000Z", "days": 10 },
+      "expected": { "result": "2026-09-28T00:00:00.000Z" }
+    },
+    {
+      "name": "time of day is preserved exactly including milliseconds",
+      "input": { "from": "2026-09-10T23:59:59.999Z", "days": 1 },
+      "expected": { "result": "2026-09-11T23:59:59.999Z" }
+    }
+  ]
+}

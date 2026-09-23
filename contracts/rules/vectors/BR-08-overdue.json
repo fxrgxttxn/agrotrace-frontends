@@ -1,0 +1,62 @@
+{
+  "rule": "BR-08",
+  "fn": "isOverdue",
+  "description": "A recall task is overdue once the current time strictly passes its dueAt (from recallTaskDueAt): overdue = now > dueAt. Equality is not overdue.",
+  "cases": [
+    {
+      "name": "now before dueAt - not overdue",
+      "input": { "dueAt": "2026-09-11T00:00:00.000Z", "now": "2026-09-10T23:00:00.000Z" },
+      "expected": { "overdue": false }
+    },
+    {
+      "name": "now exactly equals dueAt - not overdue (strict greater than)",
+      "input": { "dueAt": "2026-09-11T00:00:00.000Z", "now": "2026-09-11T00:00:00.000Z" },
+      "expected": { "overdue": false }
+    },
+    {
+      "name": "now one millisecond after dueAt - overdue",
+      "input": { "dueAt": "2026-09-11T00:00:00.000Z", "now": "2026-09-11T00:00:00.001Z" },
+      "expected": { "overdue": true }
+    },
+    {
+      "name": "now well after dueAt - overdue",
+      "input": { "dueAt": "2026-09-11T00:00:00.000Z", "now": "2026-09-15T00:00:00.000Z" },
+      "expected": { "overdue": true }
+    },
+    {
+      "name": "now one millisecond before dueAt - not overdue",
+      "input": { "dueAt": "2026-09-11T00:00:00.000Z", "now": "2026-09-10T23:59:59.999Z" },
+      "expected": { "overdue": false }
+    },
+    {
+      "name": "now far in the future - overdue",
+      "input": { "dueAt": "2026-01-01T00:00:00.000Z", "now": "2027-01-01T00:00:00.000Z" },
+      "expected": { "overdue": true }
+    },
+    {
+      "name": "now crossing a month boundary just after due - overdue",
+      "input": { "dueAt": "2026-09-30T23:59:59.999Z", "now": "2026-10-01T00:00:00.000Z" },
+      "expected": { "overdue": true }
+    },
+    {
+      "name": "now crossing a year boundary just before due - not overdue",
+      "input": { "dueAt": "2027-01-01T00:00:00.000Z", "now": "2026-12-31T23:59:59.999Z" },
+      "expected": { "overdue": false }
+    },
+    {
+      "name": "now equal to dueAt with milliseconds present - not overdue",
+      "input": { "dueAt": "2026-05-05T05:05:05.500Z", "now": "2026-05-05T05:05:05.500Z" },
+      "expected": { "overdue": false }
+    },
+    {
+      "name": "now shortly after dueAt with millisecond precision - overdue",
+      "input": { "dueAt": "2026-05-05T05:05:05.500Z", "now": "2026-05-05T05:05:05.501Z" },
+      "expected": { "overdue": true }
+    },
+    {
+      "name": "now long before dueAt - not overdue",
+      "input": { "dueAt": "2026-12-01T00:00:00.000Z", "now": "2026-01-01T00:00:00.000Z" },
+      "expected": { "overdue": false }
+    }
+  ]
+}

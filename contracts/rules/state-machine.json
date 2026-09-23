@@ -1,0 +1,37 @@
+{
+  "statuses": [
+    "Created",
+    "OnTest",
+    "Approved",
+    "InTransit",
+    "Accepted",
+    "Processed",
+    "OnSale",
+    "Sold",
+    "Blocked",
+    "Recalled",
+    "WrittenOff"
+  ],
+  "transitions": [
+    { "from": "Created", "to": "OnTest", "action": "sendToLab" },
+    { "from": "Created", "to": "Approved", "action": "approveWithoutTest" },
+    { "from": "OnTest", "to": "Approved", "action": "labPass" },
+    { "from": "OnTest", "to": "Blocked", "action": "labFail" },
+    { "from": "Approved", "to": "InTransit", "action": "ship" },
+    { "from": "Accepted", "to": "InTransit", "action": "ship" },
+    { "from": "InTransit", "to": "Accepted", "action": "accept" },
+    { "from": "InTransit", "to": "Approved", "action": "reject" },
+    { "from": "Accepted", "to": "Processed", "action": "process" },
+    { "from": "Approved", "to": "Processed", "action": "process" },
+    { "from": "Accepted", "to": "OnSale", "action": "putOnSale" },
+    { "from": "OnSale", "to": "Sold", "action": "sell" },
+    { "from": "Created", "to": "Recalled", "action": "recall" },
+    { "from": "OnTest", "to": "Recalled", "action": "recall" },
+    { "from": "Approved", "to": "Recalled", "action": "recall" },
+    { "from": "InTransit", "to": "Recalled", "action": "recall" },
+    { "from": "Accepted", "to": "Recalled", "action": "recall" },
+    { "from": "OnSale", "to": "Recalled", "action": "recall" },
+    { "from": "Blocked", "to": "Recalled", "action": "recall" },
+    { "from": "Recalled", "to": "WrittenOff", "action": "writeOff" }
+  ]
+}

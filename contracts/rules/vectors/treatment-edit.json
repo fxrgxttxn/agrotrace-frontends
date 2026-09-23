@@ -1,0 +1,62 @@
+{
+  "rule": "TREATMENT-EDIT",
+  "fn": "canEditTreatment",
+  "description": "A field treatment record can be edited within 24 hours of its creation (FR-PROD-02): allowed = (now - createdAt) <= 24h, boundary inclusive.",
+  "cases": [
+    {
+      "name": "just created - immediately editable",
+      "input": { "createdAt": "2026-09-10T10:00:00.000Z", "now": "2026-09-10T10:00:00.000Z" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "created 1 hour ago - editable",
+      "input": { "createdAt": "2026-09-10T09:00:00.000Z", "now": "2026-09-10T10:00:00.000Z" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "created exactly 24 hours ago - still editable (boundary inclusive)",
+      "input": { "createdAt": "2026-09-09T10:00:00.000Z", "now": "2026-09-10T10:00:00.000Z" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "created 24 hours and 1 millisecond ago - no longer editable",
+      "input": { "createdAt": "2026-09-09T09:59:59.999Z", "now": "2026-09-10T10:00:00.000Z" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "created 25 hours ago - not editable",
+      "input": { "createdAt": "2026-09-09T09:00:00.000Z", "now": "2026-09-10T10:00:00.000Z" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "created several days ago - not editable",
+      "input": { "createdAt": "2026-09-01T10:00:00.000Z", "now": "2026-09-10T10:00:00.000Z" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "created 23 hours 59 minutes 59 seconds ago - editable",
+      "input": { "createdAt": "2026-09-09T10:00:01.000Z", "now": "2026-09-10T10:00:00.000Z" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "edit window crosses midnight - still within 24 hours",
+      "input": { "createdAt": "2026-09-10T23:30:00.000Z", "now": "2026-09-11T22:00:00.000Z" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "edit window crosses midnight and exceeds 24 hours",
+      "input": { "createdAt": "2026-09-10T23:30:00.000Z", "now": "2026-09-12T00:00:00.000Z" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "edit window crosses a month boundary within the limit",
+      "input": { "createdAt": "2026-09-30T12:00:00.000Z", "now": "2026-10-01T11:59:59.999Z" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "edit window crosses a month boundary exceeding the limit",
+      "input": { "createdAt": "2026-09-30T12:00:00.000Z", "now": "2026-10-01T12:00:00.001Z" },
+      "expected": { "allowed": false }
+    }
+  ]
+}

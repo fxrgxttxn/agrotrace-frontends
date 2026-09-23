@@ -1,0 +1,62 @@
+{
+  "rule": "BR-10",
+  "fn": "shouldCloseRecall",
+  "description": "A recall closes automatically once every withdrawal task attached to it is CONFIRMED. An empty task list closes vacuously.",
+  "cases": [
+    {
+      "name": "empty task list - closes automatically (vacuous true)",
+      "input": { "taskStatuses": [] },
+      "expected": { "close": true }
+    },
+    {
+      "name": "single confirmed task - closes",
+      "input": { "taskStatuses": ["CONFIRMED"] },
+      "expected": { "close": true }
+    },
+    {
+      "name": "single pending task - does not close",
+      "input": { "taskStatuses": ["PENDING"] },
+      "expected": { "close": false }
+    },
+    {
+      "name": "all confirmed among multiple tasks - closes",
+      "input": { "taskStatuses": ["CONFIRMED", "CONFIRMED", "CONFIRMED"] },
+      "expected": { "close": true }
+    },
+    {
+      "name": "mix of confirmed and pending - does not close",
+      "input": { "taskStatuses": ["CONFIRMED", "PENDING"] },
+      "expected": { "close": false }
+    },
+    {
+      "name": "mix of confirmed and escalated - does not close",
+      "input": { "taskStatuses": ["CONFIRMED", "ESCALATED"] },
+      "expected": { "close": false }
+    },
+    {
+      "name": "all escalated - does not close",
+      "input": { "taskStatuses": ["ESCALATED", "ESCALATED"] },
+      "expected": { "close": false }
+    },
+    {
+      "name": "single escalated task - does not close",
+      "input": { "taskStatuses": ["ESCALATED"] },
+      "expected": { "close": false }
+    },
+    {
+      "name": "large list all confirmed - closes",
+      "input": { "taskStatuses": ["CONFIRMED", "CONFIRMED", "CONFIRMED", "CONFIRMED", "CONFIRMED"] },
+      "expected": { "close": true }
+    },
+    {
+      "name": "large list with one pending among many confirmed - does not close",
+      "input": { "taskStatuses": ["CONFIRMED", "CONFIRMED", "CONFIRMED", "CONFIRMED", "PENDING"] },
+      "expected": { "close": false }
+    },
+    {
+      "name": "last task pending after confirmed ones - does not close (order irrelevant)",
+      "input": { "taskStatuses": ["PENDING", "CONFIRMED", "CONFIRMED"] },
+      "expected": { "close": false }
+    }
+  ]
+}

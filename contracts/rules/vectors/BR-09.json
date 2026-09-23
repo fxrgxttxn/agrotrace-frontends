@@ -1,0 +1,67 @@
+{
+  "rule": "BR-09",
+  "fn": "nextTrustRating",
+  "description": "Farm trust rating (0-100) recalculated after each lab test and recall, per contracts/rules/trust-rating.json: LAB_PASS +2, LAB_FAIL -15, RECALL_SOURCE -10, clamped to [min, max].",
+  "cases": [
+    {
+      "name": "LAB_PASS increases rating by 2",
+      "input": { "current": 80, "event": "LAB_PASS" },
+      "expected": { "rating": 82 }
+    },
+    {
+      "name": "LAB_FAIL decreases rating by 15",
+      "input": { "current": 80, "event": "LAB_FAIL" },
+      "expected": { "rating": 65 }
+    },
+    {
+      "name": "RECALL_SOURCE decreases rating by 10",
+      "input": { "current": 80, "event": "RECALL_SOURCE" },
+      "expected": { "rating": 70 }
+    },
+    {
+      "name": "LAB_PASS clamps at the maximum (99 + 2 -> 100)",
+      "input": { "current": 99, "event": "LAB_PASS" },
+      "expected": { "rating": 100 }
+    },
+    {
+      "name": "LAB_PASS at the maximum stays at 100",
+      "input": { "current": 100, "event": "LAB_PASS" },
+      "expected": { "rating": 100 }
+    },
+    {
+      "name": "LAB_FAIL clamps at the minimum (10 - 15 -> 0)",
+      "input": { "current": 10, "event": "LAB_FAIL" },
+      "expected": { "rating": 0 }
+    },
+    {
+      "name": "LAB_FAIL at the minimum stays at 0",
+      "input": { "current": 0, "event": "LAB_FAIL" },
+      "expected": { "rating": 0 }
+    },
+    {
+      "name": "RECALL_SOURCE clamps at the minimum (5 - 10 -> 0)",
+      "input": { "current": 5, "event": "RECALL_SOURCE" },
+      "expected": { "rating": 0 }
+    },
+    {
+      "name": "RECALL_SOURCE without clamping",
+      "input": { "current": 15, "event": "RECALL_SOURCE" },
+      "expected": { "rating": 5 }
+    },
+    {
+      "name": "LAB_PASS from the minimum rating",
+      "input": { "current": 0, "event": "LAB_PASS" },
+      "expected": { "rating": 2 }
+    },
+    {
+      "name": "LAB_FAIL from the maximum rating",
+      "input": { "current": 100, "event": "LAB_FAIL" },
+      "expected": { "rating": 85 }
+    },
+    {
+      "name": "RECALL_SOURCE from the maximum rating",
+      "input": { "current": 100, "event": "RECALL_SOURCE" },
+      "expected": { "rating": 90 }
+    }
+  ]
+}

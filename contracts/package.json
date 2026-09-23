@@ -1,0 +1,19 @@
+{
+  "name": "@agrotrace/contracts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "lint:openapi": "redocly lint openapi.yaml",
+    "gen:sm-vectors": "tsx scripts/gen-sm-vectors.ts",
+    "gen:sample-codes": "tsx scripts/find-sample-codes.ts"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "vitest": "^2.1.4",
+    "@redocly/cli": "^1.25.11",
+    "@redocly/openapi-core": "^1.25.11",
+    "tsx": "^4.19.2"
+  }
+}

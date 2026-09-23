@@ -1,5 +1,6 @@
 packages:
   - packages/*
+  - contracts
   - db/seed
   - mercury-mock
   - tests/*

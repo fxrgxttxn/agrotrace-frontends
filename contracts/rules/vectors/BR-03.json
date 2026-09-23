@@ -1,0 +1,127 @@
+{
+  "rule": "BR-03",
+  "fn": "requiresLabTest",
+  "description": "Risk model, checked in order: NEW_FARM (farmBatchCount < 5), LOW_RATING (trustRating < 70), RECENT_PESTICIDE (pesticideTreatmentsLast30Days > 0), SAMPLED (sha256(utf8 publicCode) first 4 bytes as big-endian uint32, mod 100 < 20), else NONE. Sample codes found by contracts/scripts/find-sample-codes.ts: AT-2026-000072 -> mod100=0, AT-2026-000186 -> mod100=19 (inside the 20% sample), AT-2026-000279 -> mod100=20 (just outside), AT-2026-000009 -> mod100=99 (well outside).",
+  "cases": [
+    {
+      "name": "new farm (batch count below 5) - required",
+      "input": {
+        "publicCode": "AT-2026-000009",
+        "farmBatchCount": 4,
+        "trustRating": 90,
+        "pesticideTreatmentsLast30Days": 0
+      },
+      "expected": { "required": true, "reason": "NEW_FARM" }
+    },
+    {
+      "name": "farm batch count at threshold (5) - not a new farm",
+      "input": {
+        "publicCode": "AT-2026-000009",
+        "farmBatchCount": 5,
+        "trustRating": 90,
+        "pesticideTreatmentsLast30Days": 0
+      },
+      "expected": { "required": false, "reason": "NONE" }
+    },
+    {
+      "name": "low trust rating (below 70) - required",
+      "input": {
+        "publicCode": "AT-2026-000009",
+        "farmBatchCount": 10,
+        "trustRating": 69,
+        "pesticideTreatmentsLast30Days": 0
+      },
+      "expected": { "required": true, "reason": "LOW_RATING" }
+    },
+    {
+      "name": "trust rating at threshold (70) - not low rating",
+      "input": {
+        "publicCode": "AT-2026-000009",
+        "farmBatchCount": 10,
+        "trustRating": 70,
+        "pesticideTreatmentsLast30Days": 0
+      },
+      "expected": { "required": false, "reason": "NONE" }
+    },
+    {
+      "name": "recent pesticide treatment - required",
+      "input": {
+        "publicCode": "AT-2026-000009",
+        "farmBatchCount": 10,
+        "trustRating": 90,
+        "pesticideTreatmentsLast30Days": 1
+      },
+      "expected": { "required": true, "reason": "RECENT_PESTICIDE" }
+    },
+    {
+      "name": "zero recent pesticide treatments - not a trigger",
+      "input": {
+        "publicCode": "AT-2026-000009",
+        "farmBatchCount": 10,
+        "trustRating": 90,
+        "pesticideTreatmentsLast30Days": 0
+      },
+      "expected": { "required": false, "reason": "NONE" }
+    },
+    {
+      "name": "sampled code with hash mod 100 = 0 - required",
+      "input": {
+        "publicCode": "AT-2026-000072",
+        "farmBatchCount": 10,
+        "trustRating": 90,
+        "pesticideTreatmentsLast30Days": 0
+      },
+      "expected": { "required": true, "reason": "SAMPLED" }
+    },
+    {
+      "name": "sampled code with hash mod 100 = 19 (inside the 20% boundary) - required",
+      "input": {
+        "publicCode": "AT-2026-000186",
+        "farmBatchCount": 10,
+        "trustRating": 90,
+        "pesticideTreatmentsLast30Days": 0
+      },
+      "expected": { "required": true, "reason": "SAMPLED" }
+    },
+    {
+      "name": "code with hash mod 100 = 20 (just outside the 20% boundary) - not sampled",
+      "input": {
+        "publicCode": "AT-2026-000279",
+        "farmBatchCount": 10,
+        "trustRating": 90,
+        "pesticideTreatmentsLast30Days": 0
+      },
+      "expected": { "required": false, "reason": "NONE" }
+    },
+    {
+      "name": "priority: new farm wins over low rating, recent pesticide and sampled",
+      "input": {
+        "publicCode": "AT-2026-000072",
+        "farmBatchCount": 2,
+        "trustRating": 50,
+        "pesticideTreatmentsLast30Days": 3
+      },
+      "expected": { "required": true, "reason": "NEW_FARM" }
+    },
+    {
+      "name": "priority: low rating wins over recent pesticide and sampled",
+      "input": {
+        "publicCode": "AT-2026-000072",
+        "farmBatchCount": 10,
+        "trustRating": 40,
+        "pesticideTreatmentsLast30Days": 2
+      },
+      "expected": { "required": true, "reason": "LOW_RATING" }
+    },
+    {
+      "name": "priority: recent pesticide wins over sampled",
+      "input": {
+        "publicCode": "AT-2026-000072",
+        "farmBatchCount": 10,
+        "trustRating": 90,
+        "pesticideTreatmentsLast30Days": 5
+      },
+      "expected": { "required": true, "reason": "RECENT_PESTICIDE" }
+    }
+  ]
+}
