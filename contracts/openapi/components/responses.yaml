@@ -292,3 +292,112 @@ PublicImageContent:
     image/svg+xml:
       schema:
         $ref: '../schemas/files.yaml#/FileBinary'
+BatchForbidden:
+  description: >-
+    Роль пользователя не входит в `x-roles` операции (FORBIDDEN без `params`) либо партия видна, но её держатель —
+    другая организация (`params.reason` = NOT_HOLDER).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/forbidden
+        title: Not the batch holder
+        status: 403
+        code: FORBIDDEN
+        params:
+          reason: NOT_HOLDER
+QrForbidden:
+  description: >-
+    Роль не PROCESSOR/RETAILER (FORBIDDEN без `params`), организация не держатель (`params.reason` = NOT_HOLDER)
+    или статус партии не Accepted/OnSale (`params.reason` = BATCH_STATUS, `params.status`).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      examples:
+        notHolder:
+          summary: Партия у другой организации
+          value:
+            type: /problems/forbidden
+            title: Not the batch holder
+            status: 403
+            code: FORBIDDEN
+            params:
+              reason: NOT_HOLDER
+        batchStatus:
+          summary: Статус не допускает QR
+          value:
+            type: /problems/forbidden
+            title: Batch status does not allow QR
+            status: 403
+            code: FORBIDDEN
+            params:
+              reason: BATCH_STATUS
+              status: InTransit
+WaybillNotSender:
+  description: >-
+    Роль не входит в `x-roles` операции (FORBIDDEN без `params`) либо накладная видна, но организация пользователя —
+    не отправитель (`params.reason` = NOT_SENDER).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/forbidden
+        title: Not the waybill sender
+        status: 403
+        code: FORBIDDEN
+        params:
+          reason: NOT_SENDER
+WaybillNotReceiver:
+  description: >-
+    Роль не входит в `x-roles` операции (FORBIDDEN без `params`) либо накладная видна, но организация пользователя —
+    не получатель (`params.reason` = NOT_RECEIVER).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/forbidden
+        title: Not the waybill receiver
+        status: 403
+        code: FORBIDDEN
+        params:
+          reason: NOT_RECEIVER
+IdempotencyConflict:
+  description: '`Idempotency-Key` уже использован этим пользователем для другого запроса (IDEMPOTENCY_KEY_REUSED).'
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/idempotency-key-reused
+        title: Idempotency key reused
+        status: 409
+        code: IDEMPOTENCY_KEY_REUSED

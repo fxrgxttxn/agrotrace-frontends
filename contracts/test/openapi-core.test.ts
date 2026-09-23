@@ -49,6 +49,14 @@ const ALL_ROLES = ['FARMER', 'PROCESSOR', 'LAB', 'RETAILER', 'INSPECTOR', 'ADMIN
 const PUBLIC = { roles: ['PUBLIC'] };
 const ANY = { roles: ['ANY'] };
 const ORG_HEAD = { roles: ALL_ROLES, orgAdmin: true };
+const FARMER_ONLY = { roles: ['FARMER'] };
+const FIELDS_READ = { roles: ['FARMER', 'INSPECTOR', 'ADMIN'] };
+const WAYBILLS_READ = { roles: ['FARMER', 'PROCESSOR', 'RETAILER', 'INSPECTOR', 'ADMIN'] };
+const WAYBILL_SENDERS = { roles: ['FARMER', 'PROCESSOR'] };
+const WAYBILL_RECEIVERS = { roles: ['PROCESSOR', 'RETAILER'] };
+const STATE_MACHINE = JSON.parse(
+  readFileSync(new URL('../rules/state-machine.json', import.meta.url), 'utf8'),
+);
 const EXPECTED_ACCESS: Record<string, Json> = {
   // Auth
   login: PUBLIC,
@@ -89,7 +97,105 @@ const EXPECTED_ACCESS: Record<string, Json> = {
   getHealthReady: PUBLIC,
   // Events
   streamEvents: ANY,
+  // Fields and treatments (4.3: FARMER writes, INSPECTOR/ADMIN read)
+  listFields: FIELDS_READ,
+  createField: FARMER_ONLY,
+  getField: FIELDS_READ,
+  updateField: FARMER_ONLY,
+  deleteField: FARMER_ONLY,
+  listFieldTreatments: FIELDS_READ,
+  createTreatment: FARMER_ONLY,
+  updateTreatment: FARMER_ONLY,
+  // Batches (read: every role, filtered by 4.2 visibility)
+  listBatches: ANY,
+  createBatch: FARMER_ONLY,
+  getBatch: ANY,
+  getBatchGraph: ANY,
+  getBatchHistory: ANY,
+  getBatchPath: ANY,
+  createBatchQr: { roles: ['PROCESSOR', 'RETAILER'] },
+  downloadBatchQr: { roles: ['PROCESSOR', 'RETAILER'] },
+  putBatchOnSale: { roles: ['RETAILER'] },
+  markBatchSold: { roles: ['RETAILER'] },
+  // Processing
+  processBatches: { roles: ['PROCESSOR'] },
+  // Waybills (4.3: create FARMER/PROCESSOR, accept PROCESSOR/RETAILER, read INSPECTOR/ADMIN)
+  listWaybills: WAYBILLS_READ,
+  createWaybill: WAYBILL_SENDERS,
+  getWaybill: WAYBILLS_READ,
+  sendWaybill: WAYBILL_SENDERS,
+  deleteWaybill: WAYBILL_SENDERS,
+  acceptWaybill: WAYBILL_RECEIVERS,
+  rejectWaybill: WAYBILL_RECEIVERS,
 };
+
+// Operations that require `Idempotency-Key` (spec 8.3 + R4). Task 10 adds confirmRecallTask.
+const EXPECTED_IDEMPOTENT = ['createWaybill', 'sendWaybill', 'acceptWaybill'];
+
+// State-changing operations on versioned entities that require `If-Match` (R27, R37).
+const EXPECTED_IF_MATCH = [
+  'putBatchOnSale',
+  'markBatchSold',
+  'sendWaybill',
+  'acceptWaybill',
+  'rejectWaybill',
+  'deleteWaybill',
+];
+
+// 422 BUSINESS_RULE: rules each operation can violate and the exact `params` keys per rule.
+const RULE_PARAMS: Record<string, string[]> = {
+  'BR-01': ['publicCode', 'until', 'substance'],
+  'BR-04': ['inputKg', 'allowedKg', 'outputKg'],
+  'BR-05': ['publicCode', 'status'],
+  'BR-06': ['publicCode', 'status'],
+  'BR-07': ['publicCode', 'percent'],
+};
+const EXPECTED_RULES: Record<string, string[]> = {
+  sendWaybill: ['BR-01', 'BR-06'],
+  acceptWaybill: ['BR-06', 'BR-07'],
+  processBatches: ['BR-04', 'BR-05', 'BR-06'],
+};
+
+// 403 `params.reason` vocabulary: auth (Task 8) + production (Task 9).
+const FORBIDDEN_REASONS = [
+  'USER_BLOCKED',
+  'USER_INVITED',
+  'ORGANIZATION_NOT_ACTIVE',
+  'NOT_HOLDER',
+  'NOT_SENDER',
+  'NOT_RECEIVER',
+  'EDIT_WINDOW_CLOSED',
+  'BATCH_STATUS',
+];
+
+// Production-module schemas: every object inside them must be closed (R29).
+const CLOSED_SCHEMAS = [
+  'GeoJsonPolygon',
+  'Field',
+  'FieldInput',
+  'FieldPage',
+  'Treatment',
+  'TreatmentInput',
+  'TreatmentPage',
+  'BatchAction',
+  'BatchListItem',
+  'BatchPage',
+  'Batch',
+  'BatchCreate',
+  'BatchGraph',
+  'StatusHistoryItem',
+  'PathStep',
+  'QrRequest',
+  'QrLinks',
+  'ProcessingRequest',
+  'ProcessingResult',
+  'WaybillItem',
+  'Waybill',
+  'WaybillPage',
+  'WaybillCreate',
+  'WaybillAccept',
+  'WaybillReject',
+];
 
 interface Op {
   id: string; // "post /auth/login"
@@ -353,6 +459,150 @@ describe('openapi contract: operations', () => {
     expect(bad).toEqual([]);
   });
 
+  it('BatchStatus and BatchActionName enums equal contracts/rules/state-machine.json', () => {
+    expect(doc.components.schemas.BatchStatus.enum).toEqual(STATE_MACHINE.statuses);
+    const actions = [...new Set(STATE_MACHINE.transitions.map((t: Json) => t.action))];
+    expect(doc.components.schemas.BatchActionName.enum).toEqual(actions);
+  });
+
+  it('x-idempotent is set exactly on the expected operations', () => {
+    const actual = ops.filter(({ op }) => op['x-idempotent'] === true).map(({ op }) => op.operationId);
+    expect(actual.sort()).toEqual([...EXPECTED_IDEMPOTENT].sort());
+    const bad = ops
+      .filter(({ op }) => 'x-idempotent' in op && op['x-idempotent'] !== true)
+      .map(({ id }) => id);
+    expect(bad).toEqual([]);
+  });
+
+  it('If-Match is required exactly on the expected operations, which document 409 VERSION_CONFLICT', () => {
+    const withIfMatch = ops.filter(({ op }) =>
+      (op.parameters ?? []).map(deref).some((p: Json) => p.name === 'If-Match'),
+    );
+    expect(withIfMatch.map(({ op }) => op.operationId).sort()).toEqual([...EXPECTED_IF_MATCH].sort());
+    const bad: string[] = [];
+    for (const { id, op } of withIfMatch) {
+      const p = (op.parameters ?? []).map(deref).find((x: Json) => x.name === 'If-Match');
+      if (p.in !== 'header' || p.required !== true || p.schema?.type !== 'integer')
+        bad.push(`${id}: If-Match`);
+      const conflict = op.responses?.['409'];
+      if (!conflict) {
+        bad.push(`${id}: 409 missing`);
+        continue;
+      }
+      const media = deref(conflict).content?.['application/problem+json'] ?? {};
+      const examples = [
+        ...('example' in media ? [media.example] : []),
+        ...Object.values<Json>(media.examples ?? {}).map((e) => deref(e).value),
+      ];
+      if (!examples.some((e) => e.code === 'VERSION_CONFLICT')) bad.push(`${id}: VERSION_CONFLICT example`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  // Collects every problem example of one status code of an operation.
+  const problemExamples = (op: Json, code: string): Json[] => {
+    const resp = op.responses?.[code];
+    if (!resp) return [];
+    const media = deref(resp).content?.['application/problem+json'] ?? {};
+    return [
+      ...('example' in media ? [media.example] : []),
+      ...Object.values<Json>(media.examples ?? {}).map((e) => deref(e).value),
+    ];
+  };
+
+  it('422 is documented exactly for the expected rules, one example per rule with exact params keys', () => {
+    const bad: string[] = [];
+    for (const { id, op } of ops) {
+      const expected = EXPECTED_RULES[op.operationId] ?? [];
+      if (Boolean(op.responses?.['422']) !== expected.length > 0) {
+        bad.push(`${id}: 422 ${expected.length ? 'missing' : 'unexpected'}`);
+        continue;
+      }
+      if (!expected.length) continue;
+      const examples = problemExamples(op, '422');
+      const rules = examples.map((e) => e.rule);
+      if (JSON.stringify([...new Set(rules)].sort()) !== JSON.stringify([...expected].sort()))
+        bad.push(`${id}: rules ${rules.join(',')} != ${expected.join(',')}`);
+      for (const e of examples) {
+        if (e.code !== 'BUSINESS_RULE' || e.status !== 422) bad.push(`${id}: ${e.rule} code/status`);
+        const keys = Object.keys(e.params ?? {}).sort();
+        if (JSON.stringify(keys) !== JSON.stringify([...(RULE_PARAMS[e.rule] ?? ['?'])].sort()))
+          bad.push(`${id}: ${e.rule} params ${keys.join(',')}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('403/409 problem examples use the documented params keys', () => {
+    const bad: string[] = [];
+    for (const { id, op } of ops) {
+      for (const e of problemExamples(op, '409')) {
+        const keys = Object.keys(e.params ?? {}).sort();
+        if (e.code === 'VERSION_CONFLICT' && JSON.stringify(keys) !== '["currentVersion"]')
+          bad.push(`${id}: VERSION_CONFLICT params`);
+        if (
+          e.code === 'INVALID_TRANSITION' &&
+          !['["from","to"]', '["from","publicCode","to"]'].includes(JSON.stringify(keys))
+        )
+          bad.push(`${id}: INVALID_TRANSITION params ${keys.join(',')}`);
+        if (e.code === 'GRAPH_CYCLE' && JSON.stringify(keys) !== '["childCode","parentCode"]')
+          bad.push(`${id}: GRAPH_CYCLE params`);
+      }
+      for (const e of problemExamples(op, '403')) {
+        if (e.params === undefined) continue;
+        if (e.code !== 'FORBIDDEN' || !FORBIDDEN_REASONS.includes(e.params.reason))
+          bad.push(`${id}: 403 reason ${e.params.reason}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('every operation with a `sort` parameter declares x-sort {fields, default} and paginates', () => {
+    const bad: string[] = [];
+    for (const { id, op } of ops) {
+      const names = (op.parameters ?? []).map((p: Json) => deref(p).name);
+      if (!names.includes('sort')) {
+        if ('x-sort' in op) bad.push(`${id}: x-sort without sort`);
+        continue;
+      }
+      const xs = op['x-sort'];
+      if (!xs || !Array.isArray(xs.fields) || xs.fields.length === 0) {
+        bad.push(`${id}: x-sort.fields`);
+        continue;
+      }
+      const m = /^([a-zA-Z]+),(asc|desc)$/.exec(xs.default ?? '');
+      if (!m || !xs.fields.includes(m[1])) bad.push(`${id}: x-sort.default`);
+      if (!names.includes('page') || !names.includes('size')) bad.push(`${id}: page/size`);
+      const media = deref(op.responses?.['200'] ?? {}).content?.['application/json'];
+      const schema = deref(media?.schema ?? {});
+      if (JSON.stringify(schema.required?.slice().sort()) !== '["items","page","size","total"]')
+        bad.push(`${id}: Page envelope`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('production schemas are closed: every nested object has additionalProperties: false', () => {
+    const open: string[] = [];
+    const seen = new Set<Json>();
+    (function walkAll() {
+      for (const name of CLOSED_SCHEMAS) {
+        expect(doc.components.schemas[name], name).toBeTruthy();
+        (function walk(schema: Json, path: string) {
+          const s = deref(schema);
+          if (seen.has(s)) return;
+          seen.add(s);
+          const isObject =
+            s.type === 'object' || (Array.isArray(s.type) && s.type.includes('object')) || s.properties;
+          if (isObject && s.additionalProperties !== false) open.push(path);
+          for (const [prop, sub] of Object.entries<Json>(s.properties ?? {})) walk(sub, `${path}.${prop}`);
+          if (s.items) walk(s.items, `${path}[]`);
+          for (const k of ['oneOf', 'anyOf', 'allOf']) (s[k] ?? []).forEach((x: Json) => walk(x, path));
+        })(doc.components.schemas[name], name);
+      }
+    })();
+    expect(open).toEqual([]);
+  });
+
   it('PublicBatch exposes no personal data fields', () => {
     const forbidden = /email|phone|fullName|userName|inn|contact|createdBy|user/i;
     const found: string[] = [];
@@ -485,6 +735,54 @@ describe('openapi contract: examples validate against their schemas', () => {
       if (!validate(c.value)) failures.push(`${c.where}: ${ajv.errorsText(validate.errors)}`);
     }
     expect(failures).toEqual([]);
+  });
+
+  it('production value schemas reject invalid values and accept boundary values', () => {
+    const ring = [
+      [39.0, 45.0],
+      [39.1, 45.0],
+      [39.0, 45.0],
+    ];
+    const cases: [string, unknown, boolean][] = [
+      ['PositiveMass', '0.001', true],
+      ['PositiveMass', '999999999.999', true],
+      ['PositiveMass', '0.000', false],
+      ['PositiveMass', '000.000', false],
+      ['PositiveMass', '1.5', false],
+      ['AreaHa', '0.01', true],
+      ['AreaHa', '0.00', false],
+      ['AreaHa', '12.5', false],
+      ['Dose', '0.000', false],
+      ['Dose', '0.250', true],
+      ['GeoJsonPolygon', { type: 'Polygon', coordinates: [ring] }, false],
+      ['GeoJsonPolygon', { type: 'Polygon', coordinates: [[...ring, [39.0, 45.0]]] }, true],
+      [
+        'GeoJsonPolygon',
+        {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [200, 45],
+              [39, 45],
+              [39, 46],
+              [200, 45],
+            ],
+          ],
+        },
+        false,
+      ],
+      ['NullableGeoJsonPolygon', null, true],
+      ['WaybillReject', { reason: '   ' }, false],
+      ['BatchCreate', { fieldId: 'x', productId: 'y', massKg: '1.000', harvestedAt: 'z' }, false],
+      ['ProcessingRequest', { inputs: [], outputs: [] }, false],
+      ['DiscrepancyPercent', '100000.00', true],
+    ];
+    const bad: string[] = [];
+    for (const [name, value, valid] of cases) {
+      const validate = ajv.compile({ $ref: toRef(['components', 'schemas', name]) });
+      if (validate(value) !== valid) bad.push(`${name} ${JSON.stringify(value)} expected ${valid}`);
+    }
+    expect(bad).toEqual([]);
   });
 
   it('every request body and 2xx JSON response has an example (inline or on its schema)', () => {

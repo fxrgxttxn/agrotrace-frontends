@@ -10,6 +10,9 @@
     tags: [Users]
     x-roles: [FARMER, PROCESSOR, LAB, RETAILER, INSPECTOR, ADMIN]
     x-org-admin: true
+    x-sort:
+      fields: [fullName, email, createdAt]
+      default: fullName,asc
     parameters:
       - $ref: '../components/parameters.yaml#/Page'
       - $ref: '../components/parameters.yaml#/Size'

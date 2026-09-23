@@ -13,6 +13,25 @@ info:
     строки в null; пароли сравниваются побайтно; поля имён и названий не могут состоять только из пробельных
     символов (`pattern: '\S'`); email приводится к нижнему регистру перед проверкой уникальности и поиском;
     длины строк (`minLength`/`maxLength`) считаются в кодовых точках Unicode.
+
+
+    Доступ и видимость. Сущность вне области видимости пользователя (п. 4.2; правила — в описаниях тегов)
+    неотличима от несуществующей: 404 NOT_FOUND, никогда не 403. 403 FORBIDDEN — роль не входит в `x-roles`
+    (без `params`) либо сущность видна, но операцию выполняет другая сторона или она запрещена её состоянием
+    (`params.reason`: NOT_HOLDER, NOT_SENDER, NOT_RECEIVER, EDIT_WINDOW_CLOSED, BATCH_STATUS; для входа —
+    USER_BLOCKED, USER_INVITED, ORGANIZATION_NOT_ACTIVE). Ссылка в теле запроса на несуществующую или невидимую
+    сущность — 400 VALIDATION `validation.notFound` (не 404). Пути полей в `errors` — через точку с индексами
+    массивов: `items[0].batchId`.
+
+
+    Порядок проверок, если операция не уточняет его: 401 → 403 по роли → `Idempotency-Key` → 400 по схеме
+    параметров и тела → 404 → 403 по стороне операции → 409 VERSION_CONFLICT (`If-Match`) → 409 INVALID_TRANSITION
+    (статус сущности из пути) → 400 по ссылкам тела → поэлементные проверки. Возвращается первая сработавшая ошибка.
+
+
+    Списки: `sort` принимает только поля из `x-sort.fields` операции (иначе 400 `errors.sort: [validation.sort]`),
+    по умолчанию — `x-sort.default`; сортировка выполняется в БД, при равенстве — по `id` по возрастанию, значения
+    null всегда в конце. `q` — подстрока без учёта регистра, `%`, `_` и `\` в ней — обычные символы.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -30,13 +49,33 @@ tags:
   - name: Organizations
     description: Карточка и логотип организации.
   - name: Fields
-    description: Поля и обработки.
+    description: >-
+      Поля и обработки. Видимость: FARMER — неудалённые поля своего хозяйства (изменение — только их);
+      INSPECTOR и ADMIN — все неудалённые поля, только чтение. Обработка видна вместе со своим полем.
   - name: Batches
-    description: Партии, граф, история, QR.
+    description: |
+      Партии, граф, история, QR. Видимость (п. 4.2), удалённые партии не видны никому; при нескольких ролях —
+      объединение:
+
+      - INSPECTOR и ADMIN — все партии (только чтение);
+      - LAB — партии, по которым есть неудалённый анализ (`lab_tests`) его лаборатории;
+      - FARMER, PROCESSOR, RETAILER — множество S ∪ N, где S — партии, для которых организация пользователя —
+        создатель (`origin`), текущий держатель (`holder`) либо отправитель или получатель накладной в статусе
+        SENT, ACCEPTED или REJECTED, содержащей партию; N — непосредственные родители и дети партий из S
+        в графе `batch_links` (глубина 1).
+
+      Изменяющие операции проверяют сторону: действия держателя — организация пользователя = `holder`
+      (иначе 403 NOT_HOLDER). Масса — строки `Mass` (три знака после точки).
   - name: Processing
-    description: Переработка сырья в производные партии.
+    description: Переработка сырья в производные партии (только PROCESSOR, входные партии — у своей организации).
   - name: Waybills
-    description: Накладные и приёмка.
+    description: |
+      Накладные и приёмка (R4: DRAFT → send → SENT → accept | reject; DRAFT можно удалить). Видимость
+      (удалённые не видны):
+
+      - FARMER, PROCESSOR, RETAILER — накладные, где организация пользователя отправитель (любой статус) или
+        получатель (кроме DRAFT);
+      - INSPECTOR и ADMIN — все накладные, кроме DRAFT (только чтение); LAB — нет доступа.
   - name: Lab
     description: Лабораторные анализы и протоколы.
   - name: Recalls
@@ -96,6 +135,42 @@ paths:
     $ref: './openapi/paths/organizations.yaml#/~1organizations~1{id}'
   /organizations/{id}/logo:
     $ref: './openapi/paths/organizations.yaml#/~1organizations~1{id}~1logo'
+  /fields:
+    $ref: './openapi/paths/fields.yaml#/~1fields'
+  /fields/{id}:
+    $ref: './openapi/paths/fields.yaml#/~1fields~1{id}'
+  /fields/{id}/treatments:
+    $ref: './openapi/paths/treatments.yaml#/~1fields~1{id}~1treatments'
+  /treatments/{id}:
+    $ref: './openapi/paths/treatments.yaml#/~1treatments~1{id}'
+  /batches:
+    $ref: './openapi/paths/batches.yaml#/~1batches'
+  /batches/{id}:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}'
+  /batches/{id}/graph:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1graph'
+  /batches/{id}/history:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1history'
+  /batches/{id}/path:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1path'
+  /batches/{id}/qr:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1qr'
+  /batches/{id}/on-sale:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1on-sale'
+  /batches/{id}/sold:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1sold'
+  /processing:
+    $ref: './openapi/paths/processing.yaml#/~1processing'
+  /waybills:
+    $ref: './openapi/paths/waybills.yaml#/~1waybills'
+  /waybills/{id}:
+    $ref: './openapi/paths/waybills.yaml#/~1waybills~1{id}'
+  /waybills/{id}/send:
+    $ref: './openapi/paths/waybills.yaml#/~1waybills~1{id}~1send'
+  /waybills/{id}/accept:
+    $ref: './openapi/paths/waybills.yaml#/~1waybills~1{id}~1accept'
+  /waybills/{id}/reject:
+    $ref: './openapi/paths/waybills.yaml#/~1waybills~1{id}~1reject'
   /files/{id}:
     $ref: './openapi/paths/files.yaml#/~1files~1{id}'
   /public/batches/{publicCode}:
@@ -149,6 +224,10 @@ components:
       $ref: './openapi/components/parameters.yaml#/SignedExp'
     SignedSig:
       $ref: './openapi/components/parameters.yaml#/SignedSig'
+    DateFrom:
+      $ref: './openapi/components/parameters.yaml#/DateFrom'
+    DateTo:
+      $ref: './openapi/components/parameters.yaml#/DateTo'
   responses:
     BadRequest:
       $ref: './openapi/components/responses.yaml#/BadRequest'
@@ -178,6 +257,16 @@ components:
       $ref: './openapi/components/responses.yaml#/FileContent'
     PublicImageContent:
       $ref: './openapi/components/responses.yaml#/PublicImageContent'
+    BatchForbidden:
+      $ref: './openapi/components/responses.yaml#/BatchForbidden'
+    QrForbidden:
+      $ref: './openapi/components/responses.yaml#/QrForbidden'
+    WaybillNotSender:
+      $ref: './openapi/components/responses.yaml#/WaybillNotSender'
+    WaybillNotReceiver:
+      $ref: './openapi/components/responses.yaml#/WaybillNotReceiver'
+    IdempotencyConflict:
+      $ref: './openapi/components/responses.yaml#/IdempotencyConflict'
   headers:
     XRequestId:
       $ref: './openapi/components/headers.yaml#/XRequestId'
@@ -214,6 +303,8 @@ components:
       $ref: './openapi/schemas/common.yaml#/Date'
     Mass:
       $ref: './openapi/schemas/common.yaml#/Mass'
+    PositiveMass:
+      $ref: './openapi/schemas/common.yaml#/PositiveMass'
     Percent:
       $ref: './openapi/schemas/common.yaml#/Percent'
     Decimal:
@@ -352,3 +443,83 @@ components:
       $ref: './openapi/schemas/notifications.yaml#/Notification'
     UnreadCount:
       $ref: './openapi/schemas/notifications.yaml#/UnreadCount'
+    RegionCode:
+      $ref: './openapi/schemas/dictionaries-ref.yaml#/RegionCode'
+    DoseUnit:
+      $ref: './openapi/schemas/dictionaries-ref.yaml#/DoseUnit'
+    AreaHa:
+      $ref: './openapi/schemas/fields.yaml#/AreaHa'
+    Dose:
+      $ref: './openapi/schemas/fields.yaml#/Dose'
+    GeoJsonPolygon:
+      $ref: './openapi/schemas/fields.yaml#/GeoJsonPolygon'
+    NullableGeoJsonPolygon:
+      $ref: './openapi/schemas/fields.yaml#/NullableGeoJsonPolygon'
+    Field:
+      $ref: './openapi/schemas/fields.yaml#/Field'
+    FieldInput:
+      $ref: './openapi/schemas/fields.yaml#/FieldInput'
+    FieldPage:
+      $ref: './openapi/schemas/fields.yaml#/FieldPage'
+    Treatment:
+      $ref: './openapi/schemas/fields.yaml#/Treatment'
+    TreatmentInput:
+      $ref: './openapi/schemas/fields.yaml#/TreatmentInput'
+    TreatmentPage:
+      $ref: './openapi/schemas/fields.yaml#/TreatmentPage'
+    PublicCode:
+      $ref: './openapi/schemas/batches.yaml#/PublicCode'
+    BatchKind:
+      $ref: './openapi/schemas/batches.yaml#/BatchKind'
+    TestReason:
+      $ref: './openapi/schemas/batches.yaml#/TestReason'
+    BatchActionName:
+      $ref: './openapi/schemas/batches.yaml#/BatchActionName'
+    BatchAction:
+      $ref: './openapi/schemas/batches.yaml#/BatchAction'
+    BatchStatusReason:
+      $ref: './openapi/schemas/batches.yaml#/BatchStatusReason'
+    BatchListItem:
+      $ref: './openapi/schemas/batches.yaml#/BatchListItem'
+    BatchPage:
+      $ref: './openapi/schemas/batches.yaml#/BatchPage'
+    Batch:
+      $ref: './openapi/schemas/batches.yaml#/Batch'
+    BatchCreate:
+      $ref: './openapi/schemas/batches.yaml#/BatchCreate'
+    BatchGraph:
+      $ref: './openapi/schemas/batches.yaml#/BatchGraph'
+    StatusHistoryItem:
+      $ref: './openapi/schemas/batches.yaml#/StatusHistoryItem'
+    PathStep:
+      $ref: './openapi/schemas/batches.yaml#/PathStep'
+    QrRequest:
+      $ref: './openapi/schemas/batches.yaml#/QrRequest'
+    QrLinks:
+      $ref: './openapi/schemas/batches.yaml#/QrLinks'
+    MassBalance:
+      $ref: './openapi/schemas/processing.yaml#/MassBalance'
+    ProcessingRequest:
+      $ref: './openapi/schemas/processing.yaml#/ProcessingRequest'
+    ProcessingResult:
+      $ref: './openapi/schemas/processing.yaml#/ProcessingResult'
+    WaybillNumber:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillNumber'
+    WaybillStatus:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillStatus'
+    WaybillActionName:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillActionName'
+    DiscrepancyPercent:
+      $ref: './openapi/schemas/waybills.yaml#/DiscrepancyPercent'
+    WaybillItem:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillItem'
+    Waybill:
+      $ref: './openapi/schemas/waybills.yaml#/Waybill'
+    WaybillPage:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillPage'
+    WaybillCreate:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillCreate'
+    WaybillAccept:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillAccept'
+    WaybillReject:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillReject'

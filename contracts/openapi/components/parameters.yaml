@@ -45,10 +45,23 @@ IdempotencyKey:
   name: Idempotency-Key
   in: header
   required: true
-  description: >-
-    Ключ идемпотентности (BR-11). Повтор с тем же ключом и тем же телом возвращает сохранённый ответ
-    с заголовком `Idempotent-Replayed: true`; с другим телом — 409 IDEMPOTENCY_KEY_REUSED;
-    некорректный ключ — 400 INVALID_IDEMPOTENCY_KEY.
+  description: |
+    Ключ идемпотентности (BR-11, функция `idempotencyDecision`). Повтор с тем же ключом и тем же запросом
+    возвращает сохранённый ответ с заголовком `Idempotent-Replayed: true`; с другим запросом — 409
+    IDEMPOTENCY_KEY_REUSED; ключ не по шаблону или отсутствует — 400 INVALID_IDEMPOTENCY_KEY.
+
+    Общий алгоритм для всех реализаций (ключи в общем Redis действуют сквозь backend):
+
+    - проверка выполняется после аутентификации и `x-roles` и до валидации тела, `If-Match` и бизнес-проверок;
+    - ключ Redis `idem:{userId}:{Idempotency-Key}`, TTL 86400 с;
+    - отпечаток запроса — sha256 (hex, нижний регистр) от байтов UTF-8 строки `{METHOD} {path}\n` и следующих за ней
+      сырых байтов тела запроса (`path` — путь без строки запроса, например `/api/v1/waybills/{id}/send`;
+      пустое тело — пустая строка);
+    - первый запрос атомарно записывает `{"fingerprint": "<hex>", "state": "pending"}` (`SET NX EX 86400`);
+      пока запись в состоянии `pending`, повтор с тем же ключом получает 409 IDEMPOTENCY_KEY_REUSED;
+    - ответ 2xx сохраняется как `{"fingerprint", "state": "done", "status": <код>, "body": <JSON-тело>}` и
+      воспроизводится при повторе (тот же код и тело, текущие `X-Request-Id`/`X-Backend`); ответ 4xx/5xx
+      не сохраняется — запись удаляется, и повтор выполняется заново.
   schema:
     type: string
     pattern: '^[A-Za-z0-9_-]{8,128}$'
@@ -112,3 +125,21 @@ SignedSig:
     type: string
     pattern: '^[0-9a-f]{64}$'
   example: 9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+DateFrom:
+  name: from
+  in: query
+  description: >-
+    Начало периода (дата UTC, включительно). Какое поле фильтруется, указано в описании операции;
+    `from` позже `to` — 400 VALIDATION `errors.from: [validation.range]`.
+  schema:
+    type: string
+    format: date
+  example: '2026-07-01'
+DateTo:
+  name: to
+  in: query
+  description: Конец периода (дата UTC, включительно).
+  schema:
+    type: string
+    format: date
+  example: '2026-09-30'

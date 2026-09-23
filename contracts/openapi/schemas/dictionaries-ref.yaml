@@ -1,0 +1,11 @@
+# Ссылки на справочники, используемые модулем производства (ProductRef и SubstanceRef — в common.yaml).
+RegionCode:
+  type: string
+  pattern: '^[0-9A-Z-]{1,8}$'
+  description: Код региона из справочника `regions` (`Region.code`); неизвестный код — 400 VALIDATION `validation.notFound`.
+  example: '23'
+DoseUnit:
+  type: string
+  description: Единица дозы препарата на гектар.
+  enum: [л/га, мл/га, кг/га, г/га]
+  example: л/га
