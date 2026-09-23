@@ -26,10 +26,19 @@ export function compareDecimalStrings(a: string, b: string): number {
   return 0;
 }
 
+/**
+ * Parses a mass in kg into grams. Bounded to match the contract's `Mass`
+ * schema / numeric(12,3) column: at most 9 integer digits (so up to
+ * 999999999.999 kg), at most 3 decimal digits. Fewer decimal digits than 3
+ * are still accepted ("12", "1.5") - the validation layer normalizes the
+ * shape before it reaches domain code; this parser only bounds magnitude
+ * and precision (R26).
+ */
 export function kgToGrams(s: string): bigint {
-  const m = /^(\d+)(?:\.(\d{1,3}))?$/.exec(s);
+  const m = /^\d{1,9}(?:\.\d{1,3})?$/.exec(s);
   if (!m) throw new RangeError(`invalid mass: ${s}`);
-  return BigInt(m[1]!) * 1000n + BigInt((m[2] ?? '').padEnd(3, '0'));
+  const [intPart, fracPart = ''] = s.split('.');
+  return BigInt(intPart!) * 1000n + BigInt(fracPart.padEnd(3, '0'));
 }
 
 export function gramsToKg(g: bigint): string {
