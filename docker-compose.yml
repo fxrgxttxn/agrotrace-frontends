@@ -1,0 +1,15 @@
+name: agrotrace
+services:
+  tools:
+    build: { context: ., dockerfile: tools/node.Dockerfile }
+    profiles: [tools]
+    working_dir: /repo
+    volumes:
+      - .:/repo
+      - pnpm-store:/pnpm/store
+    env_file: [.env]
+    networks: [at]
+networks:
+  at: {}
+volumes:
+  pnpm-store: {}

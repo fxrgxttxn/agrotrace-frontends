@@ -1,1 +1,17 @@
+node_modules/
+.pnpm-store/
+dist/
+.svelte-kit/
+.angular/
+coverage/
+*.log
+.env
 .superpowers/
+test-results/
+playwright-report/
+benchmark/results/*.csv
+!benchmark/results/.gitkeep
+__pycache__/
+.venv/
+vendor/
+storage/*.key

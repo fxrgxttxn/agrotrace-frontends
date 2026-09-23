@@ -1,0 +1,5 @@
+packages:
+  - packages/*
+  - db/seed
+  - mercury-mock
+  - tests/*
