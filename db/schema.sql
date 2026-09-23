@@ -66,6 +66,21 @@ $$;
 
 
 --
+-- Name: notify_notification(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_notification() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NEW.channel = 'IN_APP' THEN
+    PERFORM pg_notify('notifications', json_build_object('id', NEW.id, 'user_id', NEW.user_id)::text);
+  END IF;
+  RETURN NEW;
+END $$;
+
+
+--
 -- Name: touch_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -73,6 +88,48 @@ CREATE FUNCTION public.touch_updated_at() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN NEW.updated_at := now(); RETURN NEW; END $$;
+
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: audit_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_log (
+    id bigint NOT NULL,
+    actor_id uuid,
+    action character varying(64) NOT NULL,
+    entity_type character varying(64) NOT NULL,
+    entity_id uuid,
+    diff jsonb DEFAULT '{}'::jsonb NOT NULL,
+    ip inet,
+    backend character varying(8) NOT NULL,
+    request_id character varying(64),
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT audit_log_backend_check CHECK (((backend)::text = ANY ((ARRAY['express'::character varying, 'django'::character varying, 'laravel'::character varying, 'seed'::character varying, 'system'::character varying])::text[])))
+);
+
+
+--
+-- Name: audit_log_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.audit_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: audit_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.audit_log_id_seq OWNED BY public.audit_log.id;
 
 
 --
@@ -86,10 +143,6 @@ CREATE SEQUENCE public.batch_code_seq
     NO MAXVALUE
     CACHE 1;
 
-
-SET default_tablespace = '';
-
-SET default_table_access_method = heap;
 
 --
 -- Name: batch_links; Type: TABLE; Schema: public; Owner: -
@@ -172,6 +225,30 @@ CREATE TABLE public.batches (
 
 
 --
+-- Name: complaints; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.complaints (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    batch_id uuid NOT NULL,
+    text character varying(2000) NOT NULL,
+    contact character varying(255),
+    status character varying(16) DEFAULT 'NEW'::character varying NOT NULL,
+    decision character varying(16),
+    decision_comment character varying(1000),
+    inspector_id uuid,
+    ip inet,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone,
+    CONSTRAINT complaints_check CHECK ((((status)::text = 'DECIDED'::text) = (decision IS NOT NULL))),
+    CONSTRAINT complaints_decision_check CHECK (((decision)::text = ANY ((ARRAY['REJECT'::character varying, 'LAB_TEST'::character varying, 'RECALL'::character varying])::text[]))),
+    CONSTRAINT complaints_status_check CHECK (((status)::text = ANY ((ARRAY['NEW'::character varying, 'IN_REVIEW'::character varying, 'DECIDED'::character varying])::text[]))),
+    CONSTRAINT complaints_text_check CHECK ((length((text)::text) >= 10))
+);
+
+
+--
 -- Name: fields; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -227,6 +304,49 @@ CREATE TABLE public.indicators (
 
 
 --
+-- Name: lab_results; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.lab_results (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    lab_test_id uuid NOT NULL,
+    indicator_id uuid NOT NULL,
+    value numeric(14,6) NOT NULL,
+    norm_value_snapshot numeric(14,6),
+    is_exceeded boolean NOT NULL,
+    CONSTRAINT lab_results_value_check CHECK ((value >= (0)::numeric))
+);
+
+
+--
+-- Name: lab_tests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.lab_tests (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    batch_id uuid NOT NULL,
+    lab_org_id uuid NOT NULL,
+    reason character varying(16) NOT NULL,
+    status character varying(16) DEFAULT 'QUEUED'::character varying NOT NULL,
+    conclusion character varying(8),
+    sampled_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    due_at timestamp with time zone NOT NULL,
+    escalated_at timestamp with time zone,
+    protocol_file_id uuid,
+    version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    deleted_at timestamp with time zone,
+    CONSTRAINT lab_tests_check CHECK ((((status)::text = 'DONE'::text) = (conclusion IS NOT NULL))),
+    CONSTRAINT lab_tests_conclusion_check CHECK (((conclusion)::text = ANY ((ARRAY['PASS'::character varying, 'FAIL'::character varying])::text[]))),
+    CONSTRAINT lab_tests_reason_check CHECK (((reason)::text = ANY ((ARRAY['PLANNED'::character varying, 'RISK'::character varying, 'COMPLAINT'::character varying, 'INSPECTOR'::character varying])::text[]))),
+    CONSTRAINT lab_tests_status_check CHECK (((status)::text = ANY ((ARRAY['QUEUED'::character varying, 'SAMPLED'::character varying, 'DONE'::character varying, 'ESCALATED'::character varying, 'CANCELLED'::character varying])::text[])))
+);
+
+
+--
 -- Name: norms; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -239,6 +359,46 @@ CREATE TABLE public.norms (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT norms_max_value_check CHECK ((max_value >= (0)::numeric))
 );
+
+
+--
+-- Name: notifications; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notifications (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    type character varying(32) NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    channel character varying(16) DEFAULT 'IN_APP'::character varying NOT NULL,
+    delivery_status character varying(16) DEFAULT 'DELIVERED'::character varying NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    is_read boolean DEFAULT false NOT NULL,
+    seq bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT notifications_channel_check CHECK (((channel)::text = ANY ((ARRAY['IN_APP'::character varying, 'EMAIL'::character varying, 'TELEGRAM'::character varying])::text[]))),
+    CONSTRAINT notifications_delivery_status_check CHECK (((delivery_status)::text = ANY ((ARRAY['PENDING'::character varying, 'DELIVERED'::character varying, 'FAILED'::character varying, 'NOT_CONFIGURED'::character varying])::text[]))),
+    CONSTRAINT notifications_type_check CHECK (((type)::text = ANY ((ARRAY['LAB_ASSIGNED'::character varying, 'LAB_RESULT'::character varying, 'WAYBILL_INCOMING'::character varying, 'RECALL'::character varying, 'RECALL_TASK'::character varying, 'OVERDUE'::character varying, 'COMPLAINT'::character varying, 'LAB_OVERDUE'::character varying])::text[])))
+);
+
+
+--
+-- Name: notifications_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.notifications_seq_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: notifications_seq_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.notifications_seq_seq OWNED BY public.notifications.seq;
 
 
 --
@@ -281,6 +441,68 @@ CREATE TABLE public.products (
     deleted_at timestamp with time zone,
     CONSTRAINT products_category_check CHECK (((category)::text = ANY ((ARRAY['GRAIN'::character varying, 'VEGETABLE'::character varying, 'FRUIT'::character varying, 'DAIRY'::character varying, 'MEAT'::character varying, 'OILSEED'::character varying, 'PROCESSED'::character varying])::text[]))),
     CONSTRAINT products_loss_norm_percent_check CHECK (((loss_norm_percent >= (0)::numeric) AND (loss_norm_percent <= (100)::numeric)))
+);
+
+
+--
+-- Name: recall_batches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.recall_batches (
+    recall_id uuid NOT NULL,
+    batch_id uuid NOT NULL,
+    direction character varying(8) NOT NULL,
+    depth integer NOT NULL,
+    status_before character varying(16) NOT NULL,
+    CONSTRAINT recall_batches_depth_check CHECK ((depth >= 0)),
+    CONSTRAINT recall_batches_direction_check CHECK (((direction)::text = ANY ((ARRAY['SOURCE'::character varying, 'DOWN'::character varying, 'UP'::character varying])::text[])))
+);
+
+
+--
+-- Name: recall_tasks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.recall_tasks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    recall_id uuid NOT NULL,
+    holder_org_id uuid NOT NULL,
+    batch_id uuid NOT NULL,
+    due_at timestamp with time zone NOT NULL,
+    status character varying(12) DEFAULT 'OPEN'::character varying NOT NULL,
+    confirmed_by uuid,
+    confirmed_at timestamp with time zone,
+    escalated_at timestamp with time zone,
+    version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT recall_tasks_check CHECK ((((status)::text = 'CONFIRMED'::text) = (confirmed_at IS NOT NULL))),
+    CONSTRAINT recall_tasks_status_check CHECK (((status)::text = ANY ((ARRAY['OPEN'::character varying, 'CONFIRMED'::character varying, 'OVERDUE'::character varying])::text[])))
+);
+
+
+--
+-- Name: recalls; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.recalls (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    source_batch_id uuid NOT NULL,
+    trigger character varying(16) NOT NULL,
+    reason character varying(1000) NOT NULL,
+    status character varying(8) DEFAULT 'OPEN'::character varying NOT NULL,
+    lab_test_id uuid,
+    complaint_id uuid,
+    opened_at timestamp with time zone DEFAULT now() NOT NULL,
+    closed_at timestamp with time zone,
+    version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    deleted_at timestamp with time zone,
+    CONSTRAINT recalls_check CHECK ((((status)::text = 'CLOSED'::text) = (closed_at IS NOT NULL))),
+    CONSTRAINT recalls_status_check CHECK (((status)::text = ANY ((ARRAY['OPEN'::character varying, 'CLOSED'::character varying])::text[]))),
+    CONSTRAINT recalls_trigger_check CHECK (((trigger)::text = ANY ((ARRAY['LAB'::character varying, 'INSPECTOR'::character varying, 'COMPLAINT'::character varying])::text[])))
 );
 
 
@@ -476,6 +698,13 @@ CREATE TABLE public.waybills (
 
 
 --
+-- Name: audit_log id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_log ALTER COLUMN id SET DEFAULT nextval('public.audit_log_id_seq'::regclass);
+
+
+--
 -- Name: batch_status_history id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -483,10 +712,25 @@ ALTER TABLE ONLY public.batch_status_history ALTER COLUMN id SET DEFAULT nextval
 
 
 --
+-- Name: notifications seq; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notifications ALTER COLUMN seq SET DEFAULT nextval('public.notifications_seq_seq'::regclass);
+
+
+--
 -- Name: roles id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.roles ALTER COLUMN id SET DEFAULT nextval('public.roles_id_seq'::regclass);
+
+
+--
+-- Name: audit_log audit_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_log
+    ADD CONSTRAINT audit_log_pkey PRIMARY KEY (id);
 
 
 --
@@ -522,6 +766,14 @@ ALTER TABLE ONLY public.batches
 
 
 --
+-- Name: complaints complaints_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.complaints
+    ADD CONSTRAINT complaints_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: fields fields_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -554,6 +806,30 @@ ALTER TABLE ONLY public.indicators
 
 
 --
+-- Name: lab_results lab_results_lab_test_id_indicator_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lab_results
+    ADD CONSTRAINT lab_results_lab_test_id_indicator_id_key UNIQUE (lab_test_id, indicator_id);
+
+
+--
+-- Name: lab_results lab_results_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lab_results
+    ADD CONSTRAINT lab_results_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: lab_tests lab_tests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lab_tests
+    ADD CONSTRAINT lab_tests_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: norms norms_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -567,6 +843,22 @@ ALTER TABLE ONLY public.norms
 
 ALTER TABLE ONLY public.norms
     ADD CONSTRAINT norms_product_id_indicator_id_key UNIQUE (product_id, indicator_id);
+
+
+--
+-- Name: notifications notifications_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notifications
+    ADD CONSTRAINT notifications_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: notifications notifications_seq_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notifications
+    ADD CONSTRAINT notifications_seq_key UNIQUE (seq);
 
 
 --
@@ -591,6 +883,38 @@ ALTER TABLE ONLY public.organizations
 
 ALTER TABLE ONLY public.products
     ADD CONSTRAINT products_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: recall_batches recall_batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recall_batches
+    ADD CONSTRAINT recall_batches_pkey PRIMARY KEY (recall_id, batch_id);
+
+
+--
+-- Name: recall_tasks recall_tasks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recall_tasks
+    ADD CONSTRAINT recall_tasks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: recall_tasks recall_tasks_recall_id_batch_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recall_tasks
+    ADD CONSTRAINT recall_tasks_recall_id_batch_id_key UNIQUE (recall_id, batch_id);
+
+
+--
+-- Name: recalls recalls_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recalls
+    ADD CONSTRAINT recalls_pkey PRIMARY KEY (id);
 
 
 --
@@ -722,6 +1046,20 @@ ALTER TABLE ONLY public.waybills
 
 
 --
+-- Name: ix_audit_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_audit_created ON public.audit_log USING btree (created_at DESC);
+
+
+--
+-- Name: ix_audit_entity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_audit_entity ON public.audit_log USING btree (entity_type, entity_id);
+
+
+--
 -- Name: ix_batch_links_child; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -754,6 +1092,41 @@ CREATE INDEX ix_batches_status ON public.batches USING btree (status) WHERE (del
 --
 
 CREATE INDEX ix_bsh_batch ON public.batch_status_history USING btree (batch_id, changed_at);
+
+
+--
+-- Name: ix_lab_tests_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_lab_tests_batch ON public.lab_tests USING btree (batch_id);
+
+
+--
+-- Name: ix_lab_tests_queue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_lab_tests_queue ON public.lab_tests USING btree (lab_org_id, status, due_at);
+
+
+--
+-- Name: ix_notifications_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_notifications_user ON public.notifications USING btree (user_id, is_read, created_at DESC) WHERE ((channel)::text = 'IN_APP'::text);
+
+
+--
+-- Name: ix_recall_tasks_holder; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_recall_tasks_holder ON public.recall_tasks USING btree (holder_org_id, status);
+
+
+--
+-- Name: ix_recall_tasks_status_due; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_recall_tasks_status_due ON public.recall_tasks USING btree (status, due_at);
 
 
 --
@@ -792,10 +1165,24 @@ CREATE INDEX ix_waybills_sender ON public.waybills USING btree (sender_org_id, s
 
 
 --
+-- Name: ux_recalls_open_source; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX ux_recalls_open_source ON public.recalls USING btree (source_batch_id) WHERE ((status)::text = 'OPEN'::text);
+
+
+--
 -- Name: batches t_batches_touch; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER t_batches_touch BEFORE UPDATE ON public.batches FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+--
+-- Name: complaints t_complaints_touch; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER t_complaints_touch BEFORE UPDATE ON public.complaints FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
 
 
 --
@@ -813,10 +1200,24 @@ CREATE TRIGGER t_indicators_touch BEFORE UPDATE ON public.indicators FOR EACH RO
 
 
 --
+-- Name: lab_tests t_lab_tests_touch; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER t_lab_tests_touch BEFORE UPDATE ON public.lab_tests FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+--
 -- Name: norms t_norms_touch; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER t_norms_touch BEFORE UPDATE ON public.norms FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+--
+-- Name: notifications t_notifications_notify; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER t_notifications_notify AFTER INSERT ON public.notifications FOR EACH ROW EXECUTE FUNCTION public.notify_notification();
 
 
 --
@@ -831,6 +1232,20 @@ CREATE TRIGGER t_organizations_touch BEFORE UPDATE ON public.organizations FOR E
 --
 
 CREATE TRIGGER t_products_touch BEFORE UPDATE ON public.products FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+--
+-- Name: recall_tasks t_recall_tasks_touch; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER t_recall_tasks_touch BEFORE UPDATE ON public.recall_tasks FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+--
+-- Name: recalls t_recalls_touch; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER t_recalls_touch BEFORE UPDATE ON public.recalls FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
 
 
 --
@@ -934,6 +1349,22 @@ ALTER TABLE ONLY public.batches
 
 
 --
+-- Name: complaints complaints_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.complaints
+    ADD CONSTRAINT complaints_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.batches(id);
+
+
+--
+-- Name: complaints complaints_inspector_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.complaints
+    ADD CONSTRAINT complaints_inspector_id_fkey FOREIGN KEY (inspector_id) REFERENCES public.users(id);
+
+
+--
 -- Name: fields fields_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -958,6 +1389,62 @@ ALTER TABLE ONLY public.fields
 
 
 --
+-- Name: recalls fk_recalls_complaint; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recalls
+    ADD CONSTRAINT fk_recalls_complaint FOREIGN KEY (complaint_id) REFERENCES public.complaints(id);
+
+
+--
+-- Name: lab_results lab_results_indicator_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lab_results
+    ADD CONSTRAINT lab_results_indicator_id_fkey FOREIGN KEY (indicator_id) REFERENCES public.indicators(id);
+
+
+--
+-- Name: lab_results lab_results_lab_test_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lab_results
+    ADD CONSTRAINT lab_results_lab_test_id_fkey FOREIGN KEY (lab_test_id) REFERENCES public.lab_tests(id);
+
+
+--
+-- Name: lab_tests lab_tests_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lab_tests
+    ADD CONSTRAINT lab_tests_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.batches(id);
+
+
+--
+-- Name: lab_tests lab_tests_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lab_tests
+    ADD CONSTRAINT lab_tests_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: lab_tests lab_tests_lab_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lab_tests
+    ADD CONSTRAINT lab_tests_lab_org_id_fkey FOREIGN KEY (lab_org_id) REFERENCES public.organizations(id);
+
+
+--
+-- Name: lab_tests lab_tests_protocol_file_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lab_tests
+    ADD CONSTRAINT lab_tests_protocol_file_id_fkey FOREIGN KEY (protocol_file_id) REFERENCES public.files(id);
+
+
+--
 -- Name: norms norms_indicator_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -971,6 +1458,14 @@ ALTER TABLE ONLY public.norms
 
 ALTER TABLE ONLY public.norms
     ADD CONSTRAINT norms_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id);
+
+
+--
+-- Name: notifications notifications_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notifications
+    ADD CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
 
 
 --
@@ -995,6 +1490,78 @@ ALTER TABLE ONLY public.organizations
 
 ALTER TABLE ONLY public.products
     ADD CONSTRAINT products_image_file_id_fkey FOREIGN KEY (image_file_id) REFERENCES public.files(id);
+
+
+--
+-- Name: recall_batches recall_batches_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recall_batches
+    ADD CONSTRAINT recall_batches_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.batches(id);
+
+
+--
+-- Name: recall_batches recall_batches_recall_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recall_batches
+    ADD CONSTRAINT recall_batches_recall_id_fkey FOREIGN KEY (recall_id) REFERENCES public.recalls(id);
+
+
+--
+-- Name: recall_tasks recall_tasks_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recall_tasks
+    ADD CONSTRAINT recall_tasks_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.batches(id);
+
+
+--
+-- Name: recall_tasks recall_tasks_confirmed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recall_tasks
+    ADD CONSTRAINT recall_tasks_confirmed_by_fkey FOREIGN KEY (confirmed_by) REFERENCES public.users(id);
+
+
+--
+-- Name: recall_tasks recall_tasks_holder_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recall_tasks
+    ADD CONSTRAINT recall_tasks_holder_org_id_fkey FOREIGN KEY (holder_org_id) REFERENCES public.organizations(id);
+
+
+--
+-- Name: recall_tasks recall_tasks_recall_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recall_tasks
+    ADD CONSTRAINT recall_tasks_recall_id_fkey FOREIGN KEY (recall_id) REFERENCES public.recalls(id);
+
+
+--
+-- Name: recalls recalls_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recalls
+    ADD CONSTRAINT recalls_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: recalls recalls_lab_test_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recalls
+    ADD CONSTRAINT recalls_lab_test_id_fkey FOREIGN KEY (lab_test_id) REFERENCES public.lab_tests(id);
+
+
+--
+-- Name: recalls recalls_source_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recalls
+    ADD CONSTRAINT recalls_source_batch_id_fkey FOREIGN KEY (source_batch_id) REFERENCES public.batches(id);
 
 
 --
@@ -1124,4 +1691,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260923000001'),
     ('20260923000002'),
     ('20260923000003'),
-    ('20260923000004');
+    ('20260923000004'),
+    ('20260923000005'),
+    ('20260923000006');
