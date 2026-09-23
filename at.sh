@@ -24,11 +24,27 @@ recreate_db() {
 # \restrict/\unrestrict guard meta-commands (present even in recent PG16 point
 # releases) and any transaction_timeout SET line, then re-appends dbmate's own
 # footer (in the exact format `dbmate load` expects) so the file stays usable
-# with dbmate, and finally drops the throwaway DB.
-dump_schema() {
+# with dbmate.
+#
+# Runs in its own subshell so `set -e`/`trap` are scoped to this function only:
+# any failure (or success) drops the throwaway DB and removes the staging file
+# via the EXIT trap, and db/schema.sql itself is only overwritten (via `mv`,
+# atomic on the same filesystem) once the dump+footer are fully built in a
+# temp file — a mid-step failure never truncates or corrupts the committed file.
+dump_schema() (
+  set -euo pipefail
   set -a; . ./.env; set +a
-  local ddb="agrotrace_schema_dump"
-  local url="${DATABASE_URL%/*}/${ddb}?sslmode=disable"
+  ddb="agrotrace_schema_dump"
+  url="${DATABASE_URL%/*}/${ddb}?sslmode=disable"
+  tmp="$(mktemp db/.schema.sql.XXXXXX)"
+
+  cleanup() {
+    $DC exec -T postgres psql -U agrotrace_owner -d postgres -v ON_ERROR_STOP=1 \
+      -c "DROP DATABASE IF EXISTS ${ddb} WITH (FORCE);" >/dev/null 2>&1 || true
+    rm -f "$tmp"
+  }
+  trap cleanup EXIT
+
   recreate_db "$ddb"
   $DC run --rm dbmate --url "$url" --no-dump-schema --wait up
 
@@ -36,7 +52,7 @@ dump_schema() {
     | grep -vF '\restrict' \
     | grep -vF '\unrestrict' \
     | grep -v '^SET transaction_timeout' \
-    > db/schema.sql
+    > "$tmp"
 
   {
     echo
@@ -45,10 +61,9 @@ dump_schema() {
     echo "--"
     echo
     echo "INSERT INTO public.schema_migrations (version) VALUES"
-    local versions
     versions=($($DC exec -T postgres psql -tA -U agrotrace_owner -d "${ddb}" \
       -c "SELECT version FROM public.schema_migrations ORDER BY version;" | tr -d '\r'))
-    local n=${#versions[@]} i
+    n=${#versions[@]}
     for i in "${!versions[@]}"; do
       if [ "$i" -eq $((n - 1)) ]; then
         echo "    ('${versions[$i]}');"
@@ -56,10 +71,10 @@ dump_schema() {
         echo "    ('${versions[$i]}'),"
       fi
     done
-  } >> db/schema.sql
+  } >> "$tmp"
 
-  $DC exec -T postgres psql -U agrotrace_owner -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS ${ddb} WITH (FORCE);"
-}
+  mv "$tmp" db/schema.sql
+)
 
 case "$cmd" in
   install) $T pnpm install "$@" ;;
@@ -75,7 +90,12 @@ case "$cmd" in
     esac ;;
   down)        $DC down "$@" ;;
   db:migrate)  $DC run --rm dbmate --no-dump-schema --wait up && dump_schema ;;
-  db:rollback) $DC run --rm dbmate --no-dump-schema rollback && dump_schema ;;
+  # schema.sql always represents ALL migrations on disk (dump_schema builds it
+  # from a throwaway DB that replays every migration, regardless of dev DB
+  # state) — a rollback moves the dev DB backward, not schema.sql, so it must
+  # not regenerate a file that would come out byte-identical to db:migrate's
+  # anyway; only db:migrate does.
+  db:rollback) $DC run --rm dbmate --no-dump-schema rollback ;;
   db:new)      $DC run --rm dbmate new "$1" ;;
   db:test)
     set -a; . ./.env; set +a
