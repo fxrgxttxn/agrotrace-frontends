@@ -44,6 +44,28 @@ COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
 
 
 --
+-- Name: next_batch_code(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.next_batch_code() RETURNS character varying
+    LANGUAGE sql
+    AS $$
+  SELECT 'AT-' || extract(year FROM now() AT TIME ZONE 'UTC')::int || '-' || lpad(nextval('batch_code_seq')::text, 6, '0')
+$$;
+
+
+--
+-- Name: next_waybill_number(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.next_waybill_number() RETURNS character varying
+    LANGUAGE sql
+    AS $$
+  SELECT 'WB-' || extract(year FROM now() AT TIME ZONE 'UTC')::int || '-' || lpad(nextval('waybill_number_seq')::text, 6, '0')
+$$;
+
+
+--
 -- Name: touch_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -53,9 +75,120 @@ CREATE FUNCTION public.touch_updated_at() RETURNS trigger
 BEGIN NEW.updated_at := now(); RETURN NEW; END $$;
 
 
+--
+-- Name: batch_code_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.batch_code_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: batch_links; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.batch_links (
+    parent_batch_id uuid NOT NULL,
+    child_batch_id uuid NOT NULL,
+    mass_used_kg numeric(12,3) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT batch_links_check CHECK ((parent_batch_id <> child_batch_id)),
+    CONSTRAINT batch_links_mass_used_kg_check CHECK ((mass_used_kg > (0)::numeric))
+);
+
+
+--
+-- Name: batch_status_history; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.batch_status_history (
+    id bigint NOT NULL,
+    batch_id uuid NOT NULL,
+    from_status character varying(16),
+    to_status character varying(16) NOT NULL,
+    changed_by uuid,
+    reason character varying(500),
+    changed_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: batch_status_history_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.batch_status_history_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: batch_status_history_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.batch_status_history_id_seq OWNED BY public.batch_status_history.id;
+
+
+--
+-- Name: batches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.batches (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    public_code character varying(32) NOT NULL,
+    product_id uuid NOT NULL,
+    origin_org_id uuid NOT NULL,
+    holder_org_id uuid,
+    field_id uuid,
+    kind character varying(8) NOT NULL,
+    mass_kg numeric(12,3) NOT NULL,
+    harvested_at timestamp with time zone,
+    produced_at timestamp with time zone,
+    status character varying(16) DEFAULT 'Created'::character varying NOT NULL,
+    test_required boolean DEFAULT false NOT NULL,
+    test_reason character varying(24),
+    qr_generated_at timestamp with time zone,
+    version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    deleted_at timestamp with time zone,
+    CONSTRAINT batches_check CHECK (((((kind)::text = 'RAW'::text) AND (harvested_at IS NOT NULL)) OR (((kind)::text = 'DERIVED'::text) AND (produced_at IS NOT NULL)))),
+    CONSTRAINT batches_kind_check CHECK (((kind)::text = ANY ((ARRAY['RAW'::character varying, 'DERIVED'::character varying])::text[]))),
+    CONSTRAINT batches_mass_kg_check CHECK ((mass_kg > (0)::numeric)),
+    CONSTRAINT batches_status_check CHECK (((status)::text = ANY ((ARRAY['Created'::character varying, 'OnTest'::character varying, 'Approved'::character varying, 'InTransit'::character varying, 'Accepted'::character varying, 'Processed'::character varying, 'OnSale'::character varying, 'Sold'::character varying, 'Blocked'::character varying, 'Recalled'::character varying, 'WrittenOff'::character varying])::text[]))),
+    CONSTRAINT batches_test_reason_check CHECK (((test_reason)::text = ANY ((ARRAY['NEW_FARM'::character varying, 'LOW_RATING'::character varying, 'RECENT_PESTICIDE'::character varying, 'SAMPLED'::character varying, 'NONE'::character varying])::text[])))
+);
+
+
+--
+-- Name: fields; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.fields (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    organization_id uuid NOT NULL,
+    name character varying(160) NOT NULL,
+    area_ha numeric(10,2) NOT NULL,
+    geometry jsonb,
+    region_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    deleted_at timestamp with time zone,
+    CONSTRAINT fields_area_ha_check CHECK ((area_ha > (0)::numeric))
+);
+
 
 --
 -- Name: files; Type: TABLE; Schema: public; Owner: -
@@ -236,6 +369,25 @@ CREATE TABLE public.substances (
 
 
 --
+-- Name: treatments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.treatments (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    field_id uuid NOT NULL,
+    substance_id uuid NOT NULL,
+    dose numeric(10,3) NOT NULL,
+    dose_unit character varying(16) DEFAULT 'л/га'::character varying NOT NULL,
+    applied_at timestamp with time zone NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    deleted_at timestamp with time zone,
+    CONSTRAINT treatments_dose_check CHECK ((dose > (0)::numeric))
+);
+
+
+--
 -- Name: user_roles; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -274,10 +426,107 @@ CREATE TABLE public.users (
 
 
 --
+-- Name: waybill_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.waybill_items (
+    waybill_id uuid NOT NULL,
+    batch_id uuid NOT NULL,
+    mass_declared_kg numeric(12,3) NOT NULL,
+    mass_actual_kg numeric(12,3),
+    discrepancy_act character varying(2000),
+    CONSTRAINT waybill_items_mass_actual_kg_check CHECK ((mass_actual_kg >= (0)::numeric)),
+    CONSTRAINT waybill_items_mass_declared_kg_check CHECK ((mass_declared_kg > (0)::numeric))
+);
+
+
+--
+-- Name: waybill_number_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.waybill_number_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: waybills; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.waybills (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    number character varying(32) NOT NULL,
+    sender_org_id uuid NOT NULL,
+    receiver_org_id uuid NOT NULL,
+    status character varying(16) DEFAULT 'DRAFT'::character varying NOT NULL,
+    reject_reason character varying(500),
+    sent_at timestamp with time zone,
+    accepted_at timestamp with time zone,
+    version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    deleted_at timestamp with time zone,
+    CONSTRAINT waybills_check CHECK ((sender_org_id <> receiver_org_id)),
+    CONSTRAINT waybills_status_check CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'SENT'::character varying, 'ACCEPTED'::character varying, 'REJECTED'::character varying])::text[])))
+);
+
+
+--
+-- Name: batch_status_history id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batch_status_history ALTER COLUMN id SET DEFAULT nextval('public.batch_status_history_id_seq'::regclass);
+
+
+--
 -- Name: roles id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.roles ALTER COLUMN id SET DEFAULT nextval('public.roles_id_seq'::regclass);
+
+
+--
+-- Name: batch_links batch_links_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batch_links
+    ADD CONSTRAINT batch_links_pkey PRIMARY KEY (parent_batch_id, child_batch_id);
+
+
+--
+-- Name: batch_status_history batch_status_history_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batch_status_history
+    ADD CONSTRAINT batch_status_history_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: batches batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batches
+    ADD CONSTRAINT batches_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: batches batches_public_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batches
+    ADD CONSTRAINT batches_public_code_key UNIQUE (public_code);
+
+
+--
+-- Name: fields fields_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fields
+    ADD CONSTRAINT fields_pkey PRIMARY KEY (id);
 
 
 --
@@ -417,6 +666,14 @@ ALTER TABLE ONLY public.substances
 
 
 --
+-- Name: treatments treatments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.treatments
+    ADD CONSTRAINT treatments_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: user_roles user_roles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -441,6 +698,65 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: waybill_items waybill_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waybill_items
+    ADD CONSTRAINT waybill_items_pkey PRIMARY KEY (waybill_id, batch_id);
+
+
+--
+-- Name: waybills waybills_number_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waybills
+    ADD CONSTRAINT waybills_number_key UNIQUE (number);
+
+
+--
+-- Name: waybills waybills_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waybills
+    ADD CONSTRAINT waybills_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ix_batch_links_child; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_batch_links_child ON public.batch_links USING btree (child_batch_id);
+
+
+--
+-- Name: ix_batches_holder; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_batches_holder ON public.batches USING btree (holder_org_id) WHERE (deleted_at IS NULL);
+
+
+--
+-- Name: ix_batches_origin; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_batches_origin ON public.batches USING btree (origin_org_id);
+
+
+--
+-- Name: ix_batches_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_batches_status ON public.batches USING btree (status) WHERE (deleted_at IS NULL);
+
+
+--
+-- Name: ix_bsh_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_bsh_batch ON public.batch_status_history USING btree (batch_id, changed_at);
+
+
+--
 -- Name: ix_refresh_tokens_user; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -448,10 +764,45 @@ CREATE INDEX ix_refresh_tokens_user ON public.refresh_tokens USING btree (user_i
 
 
 --
+-- Name: ix_treatments_field_applied; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_treatments_field_applied ON public.treatments USING btree (field_id, applied_at);
+
+
+--
 -- Name: ix_users_org; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX ix_users_org ON public.users USING btree (organization_id) WHERE (deleted_at IS NULL);
+
+
+--
+-- Name: ix_waybills_receiver; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_waybills_receiver ON public.waybills USING btree (receiver_org_id, status);
+
+
+--
+-- Name: ix_waybills_sender; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_waybills_sender ON public.waybills USING btree (sender_org_id, status);
+
+
+--
+-- Name: batches t_batches_touch; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER t_batches_touch BEFORE UPDATE ON public.batches FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+--
+-- Name: fields t_fields_touch; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER t_fields_touch BEFORE UPDATE ON public.fields FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
 
 
 --
@@ -490,10 +841,120 @@ CREATE TRIGGER t_substances_touch BEFORE UPDATE ON public.substances FOR EACH RO
 
 
 --
+-- Name: treatments t_treatments_touch; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER t_treatments_touch BEFORE UPDATE ON public.treatments FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+--
 -- Name: users t_users_touch; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER t_users_touch BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+--
+-- Name: waybills t_waybills_touch; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER t_waybills_touch BEFORE UPDATE ON public.waybills FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+--
+-- Name: batch_links batch_links_child_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batch_links
+    ADD CONSTRAINT batch_links_child_batch_id_fkey FOREIGN KEY (child_batch_id) REFERENCES public.batches(id);
+
+
+--
+-- Name: batch_links batch_links_parent_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batch_links
+    ADD CONSTRAINT batch_links_parent_batch_id_fkey FOREIGN KEY (parent_batch_id) REFERENCES public.batches(id);
+
+
+--
+-- Name: batch_status_history batch_status_history_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batch_status_history
+    ADD CONSTRAINT batch_status_history_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.batches(id);
+
+
+--
+-- Name: batch_status_history batch_status_history_changed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batch_status_history
+    ADD CONSTRAINT batch_status_history_changed_by_fkey FOREIGN KEY (changed_by) REFERENCES public.users(id);
+
+
+--
+-- Name: batches batches_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batches
+    ADD CONSTRAINT batches_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: batches batches_field_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batches
+    ADD CONSTRAINT batches_field_id_fkey FOREIGN KEY (field_id) REFERENCES public.fields(id);
+
+
+--
+-- Name: batches batches_holder_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batches
+    ADD CONSTRAINT batches_holder_org_id_fkey FOREIGN KEY (holder_org_id) REFERENCES public.organizations(id);
+
+
+--
+-- Name: batches batches_origin_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batches
+    ADD CONSTRAINT batches_origin_org_id_fkey FOREIGN KEY (origin_org_id) REFERENCES public.organizations(id);
+
+
+--
+-- Name: batches batches_product_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batches
+    ADD CONSTRAINT batches_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id);
+
+
+--
+-- Name: fields fields_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fields
+    ADD CONSTRAINT fields_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: fields fields_organization_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fields
+    ADD CONSTRAINT fields_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizations(id);
+
+
+--
+-- Name: fields fields_region_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fields
+    ADD CONSTRAINT fields_region_id_fkey FOREIGN KEY (region_id) REFERENCES public.regions(id);
 
 
 --
@@ -553,6 +1014,30 @@ ALTER TABLE ONLY public.refresh_tokens
 
 
 --
+-- Name: treatments treatments_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.treatments
+    ADD CONSTRAINT treatments_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: treatments treatments_field_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.treatments
+    ADD CONSTRAINT treatments_field_id_fkey FOREIGN KEY (field_id) REFERENCES public.fields(id);
+
+
+--
+-- Name: treatments treatments_substance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.treatments
+    ADD CONSTRAINT treatments_substance_id_fkey FOREIGN KEY (substance_id) REFERENCES public.substances(id);
+
+
+--
 -- Name: user_roles user_roles_role_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -585,6 +1070,46 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: waybill_items waybill_items_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waybill_items
+    ADD CONSTRAINT waybill_items_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.batches(id);
+
+
+--
+-- Name: waybill_items waybill_items_waybill_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waybill_items
+    ADD CONSTRAINT waybill_items_waybill_id_fkey FOREIGN KEY (waybill_id) REFERENCES public.waybills(id);
+
+
+--
+-- Name: waybills waybills_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waybills
+    ADD CONSTRAINT waybills_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: waybills waybills_receiver_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waybills
+    ADD CONSTRAINT waybills_receiver_org_id_fkey FOREIGN KEY (receiver_org_id) REFERENCES public.organizations(id);
+
+
+--
+-- Name: waybills waybills_sender_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waybills
+    ADD CONSTRAINT waybills_sender_org_id_fkey FOREIGN KEY (sender_org_id) REFERENCES public.organizations(id);
+
+
+--
 -- PostgreSQL database dump complete
 --
 
@@ -598,4 +1123,5 @@ ALTER TABLE ONLY public.users
 INSERT INTO public.schema_migrations (version) VALUES
     ('20260923000001'),
     ('20260923000002'),
-    ('20260923000003');
+    ('20260923000003'),
+    ('20260923000004');
