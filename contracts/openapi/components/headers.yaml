@@ -20,20 +20,42 @@ IdempotentReplayed:
     enum: ['true', 'false']
   example: 'true'
 ETag:
-  description: Сильный ETag содержимого файла (для `If-None-Match`).
+  description: >-
+    Сильный ETag: `"` + sha256 (hex, нижний регистр) отдаваемых байтов + `"`. Для вариантов изображений
+    используется sha256 самого варианта (хранится в `files.variants`), поэтому ETag одинаков во всех реализациях.
   schema:
     type: string
-  example: '"5d41402abc4b2a76b9719d911017c592"'
+    pattern: '^"[0-9a-f]{64}"$'
+  example: '"4a3b1c9e0f2d8a7b6c5e4d3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b"'
+CacheControlPrivate:
+  description: Защищённые файлы (по Bearer или подписанному URL) — всегда перепроверка через ETag.
+  schema:
+    type: string
+    enum: ['private, max-age=0, must-revalidate']
+  example: private, max-age=0, must-revalidate
+CacheControlPublic:
+  description: Публичные изображения `/public/files/{id}`.
+  schema:
+    type: string
+    enum: ['public, max-age=86400']
+  example: public, max-age=86400
 CacheControl:
-  description: Политика кэширования ответа.
+  description: >-
+    Политика кэширования: `private, max-age=0, must-revalidate` для защищённых файлов,
+    `public, max-age=86400` для `/public/files/{id}`, `no-store` для динамических ответов, где указано.
   schema:
     type: string
+    enum: ['private, max-age=0, must-revalidate', 'public, max-age=86400', 'no-store', 'no-cache']
   example: private, max-age=0, must-revalidate
 ContentDisposition:
-  description: '`inline` для изображений, `attachment` для прочих файлов; имя файла в `filename*` (RFC 6266).'
+  description: >-
+    Всегда `inline; filename="<ascii>"; filename*=UTF-8''<pct>`, где имя = базовое имя `originalName` без
+    расширения + `.` + расширение отдаваемого MIME (image/webp → webp, image/svg+xml → svg, image/png → png,
+    application/pdf → pdf, xlsx → xlsx). `<ascii>` — то же имя, в котором символы вне печатного ASCII,
+    `"` и `\` заменены на `_`; `<pct>` — имя в UTF-8, закодированное по RFC 5987.
   schema:
     type: string
-  example: "inline; filename*=UTF-8''petrov.webp"
+  example: 'inline; filename="______.webp"; filename*=UTF-8''''%D0%BF%D0%B5%D1%82%D1%80%D0%BE%D0%B2.webp'
 ContentLength:
   description: Размер тела ответа в байтах.
   schema:
@@ -41,7 +63,7 @@ ContentLength:
     minimum: 0
   example: 48213
 RetryAfter:
-  description: Через сколько секунд можно повторить запрос.
+  description: Число секунд до конца текущего окна счётчика лимита (R30), не меньше 1.
   schema:
     type: integer
     minimum: 1

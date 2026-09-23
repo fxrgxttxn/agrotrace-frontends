@@ -69,8 +69,7 @@ Me:
       type: [string, 'null']
       pattern: '^\+[1-9]\d{6,14}$'
     avatarUrl:
-      type: [string, 'null']
-      description: Относительный URL аватарки `/api/v1/files/{fileId}` (варианты `?variant=96|480`), null если аватарки нет.
+      $ref: './common.yaml#/NullableSignedFileUrl'
     roles:
       type: array
       minItems: 1
@@ -91,7 +90,7 @@ Me:
     email: petrov@kfh-petrov.ru
     fullName: Петров Иван Сергеевич
     phone: '+79181234567'
-    avatarUrl: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f
+    avatarUrl: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
     roles: [FARMER]
     organization:
       id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
@@ -112,9 +111,7 @@ MeUpdate:
   additionalProperties: false
   properties:
     fullName:
-      type: string
-      minLength: 1
-      maxLength: 255
+      $ref: './common.yaml#/NameString'
     phone:
       type: [string, 'null']
       pattern: '^\+[1-9]\d{6,14}$'
@@ -136,8 +133,7 @@ User:
       type: [string, 'null']
       pattern: '^\+[1-9]\d{6,14}$'
     avatarUrl:
-      type: [string, 'null']
-      description: Относительный URL аватарки `/api/v1/files/{fileId}`, null если аватарки нет.
+      $ref: './common.yaml#/NullableSignedFileUrl'
     roles:
       type: array
       minItems: 1
@@ -211,9 +207,7 @@ UserInvite:
     email:
       $ref: './common.yaml#/Email'
     fullName:
-      type: string
-      minLength: 1
-      maxLength: 255
+      $ref: './common.yaml#/NameString'
     roles:
       type: array
       minItems: 1
@@ -232,9 +226,13 @@ UserInvite:
 UserPatch:
   type: object
   description: >-
-    Изменение ролей, признака руководителя и статуса сотрудника. `status` допускает только ACTIVE и BLOCKED
-    (блокировка отзывает refresh-токены пользователя). Изменить собственные роли, признак руководителя
-    или статус нельзя — 400 VALIDATION.
+    Изменение ролей, признака руководителя и статуса сотрудника. Переходы статуса: только ACTIVE → BLOCKED
+    и BLOCKED → ACTIVE (блокировка отзывает refresh-токены пользователя); INVITED → ACTIVE выполняется только
+    через `POST /auth/accept-invite` — любое изменение `status` у пользователя INVITED даёт 409 INVALID_TRANSITION
+    (`params.from`, `params.to`); `status`, равный текущему, — без изменений (200). Роли должны соответствовать
+    типу организации пользователя (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB, RETAILER→RETAILER,
+    AUTHORITY→INSPECTOR, PLATFORM→ADMIN), иначе 400 VALIDATION (`errors.roles`). Изменить собственные роли,
+    признак руководителя или статус нельзя — 400 VALIDATION.
   minProperties: 1
   additionalProperties: false
   properties:

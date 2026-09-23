@@ -179,9 +179,7 @@ RegisterOrganizationRequest:
     type:
       $ref: '#/RegistrableOrganizationType'
     name:
-      type: string
-      minLength: 1
-      maxLength: 255
+      $ref: './common.yaml#/NameString'
     regionCode:
       type: string
       maxLength: 8
@@ -194,9 +192,7 @@ RegisterOrganizationRequest:
         email:
           $ref: './common.yaml#/Email'
         fullName:
-          type: string
-          minLength: 1
-          maxLength: 255
+          $ref: './common.yaml#/NameString'
         password:
           $ref: './common.yaml#/Password'
   example:
@@ -259,9 +255,7 @@ AcceptInviteRequest:
       maxLength: 256
       description: Одноразовый токен из письма-приглашения.
     fullName:
-      type: string
-      minLength: 1
-      maxLength: 255
+      $ref: './common.yaml#/NameString'
     password:
       $ref: './common.yaml#/Password'
   example:

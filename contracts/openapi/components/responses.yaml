@@ -90,7 +90,10 @@ Conflict:
         params:
           currentVersion: 4
 PayloadTooLarge:
-  description: Файл превышает лимит размера для своего типа (FILE_TOO_LARGE, `params.maxBytes`; п. 8.6).
+  description: >-
+    Файл превышает лимит размера для своего типа (FILE_TOO_LARGE, `params.maxBytes`; п. 8.6). Лимит включительный:
+    файл размером ровно `maxBytes` принимается. Ответ шлюза при превышении его лимита тела запроса тоже
+    `application/problem+json` с кодом FILE_TOO_LARGE.
   headers:
     X-Request-Id:
       $ref: './headers.yaml#/XRequestId'
@@ -149,7 +152,13 @@ BusinessRule:
           until: '2026-09-25'
           substance: Хлорпирифос
 TooManyRequests:
-  description: Превышен лимит частоты запросов (RATE_LIMITED; п. 8.8).
+  description: >-
+    Превышен лимит частоты запросов (RATE_LIMITED; п. 8.8). Лимиты — `contracts/rules/rate-limits.json`:
+    счётчики с фиксированным окном в общем Redis (INCR, при первом попадании EXPIRE на длину окна),
+    ключ `rl:{scope}:{subject}:{windowStartEpochSec}`, где windowStartEpochSec = floor(now / windowSec) × windowSec.
+    Скоуп `user` (100 за 60 с по userId) действует для всех запросов с Bearer-токеном; скоупы `login-ip`,
+    `forgot`, `complaint-ip` — для операций, где они перечислены в `x-rate-limit`. Запрос, превысивший
+    лимит, не выполняется. `Retry-After` — секунды до конца окна; `params` = `{scope, limit, windowSec}`.
   headers:
     Retry-After:
       $ref: './headers.yaml#/RetryAfter'
@@ -167,7 +176,9 @@ TooManyRequests:
         status: 429
         code: RATE_LIMITED
         params:
-          retryAfter: 60
+          scope: user
+          limit: 100
+          windowSec: 60
 ServiceUnavailable:
   description: >-
     Зависимость недоступна: EXTERNAL_UNAVAILABLE — внешний сервис (DaData, Telegram, SMTP),
@@ -207,7 +218,7 @@ ImageContent:
     ETag:
       $ref: './headers.yaml#/ETag'
     Cache-Control:
-      $ref: './headers.yaml#/CacheControl'
+      $ref: './headers.yaml#/CacheControlPrivate'
     Content-Length:
       $ref: './headers.yaml#/ContentLength'
     Content-Disposition:
@@ -232,7 +243,7 @@ FileContent:
     ETag:
       $ref: './headers.yaml#/ETag'
     Cache-Control:
-      $ref: './headers.yaml#/CacheControl'
+      $ref: './headers.yaml#/CacheControlPrivate'
     Content-Length:
       $ref: './headers.yaml#/ContentLength'
     Content-Disposition:
@@ -255,5 +266,29 @@ FileContent:
       schema:
         $ref: '../schemas/files.yaml#/FileBinary'
     application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+      schema:
+        $ref: '../schemas/files.yaml#/FileBinary'
+PublicImageContent:
+  description: >-
+    Публичное изображение (логотип организации, фото продукта): WebP выбранного варианта либо исходный SVG.
+    `Cache-Control: public, max-age=86400`; `ETag`; при совпадении `If-None-Match` — 304.
+  headers:
+    ETag:
+      $ref: './headers.yaml#/ETag'
+    Cache-Control:
+      $ref: './headers.yaml#/CacheControlPublic'
+    Content-Length:
+      $ref: './headers.yaml#/ContentLength'
+    Content-Disposition:
+      $ref: './headers.yaml#/ContentDisposition'
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    image/webp:
+      schema:
+        $ref: '../schemas/files.yaml#/FileBinary'
+    image/svg+xml:
       schema:
         $ref: '../schemas/files.yaml#/FileBinary'

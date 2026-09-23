@@ -7,7 +7,12 @@ info:
     реализаций backend (Express, Django, Laravel): токен, файл или уведомление, созданные одной из них,
     принимаются любой другой. Расширения операций: `x-roles` — допустимые роли (`PUBLIC` — без авторизации,
     `ANY` — любой авторизованный), `x-org-admin` — для ролей кроме ADMIN требуется руководитель своей
-    организации, `x-idempotent` — обязателен `Idempotency-Key`.
+    организации, `x-idempotent` — обязателен `Idempotency-Key`, `x-access: signed` — вместо Bearer допускается
+    подписанный URL, `x-rate-limit` — скоупы лимитов из `contracts/rules/rate-limits.json` (скоуп `user`
+    действует для всех запросов с Bearer). Строки: сервер никогда не обрезает пробелы и не превращает пустые
+    строки в null; пароли сравниваются побайтно; поля имён и названий не могут состоять только из пробельных
+    символов (`pattern: '\S'`); email приводится к нижнему регистру перед проверкой уникальности и поиском;
+    длины строк (`minLength`/`maxLength`) считаются в кодовых точках Unicode.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -140,6 +145,10 @@ components:
       $ref: './openapi/components/parameters.yaml#/ImageVariant'
     PublicCode:
       $ref: './openapi/components/parameters.yaml#/PublicCode'
+    SignedExp:
+      $ref: './openapi/components/parameters.yaml#/SignedExp'
+    SignedSig:
+      $ref: './openapi/components/parameters.yaml#/SignedSig'
   responses:
     BadRequest:
       $ref: './openapi/components/responses.yaml#/BadRequest'
@@ -167,6 +176,8 @@ components:
       $ref: './openapi/components/responses.yaml#/ImageContent'
     FileContent:
       $ref: './openapi/components/responses.yaml#/FileContent'
+    PublicImageContent:
+      $ref: './openapi/components/responses.yaml#/PublicImageContent'
   headers:
     XRequestId:
       $ref: './openapi/components/headers.yaml#/XRequestId'
@@ -176,6 +187,10 @@ components:
       $ref: './openapi/components/headers.yaml#/IdempotentReplayed'
     ETag:
       $ref: './openapi/components/headers.yaml#/ETag'
+    CacheControlPrivate:
+      $ref: './openapi/components/headers.yaml#/CacheControlPrivate'
+    CacheControlPublic:
+      $ref: './openapi/components/headers.yaml#/CacheControlPublic'
     CacheControl:
       $ref: './openapi/components/headers.yaml#/CacheControl'
     ContentDisposition:
@@ -193,6 +208,8 @@ components:
       $ref: './openapi/schemas/common.yaml#/Uuid'
     DateTime:
       $ref: './openapi/schemas/common.yaml#/DateTime'
+    NullableDateTime:
+      $ref: './openapi/schemas/common.yaml#/NullableDateTime'
     Date:
       $ref: './openapi/schemas/common.yaml#/Date'
     Mass:
@@ -203,6 +220,16 @@ components:
       $ref: './openapi/schemas/common.yaml#/Decimal'
     Email:
       $ref: './openapi/schemas/common.yaml#/Email'
+    NameString:
+      $ref: './openapi/schemas/common.yaml#/NameString'
+    SignedFileUrl:
+      $ref: './openapi/schemas/common.yaml#/SignedFileUrl'
+    NullableSignedFileUrl:
+      $ref: './openapi/schemas/common.yaml#/NullableSignedFileUrl'
+    PublicFileUrl:
+      $ref: './openapi/schemas/common.yaml#/PublicFileUrl'
+    NullablePublicFileUrl:
+      $ref: './openapi/schemas/common.yaml#/NullablePublicFileUrl'
     Phone:
       $ref: './openapi/schemas/common.yaml#/Phone'
     Password:
@@ -239,6 +266,8 @@ components:
       $ref: './openapi/schemas/common.yaml#/SubstanceRef'
     HealthCheckStatus:
       $ref: './openapi/schemas/common.yaml#/HealthCheckStatus'
+    HealthLive:
+      $ref: './openapi/schemas/common.yaml#/HealthLive'
     Health:
       $ref: './openapi/schemas/common.yaml#/Health'
     AccessToken:

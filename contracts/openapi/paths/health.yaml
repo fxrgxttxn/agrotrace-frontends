@@ -19,9 +19,7 @@
         content:
           application/json:
             schema:
-              $ref: '../schemas/common.yaml#/Health'
-            example:
-              status: ok
+              $ref: '../schemas/common.yaml#/HealthLive'
 /health/ready:
   get:
     operationId: getHealthReady

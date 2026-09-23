@@ -92,8 +92,6 @@
         $ref: '../components/responses.yaml#/BadRequest'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
-      '429':
-        $ref: '../components/responses.yaml#/TooManyRequests'
 /public/batches/{publicCode}/complaints:
   post:
     operationId: createPublicComplaint
@@ -105,6 +103,7 @@
     tags: [Public]
     security: []
     x-roles: [PUBLIC]
+    x-rate-limit: [complaint-ip]
     parameters:
       - $ref: '../components/parameters.yaml#/PublicCode'
     requestBody:
@@ -180,8 +179,6 @@
           application/json:
             schema:
               $ref: '../schemas/public.yaml#/AltchaChallenge'
-      '429':
-        $ref: '../components/responses.yaml#/TooManyRequests'
 /public/files/{id}:
   get:
     operationId: downloadPublicFile
@@ -189,7 +186,7 @@
     description: >-
       Публичные изображения без авторизации: логотипы организаций и фото продуктов (п. 4.2). Прочие файлы
       (аватарки, протоколы, отчёты) по этому пути не отдаются — 404. WebP выбранного варианта или исходный SVG;
-      `Cache-Control: public, max-age=3600`; `If-None-Match` → 304.
+      `Cache-Control: public, max-age=86400`; `If-None-Match` → 304.
     tags: [Public]
     security: []
     x-roles: [PUBLIC]
@@ -199,12 +196,10 @@
       - $ref: '../components/parameters.yaml#/IfNoneMatch'
     responses:
       '200':
-        $ref: '../components/responses.yaml#/ImageContent'
+        $ref: '../components/responses.yaml#/PublicImageContent'
       '304':
         $ref: '../components/responses.yaml#/NotModified'
       '400':
         $ref: '../components/responses.yaml#/BadRequest'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
-      '429':
-        $ref: '../components/responses.yaml#/TooManyRequests'

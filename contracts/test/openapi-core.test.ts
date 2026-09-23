@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { bundle, loadConfig } from '@redocly/openapi-core';
 import Ajv2020 from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
@@ -39,6 +40,56 @@ const PROBLEM_CODES = [
   'EXTERNAL_UNAVAILABLE',
   'INTERNAL',
 ];
+
+const RATE_LIMITS = JSON.parse(readFileSync(new URL('../rules/rate-limits.json', import.meta.url), 'utf8'));
+
+// Expected access per operationId (spec 4.3 + rulings R27/R28/R34). roles ['PUBLIC'] = no auth,
+// ['ANY'] = any authenticated user; orgAdmin = x-org-admin; access 'signed' = Bearer or signed URL.
+const ALL_ROLES = ['FARMER', 'PROCESSOR', 'LAB', 'RETAILER', 'INSPECTOR', 'ADMIN'];
+const PUBLIC = { roles: ['PUBLIC'] };
+const ANY = { roles: ['ANY'] };
+const ORG_HEAD = { roles: ALL_ROLES, orgAdmin: true };
+const EXPECTED_ACCESS: Record<string, Json> = {
+  // Auth
+  login: PUBLIC,
+  refreshToken: PUBLIC,
+  logout: PUBLIC,
+  verifyTwoFactor: PUBLIC,
+  setupTwoFactor: { roles: ['INSPECTOR', 'ADMIN'] },
+  forgotPassword: PUBLIC,
+  resetPassword: PUBLIC,
+  registerOrganization: PUBLIC,
+  acceptInvite: PUBLIC,
+  // Profile
+  getMe: ANY,
+  updateMe: ANY,
+  uploadMyAvatar: ANY,
+  deleteMyAvatar: ANY,
+  getMyChannels: ANY,
+  updateMyChannels: ANY,
+  createTelegramCode: ANY,
+  // Users
+  listUsers: ORG_HEAD,
+  inviteUser: ORG_HEAD,
+  updateUser: ORG_HEAD,
+  getUserAvatar: ANY,
+  // Organizations
+  getOrganization: ANY,
+  uploadOrganizationLogo: ORG_HEAD,
+  getOrganizationLogo: ANY,
+  // Files
+  downloadFile: { roles: ['ANY'], access: 'signed' },
+  // Public
+  getPublicBatch: PUBLIC,
+  createPublicComplaint: PUBLIC,
+  getCaptchaChallenge: PUBLIC,
+  downloadPublicFile: PUBLIC,
+  // Health
+  getHealthLive: PUBLIC,
+  getHealthReady: PUBLIC,
+  // Events
+  streamEvents: ANY,
+};
 
 interface Op {
   id: string; // "post /auth/login"
@@ -142,12 +193,90 @@ describe('openapi contract: operations', () => {
     expect(bad).toEqual([]);
   });
 
-  it('x-roles ["PUBLIC"] if and only if security: []', () => {
+  it('x-roles / x-org-admin / x-access match the expected permission matrix (spec 4.3) exactly', () => {
+    const actual: Record<string, Json> = {};
+    for (const { op } of ops) {
+      actual[op.operationId] = {
+        roles: op['x-roles'],
+        ...(op['x-org-admin'] ? { orgAdmin: true } : {}),
+        ...(op['x-access'] ? { access: op['x-access'] } : {}),
+      };
+    }
+    // Every operation in the contract must be listed; Tasks 9-10 extend this table.
+    expect(actual).toEqual(EXPECTED_ACCESS);
+  });
+
+  it('access categories: PUBLIC ⇔ security: []; SIGNED ⇔ security [bearer, {}]; others need a credential', () => {
     const bad: string[] = [];
     for (const { id, op } of ops) {
       const isPublic = op['x-roles']?.[0] === 'PUBLIC';
-      const noSecurity = Array.isArray(op.security) && op.security.length === 0;
-      if (isPublic !== noSecurity) bad.push(id);
+      const isSigned = op['x-access'] === 'signed';
+      const sec = op.security;
+      const noSecurity = Array.isArray(sec) && sec.length === 0;
+      const optionalSecurity = Array.isArray(sec) && sec.some((s: Json) => Object.keys(s).length === 0);
+      if (isPublic !== noSecurity) bad.push(`${id}: PUBLIC must have security: [] and vice versa`);
+      if (isSigned !== optionalSecurity) bad.push(`${id}: only x-access signed may make security optional`);
+      if ('x-access' in op && !isSigned) bad.push(`${id}: unknown x-access`);
+      if (isSigned) {
+        if (isPublic) bad.push(`${id}: signed operation cannot be PUBLIC`);
+        if (JSON.stringify(sec) !== JSON.stringify([{ bearer: [] }, {}])) bad.push(`${id}: signed security`);
+        const names = (op.parameters ?? []).map((p: Json) => deref(p).name);
+        if (!names.includes('exp') || !names.includes('sig')) bad.push(`${id}: exp/sig params`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('rate-limits.json matches ruling R30 exactly', () => {
+    expect(RATE_LIMITS.limits).toEqual([
+      {
+        scope: 'user',
+        limit: 100,
+        windowSec: 60,
+        subject: 'userId',
+        keyPattern: 'rl:user:{userId}:{windowStartEpochSec}',
+      },
+      {
+        scope: 'login-ip',
+        limit: 20,
+        windowSec: 60,
+        subject: 'ip',
+        keyPattern: 'rl:login-ip:{ip}:{windowStartEpochSec}',
+      },
+      {
+        scope: 'forgot',
+        limit: 3,
+        windowSec: 3600,
+        subject: 'email',
+        keyPattern: 'rl:forgot:{email}:{windowStartEpochSec}',
+      },
+      {
+        scope: 'complaint-ip',
+        limit: 10,
+        windowSec: 3600,
+        subject: 'ip',
+        keyPattern: 'rl:complaint-ip:{ip}:{windowStartEpochSec}',
+      },
+    ]);
+  });
+
+  it('429 is documented exactly where a rate-limit scope applies (user scope for every non-public op)', () => {
+    const scopes = new Set(RATE_LIMITS.limits.map((l: Json) => l.scope));
+    const bad: string[] = [];
+    const expectedScopes: Record<string, string[]> = {
+      login: ['login-ip'],
+      forgotPassword: ['forgot'],
+      createPublicComplaint: ['complaint-ip'],
+    };
+    for (const { id, op } of ops) {
+      const rl: string[] = op['x-rate-limit'] ?? [];
+      if (!rl.every((s) => scopes.has(s) && s !== 'user')) bad.push(`${id}: unknown x-rate-limit scope`);
+      if (JSON.stringify(rl) !== JSON.stringify(expectedScopes[op.operationId] ?? []))
+        bad.push(`${id}: x-rate-limit`);
+      const isPublic = op['x-roles']?.[0] === 'PUBLIC';
+      const limited = !isPublic || rl.length > 0;
+      if (limited !== Boolean(op.responses?.['429']))
+        bad.push(`${id}: 429 ${limited ? 'missing' : 'unexpected'}`);
     }
     expect(bad).toEqual([]);
   });
@@ -212,7 +341,12 @@ describe('openapi contract: operations', () => {
     const bad: string[] = [];
     for (const { id, op } of uploads) {
       const schema = deref(op.requestBody.content['multipart/form-data'].schema);
-      if (!schema.required?.includes('file') || deref(schema.properties?.file ?? {}).type !== 'string')
+      const file = deref(schema.properties?.file ?? {});
+      if (
+        !schema.required?.includes('file') ||
+        file.type !== 'string' ||
+        (file.format !== 'binary' && typeof file.contentMediaType !== 'string')
+      )
         bad.push(`${id}: file`);
       if (!op.responses['413'] || !op.responses['415']) bad.push(`${id}: 413/415`);
     }
@@ -233,6 +367,25 @@ describe('openapi contract: operations', () => {
     })(doc.components.schemas.PublicBatch, 'PublicBatch');
     expect(found).toEqual([]);
   });
+
+  it('every object schema inside PublicBatch (recursively) has additionalProperties: false', () => {
+    const open: string[] = [];
+    let objects = 0;
+    (function walk(schema: Json, path: string) {
+      const s = deref(schema);
+      const isObject =
+        s.type === 'object' || (Array.isArray(s.type) && s.type.includes('object')) || s.properties;
+      if (isObject) {
+        objects++;
+        if (s.additionalProperties !== false) open.push(path);
+      }
+      for (const [name, sub] of Object.entries<Json>(s.properties ?? {})) walk(sub, `${path}.${name}`);
+      if (s.items) walk(s.items, `${path}[]`);
+      for (const k of ['oneOf', 'anyOf', 'allOf']) (s[k] ?? []).forEach((x: Json) => walk(x, path));
+    })(doc.components.schemas.PublicBatch, 'PublicBatch');
+    expect(objects).toBeGreaterThanOrEqual(6);
+    expect(open).toEqual([]);
+  });
 });
 
 describe('openapi contract: examples validate against their schemas', () => {
@@ -240,9 +393,21 @@ describe('openapi contract: examples validate against their schemas', () => {
   const cases: { where: string; schemaPtr: string[]; value: unknown }[] = [];
 
   beforeAll(() => {
-    ajv = new Ajv2020({ strict: false, allErrors: true, validateFormats: true, logger: false });
+    // Strict schema mode: an unknown `format` (or keyword) makes compilation throw instead of being ignored.
+    ajv = new Ajv2020({
+      strict: true,
+      strictTypes: false,
+      strictTuples: false,
+      strictRequired: false,
+      allErrors: true,
+      validateFormats: true,
+    });
     addFormats(ajv);
     ajv.addFormat('binary', true);
+    // OpenAPI annotation keywords allowed inside schemas.
+    ajv.addVocabulary(['example', 'discriminator', 'xml', 'externalDocs']);
+    // Top-level OpenAPI document fields (the bundle is registered as one schema so refs resolve).
+    ajv.addVocabulary(['openapi', 'info', 'servers', 'security', 'tags', 'paths', 'components']);
     ajv.addSchema(doc, 'urn:agrotrace:openapi');
 
     // 1) schema-level `example` anywhere inside components.schemas (not descending into example values)
@@ -254,6 +419,11 @@ describe('openapi contract: examples validate against their schemas', () => {
       const isPropertiesMap = ptr[ptr.length - 1] === 'properties';
       if (!isPropertiesMap && 'example' in obj) {
         cases.push({ where: ptr.join('/'), schemaPtr: ptr, value: obj.example });
+      }
+      if (!isPropertiesMap && Array.isArray(obj.examples)) {
+        obj.examples.forEach((value: unknown, i: number) =>
+          cases.push({ where: `${ptr.join('/')}/examples/${i}`, schemaPtr: ptr, value }),
+        );
       }
       for (const [k, v] of Object.entries(obj)) {
         if (isPropertiesMap || (k !== 'example' && k !== 'examples')) walk(v, [...ptr, k]);

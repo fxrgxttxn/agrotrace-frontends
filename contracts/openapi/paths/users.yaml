@@ -93,7 +93,8 @@
     summary: Изменение сотрудника
     description: >-
       Изменяет роли, признак руководителя и статус сотрудника (ACTIVE ↔ BLOCKED; блокировка отзывает его
-      refresh-токены). Руководитель — только для сотрудников своей организации (иначе 404); ADMIN — для любых.
+      refresh-токены). Изменение статуса пользователя INVITED — 409 INVALID_TRANSITION. Руководитель — только
+      для сотрудников своей организации (иначе 404); ADMIN — для любых.
     tags: [Users]
     x-roles: [FARMER, PROCESSOR, LAB, RETAILER, INSPECTOR, ADMIN]
     x-org-admin: true
@@ -125,6 +126,8 @@
         $ref: '../components/responses.yaml#/Forbidden'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        $ref: '../components/responses.yaml#/Conflict'
       '429':
         $ref: '../components/responses.yaml#/TooManyRequests'
 /users/{id}/avatar:
@@ -133,7 +136,7 @@
     summary: Аватарка пользователя
     description: >-
       Аватарка доступна любому авторизованному пользователю (п. 4.2). WebP выбранного варианта;
-      `Cache-Control: private, no-cache`. Нет пользователя или аватарки — 404.
+      `Cache-Control: private, max-age=0, must-revalidate`. Нет пользователя или аватарки — 404.
     tags: [Users]
     x-roles: [ANY]
     parameters:

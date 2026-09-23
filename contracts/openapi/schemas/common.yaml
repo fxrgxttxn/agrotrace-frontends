@@ -8,6 +8,11 @@ DateTime:
   format: date-time
   description: Момент времени ISO 8601 в UTC с суффиксом Z.
   example: '2026-09-24T08:30:00Z'
+NullableDateTime:
+  type: [string, 'null']
+  format: date-time
+  description: Момент времени ISO 8601 в UTC с суффиксом Z или null.
+  example: '2026-09-24T08:30:00Z'
 Date:
   type: string
   format: date
@@ -31,7 +36,44 @@ Email:
   type: string
   format: email
   maxLength: 254
+  description: >-
+    Email. Сервер приводит email к нижнему регистру перед проверкой уникальности, поиском и сохранением;
+    в ответах email всегда в нижнем регистре.
   example: petrov@kfh-petrov.ru
+NameString:
+  type: string
+  minLength: 1
+  maxLength: 255
+  pattern: '\S'
+  description: Имя/название; не может состоять только из пробельных символов (сервер не обрезает пробелы).
+  example: Петров Иван Сергеевич
+SignedFileUrl:
+  type: string
+  pattern: '^/api/v1/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?(variant=(96|480)&)?exp=\d{10}&sig=[0-9a-f]{64}$'
+  description: >-
+    Подписанный относительный URL защищённого файла (аватарки, протоколы, QR, отчёты):
+    `/api/v1/files/{id}?[variant={96|480}&]exp={unix}&sig={hex}`, действует 3600 с; работает в `<img src>`
+    и ссылках без заголовка Authorization. Алгоритм подписи — в `GET /files/{id}`. Подпись покрывает
+    `variant`, поэтому клиент не меняет параметры URL; в ответах API URL выдаётся без `variant`
+    (для изображений отдаётся вариант 480).
+  example: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+NullableSignedFileUrl:
+  type: [string, 'null']
+  pattern: '^/api/v1/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?(variant=(96|480)&)?exp=\d{10}&sig=[0-9a-f]{64}$'
+  description: '`SignedFileUrl` или null, если файла нет.'
+  example: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+PublicFileUrl:
+  type: string
+  pattern: '^/api/v1/public/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  description: >-
+    Неподписанный относительный URL публичного изображения (логотип организации, фото продукта)
+    `/api/v1/public/files/{id}`; клиент может добавить `?variant=96|480`.
+  example: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+NullablePublicFileUrl:
+  type: [string, 'null']
+  pattern: '^/api/v1/public/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  description: '`PublicFileUrl` или null, если изображения нет.'
+  example: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
 Phone:
   type: string
   pattern: '^\+[1-9]\d{6,14}$'
@@ -41,7 +83,8 @@ Password:
   type: string
   minLength: 10
   maxLength: 128
-  description: Пароль, не короче 10 символов (п. 8.8).
+  description: >-
+    Пароль, не короче 10 символов Unicode (п. 8.8); сравнивается побайтно, пробелы не обрезаются и значимы.
   example: Ozimaya-2026!
 PageNumber:
   type: integer
@@ -180,8 +223,7 @@ OrganizationRef:
     type:
       $ref: '#/OrganizationType'
     logoUrl:
-      type: [string, 'null']
-      description: Относительный URL логотипа `/api/v1/public/files/{fileId}` (логотип публичен), null если логотипа нет.
+      $ref: '#/NullablePublicFileUrl'
   example:
     id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
     name: КФХ Петров
@@ -196,21 +238,25 @@ FileRef:
       $ref: '#/Uuid'
     url:
       type: string
-      pattern: '^/api/v1/(public/)?files/[0-9a-f-]{36}$'
-      description: Относительный URL `/api/v1/files/{id}` или `/api/v1/public/files/{id}` (для публичных файлов).
+      pattern: '^/api/v1/(public/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?(variant=(96|480)&)?exp=\d{10}&sig=[0-9a-f]{64})$'
+      description: >-
+        Для логотипов и фото продуктов — `PublicFileUrl` (`/api/v1/public/files/{id}`, без подписи);
+        для аватарок, протоколов, QR и отчётов — `SignedFileUrl` (`/api/v1/files/{id}?exp=…&sig=…`, 3600 с).
     mime:
       type: string
-      description: MIME-тип хранимого файла (для изображений после конвертации — `image/webp`).
+      description: MIME-тип исходного загруженного файла (определённый по сигнатуре), а не отдаваемого варианта.
     sizeBytes:
       type: integer
       minimum: 0
+      description: Размер исходного загруженного файла в байтах.
     originalName:
       type: string
+      description: Имя файла из запроса (только для отображения и Content-Disposition, не используется в ключе хранилища).
   example:
     id: 3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f
-    url: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f
-    mime: image/webp
-    sizeBytes: 48213
+    url: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+    mime: image/jpeg
+    sizeBytes: 812344
     originalName: petrov.jpg
 ProductRef:
   type: object
@@ -224,8 +270,7 @@ ProductRef:
     category:
       $ref: '#/ProductCategory'
     imageUrl:
-      type: [string, 'null']
-      description: Относительный URL фото продукта `/api/v1/public/files/{fileId}`, null если фото нет.
+      $ref: '#/NullablePublicFileUrl'
   example:
     id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
     name: Пшеница озимая
@@ -254,10 +299,21 @@ HealthCheckStatus:
   type: string
   enum: [ok, fail]
   example: ok
+HealthLive:
+  type: object
+  description: Ответ `/health/live` — зависимости не проверяются.
+  required: [status]
+  additionalProperties: false
+  properties:
+    status:
+      type: string
+      const: ok
+  example:
+    status: ok
 Health:
   type: object
-  description: '`checks` присутствует только в `/health/ready`.'
-  required: [status]
+  description: Ответ `/health/ready`; `status` = ok, только если все `checks` = ok.
+  required: [status, checks]
   additionalProperties: false
   properties:
     status:

@@ -3,17 +3,38 @@
   get:
     operationId: downloadFile
     summary: Скачивание файла
-    description: >-
-      Поток файла через backend с проверкой прав (FR-FILE-03): файл наследует права сущности, к которой
-      привязан (протокол анализа — тем, кто видит анализ; аватарка — любому авторизованному; логотип и фото
-      продукта — всем). Нет файла или нет права его видеть — 404. Заголовки `Content-Type`, `Content-Length`,
-      `Content-Disposition`, `ETag`; `Cache-Control: private, no-cache`; `If-None-Match` → 304.
-      Файл, загруженный через любую реализацию, отдаётся любой другой без различий (FR-FILE-05).
+    description: |
+      Поток файла через backend (FR-FILE-03). Два способа доступа (R28, R34):
+
+      1. **Bearer-токен** (без `exp`/`sig`) — с проверкой прав: файл наследует права сущности, к которой привязан
+      (протокол анализа — тем, кто видит анализ; аватарка — любому авторизованному; логотип и фото продукта — всем).
+      Нет файла или нет права его видеть — 404.
+
+      2. **Подписанный URL** (без заголовка Authorization) — такие URL сервер отдаёт в полях `avatarUrl`,
+      `FileRef.url` и т.п. для аватарок, протоколов, QR и отчётов. Подпись:
+      `sig = hex(HMAC-SHA256(key = JWT_SECRET, message = "{id}:{variant}:{exp}"))` в нижнем регистре, где `id` —
+      UUID файла в нижнем регистре, `variant` — значение параметра `variant` из URL или пустая строка,
+      если параметра нет, `exp` — Unix-время истечения в секундах (десятичное, без ведущих нулей) = момент
+      выдачи + 3600. Пример сообщения: `3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f::1790247600`. Сравнение подписи —
+      за постоянное время. Неверная подпись, `exp` в прошлом или только один из `exp`/`sig` — 403 FORBIDDEN;
+      права пользователя при этом не проверяются. Если переданы `exp`/`sig`, проверяется только подпись
+      (заголовок Authorization игнорируется).
+
+      Нет ни Bearer, ни подписи — 401. Заголовки ответа: `Content-Type` (MIME отдаваемого варианта),
+      `Content-Length`, `Content-Disposition`, `ETag` (sha256 отдаваемых байтов), `Cache-Control: private,
+      max-age=0, must-revalidate`; `If-None-Match` → 304. Файл, загруженный через любую реализацию, отдаётся
+      любой другой без различий (FR-FILE-05). Лимит `user` применяется только к запросам с Bearer.
     tags: [Files]
+    security:
+      - bearer: []
+      - {}
     x-roles: [ANY]
+    x-access: signed
     parameters:
       - $ref: '../components/parameters.yaml#/IdPath'
       - $ref: '../components/parameters.yaml#/ImageVariant'
+      - $ref: '../components/parameters.yaml#/SignedExp'
+      - $ref: '../components/parameters.yaml#/SignedSig'
       - $ref: '../components/parameters.yaml#/IfNoneMatch'
     responses:
       '200':
@@ -25,7 +46,21 @@
       '401':
         $ref: '../components/responses.yaml#/Unauthorized'
       '403':
-        $ref: '../components/responses.yaml#/Forbidden'
+        description: Подпись неверна или истекла (FORBIDDEN).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/forbidden
+              title: Invalid or expired signature
+              status: 403
+              code: FORBIDDEN
       '404':
         $ref: '../components/responses.yaml#/NotFound'
       '429':

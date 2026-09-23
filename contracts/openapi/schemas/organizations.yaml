@@ -18,8 +18,7 @@ Organization:
     type:
       $ref: './common.yaml#/OrganizationType'
     logoUrl:
-      type: [string, 'null']
-      description: Относительный URL логотипа `/api/v1/public/files/{fileId}`, null если логотипа нет.
+      $ref: './common.yaml#/NullablePublicFileUrl'
     inn:
       type: string
       pattern: '^\d{10}(\d{2})?$'
@@ -28,12 +27,24 @@ Organization:
     region:
       $ref: './common.yaml#/Region'
     trustRating:
-      type: integer
+      type: [integer, 'null']
       minimum: 0
       maximum: 100
-      description: Рейтинг доверия (BR-09).
+      description: Рейтинг доверия хозяйства (BR-09); не null только для организаций типа FARM, для остальных — null.
     status:
       $ref: '#/OrganizationStatus'
+  if:
+    properties:
+      type:
+        const: FARM
+  then:
+    properties:
+      trustRating:
+        type: integer
+  else:
+    properties:
+      trustRating:
+        type: 'null'
   example:
     id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
     name: КФХ Петров

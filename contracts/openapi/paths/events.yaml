@@ -34,8 +34,9 @@
       data: {"ts":"2026-09-24T09:00:37Z"}
       ```
 
-      `reauth` — срок access-токена истёк; сервер закрывает поток, клиент обновляет токен
-      (`POST /auth/refresh`) и переподключается с `Last-Event-ID`:
+      `reauth` — срок access-токена истёк; сервер отправляет событие и закрывает поток. Клиент ОБЯЗАН закрыть
+      EventSource (иначе браузер переподключится со старым токеном), обновить токен (`POST /auth/refresh`) и открыть
+      новый поток с новым `access_token` и `lastEventId` = `id` последнего полученного события `notification`:
       ```
       event: reauth
       data: {"reason":"TOKEN_EXPIRED"}
@@ -56,6 +57,15 @@
         description: >-
           `seq` последнего полученного уведомления; при переподключении сервер досылает пропущенные
           уведомления из таблицы `notifications`.
+        schema:
+          type: string
+          pattern: '^\d+$'
+        example: '1041'
+      - name: lastEventId
+        in: query
+        description: >-
+          То же, что `Last-Event-ID`, для явного переподключения клиентом (EventSource не позволяет задать
+          заголовок). Если переданы оба, используется заголовок `Last-Event-ID`.
         schema:
           type: string
           pattern: '^\d+$'

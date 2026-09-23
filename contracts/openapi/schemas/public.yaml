@@ -27,8 +27,7 @@ PublicBatch:
         category:
           $ref: './common.yaml#/ProductCategory'
         imageUrl:
-          type: [string, 'null']
-          description: Относительный URL фото продукта `/api/v1/public/files/{fileId}`.
+          $ref: './common.yaml#/NullablePublicFileUrl'
     origin:
       type: object
       description: Хозяйство-производитель исходного сырья (для производной партии — организация-производитель).
@@ -38,20 +37,15 @@ PublicBatch:
         farmName:
           type: string
         logoUrl:
-          type: [string, 'null']
-          description: Относительный URL логотипа `/api/v1/public/files/{fileId}`.
+          $ref: './common.yaml#/NullablePublicFileUrl'
         region:
           $ref: './common.yaml#/Region'
     harvestedAt:
       description: Дата уборки (сырьевая партия), иначе null.
-      oneOf:
-        - $ref: './common.yaml#/DateTime'
-        - type: 'null'
+      $ref: './common.yaml#/NullableDateTime'
     producedAt:
       description: Дата производства (производная партия), иначе null.
-      oneOf:
-        - $ref: './common.yaml#/DateTime'
-        - type: 'null'
+      $ref: './common.yaml#/NullableDateTime'
     status:
       $ref: './common.yaml#/BatchStatus'
     safety:
@@ -69,14 +63,12 @@ PublicBatch:
           orgType:
             $ref: './common.yaml#/OrganizationType'
           logoUrl:
-            type: [string, 'null']
+            $ref: './common.yaml#/NullablePublicFileUrl'
           from:
             $ref: './common.yaml#/DateTime'
           to:
             description: Конец владения; null — текущий держатель.
-            oneOf:
-              - $ref: './common.yaml#/DateTime'
-              - type: 'null'
+            $ref: './common.yaml#/NullableDateTime'
     labSummary:
       type: object
       description: Итог завершённых анализов партии.
@@ -94,9 +86,7 @@ PublicBatch:
           enum: [PASS, FAIL, null]
         lastDate:
           description: Дата последнего завершённого анализа.
-          oneOf:
-            - $ref: './common.yaml#/DateTime'
-            - type: 'null'
+          $ref: './common.yaml#/NullableDateTime'
   example:
     publicCode: AT-2026-000123
     product:
@@ -143,10 +133,12 @@ PublicComplaintRequest:
       type: string
       minLength: 10
       maxLength: 2000
+      pattern: '\S'
     contact:
       type: string
       minLength: 1
       maxLength: 255
+      pattern: '\S'
       description: Необязательный контакт покупателя (email или телефон); виден только инспектору.
     altcha:
       type: string
