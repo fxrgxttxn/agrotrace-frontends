@@ -210,6 +210,7 @@ CREATE TABLE public.batches (
     created_by uuid,
     deleted_at timestamp with time zone,
     CONSTRAINT batches_check CHECK (((((kind)::text = 'RAW'::text) AND (harvested_at IS NOT NULL)) OR (((kind)::text = 'DERIVED'::text) AND (produced_at IS NOT NULL)))),
+    CONSTRAINT batches_check1 CHECK ((((qr_png_file_id IS NULL) = (qr_pdf_file_id IS NULL)) AND ((qr_png_file_id IS NULL) = (qr_generated_at IS NULL)))),
     CONSTRAINT batches_kind_check CHECK (((kind)::text = ANY ((ARRAY['RAW'::character varying, 'DERIVED'::character varying])::text[]))),
     CONSTRAINT batches_mass_kg_check CHECK ((mass_kg > (0)::numeric)),
     CONSTRAINT batches_status_check CHECK (((status)::text = ANY ((ARRAY['Created'::character varying, 'OnTest'::character varying, 'Approved'::character varying, 'InTransit'::character varying, 'Accepted'::character varying, 'Processed'::character varying, 'OnSale'::character varying, 'Sold'::character varying, 'Blocked'::character varying, 'Recalled'::character varying, 'WrittenOff'::character varying])::text[]))),

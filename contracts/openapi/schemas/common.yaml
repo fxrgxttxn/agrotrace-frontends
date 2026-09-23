@@ -22,6 +22,13 @@ Mass:
   pattern: '^\d{1,9}\.\d{3}$'
   description: Масса в килограммах, десятичная строка ровно с тремя знаками после точки.
   example: '12480.000'
+MassTotal:
+  type: string
+  pattern: '^\d{1,15}\.\d{3}$'
+  description: >-
+    Сумма масс в килограммах (баланс BR-04 и другие итоги по нескольким партиям) — как `Mass`, но до 15 цифр
+    целой части, чтобы сумма нескольких максимальных масс не выходила за формат (R50).
+  example: '10000.000'
 PositiveMass:
   type: string
   pattern: '^(?!0+\.000$)\d{1,9}\.\d{3}$'
@@ -138,6 +145,7 @@ ProblemCode:
     - EXTERNAL_UNAVAILABLE
     - INTERNAL
     - NO_LAB_AVAILABLE
+    - IDEMPOTENCY_KEY_IN_PROGRESS
   example: VALIDATION
 Problem:
   type: object

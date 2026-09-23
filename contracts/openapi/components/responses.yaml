@@ -387,8 +387,12 @@ WaybillNotReceiver:
         params:
           reason: NOT_RECEIVER
 IdempotencyConflict:
-  description: '`Idempotency-Key` уже использован этим пользователем для другого запроса (IDEMPOTENCY_KEY_REUSED).'
+  description: >-
+    `Idempotency-Key` уже использован этим пользователем для другого запроса (IDEMPOTENCY_KEY_REUSED) либо первый
+    запрос с этим ключом ещё выполняется (IDEMPOTENCY_KEY_IN_PROGRESS, `Retry-After: 1`), R48.
   headers:
+    Retry-After:
+      $ref: './headers.yaml#/RetryAfterInProgress'
     X-Request-Id:
       $ref: './headers.yaml#/XRequestId'
     X-Backend:
@@ -397,8 +401,18 @@ IdempotencyConflict:
     application/problem+json:
       schema:
         $ref: '../schemas/common.yaml#/Problem'
-      example:
-        type: /problems/idempotency-key-reused
-        title: Idempotency key reused
-        status: 409
-        code: IDEMPOTENCY_KEY_REUSED
+      examples:
+        idempotencyKeyReused:
+          summary: Ключ уже использован для другого запроса
+          value:
+            type: /problems/idempotency-key-reused
+            title: Idempotency key reused
+            status: 409
+            code: IDEMPOTENCY_KEY_REUSED
+        idempotencyKeyInProgress:
+          summary: Первый запрос с этим ключом ещё выполняется
+          value:
+            type: /problems/idempotency-key-in-progress
+            title: Idempotency key in progress
+            status: 409
+            code: IDEMPOTENCY_KEY_IN_PROGRESS

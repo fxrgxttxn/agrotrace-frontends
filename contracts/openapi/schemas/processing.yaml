@@ -10,11 +10,11 @@ MassBalance:
   additionalProperties: false
   properties:
     inputKg:
-      $ref: './common.yaml#/Mass'
+      $ref: './common.yaml#/MassTotal'
     allowedKg:
-      $ref: './common.yaml#/Mass'
+      $ref: './common.yaml#/MassTotal'
     outputKg:
-      $ref: './common.yaml#/Mass'
+      $ref: './common.yaml#/MassTotal'
   example:
     inputKg: '10000.000'
     allowedKg: '7500.000'

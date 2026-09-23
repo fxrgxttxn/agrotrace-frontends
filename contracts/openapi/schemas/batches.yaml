@@ -77,7 +77,20 @@ BatchStatusReason:
 BatchListItem:
   type: object
   required:
-    [id, publicCode, product, massKg, status, kind, holder, origin, harvestedAt, producedAt, updatedAt]
+    [
+      id,
+      publicCode,
+      product,
+      massKg,
+      status,
+      kind,
+      holder,
+      origin,
+      harvestedAt,
+      producedAt,
+      updatedAt,
+      qrGeneratedAt,
+    ]
   additionalProperties: false
   properties:
     id:
@@ -109,6 +122,9 @@ BatchListItem:
       $ref: './common.yaml#/NullableDateTime'
     updatedAt:
       $ref: './common.yaml#/DateTime'
+    qrGeneratedAt:
+      description: Момент последней генерации QR (`POST /batches/{id}/qr`); null — не генерировался.
+      $ref: './common.yaml#/NullableDateTime'
   example:
     id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
     publicCode: AT-2026-000123
@@ -133,6 +149,7 @@ BatchListItem:
     harvestedAt: '2026-07-18T06:00:00Z'
     producedAt: null
     updatedAt: '2026-07-25T14:10:00Z'
+    qrGeneratedAt: null
 BatchPage:
   type: object
   required: [items, page, size, total]
@@ -173,6 +190,7 @@ BatchPage:
         harvestedAt: '2026-07-18T06:00:00Z'
         producedAt: null
         updatedAt: '2026-07-25T14:10:00Z'
+        qrGeneratedAt: null
     page: 1
     size: 20
     total: 1
@@ -498,8 +516,11 @@ QrLinks:
     publicUrl:
       type: string
       format: uri
-      pattern: '^https?://[^/]+/p/AT-\d{4}-\d{6,}$'
-      description: Абсолютный URL публичной страницы `{PUBLIC_BASE_URL}/p/{publicCode}` — именно он закодирован в QR.
+      pattern: '^https?://[^/?#]+(/[^?#]*)?/p/AT-\d{4}-\d{6,}$'
+      description: >-
+        Абсолютный URL публичной страницы `{PUBLIC_BASE_URL}/p/{publicCode}` — именно он закодирован в QR.
+        `PUBLIC_BASE_URL` может содержать путь (например, `https://agrotrace.example/app`) и указывается без
+        завершающего `/` (R50).
     pngUrl:
       description: Подписанный URL PNG с QR-кодом (R28, действует 3600 с).
       $ref: './common.yaml#/SignedFileUrl'

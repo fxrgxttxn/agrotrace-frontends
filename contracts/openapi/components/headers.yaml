@@ -81,3 +81,11 @@ ClearRefreshCookie:
   schema:
     type: string
   example: at_refresh=; Max-Age=0; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Strict
+RetryAfterInProgress:
+  description: >-
+    Только для 409 IDEMPOTENCY_KEY_IN_PROGRESS (R48): всегда `1` — повторить запрос через 1 с.
+    У других кодов 409 заголовок не отправляется.
+  schema:
+    type: integer
+    const: 1
+  example: 1

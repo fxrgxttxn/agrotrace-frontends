@@ -48,20 +48,27 @@ IdempotencyKey:
   description: |
     Ключ идемпотентности (BR-11, функция `idempotencyDecision`). Повтор с тем же ключом и тем же запросом
     возвращает сохранённый ответ с заголовком `Idempotent-Replayed: true`; с другим запросом — 409
-    IDEMPOTENCY_KEY_REUSED; ключ не по шаблону или отсутствует — 400 INVALID_IDEMPOTENCY_KEY.
+    IDEMPOTENCY_KEY_REUSED; пока первый запрос ещё выполняется — 409 IDEMPOTENCY_KEY_IN_PROGRESS с `Retry-After: 1`;
+    ключ не по шаблону или отсутствует — 400 INVALID_IDEMPOTENCY_KEY.
 
-    Общий алгоритм для всех реализаций (ключи в общем Redis действуют сквозь backend):
+    Общий алгоритм для всех реализаций (R48; ключи в общем Redis действуют сквозь backend):
 
     - проверка выполняется после аутентификации и `x-roles` и до валидации тела, `If-Match` и бизнес-проверок;
-    - ключ Redis `idem:{userId}:{Idempotency-Key}`, TTL 86400 с;
+    - ключ Redis `idem:{userId}:{Idempotency-Key}`;
     - отпечаток запроса — sha256 (hex, нижний регистр) от байтов UTF-8 строки `{METHOD} {path}\n` и следующих за ней
       сырых байтов тела запроса (`path` — путь без строки запроса, например `/api/v1/waybills/{id}/send`;
       пустое тело — пустая строка);
-    - первый запрос атомарно записывает `{"fingerprint": "<hex>", "state": "pending"}` (`SET NX EX 86400`);
-      пока запись в состоянии `pending`, повтор с тем же ключом получает 409 IDEMPOTENCY_KEY_REUSED;
-    - ответ 2xx сохраняется как `{"fingerprint", "state": "done", "status": <код>, "body": <JSON-тело>}` и
-      воспроизводится при повторе (тот же код и тело, текущие `X-Request-Id`/`X-Backend`); ответ 4xx/5xx
-      не сохраняется — запись удаляется, и повтор выполняется заново.
+    - запрос атомарно пытается записать `{"fingerprint": "<hex>", "state": "pending"}` командой `SET NX EX 60`.
+      Если ключ уже есть: отпечаток другой — 409 IDEMPOTENCY_KEY_REUSED; отпечаток тот же и `state` = `pending` —
+      409 IDEMPOTENCY_KEY_IN_PROGRESS, заголовок `Retry-After: 1`; отпечаток тот же и `state` = `done` —
+      воспроизведение сохранённого ответа (тот же код и тело, текущие `X-Request-Id`/`X-Backend`,
+      `Idempotent-Replayed: true`);
+    - ответ 2xx владелец записи сохраняет как `{"fingerprint", "state": "done", "status": <код>, "body": <JSON-тело>}`
+      с TTL 86400 с — Lua-скриптом, который перезаписывает ключ, только если в нём `pending` с тем же отпечатком;
+    - при ответе 4xx/5xx владелец удаляет ключ Lua-скриптом compare-and-delete: `DEL` выполняется, только если
+      в ключе `pending` с тем же отпечатком (чужую или завершённую запись не трогает); повтор затем выполняется заново;
+    - если запрос длится дольше 60 с, запись `pending` истекает и повтор может выполниться повторно — операции
+      с `Idempotency-Key` защищены также блокировками и `If-Match` (протокол блокировок в описании API).
   schema:
     type: string
     pattern: '^[A-Za-z0-9_-]{8,128}$'

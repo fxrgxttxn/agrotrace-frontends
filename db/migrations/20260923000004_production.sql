@@ -58,7 +58,8 @@ CREATE TABLE batches (
   updated_at timestamptz NOT NULL DEFAULT now(),
   created_by uuid REFERENCES users(id),
   deleted_at timestamptz,
-  CHECK ((kind = 'RAW' AND harvested_at IS NOT NULL) OR (kind = 'DERIVED' AND produced_at IS NOT NULL))
+  CHECK ((kind = 'RAW' AND harvested_at IS NOT NULL) OR (kind = 'DERIVED' AND produced_at IS NOT NULL)),
+  CHECK ((qr_png_file_id IS NULL) = (qr_pdf_file_id IS NULL) AND (qr_png_file_id IS NULL) = (qr_generated_at IS NULL))
 );
 CREATE INDEX ix_batches_status ON batches(status) WHERE deleted_at IS NULL;
 CREATE INDEX ix_batches_holder ON batches(holder_org_id) WHERE deleted_at IS NULL;

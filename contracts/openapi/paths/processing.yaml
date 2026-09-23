@@ -4,8 +4,9 @@
     operationId: processBatches
     summary: Переработка партий
     description: |
-      Создаёт производные партии из входных в одной транзакции (входные партии блокируются `SELECT … FOR UPDATE`
-      в порядке возрастания `id`, проверки выполняются после блокировки). Порядок проверок, первая сработавшая
+      Создаёт производные партии из входных в одной транзакции. Блокировки (R47): существующие входные партии
+      `FOR UPDATE ORDER BY id` сразу после шага 1; шаги 2–5 — над заблокированными строками. Порядок входов в
+      запросе определяет только, какая ошибка возвращается первой. Порядок проверок, первая сработавшая
       возвращается:
 
       1. Тело по схеме, повтор `batchId` во входах — 400 (`errors["inputs[1].batchId"]: [validation.duplicate]`).
@@ -36,6 +37,7 @@
       распределения по выходам).
     tags: [Processing]
     x-roles: [PROCESSOR]
+    x-locks: [batches]
     requestBody:
       required: true
       content:
@@ -95,7 +97,9 @@
                 reason: NOT_HOLDER
                 publicCode: AT-2026-000131
       '409':
-        description: Связь образовала бы цикл в графе партий (GRAPH_CYCLE; защитная проверка).
+        description: >-
+          Связь образовала бы цикл в графе партий (GRAPH_CYCLE; защитная проверка) или повторная взаимоблокировка
+          (VERSION_CONFLICT без `params`, R47).
         headers:
           X-Request-Id:
             $ref: '../components/headers.yaml#/XRequestId'
@@ -105,16 +109,28 @@
           application/problem+json:
             schema:
               $ref: '../schemas/common.yaml#/Problem'
-            example:
-              type: /problems/graph-cycle
-              title: Batch graph cycle
-              status: 409
-              code: GRAPH_CYCLE
-              params:
-                parentCode: AT-2026-000457
-                childCode: AT-2026-000123
+            examples:
+              graphCycle:
+                summary: Цикл в графе
+                value:
+                  type: /problems/graph-cycle
+                  title: Batch graph cycle
+                  status: 409
+                  code: GRAPH_CYCLE
+                  params:
+                    parentCode: AT-2026-000457
+                    childCode: AT-2026-000123
+              lockRetryFailed:
+                summary: Повторная взаимоблокировка
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
       '422':
-        description: Нарушено бизнес-правило BR-04, BR-05 или BR-06 (BUSINESS_RULE).
+        description: >-
+          Нарушено бизнес-правило BR-04, BR-05 или BR-06 (BUSINESS_RULE). Значения `params` BR-04 — строки
+          формата `MassTotal`.
         headers:
           X-Request-Id:
             $ref: '../components/headers.yaml#/XRequestId'

@@ -15,7 +15,7 @@ const CONFIG = fileURLToPath(new URL('../redocly.yaml', import.meta.url));
 const METHODS = ['get', 'put', 'post', 'delete', 'patch', 'head', 'options', 'trace'] as const;
 const ROLE_CODES = ['FARMER', 'PROCESSOR', 'LAB', 'RETAILER', 'INSPECTOR', 'ADMIN'];
 
-// Ruling R5 (+ R42) — exact list and order.
+// Ruling R5 (+ R42, R48) — exact list and order.
 const PROBLEM_CODES = [
   'VALIDATION',
   'UNAUTHORIZED',
@@ -40,6 +40,7 @@ const PROBLEM_CODES = [
   'EXTERNAL_UNAVAILABLE',
   'INTERNAL',
   'NO_LAB_AVAILABLE', // R42
+  'IDEMPOTENCY_KEY_IN_PROGRESS', // R48
 ];
 
 const RATE_LIMITS = JSON.parse(readFileSync(new URL('../rules/rate-limits.json', import.meta.url), 'utf8'));
@@ -158,17 +159,34 @@ const EXPECTED_RULES: Record<string, string[]> = {
   processBatches: ['BR-04', 'BR-05', 'BR-06'],
 };
 
-// 403 `params.reason` vocabulary: auth (Task 8) + production (Task 9).
-const FORBIDDEN_REASONS = [
-  'USER_BLOCKED',
-  'USER_INVITED',
-  'ORGANIZATION_NOT_ACTIVE',
-  'NOT_HOLDER',
-  'NOT_SENDER',
-  'NOT_RECEIVER',
-  'EDIT_WINDOW_CLOSED',
-  'BATCH_STATUS',
-];
+// 403 `params.reason` vocabulary (auth from Task 8 + production) and the exact `params` key sets per reason.
+const FORBIDDEN_PARAMS: Record<string, string[][]> = {
+  USER_BLOCKED: [['reason']],
+  USER_INVITED: [['reason']],
+  ORGANIZATION_NOT_ACTIVE: [['reason']],
+  NOT_HOLDER: [['reason'], ['reason', 'publicCode']],
+  NOT_SENDER: [['reason']],
+  NOT_RECEIVER: [['reason']],
+  EDIT_WINDOW_CLOSED: [['reason', 'editableUntil']],
+  BATCH_STATUS: [['reason', 'status']],
+};
+
+// R47: rows each mutating production operation locks, in lock order (parent → batches → other rows).
+const EXPECTED_LOCKS: Record<string, string[]> = {
+  createWaybill: ['batches'],
+  sendWaybill: ['waybill', 'batches'],
+  acceptWaybill: ['waybill', 'batches'],
+  rejectWaybill: ['waybill', 'batches', 'recallTasks'],
+  deleteWaybill: ['waybill'],
+  putBatchOnSale: ['batches'],
+  markBatchSold: ['batches'],
+  createBatchQr: ['batches'],
+  processBatches: ['batches'],
+};
+
+const WAYBILL_SM = JSON.parse(
+  readFileSync(new URL('../rules/waybill-state-machine.json', import.meta.url), 'utf8'),
+);
 
 // Production-module schemas: every object inside them must be closed (R29).
 const CLOSED_SCHEMAS = [
@@ -536,30 +554,117 @@ describe('openapi contract: operations', () => {
     expect(bad).toEqual([]);
   });
 
-  it('403/409 problem examples use the documented params keys', () => {
+  it('403/409 problem examples use the documented params keys and transition targets', () => {
     const bad: string[] = [];
+    const batchStatuses: string[] = STATE_MACHINE.statuses;
+    const userStatuses: string[] = doc.components.schemas.UserStatus.enum;
+    let noLabOnCreateBatch = false;
     for (const { id, op } of ops) {
+      const hasIfMatch = (op.parameters ?? []).map(deref).some((p: Json) => p.name === 'If-Match');
+      const tr = op['x-transition'];
       for (const e of problemExamples(op, '409')) {
-        const keys = Object.keys(e.params ?? {}).sort();
-        if (e.code === 'VERSION_CONFLICT' && JSON.stringify(keys) !== '["currentVersion"]')
-          bad.push(`${id}: VERSION_CONFLICT params`);
+        const keys = JSON.stringify(Object.keys(e.params ?? {}).sort());
         if (
-          e.code === 'INVALID_TRANSITION' &&
-          !['["from","to"]', '["from","publicCode","to"]'].includes(JSON.stringify(keys))
+          e.code === 'VERSION_CONFLICT' &&
+          (hasIfMatch || 'x-locks' in op) &&
+          keys !== (hasIfMatch ? '["currentVersion"]' : '[]')
         )
-          bad.push(`${id}: INVALID_TRANSITION params ${keys.join(',')}`);
-        if (e.code === 'GRAPH_CYCLE' && JSON.stringify(keys) !== '["childCode","parentCode"]')
+          bad.push(`${id}: VERSION_CONFLICT params ${keys} (If-Match: ${hasIfMatch})`);
+        if (e.code === 'INVALID_TRANSITION') {
+          if (keys === '["from","publicCode","to"]') {
+            if (!batchStatuses.includes(e.params.to) || !batchStatuses.includes(e.params.from))
+              bad.push(`${id}: batch INVALID_TRANSITION ${e.params.from}->${e.params.to}`);
+          } else if (keys === '["from","to"]') {
+            const allowedTo = tr ? [tr.to] : userStatuses;
+            const allowedFrom =
+              tr?.entity === 'waybill' ? WAYBILL_SM.statuses : tr ? batchStatuses : userStatuses;
+            if (!allowedTo.includes(e.params.to) || !allowedFrom.includes(e.params.from))
+              bad.push(`${id}: INVALID_TRANSITION ${e.params.from}->${e.params.to}`);
+          } else bad.push(`${id}: INVALID_TRANSITION params ${keys}`);
+        }
+        if (e.code === 'GRAPH_CYCLE' && keys !== '["childCode","parentCode"]')
           bad.push(`${id}: GRAPH_CYCLE params`);
-        if (e.code === 'NO_LAB_AVAILABLE' && (keys.length || op.operationId !== 'createBatch'))
-          bad.push(`${id}: NO_LAB_AVAILABLE only on createBatch, without params (R42)`);
+        if (e.code === 'NO_LAB_AVAILABLE') {
+          if (keys !== '[]' || op.operationId !== 'createBatch')
+            bad.push(`${id}: NO_LAB_AVAILABLE only on createBatch, without params (R42)`);
+          else noLabOnCreateBatch = true;
+        }
+        if (e.code === 'IDEMPOTENCY_KEY_REUSED' || e.code === 'IDEMPOTENCY_KEY_IN_PROGRESS') {
+          if (keys !== '[]' || op['x-idempotent'] !== true) bad.push(`${id}: ${e.code}`);
+        }
       }
       for (const e of problemExamples(op, '403')) {
+        if (e.code !== 'FORBIDDEN') bad.push(`${id}: 403 code ${e.code}`);
         if (e.params === undefined) continue;
-        if (e.code !== 'FORBIDDEN' || !FORBIDDEN_REASONS.includes(e.params.reason))
-          bad.push(`${id}: 403 reason ${e.params.reason}`);
+        const allowed = FORBIDDEN_PARAMS[e.params.reason];
+        const keys = JSON.stringify(Object.keys(e.params).sort());
+        if (!allowed || !allowed.map((k) => JSON.stringify([...k].sort())).includes(keys))
+          bad.push(`${id}: 403 params ${keys} for reason ${e.params.reason}`);
       }
     }
+    if (!noLabOnCreateBatch) bad.push('createBatch: NO_LAB_AVAILABLE example missing (R42)');
     expect(bad).toEqual([]);
+  });
+
+  it('x-locks (R47) are declared exactly on the expected operations, which document lock-retry 409', () => {
+    const actual: Record<string, string[]> = {};
+    const bad: string[] = [];
+    for (const { id, op } of ops) {
+      if (!('x-locks' in op)) continue;
+      actual[op.operationId] = op['x-locks'];
+      const codes = problemExamples(op, '409').map((e) => e.code);
+      if (!codes.includes('VERSION_CONFLICT')) bad.push(`${id}: 409 VERSION_CONFLICT example`);
+      const desc: string = op.description ?? '';
+      if (!/Блокировки \(R47\)/.test(desc))
+        bad.push(`${id}: description must reference the R47 locking protocol`);
+    }
+    expect(actual).toEqual(EXPECTED_LOCKS);
+    expect(bad).toEqual([]);
+    expect(doc.info.description).toMatch(/READ COMMITTED/);
+    expect(doc.info.description).toMatch(/40P01/);
+  });
+
+  it('idempotent operations document 409 IDEMPOTENCY_KEY_REUSED and IN_PROGRESS with Retry-After (R48)', () => {
+    const bad: string[] = [];
+    for (const { id, op } of ops.filter(({ op }) => op['x-idempotent'] === true)) {
+      const codes = problemExamples(op, '409').map((e) => e.code);
+      for (const c of ['IDEMPOTENCY_KEY_REUSED', 'IDEMPOTENCY_KEY_IN_PROGRESS'])
+        if (!codes.includes(c)) bad.push(`${id}: ${c} example`);
+      const ra = deref(deref(op.responses['409']).headers?.['Retry-After'] ?? {});
+      if (ra.schema?.const !== 1 || ra.required === true) bad.push(`${id}: optional Retry-After const 1`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('waybill and batch transitions (x-transition) match the rules files', () => {
+    expect(doc.components.schemas.WaybillStatus.enum).toEqual(WAYBILL_SM.statuses);
+    const wActions = WAYBILL_SM.transitions.map((t: Json) => t.action);
+    expect(doc.components.schemas.WaybillActionName.enum).toEqual(wActions);
+    const bad: string[] = [];
+    const seen: string[] = [];
+    for (const { id, op } of ops) {
+      const tr = op['x-transition'];
+      if (!tr) continue;
+      const sm = tr.entity === 'waybill' ? WAYBILL_SM : tr.entity === 'batch' ? STATE_MACHINE : null;
+      const match = sm?.transitions.filter((t: Json) => t.action === tr.action && t.to === tr.to) ?? [];
+      if (!match.length) bad.push(`${id}: ${tr.entity}.${tr.action} -> ${tr.to} not in rules`);
+      if (tr.entity === 'waybill') seen.push(tr.action);
+    }
+    expect(bad).toEqual([]);
+    expect(seen.sort()).toEqual([...wActions].sort());
+    const withIfMatch = ops
+      .filter(({ op }) => (op.parameters ?? []).map(deref).some((p: Json) => p.name === 'If-Match'))
+      .filter(({ op }) => !op['x-transition'])
+      .map(({ id }) => id);
+    expect(withIfMatch).toEqual([]);
+  });
+
+  it('listBatches has origin=me|all and orgId filters (R49)', () => {
+    const op = ops.find(({ op }) => op.operationId === 'listBatches')!.op;
+    const params = Object.fromEntries((op.parameters ?? []).map(deref).map((p: Json) => [p.name, p]));
+    expect(params.origin?.schema).toEqual({ type: 'string', enum: ['me', 'all'], default: 'all' });
+    expect(params.orgId?.schema).toEqual({ type: 'string', format: 'uuid' });
+    expect(op.description).toMatch(/validation\.orgId\.notAllowed/);
   });
 
   it('every operation with a `sort` parameter declares x-sort {fields, default} and paginates', () => {

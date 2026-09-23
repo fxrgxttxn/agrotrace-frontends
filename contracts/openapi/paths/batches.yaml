@@ -11,6 +11,11 @@
       - `holder` — `all` (по умолчанию): все видимые партии; `me`: только партии, текущий держатель которых —
         организация пользователя. Для INSPECTOR, ADMIN и LAB организация не держит партий, поэтому `holder=me`
         даёт пустую страницу;
+      - `origin` — `all` (по умолчанию) или `me`: только партии, созданные организацией пользователя
+        (`origin_org_id` = организация пользователя; для INSPECTOR, ADMIN и LAB — пустая страница);
+      - `orgId` — только для INSPECTOR и ADMIN: партии, у которых эта организация — создатель или текущий
+        держатель; для остальных ролей параметр запрещён — 400 `errors.orgId: [validation.orgId.notAllowed]`
+        (R49);
       - `from`/`to` — по дате UTC производства: `harvestedAt` у RAW, `producedAt` у DERIVED;
       - `q` — подстрока `publicCode` без учёта регистра.
 
@@ -48,6 +53,19 @@
           type: string
           enum: [me, all]
           default: all
+      - name: origin
+        in: query
+        description: '`me` — только партии, созданные организацией пользователя; `all` — все видимые.'
+        schema:
+          type: string
+          enum: [me, all]
+          default: all
+      - name: orgId
+        in: query
+        description: Партии, у которых организация — создатель или держатель (только INSPECTOR и ADMIN).
+        schema:
+          type: string
+          format: uuid
       - name: kind
         in: query
         description: Фильтр по виду партии.
@@ -368,7 +386,8 @@
     operationId: createBatchQr
     summary: Генерация QR-кода партии
     description: |
-      Генерирует и сохраняет QR для печати (FR-PROD-08, R43, R44). Порядок проверок:
+      Генерирует и сохраняет QR для печати (FR-PROD-08, R43, R44). Блокировки (R47): партия `FOR UPDATE`;
+      проверки — над заблокированной строкой. Порядок проверок:
 
       1. Партия не видна — 404.
 
@@ -378,7 +397,7 @@
       Approved — только для производной (DERIVED) партии, у которой организация пользователя — и создатель
       (`origin`), и держатель, при роли PROCESSOR.
 
-      Результат (партия блокируется `SELECT … FOR UPDATE`): PNG (QR с `publicUrl`, уровень коррекции M,
+      Результат: PNG (QR с `publicUrl`, уровень коррекции M,
       1024 × 1024 px, чёрный на белом, поле 4 модуля) и PDF (этикетка A6: QR, `publicCode`, название продукта,
       организация-создатель) сохраняются как файлы вида QR (`originalName` = `{publicCode}.png` / `{publicCode}.pdf`);
       `batches.qr_png_file_id` / `qr_pdf_file_id` указывают на новые файлы, прежние файлы QR партии (если были)
@@ -386,6 +405,7 @@
       `version` партии не меняется. Ссылки в ответе подписаны (R28), действуют 3600 с.
     tags: [Batches]
     x-roles: [PROCESSOR, RETAILER]
+    x-locks: [batches]
     parameters:
       - $ref: '../components/parameters.yaml#/IdPath'
     requestBody:
@@ -414,6 +434,22 @@
         $ref: '../components/responses.yaml#/QrForbidden'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Повторная взаимоблокировка после одного повтора транзакции (VERSION_CONFLICT без `params`, R47).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/version-conflict
+              title: Version conflict
+              status: 409
+              code: VERSION_CONFLICT
       '429':
         $ref: '../components/responses.yaml#/TooManyRequests'
   get:
@@ -496,7 +532,8 @@
     operationId: putBatchOnSale
     summary: Выставление партии в продажу
     description: |
-      Переход Accepted → OnSale (действие `putOnSale`; R20 — только из Accepted). Порядок проверок:
+      Переход Accepted → OnSale (действие `putOnSale`; R20 — только из Accepted). Блокировки (R47): партия
+      `FOR UPDATE`; проверки — над заблокированной строкой, `If-Match` — compare-and-set. Порядок проверок:
 
       1. Партия не видна — 404.
 
@@ -510,6 +547,8 @@
       страницы `pub:batch:{publicCode}`.
     tags: [Batches]
     x-roles: [RETAILER]
+    x-locks: [batches]
+    x-transition: { entity: batch, action: putOnSale, to: OnSale }
     parameters:
       - $ref: '../components/parameters.yaml#/IdPath'
       - $ref: '../components/parameters.yaml#/IfMatch'
@@ -571,11 +610,14 @@
     operationId: markBatchSold
     summary: Реализация партии
     description: |
-      Переход OnSale → Sold (действие `sell`). Порядок проверок — как в `putBatchOnSale`; статус не OnSale —
+      Переход OnSale → Sold (действие `sell`). Блокировки (R47) и порядок проверок — как в `putBatchOnSale`;
+      статус не OnSale —
       409 INVALID_TRANSITION `{from: <статус>, to: Sold}`. Результат: история (`reason` SOLD), `version` + 1,
       сброс кэша публичной страницы. Держатель не меняется.
     tags: [Batches]
     x-roles: [RETAILER]
+    x-locks: [batches]
+    x-transition: { entity: batch, action: sell, to: Sold }
     parameters:
       - $ref: '../components/parameters.yaml#/IdPath'
       - $ref: '../components/parameters.yaml#/IfMatch'

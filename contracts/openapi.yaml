@@ -29,6 +29,19 @@ info:
     (статус сущности из пути) → 400 по ссылкам тела → поэлементные проверки. Возвращается первая сработавшая ошибка.
 
 
+    Протокол блокировок (R47) для операций, изменяющих партии или накладные (их блокируемые строки перечислены
+    в `x-locks` операции): транзакция READ COMMITTED; сначала `SELECT … FOR UPDATE` родительской строки
+    (накладная, отзыв, анализ, задача отзыва — элемент `waybill` и т.п. в `x-locks`), затем всех затрагиваемых
+    партий одним запросом `SELECT … FOR UPDATE … ORDER BY id` (элемент `batches`), затем прочих затрагиваемых
+    строк (например, задачи отзыва — `recallTasks`), тоже `ORDER BY id`. Все проверки из порядка
+    проверок, начиная с 404, выполняются над заблокированными строками; `If-Match` сравнивается с `version`
+    заблокированной строки (compare-and-set), при расхождении — 409 VERSION_CONFLICT. Взаимоблокировка (SQLSTATE
+    40P01) или ошибка сериализации (40001) — транзакция повторяется целиком один раз; повторный сбой — 409
+    VERSION_CONFLICT (`params.currentVersion` — версия сущности из пути у операций с `If-Match`, у остальных —
+    без `params`). Порядок позиций, указанный в операциях (например, по `publicCode`), определяет только, какая
+    ошибка возвращается первой, и не влияет на порядок блокировок.
+
+
     Списки: `sort` принимает только поля из `x-sort.fields` операции (иначе 400 `errors.sort: [validation.sort]`),
     по умолчанию — `x-sort.default`; сортировка выполняется в БД, при равенстве — по `id` по возрастанию, значения
     null всегда в конце. `q` — подстрока без учёта регистра, `%`, `_` и `\` в ней — обычные символы.
@@ -290,6 +303,8 @@ components:
       $ref: './openapi/components/headers.yaml#/ContentLength'
     RetryAfter:
       $ref: './openapi/components/headers.yaml#/RetryAfter'
+    RetryAfterInProgress:
+      $ref: './openapi/components/headers.yaml#/RetryAfterInProgress'
     SetRefreshCookie:
       $ref: './openapi/components/headers.yaml#/SetRefreshCookie'
     ClearRefreshCookie:
@@ -305,6 +320,8 @@ components:
       $ref: './openapi/schemas/common.yaml#/Date'
     Mass:
       $ref: './openapi/schemas/common.yaml#/Mass'
+    MassTotal:
+      $ref: './openapi/schemas/common.yaml#/MassTotal'
     PositiveMass:
       $ref: './openapi/schemas/common.yaml#/PositiveMass'
     Percent:

@@ -54,6 +54,38 @@ describe('production schema', () => {
       await expectPgError(batch(c, org, p, '1.000', 'Lost'), '23514');
     }));
 
+  it('requires QR png/pdf files and qr_generated_at to be all set or all null (R50)', () =>
+    withTx(async (c) => {
+      const org = await insertOrg(c);
+      const p = await product(c);
+      const b = await batch(c, org, p);
+      const file = async () =>
+        (
+          await c.query(
+            `INSERT INTO files(bucket, object_key, original_name, mime, size_bytes, sha256, kind)
+             VALUES ('agrotrace', 'qr/' || gen_random_uuid(), 'AT.png', 'image/png', 1, repeat('a', 64), 'QR')
+             RETURNING id`,
+          )
+        ).rows[0].id as string;
+      const png = await file();
+      const pdf = await file();
+      await c.query('SAVEPOINT s');
+      await expectPgError(
+        c.query('UPDATE batches SET qr_png_file_id=$2, qr_generated_at=now() WHERE id=$1', [b.id, png]),
+        '23514',
+      );
+      await c.query('ROLLBACK TO SAVEPOINT s');
+      await expectPgError(
+        c.query('UPDATE batches SET qr_png_file_id=$2, qr_pdf_file_id=$3 WHERE id=$1', [b.id, png, pdf]),
+        '23514',
+      );
+      await c.query('ROLLBACK TO SAVEPOINT s');
+      await c.query(
+        'UPDATE batches SET qr_png_file_id=$2, qr_pdf_file_id=$3, qr_generated_at=now() WHERE id=$1',
+        [b.id, png, pdf],
+      );
+    }));
+
   it('forbids self-loop edges', () =>
     withTx(async (c) => {
       const org = await insertOrg(c);

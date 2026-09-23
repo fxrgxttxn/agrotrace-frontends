@@ -71,6 +71,7 @@ WaybillItem:
       harvestedAt: '2026-07-18T06:00:00Z'
       producedAt: null
       updatedAt: '2026-08-02T09:30:00Z'
+      qrGeneratedAt: null
     massDeclaredKg: '12480.000'
     massActualKg: '12080.000'
     discrepancyPercent: '3.21'
@@ -170,6 +171,7 @@ Waybill:
           harvestedAt: '2026-07-18T06:00:00Z'
           producedAt: null
           updatedAt: '2026-08-01T08:15:00Z'
+          qrGeneratedAt: null
         massDeclaredKg: '12480.000'
         massActualKg: null
         discrepancyPercent: null
@@ -235,6 +237,7 @@ WaybillPage:
               harvestedAt: '2026-07-18T06:00:00Z'
               producedAt: null
               updatedAt: '2026-07-25T14:10:00Z'
+              qrGeneratedAt: null
             massDeclaredKg: '12480.000'
             massActualKg: null
             discrepancyPercent: null
