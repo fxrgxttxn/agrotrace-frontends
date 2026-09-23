@@ -47,14 +47,18 @@ CREATE TABLE recalls (
   CHECK ((status = 'CLOSED') = (closed_at IS NOT NULL))
 );
 CREATE UNIQUE INDEX ux_recalls_open_source ON recalls(source_batch_id) WHERE status = 'OPEN';
+CREATE INDEX ix_recalls_source ON recalls(source_batch_id);
 CREATE TABLE recall_batches (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   recall_id uuid NOT NULL REFERENCES recalls(id),
   batch_id uuid NOT NULL REFERENCES batches(id),
   direction varchar(8) NOT NULL CHECK (direction IN ('SOURCE','DOWN','UP')),
   depth integer NOT NULL CHECK (depth >= 0),
-  status_before varchar(16) NOT NULL,
-  PRIMARY KEY (recall_id, batch_id)
+  status_before varchar(16) NOT NULL CHECK (status_before IN
+    ('Created','OnTest','Approved','InTransit','Accepted','Processed','OnSale','Sold','Blocked','Recalled','WrittenOff')),
+  UNIQUE (recall_id, batch_id)
 );
+CREATE INDEX ix_recall_batches_batch ON recall_batches(batch_id);
 CREATE TABLE recall_tasks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   recall_id uuid NOT NULL REFERENCES recalls(id),
@@ -88,6 +92,7 @@ CREATE TABLE complaints (
   deleted_at timestamptz,
   CHECK ((status = 'DECIDED') = (decision IS NOT NULL))
 );
+CREATE INDEX ix_complaints_batch ON complaints(batch_id);
 ALTER TABLE recalls ADD CONSTRAINT fk_recalls_complaint FOREIGN KEY (complaint_id) REFERENCES complaints(id);
 CREATE TRIGGER t_lab_tests_touch BEFORE UPDATE ON lab_tests FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER t_recalls_touch BEFORE UPDATE ON recalls FOR EACH ROW EXECUTE FUNCTION touch_updated_at();

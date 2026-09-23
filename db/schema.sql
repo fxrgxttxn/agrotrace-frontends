@@ -1,12 +1,14 @@
-\restrict dbmate
+--
+-- PostgreSQL database dump
+--
+
 
 -- Dumped from database version 16.15
--- Dumped by pg_dump version 18.6
+-- Dumped by pg_dump version 16.15
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
-SET transaction_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
@@ -149,6 +151,7 @@ CREATE SEQUENCE public.batch_code_seq
 --
 
 CREATE TABLE public.batch_links (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
     parent_batch_id uuid NOT NULL,
     child_batch_id uuid NOT NULL,
     mass_used_kg numeric(12,3) NOT NULL,
@@ -169,7 +172,9 @@ CREATE TABLE public.batch_status_history (
     to_status character varying(16) NOT NULL,
     changed_by uuid,
     reason character varying(500),
-    changed_at timestamp with time zone DEFAULT now() NOT NULL
+    changed_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT batch_status_history_from_status_check CHECK (((from_status)::text = ANY ((ARRAY['Created'::character varying, 'OnTest'::character varying, 'Approved'::character varying, 'InTransit'::character varying, 'Accepted'::character varying, 'Processed'::character varying, 'OnSale'::character varying, 'Sold'::character varying, 'Blocked'::character varying, 'Recalled'::character varying, 'WrittenOff'::character varying])::text[]))),
+    CONSTRAINT batch_status_history_to_status_check CHECK (((to_status)::text = ANY ((ARRAY['Created'::character varying, 'OnTest'::character varying, 'Approved'::character varying, 'InTransit'::character varying, 'Accepted'::character varying, 'Processed'::character varying, 'OnSale'::character varying, 'Sold'::character varying, 'Blocked'::character varying, 'Recalled'::character varying, 'WrittenOff'::character varying])::text[])))
 );
 
 
@@ -449,13 +454,15 @@ CREATE TABLE public.products (
 --
 
 CREATE TABLE public.recall_batches (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
     recall_id uuid NOT NULL,
     batch_id uuid NOT NULL,
     direction character varying(8) NOT NULL,
     depth integer NOT NULL,
     status_before character varying(16) NOT NULL,
     CONSTRAINT recall_batches_depth_check CHECK ((depth >= 0)),
-    CONSTRAINT recall_batches_direction_check CHECK (((direction)::text = ANY ((ARRAY['SOURCE'::character varying, 'DOWN'::character varying, 'UP'::character varying])::text[])))
+    CONSTRAINT recall_batches_direction_check CHECK (((direction)::text = ANY ((ARRAY['SOURCE'::character varying, 'DOWN'::character varying, 'UP'::character varying])::text[]))),
+    CONSTRAINT recall_batches_status_before_check CHECK (((status_before)::text = ANY ((ARRAY['Created'::character varying, 'OnTest'::character varying, 'Approved'::character varying, 'InTransit'::character varying, 'Accepted'::character varying, 'Processed'::character varying, 'OnSale'::character varying, 'Sold'::character varying, 'Blocked'::character varying, 'Recalled'::character varying, 'WrittenOff'::character varying])::text[])))
 );
 
 
@@ -614,6 +621,7 @@ CREATE TABLE public.treatments (
 --
 
 CREATE TABLE public.user_roles (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
     user_id uuid NOT NULL,
     role_id smallint NOT NULL
 );
@@ -652,6 +660,7 @@ CREATE TABLE public.users (
 --
 
 CREATE TABLE public.waybill_items (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
     waybill_id uuid NOT NULL,
     batch_id uuid NOT NULL,
     mass_declared_kg numeric(12,3) NOT NULL,
@@ -734,11 +743,19 @@ ALTER TABLE ONLY public.audit_log
 
 
 --
+-- Name: batch_links batch_links_parent_batch_id_child_batch_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batch_links
+    ADD CONSTRAINT batch_links_parent_batch_id_child_batch_id_key UNIQUE (parent_batch_id, child_batch_id);
+
+
+--
 -- Name: batch_links batch_links_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.batch_links
-    ADD CONSTRAINT batch_links_pkey PRIMARY KEY (parent_batch_id, child_batch_id);
+    ADD CONSTRAINT batch_links_pkey PRIMARY KEY (id);
 
 
 --
@@ -890,7 +907,15 @@ ALTER TABLE ONLY public.products
 --
 
 ALTER TABLE ONLY public.recall_batches
-    ADD CONSTRAINT recall_batches_pkey PRIMARY KEY (recall_id, batch_id);
+    ADD CONSTRAINT recall_batches_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: recall_batches recall_batches_recall_id_batch_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.recall_batches
+    ADD CONSTRAINT recall_batches_recall_id_batch_id_key UNIQUE (recall_id, batch_id);
 
 
 --
@@ -1002,7 +1027,15 @@ ALTER TABLE ONLY public.treatments
 --
 
 ALTER TABLE ONLY public.user_roles
-    ADD CONSTRAINT user_roles_pkey PRIMARY KEY (user_id, role_id);
+    ADD CONSTRAINT user_roles_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: user_roles user_roles_user_id_role_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_roles
+    ADD CONSTRAINT user_roles_user_id_role_id_key UNIQUE (user_id, role_id);
 
 
 --
@@ -1026,7 +1059,15 @@ ALTER TABLE ONLY public.users
 --
 
 ALTER TABLE ONLY public.waybill_items
-    ADD CONSTRAINT waybill_items_pkey PRIMARY KEY (waybill_id, batch_id);
+    ADD CONSTRAINT waybill_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: waybill_items waybill_items_waybill_id_batch_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waybill_items
+    ADD CONSTRAINT waybill_items_waybill_id_batch_id_key UNIQUE (waybill_id, batch_id);
 
 
 --
@@ -1095,6 +1136,20 @@ CREATE INDEX ix_bsh_batch ON public.batch_status_history USING btree (batch_id, 
 
 
 --
+-- Name: ix_complaints_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_complaints_batch ON public.complaints USING btree (batch_id);
+
+
+--
+-- Name: ix_fields_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_fields_org ON public.fields USING btree (organization_id);
+
+
+--
 -- Name: ix_lab_tests_batch; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1116,6 +1171,13 @@ CREATE INDEX ix_notifications_user ON public.notifications USING btree (user_id,
 
 
 --
+-- Name: ix_recall_batches_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_recall_batches_batch ON public.recall_batches USING btree (batch_id);
+
+
+--
 -- Name: ix_recall_tasks_holder; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1127,6 +1189,13 @@ CREATE INDEX ix_recall_tasks_holder ON public.recall_tasks USING btree (holder_o
 --
 
 CREATE INDEX ix_recall_tasks_status_due ON public.recall_tasks USING btree (status, due_at);
+
+
+--
+-- Name: ix_recalls_source; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_recalls_source ON public.recalls USING btree (source_batch_id);
 
 
 --
@@ -1144,10 +1213,24 @@ CREATE INDEX ix_treatments_field_applied ON public.treatments USING btree (field
 
 
 --
+-- Name: ix_user_roles_role; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_user_roles_role ON public.user_roles USING btree (role_id);
+
+
+--
 -- Name: ix_users_org; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX ix_users_org ON public.users USING btree (organization_id) WHERE (deleted_at IS NULL);
+
+
+--
+-- Name: ix_waybill_items_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_waybill_items_batch ON public.waybill_items USING btree (batch_id);
 
 
 --
@@ -1386,6 +1469,14 @@ ALTER TABLE ONLY public.fields
 
 ALTER TABLE ONLY public.fields
     ADD CONSTRAINT fields_region_id_fkey FOREIGN KEY (region_id) REFERENCES public.regions(id);
+
+
+--
+-- Name: organizations fk_organizations_created_by; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizations
+    ADD CONSTRAINT fk_organizations_created_by FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
 --
@@ -1629,6 +1720,14 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: users users_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
 -- Name: users users_organization_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1677,20 +1776,875 @@ ALTER TABLE ONLY public.waybills
 
 
 --
+-- Name: SCHEMA public; Type: ACL; Schema: -; Owner: -
+--
+
+GRANT USAGE ON SCHEMA public TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citextin(cstring); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citextin(cstring) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citextout(public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citextout(public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citextrecv(internal); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citextrecv(internal) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citextsend(public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citextsend(public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext(boolean); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext(boolean) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext(character); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext(character) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext(inet); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext(inet) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION armor(bytea); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.armor(bytea) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION armor(bytea, text[], text[]); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.armor(bytea, text[], text[]) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_cmp(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_cmp(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_eq(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_eq(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_ge(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_ge(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_gt(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_gt(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_hash(public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_hash(public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_hash_extended(public.citext, bigint); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_hash_extended(public.citext, bigint) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_larger(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_larger(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_le(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_le(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_lt(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_lt(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_ne(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_ne(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_pattern_cmp(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_pattern_cmp(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_pattern_ge(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_pattern_ge(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_pattern_gt(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_pattern_gt(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_pattern_le(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_pattern_le(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_pattern_lt(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_pattern_lt(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION citext_smaller(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.citext_smaller(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION crypt(text, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.crypt(text, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION dearmor(text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.dearmor(text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION decrypt(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.decrypt(bytea, bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION decrypt_iv(bytea, bytea, bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.decrypt_iv(bytea, bytea, bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION digest(bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.digest(bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION digest(text, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.digest(text, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION encrypt(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.encrypt(bytea, bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION encrypt_iv(bytea, bytea, bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.encrypt_iv(bytea, bytea, bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION gen_random_bytes(integer); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.gen_random_bytes(integer) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION gen_random_uuid(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.gen_random_uuid() TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION gen_salt(text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.gen_salt(text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION gen_salt(text, integer); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.gen_salt(text, integer) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION hmac(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.hmac(bytea, bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION hmac(text, text, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.hmac(text, text, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION next_batch_code(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.next_batch_code() TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION next_waybill_number(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.next_waybill_number() TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION notify_notification(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.notify_notification() TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_armor_headers(text, OUT key text, OUT value text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_armor_headers(text, OUT key text, OUT value text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_key_id(bytea); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_key_id(bytea) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt(bytea, bytea); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_pub_decrypt(bytea, bytea) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_pub_decrypt(bytea, bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt(bytea, bytea, text, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_pub_decrypt(bytea, bytea, text, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt_bytea(bytea, bytea); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt_bytea(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_pub_decrypt_bytea(bytea, bytea, text, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_pub_encrypt(text, bytea); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_pub_encrypt(text, bytea) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_pub_encrypt(text, bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_pub_encrypt(text, bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_pub_encrypt_bytea(bytea, bytea); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_pub_encrypt_bytea(bytea, bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_sym_decrypt(bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_sym_decrypt(bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_sym_decrypt(bytea, text, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_sym_decrypt(bytea, text, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_sym_decrypt_bytea(bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_sym_decrypt_bytea(bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_sym_decrypt_bytea(bytea, text, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_sym_decrypt_bytea(bytea, text, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_sym_encrypt(text, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_sym_encrypt(text, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_sym_encrypt(text, text, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_sym_encrypt(text, text, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_sym_encrypt_bytea(bytea, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_sym_encrypt_bytea(bytea, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION pgp_sym_encrypt_bytea(bytea, text, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.pgp_sym_encrypt_bytea(bytea, text, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION regexp_match(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.regexp_match(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION regexp_match(public.citext, public.citext, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.regexp_match(public.citext, public.citext, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION regexp_matches(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.regexp_matches(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION regexp_matches(public.citext, public.citext, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.regexp_matches(public.citext, public.citext, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION regexp_replace(public.citext, public.citext, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.regexp_replace(public.citext, public.citext, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION regexp_replace(public.citext, public.citext, text, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.regexp_replace(public.citext, public.citext, text, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION regexp_split_to_array(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.regexp_split_to_array(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION regexp_split_to_array(public.citext, public.citext, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.regexp_split_to_array(public.citext, public.citext, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION regexp_split_to_table(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.regexp_split_to_table(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION regexp_split_to_table(public.citext, public.citext, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.regexp_split_to_table(public.citext, public.citext, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION replace(public.citext, public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.replace(public.citext, public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION split_part(public.citext, public.citext, integer); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.split_part(public.citext, public.citext, integer) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION strpos(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.strpos(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION texticlike(public.citext, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.texticlike(public.citext, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION texticlike(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.texticlike(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION texticnlike(public.citext, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.texticnlike(public.citext, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION texticnlike(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.texticnlike(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION texticregexeq(public.citext, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.texticregexeq(public.citext, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION texticregexeq(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.texticregexeq(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION texticregexne(public.citext, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.texticregexne(public.citext, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION texticregexne(public.citext, public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.texticregexne(public.citext, public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION touch_updated_at(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.touch_updated_at() TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION translate(public.citext, public.citext, text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.translate(public.citext, public.citext, text) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION max(public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.max(public.citext) TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION min(public.citext); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.min(public.citext) TO agrotrace_app;
+
+
+--
+-- Name: TABLE audit_log; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.audit_log TO agrotrace_app;
+
+
+--
+-- Name: SEQUENCE audit_log_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.audit_log_id_seq TO agrotrace_app;
+
+
+--
+-- Name: SEQUENCE batch_code_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.batch_code_seq TO agrotrace_app;
+
+
+--
+-- Name: TABLE batch_links; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.batch_links TO agrotrace_app;
+
+
+--
+-- Name: TABLE batch_status_history; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.batch_status_history TO agrotrace_app;
+
+
+--
+-- Name: SEQUENCE batch_status_history_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.batch_status_history_id_seq TO agrotrace_app;
+
+
+--
+-- Name: TABLE batches; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.batches TO agrotrace_app;
+
+
+--
+-- Name: TABLE complaints; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.complaints TO agrotrace_app;
+
+
+--
+-- Name: TABLE fields; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.fields TO agrotrace_app;
+
+
+--
+-- Name: TABLE files; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.files TO agrotrace_app;
+
+
+--
+-- Name: TABLE indicators; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.indicators TO agrotrace_app;
+
+
+--
+-- Name: TABLE lab_results; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.lab_results TO agrotrace_app;
+
+
+--
+-- Name: TABLE lab_tests; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.lab_tests TO agrotrace_app;
+
+
+--
+-- Name: TABLE norms; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.norms TO agrotrace_app;
+
+
+--
+-- Name: TABLE notifications; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.notifications TO agrotrace_app;
+
+
+--
+-- Name: SEQUENCE notifications_seq_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.notifications_seq_seq TO agrotrace_app;
+
+
+--
+-- Name: TABLE organizations; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.organizations TO agrotrace_app;
+
+
+--
+-- Name: TABLE products; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.products TO agrotrace_app;
+
+
+--
+-- Name: TABLE recall_batches; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.recall_batches TO agrotrace_app;
+
+
+--
+-- Name: TABLE recall_tasks; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.recall_tasks TO agrotrace_app;
+
+
+--
+-- Name: TABLE recalls; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.recalls TO agrotrace_app;
+
+
+--
+-- Name: TABLE refresh_tokens; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.refresh_tokens TO agrotrace_app;
+
+
+--
+-- Name: TABLE regions; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.regions TO agrotrace_app;
+
+
+--
+-- Name: TABLE roles; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.roles TO agrotrace_app;
+
+
+--
+-- Name: SEQUENCE roles_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.roles_id_seq TO agrotrace_app;
+
+
+--
+-- Name: TABLE schema_migrations; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.schema_migrations TO agrotrace_app;
+
+
+--
+-- Name: TABLE substances; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.substances TO agrotrace_app;
+
+
+--
+-- Name: TABLE treatments; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.treatments TO agrotrace_app;
+
+
+--
+-- Name: TABLE user_roles; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_roles TO agrotrace_app;
+
+
+--
+-- Name: TABLE users; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.users TO agrotrace_app;
+
+
+--
+-- Name: TABLE waybill_items; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.waybill_items TO agrotrace_app;
+
+
+--
+-- Name: SEQUENCE waybill_number_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.waybill_number_seq TO agrotrace_app;
+
+
+--
+-- Name: TABLE waybills; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.waybills TO agrotrace_app;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: public; Owner: -
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE agrotrace_owner IN SCHEMA public GRANT SELECT,USAGE ON SEQUENCES TO agrotrace_app;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: public; Owner: -
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE agrotrace_owner IN SCHEMA public GRANT ALL ON FUNCTIONS TO agrotrace_app;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: -
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE agrotrace_owner IN SCHEMA public GRANT SELECT,INSERT,DELETE,UPDATE ON TABLES TO agrotrace_app;
+
+
+--
 -- PostgreSQL database dump complete
 --
 
-\unrestrict dbmate
 
-
---
--- Dbmate schema migrations
---
-
-INSERT INTO public.schema_migrations (version) VALUES
-    ('20260923000001'),
-    ('20260923000002'),
-    ('20260923000003'),
-    ('20260923000004'),
-    ('20260923000005'),
-    ('20260923000006');

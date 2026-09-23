@@ -32,19 +32,22 @@ CREATE TABLE users (
   status varchar(16) NOT NULL DEFAULT 'INVITED' CHECK (status IN ('INVITED','ACTIVE','BLOCKED')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  created_by uuid,
+  created_by uuid REFERENCES users(id),
   deleted_at timestamptz
 );
+ALTER TABLE organizations ADD CONSTRAINT fk_organizations_created_by FOREIGN KEY (created_by) REFERENCES users(id);
 CREATE TABLE roles (
   id smallserial PRIMARY KEY,
   code varchar(16) NOT NULL UNIQUE CHECK (code IN ('FARMER','PROCESSOR','LAB','RETAILER','INSPECTOR','ADMIN')),
   name varchar(64) NOT NULL
 );
 CREATE TABLE user_roles (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES users(id),
   role_id smallint NOT NULL REFERENCES roles(id),
-  PRIMARY KEY (user_id, role_id)
+  UNIQUE (user_id, role_id)
 );
+CREATE INDEX ix_user_roles_role ON user_roles(role_id);
 CREATE TABLE refresh_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES users(id),

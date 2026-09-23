@@ -3,8 +3,11 @@ import type pg from 'pg';
 import { withTx, expectPgError, insertOrg } from './helpers';
 
 async function product(c: pg.PoolClient) {
-  return (await c.query(`INSERT INTO products(name, category, loss_norm_percent) VALUES ('Пшеница','GRAIN',2) RETURNING id`))
-    .rows[0].id as string;
+  return (
+    await c.query(
+      `INSERT INTO products(name, category, loss_norm_percent) VALUES ('Пшеница','GRAIN',2) RETURNING id`,
+    )
+  ).rows[0].id as string;
 }
 async function batch(c: pg.PoolClient, org: string, p: string, mass = '100.000', status = 'Created') {
   return (
@@ -57,7 +60,9 @@ describe('production schema', () => {
       const p = await product(c);
       const a = await batch(c, org, p);
       await expectPgError(
-        c.query('INSERT INTO batch_links(parent_batch_id, child_batch_id, mass_used_kg) VALUES ($1,$1,1)', [a.id]),
+        c.query('INSERT INTO batch_links(parent_batch_id, child_batch_id, mass_used_kg) VALUES ($1,$1,1)', [
+          a.id,
+        ]),
         '23514',
       );
     }));
@@ -81,6 +86,20 @@ describe('production schema', () => {
         c.query(
           `INSERT INTO waybills(number, sender_org_id, receiver_org_id, status) VALUES (next_waybill_number(), $1, $1, 'DRAFT')`,
           [org],
+        ),
+        '23514',
+      );
+    }));
+
+  it('rejects unknown status in batch_status_history', () =>
+    withTx(async (c) => {
+      const org = await insertOrg(c);
+      const p = await product(c);
+      const a = await batch(c, org, p);
+      await expectPgError(
+        c.query(
+          `INSERT INTO batch_status_history(batch_id, from_status, to_status) VALUES ($1,'Created','Lost')`,
+          [a.id],
         ),
         '23514',
       );

@@ -5,6 +5,20 @@ cd "$(dirname "$0")"
 DC="docker compose"
 T="$DC run --rm tools"
 cmd="${1:-help}"; shift || true
+
+# PG16's pg_dump (bundled with the postgres:16-alpine image) instead of dbmate's
+# bundled pg_dump 18, whose output PG16 cannot load back. Also strips the
+# \restrict/\unrestrict guard meta-commands (backported to recent PG16 point
+# releases) and any transaction_timeout SET line — neither is valid outside psql
+# and neither should end up in the committed schema.sql.
+dump_schema() {
+  $DC exec -T postgres pg_dump -U agrotrace_owner --schema-only --no-owner agrotrace \
+    | grep -vF '\restrict' \
+    | grep -vF '\unrestrict' \
+    | grep -v '^SET transaction_timeout' \
+    > db/schema.sql
+}
+
 case "$cmd" in
   install) $T pnpm install "$@" ;;
   sh)      $T bash ;;
@@ -18,10 +32,21 @@ case "$cmd" in
       *) $DC up -d --wait ;;
     esac ;;
   down)        $DC down "$@" ;;
-  db:migrate)  $DC run --rm dbmate --wait up ;;
-  db:rollback) $DC run --rm dbmate rollback ;;
+  db:migrate)  $DC run --rm dbmate --no-dump-schema --wait up && dump_schema ;;
+  db:rollback) $DC run --rm dbmate --no-dump-schema rollback && dump_schema ;;
   db:new)      $DC run --rm dbmate new "$1" ;;
-  db:test)     $T pnpm --filter @agrotrace/tests-db test ;;
+  db:test)
+    set -a; . ./.env; set +a
+    TDB=agrotrace_test
+    TEST_DATABASE_URL="${DATABASE_URL%/*}/${TDB}?sslmode=disable"
+    TEST_APP_DATABASE_URL="${APP_DATABASE_URL%/*}/${TDB}"
+    $DC up -d --wait postgres
+    $DC exec -T postgres psql -U agrotrace_owner -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS ${TDB} WITH (FORCE);"
+    $DC exec -T postgres psql -U agrotrace_owner -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${TDB} OWNER agrotrace_owner;"
+    $DC exec -T postgres psql -U agrotrace_owner -d "${TDB}" -v ON_ERROR_STOP=1 -f //docker-entrypoint-initdb.d/01-roles.sql
+    $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
+    $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" -e APP_DATABASE_URL="$TEST_APP_DATABASE_URL" tools \
+      pnpm --filter @agrotrace/tests-db test ;;
   psql)        $DC exec postgres psql -U agrotrace_owner agrotrace ;;
   check)
     $DC exec -T postgres pg_isready -U agrotrace_owner && \
