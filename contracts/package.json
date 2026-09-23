@@ -10,7 +10,6 @@
   },
   "devDependencies": {
     "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1",
     "vitest": "^2.1.4",
     "@redocly/cli": "^1.25.11",
     "@redocly/openapi-core": "^1.25.11",

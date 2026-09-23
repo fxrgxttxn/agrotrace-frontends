@@ -1,7 +1,7 @@
 {
   "rule": "BR-05",
   "fn": "canUseAsInput",
-  "description": "Only batches with status Approved (Допущена) or Accepted (Принята) may be used as processing input or put up for sale.",
+  "description": "canUseAsInput governs eligibility as processing input: only batches with status Approved (Допущена) or Accepted (Принята) may be used. Sale eligibility is governed separately by the state machine (putOnSale is only reachable from Accepted, since a batch always enters the shop via a waybill) - see state-machine.json (R20 clarifies BR-05's wording accordingly).",
   "cases": [
     {
       "name": "Approved status is allowed as processing input",

@@ -1,7 +1,7 @@
 {
   "rule": "BR-02",
   "fn": "concludeLabTest",
-  "description": "Lab test conclusion is automatic: any indicator whose value strictly exceeds its norm (maxValue) fails the batch. Indicators with maxValue null are not normalized and never cause a failure. Empty results is an error.",
+  "description": "Lab test conclusion is automatic: any indicator whose value strictly exceeds its norm (maxValue) fails the batch. The comparison is decimal-numeric (not lexicographic string comparison, not naive float equality) - see the 'decimal comparison' cases. Indicators with maxValue null are not normalized and never cause a failure. Empty results is an error.",
   "cases": [
     {
       "name": "empty results list - NO_RESULTS error",
@@ -88,6 +88,21 @@
           { "indicatorId": "color", "value": "1", "maxValue": null }
         ]
       },
+      "expected": { "conclusion": "PASS", "exceeded": [] }
+    },
+    {
+      "name": "decimal comparison - value below max despite being lexicographically larger (9.5 vs 10.0)",
+      "input": { "results": [{ "indicatorId": "test-a", "value": "9.5", "maxValue": "10.0" }] },
+      "expected": { "conclusion": "PASS", "exceeded": [] }
+    },
+    {
+      "name": "decimal comparison - value exceeds max despite being lexicographically smaller (10 vs 9.99)",
+      "input": { "results": [{ "indicatorId": "test-b", "value": "10", "maxValue": "9.99" }] },
+      "expected": { "conclusion": "FAIL", "exceeded": ["test-b"] }
+    },
+    {
+      "name": "decimal comparison - numerically equal values with different decimal representations (2.0 vs 2.00)",
+      "input": { "results": [{ "indicatorId": "test-c", "value": "2.0", "maxValue": "2.00" }] },
       "expected": { "conclusion": "PASS", "exceeded": [] }
     }
   ]

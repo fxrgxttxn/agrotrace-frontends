@@ -1,7 +1,7 @@
 {
   "rule": "BR-07",
   "fn": "checkDiscrepancy",
-  "description": "percent = round_half_up(|actual - declared| / declared * 100, 2), displayed as \"N.NN\". actRequired = |actual - declared| * 100 > 2 * declared, computed exactly in grams (integers) so the exact-grams check does not depend on the rounded display percent.",
+  "description": "percent = round_half_up(|actual - declared| / declared * 100, 2), displayed as \"N.NN\". actRequired = |actual - declared| * 100 > 2 * declared, computed exactly in grams (integers) so the exact-grams check does not depend on the rounded display percent. declaredKg \"0.000\" is rejected as { error: \"DECLARED_ZERO\" } instead of dividing by zero (R22).",
   "cases": [
     {
       "name": "exactly at 2% threshold - not required (equality does not exceed)",
@@ -57,6 +57,11 @@
       "name": "minimal declared mass (1 gram) doubled - percent 100%, required",
       "input": { "declaredKg": "0.001", "actualKg": "0.002" },
       "expected": { "percent": "100.00", "actRequired": true }
+    },
+    {
+      "name": "declared mass is zero - DECLARED_ZERO error, no division by zero (R22)",
+      "input": { "declaredKg": "0.000", "actualKg": "5.000" },
+      "expected": { "error": "DECLARED_ZERO" }
     }
   ]
 }

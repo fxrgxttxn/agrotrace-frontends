@@ -1,7 +1,7 @@
 {
   "rule": "BR-10",
   "fn": "shouldCloseRecall",
-  "description": "A recall closes automatically once every withdrawal task attached to it is CONFIRMED. An empty task list closes vacuously.",
+  "description": "A recall closes automatically once every withdrawal (recall) task attached to it is CONFIRMED. Task statuses are OPEN, CONFIRMED, OVERDUE. An empty task list closes vacuously.",
   "cases": [
     {
       "name": "empty task list - closes automatically (vacuous true)",
@@ -14,8 +14,8 @@
       "expected": { "close": true }
     },
     {
-      "name": "single pending task - does not close",
-      "input": { "taskStatuses": ["PENDING"] },
+      "name": "single open task - does not close",
+      "input": { "taskStatuses": ["OPEN"] },
       "expected": { "close": false }
     },
     {
@@ -24,23 +24,23 @@
       "expected": { "close": true }
     },
     {
-      "name": "mix of confirmed and pending - does not close",
-      "input": { "taskStatuses": ["CONFIRMED", "PENDING"] },
+      "name": "mix of confirmed and open - does not close",
+      "input": { "taskStatuses": ["CONFIRMED", "OPEN"] },
       "expected": { "close": false }
     },
     {
-      "name": "mix of confirmed and escalated - does not close",
-      "input": { "taskStatuses": ["CONFIRMED", "ESCALATED"] },
+      "name": "mix of confirmed and overdue - does not close",
+      "input": { "taskStatuses": ["CONFIRMED", "OVERDUE"] },
       "expected": { "close": false }
     },
     {
-      "name": "all escalated - does not close",
-      "input": { "taskStatuses": ["ESCALATED", "ESCALATED"] },
+      "name": "all overdue - does not close",
+      "input": { "taskStatuses": ["OVERDUE", "OVERDUE"] },
       "expected": { "close": false }
     },
     {
-      "name": "single escalated task - does not close",
-      "input": { "taskStatuses": ["ESCALATED"] },
+      "name": "single overdue task - does not close",
+      "input": { "taskStatuses": ["OVERDUE"] },
       "expected": { "close": false }
     },
     {
@@ -49,13 +49,13 @@
       "expected": { "close": true }
     },
     {
-      "name": "large list with one pending among many confirmed - does not close",
-      "input": { "taskStatuses": ["CONFIRMED", "CONFIRMED", "CONFIRMED", "CONFIRMED", "PENDING"] },
+      "name": "large list with one open among many confirmed - does not close",
+      "input": { "taskStatuses": ["CONFIRMED", "CONFIRMED", "CONFIRMED", "CONFIRMED", "OPEN"] },
       "expected": { "close": false }
     },
     {
-      "name": "last task pending after confirmed ones - does not close (order irrelevant)",
-      "input": { "taskStatuses": ["PENDING", "CONFIRMED", "CONFIRMED"] },
+      "name": "last task open after confirmed ones - does not close (order irrelevant)",
+      "input": { "taskStatuses": ["OPEN", "CONFIRMED", "CONFIRMED"] },
       "expected": { "close": false }
     }
   ]

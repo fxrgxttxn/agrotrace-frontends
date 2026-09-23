@@ -65,6 +65,16 @@
       "name": "invalid key format takes precedence over a stored conflict",
       "input": { "key": "bad key!", "stored": { "fingerprint": "fp-hash-1" }, "fingerprint": "fp-hash-2" },
       "expected": { "decision": "INVALID_KEY" }
+    },
+    {
+      "name": "key with a trailing newline - invalid key",
+      "input": { "key": "abcd1234\n", "stored": null, "fingerprint": "fp" },
+      "expected": { "decision": "INVALID_KEY" }
+    },
+    {
+      "name": "key with a leading space - invalid key",
+      "input": { "key": " abcd1234", "stored": null, "fingerprint": "fp" },
+      "expected": { "decision": "INVALID_KEY" }
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "rule": "BR-01",
   "fn": "checkWaitingPeriod",
-  "description": "A batch cannot be shipped until the waiting period of the last pesticide treatment on the field has elapsed. until = UTC-date(appliedAt) + waitingPeriodDays; shipment allowed iff shipDate >= until for every treatment; if several treatments still block, the one with the latest until is reported.",
+  "description": "A batch cannot be shipped until the waiting period of the last pesticide treatment on the field has elapsed. until = UTC-date(appliedAt) + waitingPeriodDays; shipment allowed iff shipDate >= until for every treatment; if several treatments still block, the one with the latest until is reported, independent of array order; if two or more share the latest until (a tie), the substance with the smallest name in Unicode code-point order is reported (R21).",
   "cases": [
     {
       "name": "shipDate equals until - allowed (spec boundary)",
@@ -120,6 +120,39 @@
         ]
       },
       "expected": { "ok": false, "until": "2026-09-11", "substance": "Substance-F" }
+    },
+    {
+      "name": "array order does not determine which blocking treatment is reported - later until wins even though it is applied earlier and listed first",
+      "input": {
+        "shipDate": "2026-09-12",
+        "treatments": [
+          { "substance": "A", "appliedAt": "2026-09-01T00:00:00.000Z", "waitingPeriodDays": 40 },
+          { "substance": "B", "appliedAt": "2026-09-10T00:00:00.000Z", "waitingPeriodDays": 5 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-10-11", "substance": "A" }
+    },
+    {
+      "name": "tie on until - reports the substance with the smallest name in Unicode code-point order (R21)",
+      "input": {
+        "shipDate": "2026-09-10",
+        "treatments": [
+          { "substance": "Zeta", "appliedAt": "2026-09-01T00:00:00.000Z", "waitingPeriodDays": 10 },
+          { "substance": "Alpha", "appliedAt": "2026-09-05T00:00:00.000Z", "waitingPeriodDays": 6 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-09-11", "substance": "Alpha" }
+    },
+    {
+      "name": "tie on until - code-point order is case-sensitive, not case-insensitive alphabetical (R21)",
+      "input": {
+        "shipDate": "2026-09-05",
+        "treatments": [
+          { "substance": "beta", "appliedAt": "2026-09-01T00:00:00.000Z", "waitingPeriodDays": 10 },
+          { "substance": "Beta", "appliedAt": "2026-09-03T00:00:00.000Z", "waitingPeriodDays": 8 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-09-11", "substance": "Beta" }
     }
   ]
 }
