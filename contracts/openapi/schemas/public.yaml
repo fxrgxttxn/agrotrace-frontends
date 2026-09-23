@@ -52,7 +52,11 @@ PublicBatch:
       $ref: '#/SafetyStatus'
     path:
       type: array
-      description: Этапы пути по держателям в хронологическом порядке.
+      description: >-
+        Этапы пути по держателям в хронологическом порядке — по тому же правилу, что `PathStep` в
+        `GET /batches/{id}/path` (R45): первый этап — организация-создатель с `from` = `harvestedAt` (RAW) или
+        `producedAt` (DERIVED); каждая принятая накладная закрывает этап и открывает этап получателя с `from` =
+        моменту приёмки; у текущего держателя `to` = null.
       items:
         type: object
         required: [orgName, orgType, logoUrl, from, to]

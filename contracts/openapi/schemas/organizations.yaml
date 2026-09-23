@@ -57,3 +57,61 @@ Organization:
       name: Краснодарский край
     trustRating: 80
     status: ACTIVE
+OrganizationDirectoryItem:
+  type: object
+  description: Строка справочника организаций (`OrganizationRef` + регион), R46. ИНН, адрес и рейтинг не отдаются.
+  required: [id, name, type, logoUrl, region]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    name:
+      type: string
+    type:
+      $ref: './common.yaml#/OrganizationType'
+    logoUrl:
+      $ref: './common.yaml#/NullablePublicFileUrl'
+    region:
+      $ref: './common.yaml#/Region'
+  example:
+    id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+    name: ООО «Кубанский мукомол»
+    type: PROCESSOR
+    logoUrl: null
+    region:
+      code: '23'
+      name: Краснодарский край
+OrganizationDirectoryPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/OrganizationDirectoryItem'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items:
+      - id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+        name: ООО «Кубанский мукомол»
+        type: PROCESSOR
+        logoUrl: null
+        region:
+          code: '23'
+          name: Краснодарский край
+      - id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+        name: ООО «Кубань-Маркет»
+        type: RETAILER
+        logoUrl: null
+        region:
+          code: '23'
+          name: Краснодарский край
+    page: 1
+    size: 20
+    total: 2

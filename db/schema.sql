@@ -202,6 +202,8 @@ CREATE TABLE public.batches (
     test_required boolean DEFAULT false NOT NULL,
     test_reason character varying(24),
     qr_generated_at timestamp with time zone,
+    qr_png_file_id uuid,
+    qr_pdf_file_id uuid,
     version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -1415,6 +1417,22 @@ ALTER TABLE ONLY public.batches
 
 ALTER TABLE ONLY public.batches
     ADD CONSTRAINT batches_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id);
+
+
+--
+-- Name: batches batches_qr_pdf_file_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batches
+    ADD CONSTRAINT batches_qr_pdf_file_id_fkey FOREIGN KEY (qr_pdf_file_id) REFERENCES public.files(id);
+
+
+--
+-- Name: batches batches_qr_png_file_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batches
+    ADD CONSTRAINT batches_qr_png_file_id_fkey FOREIGN KEY (qr_png_file_id) REFERENCES public.files(id);
 
 
 --

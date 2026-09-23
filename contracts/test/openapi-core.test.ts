@@ -15,7 +15,7 @@ const CONFIG = fileURLToPath(new URL('../redocly.yaml', import.meta.url));
 const METHODS = ['get', 'put', 'post', 'delete', 'patch', 'head', 'options', 'trace'] as const;
 const ROLE_CODES = ['FARMER', 'PROCESSOR', 'LAB', 'RETAILER', 'INSPECTOR', 'ADMIN'];
 
-// Ruling R5 — exact list and order.
+// Ruling R5 (+ R42) — exact list and order.
 const PROBLEM_CODES = [
   'VALIDATION',
   'UNAUTHORIZED',
@@ -39,6 +39,7 @@ const PROBLEM_CODES = [
   'BACKEND_UNAVAILABLE',
   'EXTERNAL_UNAVAILABLE',
   'INTERNAL',
+  'NO_LAB_AVAILABLE', // R42
 ];
 
 const RATE_LIMITS = JSON.parse(readFileSync(new URL('../rules/rate-limits.json', import.meta.url), 'utf8'));
@@ -83,6 +84,7 @@ const EXPECTED_ACCESS: Record<string, Json> = {
   getUserAvatar: ANY,
   // Organizations
   getOrganization: ANY,
+  listOrganizations: ANY, // R46
   uploadOrganizationLogo: ORG_HEAD,
   getOrganizationLogo: ANY,
   // Files
@@ -195,6 +197,7 @@ const CLOSED_SCHEMAS = [
   'WaybillCreate',
   'WaybillAccept',
   'WaybillReject',
+  'OrganizationDirectoryPage',
 ];
 
 interface Op {
@@ -547,6 +550,8 @@ describe('openapi contract: operations', () => {
           bad.push(`${id}: INVALID_TRANSITION params ${keys.join(',')}`);
         if (e.code === 'GRAPH_CYCLE' && JSON.stringify(keys) !== '["childCode","parentCode"]')
           bad.push(`${id}: GRAPH_CYCLE params`);
+        if (e.code === 'NO_LAB_AVAILABLE' && (keys.length || op.operationId !== 'createBatch'))
+          bad.push(`${id}: NO_LAB_AVAILABLE only on createBatch, without params (R42)`);
       }
       for (const e of problemExamples(op, '403')) {
         if (e.params === undefined) continue;
@@ -601,6 +606,16 @@ describe('openapi contract: operations', () => {
       }
     })();
     expect(open).toEqual([]);
+  });
+
+  it('organization directory (R46) exposes only OrganizationRef + region', () => {
+    const item = doc.components.schemas.OrganizationDirectoryItem;
+    expect(Object.keys(item.properties).sort()).toEqual(['id', 'logoUrl', 'name', 'region', 'type']);
+    expect(item.required.slice().sort()).toEqual(['id', 'logoUrl', 'name', 'region', 'type']);
+    const op = ops.find(({ op }) => op.operationId === 'listOrganizations')!.op;
+    const names = (op.parameters ?? []).map((p: Json) => deref(p).name);
+    expect(names.sort()).toEqual(['page', 'q', 'size', 'sort', 'type']);
+    expect(op['x-sort']).toEqual({ fields: ['name'], default: 'name,asc' });
   });
 
   it('PublicBatch exposes no personal data fields', () => {

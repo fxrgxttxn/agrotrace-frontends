@@ -137,6 +137,7 @@ ProblemCode:
     - BACKEND_UNAVAILABLE
     - EXTERNAL_UNAVAILABLE
     - INTERNAL
+    - NO_LAB_AVAILABLE
   example: VALIDATION
 Problem:
   type: object

@@ -458,7 +458,7 @@ StatusHistoryItem:
 PathStep:
   type: object
   description: >-
-    Этап владения партией. Первый этап — организация-создатель с `from` = моменту регистрации партии;
+    Этап владения партией (R45). Первый этап — организация-создатель с `from` = `harvestedAt` (RAW) или `producedAt` (DERIVED);
     каждая принятая (ACCEPTED) накладная с партией закрывает предыдущий этап (`to` = `acceptedAt`) и открывает
     этап получателя (`from` = `acceptedAt`, `waybillNumber` = номер накладной). Отправка (InTransit) и отказ
     этапов не создают. У текущего держателя `to` = null.

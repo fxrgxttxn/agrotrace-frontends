@@ -51,6 +51,8 @@ CREATE TABLE batches (
   test_required boolean NOT NULL DEFAULT false,
   test_reason varchar(24) CHECK (test_reason IN ('NEW_FARM','LOW_RATING','RECENT_PESTICIDE','SAMPLED','NONE')),
   qr_generated_at timestamptz,
+  qr_png_file_id uuid REFERENCES files(id),
+  qr_pdf_file_id uuid REFERENCES files(id),
   version integer NOT NULL DEFAULT 1,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),

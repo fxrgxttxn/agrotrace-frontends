@@ -1,4 +1,59 @@
 # Модуль Organizations.
+/organizations:
+  get:
+    operationId: listOrganizations
+    summary: Справочник организаций
+    description: |
+      Справочник активных организаций для выбора контрагента (например, получателя накладной), R46. Доступен
+      любому авторизованному пользователю и не зависит от видимости п. 4.2: отдаются все организации в статусе
+      ACTIVE, кроме типа PLATFORM (включая собственную организацию пользователя). Карточка
+      `GET /organizations/{id}` по-прежнему ограничена видимостью. Фильтры (объединяются по И):
+
+      - `type` — один или несколько типов (параметр повторяется); `PLATFORM` в фильтре даёт пустую страницу;
+      - `q` — организация подходит, если её название начинается с `q` без учёта регистра или её ИНН начинается
+        с `q` (префикс, а не подстрока; `%`, `_` и `\` — обычные символы).
+
+      Сортировка — `x-sort`.
+    tags: [Organizations]
+    x-roles: [ANY]
+    x-sort:
+      fields: [name]
+      default: name,asc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: type
+        in: query
+        description: Фильтр по типам организаций (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/common.yaml#/OrganizationType'
+    responses:
+      '200':
+        description: Страница справочника организаций.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/organizations.yaml#/OrganizationDirectoryPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
 /organizations/{id}:
   get:
     operationId: getOrganization

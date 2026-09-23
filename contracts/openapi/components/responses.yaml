@@ -315,7 +315,8 @@ BatchForbidden:
 QrForbidden:
   description: >-
     Роль не PROCESSOR/RETAILER (FORBIDDEN без `params`), организация не держатель (`params.reason` = NOT_HOLDER)
-    или статус партии не Accepted/OnSale (`params.reason` = BATCH_STATUS, `params.status`).
+    или статус не допускает QR — не Accepted/OnSale и не Approved у собственной производной партии переработчика
+    (`params.reason` = BATCH_STATUS, `params.status`).
   headers:
     X-Request-Id:
       $ref: './headers.yaml#/XRequestId'

@@ -96,10 +96,11 @@
       анализов в статусах QUEUED, SAMPLED, ESCALATED; сначала среди лабораторий региона поля, если их нет — среди
       всех; при равенстве — наименьший `id` (как текст). Создаётся анализ (`reason` = PLANNED для SAMPLED,
       иначе RISK; статус QUEUED; срок = 5 рабочих дней, `addWorkingDays`) и выполняется переход Created → OnTest
-      (`reason` TEST_REQUIRED, автор null). Если активных лабораторий нет, партия остаётся в Created с
-      `testRequired` = true.
+      (`reason` TEST_REQUIRED, автор null). Если анализ нужен, а активных лабораторий нет ни одной, транзакция
+      откатывается целиком (партия не создаётся, номер последовательности `batch_code_seq` расходуется) —
+      409 NO_LAB_AVAILABLE без `params` (R42).
 
-      Каждый переход увеличивает `version` на 1. Ответ — карточка с итоговым статусом (OnTest, Approved или Created).
+      Каждый переход увеличивает `version` на 1. Ответ — карточка с итоговым статусом (OnTest или Approved).
     tags: [Batches]
     x-roles: [FARMER]
     requestBody:
@@ -158,6 +159,22 @@
         $ref: '../components/responses.yaml#/Unauthorized'
       '403':
         $ref: '../components/responses.yaml#/Forbidden'
+      '409':
+        description: Риск-модель требует анализа, но нет ни одной лаборатории в статусе ACTIVE (NO_LAB_AVAILABLE).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/no-lab-available
+              title: No laboratory available
+              status: 409
+              code: NO_LAB_AVAILABLE
       '429':
         $ref: '../components/responses.yaml#/TooManyRequests'
 /batches/{id}:
@@ -325,7 +342,7 @@
                   name: КФХ Петров
                   type: FARM
                   logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
-                from: '2026-07-18T16:40:00Z'
+                from: '2026-07-18T06:00:00Z'
                 to: '2026-08-02T09:30:00Z'
                 waybillNumber: null
               - org:
@@ -351,18 +368,22 @@
     operationId: createBatchQr
     summary: Генерация QR-кода партии
     description: |
-      Генерирует QR для печати (FR-PROD-08). Порядок проверок:
+      Генерирует и сохраняет QR для печати (FR-PROD-08, R43, R44). Порядок проверок:
 
       1. Партия не видна — 404.
 
       2. Организация пользователя не держатель — 403 `{reason: NOT_HOLDER}`.
 
-      3. Статус не Accepted и не OnSale — 403 `{reason: BATCH_STATUS, status}`.
+      3. Статус не допускает QR — 403 `{reason: BATCH_STATUS, status}`. Допускается: Accepted или OnSale;
+      Approved — только для производной (DERIVED) партии, у которой организация пользователя — и создатель
+      (`origin`), и держатель, при роли PROCESSOR.
 
-      Результат: PNG (QR с `publicUrl`, уровень коррекции M, 1024 × 1024 px, чёрный на белом, поле 4 модуля) и PDF
-      (этикетка A6: QR, `publicCode`, название продукта, организация-создатель) сохраняются как файлы
-      (`originalName` = `{publicCode}.png` / `{publicCode}.pdf`), `qrGeneratedAt` = текущее время. Каждый вызов
-      создаёт новые файлы; `version` партии не меняется. Ссылки подписаны (R28), действуют 3600 с.
+      Результат (партия блокируется `SELECT … FOR UPDATE`): PNG (QR с `publicUrl`, уровень коррекции M,
+      1024 × 1024 px, чёрный на белом, поле 4 модуля) и PDF (этикетка A6: QR, `publicCode`, название продукта,
+      организация-создатель) сохраняются как файлы вида QR (`originalName` = `{publicCode}.png` / `{publicCode}.pdf`);
+      `batches.qr_png_file_id` / `qr_pdf_file_id` указывают на новые файлы, прежние файлы QR партии (если были)
+      мягко удаляются — ранее выданные на них ссылки перестают работать (404). `qrGeneratedAt` = текущее время;
+      `version` партии не меняется. Ссылки в ответе подписаны (R28), действуют 3600 с.
     tags: [Batches]
     x-roles: [PROCESSOR, RETAILER]
     parameters:
@@ -399,9 +420,10 @@
     operationId: downloadBatchQr
     summary: Скачивание QR-кода партии
     description: >-
-      Отдаёт QR партии в выбранном формате, формируя его заново с тем же содержимым, что и `POST` (наличие
-      предыдущей генерации не требуется). Проверки — как в `createBatchQr`. `Content-Disposition:
-      inline; filename="{publicCode}.png|pdf"`; `ETag` — sha256 отдаваемых байтов, `If-None-Match` → 304;
+      Отдаёт сохранённый при последней генерации (`POST`) файл QR в выбранном формате — те же байты, что по
+      подписанным ссылкам, поэтому ответ и `ETag` одинаковы во всех реализациях (R43). Проверки 1–3 — как в
+      `createBatchQr`; затем QR ещё не генерировался (`qr_png_file_id`/`qr_pdf_file_id` пусты) — 404 NOT_FOUND.
+      `Content-Disposition: inline; filename="{publicCode}.png|pdf"`; `ETag` — sha256 файла, `If-None-Match` → 304;
       `Cache-Control: private, max-age=0, must-revalidate`.
     tags: [Batches]
     x-roles: [PROCESSOR, RETAILER]
@@ -452,7 +474,21 @@
       '403':
         $ref: '../components/responses.yaml#/QrForbidden'
       '404':
-        $ref: '../components/responses.yaml#/NotFound'
+        description: Партия не видна или QR для неё ещё не генерировался (NOT_FOUND).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/not-found
+              title: QR not generated
+              status: 404
+              code: NOT_FOUND
       '429':
         $ref: '../components/responses.yaml#/TooManyRequests'
 /batches/{id}/on-sale:

@@ -131,6 +131,8 @@ paths:
     $ref: './openapi/paths/users.yaml#/~1users~1{id}'
   /users/{id}/avatar:
     $ref: './openapi/paths/users.yaml#/~1users~1{id}~1avatar'
+  /organizations:
+    $ref: './openapi/paths/organizations.yaml#/~1organizations'
   /organizations/{id}:
     $ref: './openapi/paths/organizations.yaml#/~1organizations~1{id}'
   /organizations/{id}/logo:
@@ -421,6 +423,10 @@ components:
       $ref: './openapi/schemas/organizations.yaml#/OrganizationStatus'
     Organization:
       $ref: './openapi/schemas/organizations.yaml#/Organization'
+    OrganizationDirectoryItem:
+      $ref: './openapi/schemas/organizations.yaml#/OrganizationDirectoryItem'
+    OrganizationDirectoryPage:
+      $ref: './openapi/schemas/organizations.yaml#/OrganizationDirectoryPage'
     ImageUpload:
       $ref: './openapi/schemas/files.yaml#/ImageUpload'
     LogoUpload:
