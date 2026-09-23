@@ -1,0 +1,7 @@
+{
+  "name": "@agrotrace/tests-db",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "vitest run" },
+  "devDependencies": { "pg": "^8.13.1", "@types/pg": "^8.11.10", "vitest": "^2.1.4" }
+}

@@ -21,6 +21,7 @@ case "$cmd" in
   db:migrate)  $DC run --rm dbmate --wait up ;;
   db:rollback) $DC run --rm dbmate rollback ;;
   db:new)      $DC run --rm dbmate new "$1" ;;
+  db:test)     $T pnpm --filter @agrotrace/tests-db test ;;
   psql)        $DC exec postgres psql -U agrotrace_owner agrotrace ;;
   check)
     $DC exec -T postgres pg_isready -U agrotrace_owner && \
