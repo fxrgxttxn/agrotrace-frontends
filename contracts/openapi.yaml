@@ -1,0 +1,325 @@
+openapi: 3.1.0
+info:
+  title: AgroTrace API
+  version: 1.0.0
+  description: >-
+    REST API системы прослеживаемости сельхозпродукции «от поля до прилавка». Контракт единый для трёх
+    реализаций backend (Express, Django, Laravel): токен, файл или уведомление, созданные одной из них,
+    принимаются любой другой. Расширения операций: `x-roles` — допустимые роли (`PUBLIC` — без авторизации,
+    `ANY` — любой авторизованный), `x-org-admin` — для ролей кроме ADMIN требуется руководитель своей
+    организации, `x-idempotent` — обязателен `Idempotency-Key`.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: /api/v1
+security:
+  - bearer: []
+tags:
+  - name: Auth
+    description: Вход, токены, TOTP, регистрация организации, сброс пароля, приглашения.
+  - name: Profile
+    description: Профиль текущего пользователя, аватарка, каналы уведомлений.
+  - name: Users
+    description: Сотрудники организации и их роли.
+  - name: Organizations
+    description: Карточка и логотип организации.
+  - name: Fields
+    description: Поля и обработки.
+  - name: Batches
+    description: Партии, граф, история, QR.
+  - name: Processing
+    description: Переработка сырья в производные партии.
+  - name: Waybills
+    description: Накладные и приёмка.
+  - name: Lab
+    description: Лабораторные анализы и протоколы.
+  - name: Recalls
+    description: Отзывы и задачи изъятия.
+  - name: Complaints
+    description: Рассмотрение жалоб покупателей.
+  - name: Notifications
+    description: Центр уведомлений.
+  - name: Analytics
+    description: Дашборды и отчёты.
+  - name: Admin
+    description: Заявки организаций и журнал аудита.
+  - name: Dictionaries
+    description: Справочники, импорт и фото продуктов.
+  - name: Files
+    description: Скачивание файлов с проверкой прав.
+  - name: Public
+    description: Публичная страница партии и жалобы без авторизации.
+  - name: Health
+    description: Проверки живости и готовности.
+  - name: Events
+    description: Доставка уведомлений через Server-Sent Events.
+paths:
+  /auth/login:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1login'
+  /auth/refresh:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1refresh'
+  /auth/logout:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1logout'
+  /auth/2fa/verify:
+    $ref: './openapi/paths/auth.yaml#/~1auth~12fa~1verify'
+  /auth/2fa/setup:
+    $ref: './openapi/paths/auth.yaml#/~1auth~12fa~1setup'
+  /auth/password/forgot:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1password~1forgot'
+  /auth/password/reset:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1password~1reset'
+  /auth/register-organization:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1register-organization'
+  /auth/accept-invite:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1accept-invite'
+  /me:
+    $ref: './openapi/paths/me.yaml#/~1me'
+  /me/avatar:
+    $ref: './openapi/paths/me.yaml#/~1me~1avatar'
+  /me/channels:
+    $ref: './openapi/paths/me.yaml#/~1me~1channels'
+  /me/telegram-code:
+    $ref: './openapi/paths/me.yaml#/~1me~1telegram-code'
+  /users:
+    $ref: './openapi/paths/users.yaml#/~1users'
+  /users/{id}:
+    $ref: './openapi/paths/users.yaml#/~1users~1{id}'
+  /users/{id}/avatar:
+    $ref: './openapi/paths/users.yaml#/~1users~1{id}~1avatar'
+  /organizations/{id}:
+    $ref: './openapi/paths/organizations.yaml#/~1organizations~1{id}'
+  /organizations/{id}/logo:
+    $ref: './openapi/paths/organizations.yaml#/~1organizations~1{id}~1logo'
+  /files/{id}:
+    $ref: './openapi/paths/files.yaml#/~1files~1{id}'
+  /public/batches/{publicCode}:
+    $ref: './openapi/paths/public.yaml#/~1public~1batches~1{publicCode}'
+  /public/batches/{publicCode}/complaints:
+    $ref: './openapi/paths/public.yaml#/~1public~1batches~1{publicCode}~1complaints'
+  /public/captcha:
+    $ref: './openapi/paths/public.yaml#/~1public~1captcha'
+  /public/files/{id}:
+    $ref: './openapi/paths/public.yaml#/~1public~1files~1{id}'
+  /health/live:
+    $ref: './openapi/paths/health.yaml#/~1health~1live'
+  /health/ready:
+    $ref: './openapi/paths/health.yaml#/~1health~1ready'
+  /events/stream:
+    $ref: './openapi/paths/events.yaml#/~1events~1stream'
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Access-токен JWT HS256 (15 минут) в заголовке `Authorization: Bearer <JWT>`.'
+    accessTokenQuery:
+      type: apiKey
+      in: query
+      name: access_token
+      description: Access-токен в параметре запроса — только для `GET /events/stream` (EventSource не передаёт заголовки).
+  parameters:
+    Page:
+      $ref: './openapi/components/parameters.yaml#/Page'
+    Size:
+      $ref: './openapi/components/parameters.yaml#/Size'
+    Sort:
+      $ref: './openapi/components/parameters.yaml#/Sort'
+    Q:
+      $ref: './openapi/components/parameters.yaml#/Q'
+    IdPath:
+      $ref: './openapi/components/parameters.yaml#/IdPath'
+    IdempotencyKey:
+      $ref: './openapi/components/parameters.yaml#/IdempotencyKey'
+    IfMatch:
+      $ref: './openapi/components/parameters.yaml#/IfMatch'
+    IfNoneMatch:
+      $ref: './openapi/components/parameters.yaml#/IfNoneMatch'
+    ImageVariant:
+      $ref: './openapi/components/parameters.yaml#/ImageVariant'
+    PublicCode:
+      $ref: './openapi/components/parameters.yaml#/PublicCode'
+  responses:
+    BadRequest:
+      $ref: './openapi/components/responses.yaml#/BadRequest'
+    Unauthorized:
+      $ref: './openapi/components/responses.yaml#/Unauthorized'
+    Forbidden:
+      $ref: './openapi/components/responses.yaml#/Forbidden'
+    NotFound:
+      $ref: './openapi/components/responses.yaml#/NotFound'
+    Conflict:
+      $ref: './openapi/components/responses.yaml#/Conflict'
+    PayloadTooLarge:
+      $ref: './openapi/components/responses.yaml#/PayloadTooLarge'
+    UnsupportedMediaType:
+      $ref: './openapi/components/responses.yaml#/UnsupportedMediaType'
+    BusinessRule:
+      $ref: './openapi/components/responses.yaml#/BusinessRule'
+    TooManyRequests:
+      $ref: './openapi/components/responses.yaml#/TooManyRequests'
+    ServiceUnavailable:
+      $ref: './openapi/components/responses.yaml#/ServiceUnavailable'
+    NotModified:
+      $ref: './openapi/components/responses.yaml#/NotModified'
+    ImageContent:
+      $ref: './openapi/components/responses.yaml#/ImageContent'
+    FileContent:
+      $ref: './openapi/components/responses.yaml#/FileContent'
+  headers:
+    XRequestId:
+      $ref: './openapi/components/headers.yaml#/XRequestId'
+    XBackend:
+      $ref: './openapi/components/headers.yaml#/XBackend'
+    IdempotentReplayed:
+      $ref: './openapi/components/headers.yaml#/IdempotentReplayed'
+    ETag:
+      $ref: './openapi/components/headers.yaml#/ETag'
+    CacheControl:
+      $ref: './openapi/components/headers.yaml#/CacheControl'
+    ContentDisposition:
+      $ref: './openapi/components/headers.yaml#/ContentDisposition'
+    ContentLength:
+      $ref: './openapi/components/headers.yaml#/ContentLength'
+    RetryAfter:
+      $ref: './openapi/components/headers.yaml#/RetryAfter'
+    SetRefreshCookie:
+      $ref: './openapi/components/headers.yaml#/SetRefreshCookie'
+    ClearRefreshCookie:
+      $ref: './openapi/components/headers.yaml#/ClearRefreshCookie'
+  schemas:
+    Uuid:
+      $ref: './openapi/schemas/common.yaml#/Uuid'
+    DateTime:
+      $ref: './openapi/schemas/common.yaml#/DateTime'
+    Date:
+      $ref: './openapi/schemas/common.yaml#/Date'
+    Mass:
+      $ref: './openapi/schemas/common.yaml#/Mass'
+    Percent:
+      $ref: './openapi/schemas/common.yaml#/Percent'
+    Decimal:
+      $ref: './openapi/schemas/common.yaml#/Decimal'
+    Email:
+      $ref: './openapi/schemas/common.yaml#/Email'
+    Phone:
+      $ref: './openapi/schemas/common.yaml#/Phone'
+    Password:
+      $ref: './openapi/schemas/common.yaml#/Password'
+    PageNumber:
+      $ref: './openapi/schemas/common.yaml#/PageNumber'
+    PageSize:
+      $ref: './openapi/schemas/common.yaml#/PageSize'
+    TotalCount:
+      $ref: './openapi/schemas/common.yaml#/TotalCount'
+    ProblemCode:
+      $ref: './openapi/schemas/common.yaml#/ProblemCode'
+    Problem:
+      $ref: './openapi/schemas/common.yaml#/Problem'
+    RoleCode:
+      $ref: './openapi/schemas/common.yaml#/RoleCode'
+    BatchStatus:
+      $ref: './openapi/schemas/common.yaml#/BatchStatus'
+    OrganizationType:
+      $ref: './openapi/schemas/common.yaml#/OrganizationType'
+    ProductCategory:
+      $ref: './openapi/schemas/common.yaml#/ProductCategory'
+    SubstanceType:
+      $ref: './openapi/schemas/common.yaml#/SubstanceType'
+    Region:
+      $ref: './openapi/schemas/common.yaml#/Region'
+    OrganizationRef:
+      $ref: './openapi/schemas/common.yaml#/OrganizationRef'
+    FileRef:
+      $ref: './openapi/schemas/common.yaml#/FileRef'
+    ProductRef:
+      $ref: './openapi/schemas/common.yaml#/ProductRef'
+    SubstanceRef:
+      $ref: './openapi/schemas/common.yaml#/SubstanceRef'
+    HealthCheckStatus:
+      $ref: './openapi/schemas/common.yaml#/HealthCheckStatus'
+    Health:
+      $ref: './openapi/schemas/common.yaml#/Health'
+    AccessToken:
+      $ref: './openapi/schemas/auth.yaml#/AccessToken'
+    LoginRequest:
+      $ref: './openapi/schemas/auth.yaml#/LoginRequest'
+    LoginSuccess:
+      $ref: './openapi/schemas/auth.yaml#/LoginSuccess'
+    TwoFactorChallenge:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorChallenge'
+    LoginResponse:
+      $ref: './openapi/schemas/auth.yaml#/LoginResponse'
+    RefreshResponse:
+      $ref: './openapi/schemas/auth.yaml#/RefreshResponse'
+    TotpCode:
+      $ref: './openapi/schemas/auth.yaml#/TotpCode'
+    TwoFactorVerifyRequest:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorVerifyRequest'
+    TwoFactorSetupRequest:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorSetupRequest'
+    TwoFactorSetupPending:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorSetupPending'
+    TwoFactorEnabled:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorEnabled'
+    TwoFactorSetupResponse:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorSetupResponse'
+    RegistrableOrganizationType:
+      $ref: './openapi/schemas/auth.yaml#/RegistrableOrganizationType'
+    RegisterOrganizationRequest:
+      $ref: './openapi/schemas/auth.yaml#/RegisterOrganizationRequest'
+    RegisterOrganizationResponse:
+      $ref: './openapi/schemas/auth.yaml#/RegisterOrganizationResponse'
+    ForgotPasswordRequest:
+      $ref: './openapi/schemas/auth.yaml#/ForgotPasswordRequest'
+    ResetPasswordRequest:
+      $ref: './openapi/schemas/auth.yaml#/ResetPasswordRequest'
+    AcceptInviteRequest:
+      $ref: './openapi/schemas/auth.yaml#/AcceptInviteRequest'
+    UserStatus:
+      $ref: './openapi/schemas/users.yaml#/UserStatus'
+    NotificationChannels:
+      $ref: './openapi/schemas/users.yaml#/NotificationChannels'
+    ChannelsUpdate:
+      $ref: './openapi/schemas/users.yaml#/ChannelsUpdate'
+    TelegramCode:
+      $ref: './openapi/schemas/users.yaml#/TelegramCode'
+    Me:
+      $ref: './openapi/schemas/users.yaml#/Me'
+    MeUpdate:
+      $ref: './openapi/schemas/users.yaml#/MeUpdate'
+    User:
+      $ref: './openapi/schemas/users.yaml#/User'
+    UserPage:
+      $ref: './openapi/schemas/users.yaml#/UserPage'
+    UserInvite:
+      $ref: './openapi/schemas/users.yaml#/UserInvite'
+    UserPatch:
+      $ref: './openapi/schemas/users.yaml#/UserPatch'
+    OrganizationStatus:
+      $ref: './openapi/schemas/organizations.yaml#/OrganizationStatus'
+    Organization:
+      $ref: './openapi/schemas/organizations.yaml#/Organization'
+    ImageUpload:
+      $ref: './openapi/schemas/files.yaml#/ImageUpload'
+    LogoUpload:
+      $ref: './openapi/schemas/files.yaml#/LogoUpload'
+    FileBinary:
+      $ref: './openapi/schemas/files.yaml#/FileBinary'
+    SafetyStatus:
+      $ref: './openapi/schemas/public.yaml#/SafetyStatus'
+    PublicBatch:
+      $ref: './openapi/schemas/public.yaml#/PublicBatch'
+    PublicComplaintRequest:
+      $ref: './openapi/schemas/public.yaml#/PublicComplaintRequest'
+    PublicComplaintCreated:
+      $ref: './openapi/schemas/public.yaml#/PublicComplaintCreated'
+    AltchaChallenge:
+      $ref: './openapi/schemas/public.yaml#/AltchaChallenge'
+    NotificationType:
+      $ref: './openapi/schemas/notifications.yaml#/NotificationType'
+    Notification:
+      $ref: './openapi/schemas/notifications.yaml#/Notification'
+    UnreadCount:
+      $ref: './openapi/schemas/notifications.yaml#/UnreadCount'

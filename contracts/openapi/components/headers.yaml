@@ -1,0 +1,60 @@
+# Общие заголовки ответов.
+XRequestId:
+  description: >-
+    Идентификатор запроса (correlation id): значение заголовка `X-Request-Id` из запроса или
+    сгенерированное сервером; пишется в журналы.
+  schema:
+    type: string
+    maxLength: 64
+  example: 4f1c2a7e-9b3d-4e5f-8a6b-0c1d2e3f4a5b
+XBackend:
+  description: Реализация backend, обработавшая запрос.
+  schema:
+    type: string
+    enum: [express, django, laravel]
+  example: express
+IdempotentReplayed:
+  description: '`true`, если ответ воспроизведён из сохранённого по `Idempotency-Key` (BR-11).'
+  schema:
+    type: string
+    enum: ['true', 'false']
+  example: 'true'
+ETag:
+  description: Сильный ETag содержимого файла (для `If-None-Match`).
+  schema:
+    type: string
+  example: '"5d41402abc4b2a76b9719d911017c592"'
+CacheControl:
+  description: Политика кэширования ответа.
+  schema:
+    type: string
+  example: private, max-age=0, must-revalidate
+ContentDisposition:
+  description: '`inline` для изображений, `attachment` для прочих файлов; имя файла в `filename*` (RFC 6266).'
+  schema:
+    type: string
+  example: "inline; filename*=UTF-8''petrov.webp"
+ContentLength:
+  description: Размер тела ответа в байтах.
+  schema:
+    type: integer
+    minimum: 0
+  example: 48213
+RetryAfter:
+  description: Через сколько секунд можно повторить запрос.
+  schema:
+    type: integer
+    minimum: 1
+  example: 60
+SetRefreshCookie:
+  description: >-
+    Refresh-токен (14 дней, ротация при каждом обновлении) в cookie
+    `at_refresh=<токен>; Max-Age=1209600; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Strict`.
+  schema:
+    type: string
+  example: at_refresh=q3Zt9YkR2vXw8LmN4pQs7uVa1BcD6eFg; Max-Age=1209600; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Strict
+ClearRefreshCookie:
+  description: Удаление cookie `at_refresh` (`Max-Age=0` с теми же атрибутами).
+  schema:
+    type: string
+  example: at_refresh=; Max-Age=0; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Strict

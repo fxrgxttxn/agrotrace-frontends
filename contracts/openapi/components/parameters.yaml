@@ -1,0 +1,90 @@
+# Общие параметры операций.
+Page:
+  name: page
+  in: query
+  description: Номер страницы, начиная с 1.
+  schema:
+    type: integer
+    minimum: 1
+    default: 1
+Size:
+  name: size
+  in: query
+  description: Размер страницы, не более 100.
+  schema:
+    type: integer
+    minimum: 1
+    maximum: 100
+    default: 20
+Sort:
+  name: sort
+  in: query
+  description: 'Сортировка `поле,asc|desc`; допустимые поля перечислены в описании операции.'
+  schema:
+    type: string
+    pattern: '^[a-zA-Z]+,(asc|desc)$'
+  example: createdAt,desc
+Q:
+  name: q
+  in: query
+  description: Строка поиска.
+  schema:
+    type: string
+    minLength: 1
+    maxLength: 100
+  example: Петров
+IdPath:
+  name: id
+  in: path
+  required: true
+  description: Идентификатор сущности.
+  schema:
+    type: string
+    format: uuid
+IdempotencyKey:
+  name: Idempotency-Key
+  in: header
+  required: true
+  description: >-
+    Ключ идемпотентности (BR-11). Повтор с тем же ключом и тем же телом возвращает сохранённый ответ
+    с заголовком `Idempotent-Replayed: true`; с другим телом — 409 IDEMPOTENCY_KEY_REUSED;
+    некорректный ключ — 400 INVALID_IDEMPOTENCY_KEY.
+  schema:
+    type: string
+    pattern: '^[A-Za-z0-9_-]{8,128}$'
+  example: 7f3a9c1e-waybill-2026
+IfMatch:
+  name: If-Match
+  in: header
+  required: true
+  description: Текущая версия сущности (`version`); при расхождении — 409 VERSION_CONFLICT с `params.currentVersion`.
+  schema:
+    type: integer
+    minimum: 1
+  example: 3
+IfNoneMatch:
+  name: If-None-Match
+  in: header
+  description: ETag ранее полученного содержимого; при совпадении — 304 без тела.
+  schema:
+    type: string
+  example: '"5d41402abc4b2a76b9719d911017c592"'
+ImageVariant:
+  name: variant
+  in: query
+  description: >-
+    Вариант изображения (WebP, размер по большей стороне в px). Без параметра — 480.
+    Для SVG и не-изображений (PDF и т.п.) игнорируется — отдаётся исходный файл.
+  schema:
+    type: integer
+    enum: [96, 480]
+    default: 480
+PublicCode:
+  name: publicCode
+  in: path
+  required: true
+  description: Публичный код партии.
+  schema:
+    type: string
+    pattern: '^AT-\d{4}-\d{6,}$'
+  example: AT-2026-000123

@@ -5,14 +5,16 @@
   "scripts": {
     "test": "vitest run",
     "lint:openapi": "redocly lint openapi.yaml",
+    "bundle": "redocly bundle openapi.yaml --ext json -o dist/openapi.json",
     "gen:sm-vectors": "tsx scripts/gen-sm-vectors.ts",
     "gen:sample-codes": "tsx scripts/find-sample-codes.ts"
   },
   "devDependencies": {
-    "ajv": "^8.17.1",
-    "vitest": "^2.1.4",
     "@redocly/cli": "^1.25.11",
     "@redocly/openapi-core": "^1.25.11",
-    "tsx": "^4.19.2"
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.4"
   }
 }

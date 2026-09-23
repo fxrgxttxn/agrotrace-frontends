@@ -1,0 +1,32 @@
+# Модуль Files.
+/files/{id}:
+  get:
+    operationId: downloadFile
+    summary: Скачивание файла
+    description: >-
+      Поток файла через backend с проверкой прав (FR-FILE-03): файл наследует права сущности, к которой
+      привязан (протокол анализа — тем, кто видит анализ; аватарка — любому авторизованному; логотип и фото
+      продукта — всем). Нет файла или нет права его видеть — 404. Заголовки `Content-Type`, `Content-Length`,
+      `Content-Disposition`, `ETag`; `Cache-Control: private, no-cache`; `If-None-Match` → 304.
+      Файл, загруженный через любую реализацию, отдаётся любой другой без различий (FR-FILE-05).
+    tags: [Files]
+    x-roles: [ANY]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/ImageVariant'
+      - $ref: '../components/parameters.yaml#/IfNoneMatch'
+    responses:
+      '200':
+        $ref: '../components/responses.yaml#/FileContent'
+      '304':
+        $ref: '../components/responses.yaml#/NotModified'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

@@ -1,0 +1,29 @@
+# Загрузка файлов.
+ImageUpload:
+  type: object
+  description: >-
+    Изображение в поле `file`. MIME проверяется по сигнатуре содержимого, а не по расширению или заголовку
+    части; имя файла сохраняется только как `originalName`. Хранится как WebP 96 и 480 px по большей стороне.
+  required: [file]
+  additionalProperties: false
+  properties:
+    file:
+      type: string
+      format: binary
+      contentMediaType: application/octet-stream
+LogoUpload:
+  type: object
+  description: >-
+    Логотип в поле `file`: JPEG, PNG, WebP (конвертируются в WebP 96 и 480 px) или SVG (санитизируется
+    от скриптов и хранится как есть). MIME проверяется по сигнатуре содержимого.
+  required: [file]
+  additionalProperties: false
+  properties:
+    file:
+      type: string
+      format: binary
+      contentMediaType: application/octet-stream
+FileBinary:
+  type: string
+  format: binary
+  description: Содержимое файла.
