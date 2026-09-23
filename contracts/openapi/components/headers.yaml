@@ -64,6 +64,7 @@ ContentLength:
   example: 48213
 RetryAfter:
   description: Число секунд до конца текущего окна счётчика лимита (R30), не меньше 1.
+  required: true
   schema:
     type: integer
     minimum: 1

@@ -69,8 +69,8 @@
             example:
               id: 8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
               url: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
-              mime: image/webp
-              sizeBytes: 31877
+              mime: image/png
+              sizeBytes: 184532
               originalName: logo-kfh-petrov.png
       '400':
         $ref: '../components/responses.yaml#/BadRequest'

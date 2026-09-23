@@ -41,7 +41,18 @@
         content:
           application/json:
             schema:
-              $ref: '../schemas/common.yaml#/Health'
+              allOf:
+                - $ref: '../schemas/common.yaml#/Health'
+                - properties:
+                    status:
+                      const: ok
+            example:
+              status: ok
+              checks:
+                db: ok
+                redis: ok
+                rabbitmq: ok
+                s3: ok
       '503':
         description: Хотя бы одна зависимость недоступна.
         headers:
@@ -52,7 +63,11 @@
         content:
           application/json:
             schema:
-              $ref: '../schemas/common.yaml#/Health'
+              allOf:
+                - $ref: '../schemas/common.yaml#/Health'
+                - properties:
+                    status:
+                      const: fail
             example:
               status: fail
               checks:

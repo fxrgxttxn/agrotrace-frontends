@@ -127,7 +127,24 @@
       '404':
         $ref: '../components/responses.yaml#/NotFound'
       '409':
-        $ref: '../components/responses.yaml#/Conflict'
+        description: Изменение статуса пользователя INVITED (INVALID_TRANSITION, `params.from`/`params.to`).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/invalid-transition
+              title: Invalid status transition
+              status: 409
+              code: INVALID_TRANSITION
+              params:
+                from: INVITED
+                to: BLOCKED
       '429':
         $ref: '../components/responses.yaml#/TooManyRequests'
 /users/{id}/avatar:
