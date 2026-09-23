@@ -49,17 +49,17 @@ NameString:
   example: Петров Иван Сергеевич
 SignedFileUrl:
   type: string
-  pattern: '^/api/v1/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?(variant=(96|480)&)?exp=\d{10}&sig=[0-9a-f]{64}$'
+  pattern: '^/api/v1/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?exp=\d{10}&sig=[0-9a-f]{64}$'
   description: >-
     Подписанный относительный URL защищённого файла (аватарки, протоколы, QR, отчёты):
-    `/api/v1/files/{id}?[variant={96|480}&]exp={unix}&sig={hex}`, действует 3600 с; работает в `<img src>`
-    и ссылках без заголовка Authorization. Алгоритм подписи — в `GET /files/{id}`. Подпись покрывает
-    `variant`, поэтому клиент не меняет параметры URL; в ответах API URL выдаётся без `variant`
-    (для изображений отдаётся вариант 480).
+    `/api/v1/files/{id}?exp={unix}&sig={hex}`, действует 3600 с; работает в `<img src>` и ссылках без
+    заголовка Authorization. Алгоритм подписи — в `GET /files/{id}`. Подписываются только `id` и `exp`:
+    клиент может добавить или заменить неподписанный параметр `variant=96|480` (без него — 480), так что
+    один URL обслуживает оба размера.
   example: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
 NullableSignedFileUrl:
   type: [string, 'null']
-  pattern: '^/api/v1/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?(variant=(96|480)&)?exp=\d{10}&sig=[0-9a-f]{64}$'
+  pattern: '^/api/v1/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?exp=\d{10}&sig=[0-9a-f]{64}$'
   description: '`SignedFileUrl` или null, если файла нет.'
   example: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
 PublicFileUrl:
@@ -238,7 +238,7 @@ FileRef:
       $ref: '#/Uuid'
     url:
       type: string
-      pattern: '^/api/v1/(public/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?(variant=(96|480)&)?exp=\d{10}&sig=[0-9a-f]{64})$'
+      pattern: '^/api/v1/(public/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?exp=\d{10}&sig=[0-9a-f]{64})$'
       description: >-
         Для логотипов и фото продуктов — `PublicFileUrl` (`/api/v1/public/files/{id}`, без подписи);
         для аватарок, протоколов, QR и отчётов — `SignedFileUrl` (`/api/v1/files/{id}?exp=…&sig=…`, 3600 с).
