@@ -1,0 +1,22 @@
+name: Restore pnpm store cache
+description: >
+  Restores the `tools` container's pnpm content-addressable store (docker volume
+  agrotrace_pnpm-store, mounted at /pnpm/store per .npmrc's store-dir) from the GitHub Actions
+  cache, keyed on pnpm-lock.yaml. Each job runs on its own fresh runner (no shared docker state
+  between jobs), so this + pnpm-store-save must be paired in every job that runs `./at.sh install`
+  or any other command touching the pnpm store.
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/pnpm-store.tar
+        key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+    - shell: bash
+      run: |
+        set -euo pipefail
+        docker volume create agrotrace_pnpm-store >/dev/null
+        if [ -f "${{ runner.temp }}/pnpm-store.tar" ]; then
+          docker run --rm -v agrotrace_pnpm-store:/data -v "${{ runner.temp }}":/backup alpine \
+            sh -c "cd /data && tar xf /backup/pnpm-store.tar"
+        fi

@@ -1,48 +1,77 @@
 # AgroTrace
 
-Monorepo for AgroTrace — a traceability system with 3 backends and 3 frontends.
+AgroTrace is a traceability system that follows agricultural products from field to shelf. It
+links every participant of the food chain — farms, labs, processors, retailers, inspectors — into
+one batch graph, and can recall unsafe product across that whole graph automatically. It is built
+as three interchangeable frontends and three interchangeable backends over one shared PostgreSQL
+schema and API contract, so the same product can be built and compared three different ways.
 
-## Toolchain
+## Architecture: 3×3
 
-This project uses a Docker-only toolchain. The host only needs **Docker Desktop** and **Git** —
-no Node, pnpm, Python, PHP, or make are required locally.
+- **Frontends** (SPA): React, Angular, Svelte.
+- **Backends** (REST API + worker + scheduler): Express, Django, Laravel.
+- Any frontend talks to any backend through the same OpenAPI contract
+  (`contracts/openapi.yaml`) — 9 combinations in total, all running at once against the same
+  database.
+- An nginx **gateway** picks the combination by hostname
+  (`{react,angular,svelte}-{express,django,laravel}.localhost`) and serves a start page at
+  `http://localhost:${GATEWAY_PORT}/` linking to all 9.
+- A shared **design system** (`packages/design-system`), served at `/_ds/`, and shared TypeScript
+  packages (`domain`, `validation`, `i18n`, `api-client`) keep business rules and UI consistent
+  across every implementation.
 
-All tooling runs inside the `tools` Compose service (working directory `/repo`, mounted from the
-repo root) via the `at` wrapper script.
+## Repository layout
 
-### Usage
+This reflects the repository as it stands after Plan 0 (foundation); later plans add
+`backend-{express,django,laravel}/` and `frontend-{react,angular,svelte}/` alongside it.
 
-On Linux/macOS/Git Bash:
+```
+agrotrace/
+  contracts/          OpenAPI contract (openapi.yaml), BR-01…BR-11 rule vectors, event schemas
+  db/
+    migrations/        SQL migrations (dbmate)
+    schema.sql         generated from the migrations — never edited by hand
+    seed/               demo-world generator (./at.sh seed / seed:test)
+  packages/
+    domain/  validation/  i18n/  api-client/  design-system/
+  gateway/             nginx routing, start page, gwtest stub upstream
+  mercury-mock/        emulator of the external «Меркурий» veterinary system
+  tests/
+    db/  ds/  gateway/     shared test suites (more added by later plans)
+  infra/               postgres/rabbitmq/minio init and config
+  docs/                spec, deploy guide, demo accounts, plans (docs/superpowers/plans/)
+  .github/             CI (ci.yml) and its local composite actions
+  docker-compose.yml  at.sh  at.ps1  .env.example
+```
+
+## Quick start
+
+Requires only **Docker Desktop** and **Git** — no Node, pnpm, Python, PHP or make on the host.
+Every command below runs inside Docker Compose via `./at.sh` (or `./at.ps1` on Windows
+PowerShell, which just forwards to `at.sh`).
 
 ```bash
-./at install         # pnpm install (creates .env from .env.example on first run)
-./at sh               # open a shell inside the tools container
-./at pnpm <args>       # run an arbitrary pnpm command
-./at test              # run tests across the workspace
-./at lint              # lint the workspace
-./at fmt               # format the workspace with prettier
+git clone <repo-url> && cd agrotrace
+./at.sh install       # pnpm install (creates .env from .env.example on first run)
+./at.sh up infra      # postgres, redis, rabbitmq, minio, mailpit
+./at.sh db:migrate    # applies db/migrations
+./at.sh seed          # loads the demo world (docs/demo-accounts.md)
+./at.sh up gateway    # builds and starts the nginx gateway
 ```
 
-On Windows (PowerShell):
+Then open **http://localhost:${GATEWAY_PORT}/** (`${GATEWAY_PORT}` defaults to `80`; see
+`.env`). The design-system showcase is at `/_ds/`.
 
-```powershell
-./at.ps1 install
-```
+For every other command (`test`, `lint`, `typecheck`, `db:test`, `seed:test`, `ds:test`,
+`gw:test`, `reset`, `down`, …), service ports, environment variables and troubleshooting, see
+**[docs/deploy.md](docs/deploy.md)**.
 
-`at.ps1` simply forwards to `at.sh` via `bash`, so behavior is identical on both platforms.
+## Documentation
 
-### Environment
-
-`.env` is created automatically from `.env.example` on first `./at` invocation and is
-git-ignored. Edit `.env` locally as needed; do not commit it.
-
-## Workspace layout
-
-Package locations are defined in `pnpm-workspace.yaml`:
-
-- `packages/*`
-- `db/seed`
-- `mercury-mock`
-- `tests/*`
-
-TypeScript packages extend the shared `tsconfig.base.json`.
+- [Technical specification](docs/tz-agrotrace-v2.md) (`docs/tz-agrotrace-v2.md`) — the single
+  source of truth for requirements and business rules.
+- [Implementation plans](docs/superpowers/plans/) — one file per plan, in the order they're built.
+- [Demo accounts and data](docs/demo-accounts.md) — generated by `./at.sh seed`; every demo login,
+  organization and the objects the defense scenario walks through.
+- [Deployment guide](docs/deploy.md) — prerequisites, environment variables, all `./at.sh`
+  commands, service URLs, troubleshooting.

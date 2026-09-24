@@ -1,0 +1,114 @@
+name: ci
+
+# Every job runs the SAME ./at.sh commands a developer runs locally (see README.md / docs/deploy.md)
+# inside Docker Compose on the runner (Docker is preinstalled on ubuntu-latest) — one source of
+# truth for "what does a passing build actually mean" instead of re-describing services here.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Port 80 is always free on the runner (unlike a developer machine, where it may already be
+  # taken — see docs/deploy.md's troubleshooting section); also what tests/gateway's
+  # X-Forwarded-Port assertion reads back (process.env.GATEWAY_PORT).
+  GATEWAY_PORT: '80'
+
+jobs:
+  lint:
+    name: lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh lint
+      - run: ./at.sh typecheck
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+
+  unit:
+    name: unit (contracts, domain, api-client, validation, i18n, design-system, mercury-mock, seed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh pnpm --filter @agrotrace/contracts run lint:openapi
+      - run: >-
+          ./at.sh pnpm
+          --filter @agrotrace/contracts
+          --filter @agrotrace/domain
+          --filter @agrotrace/api-client
+          --filter @agrotrace/validation
+          --filter @agrotrace/i18n
+          --filter @agrotrace/design-system
+          --filter @agrotrace/mercury-mock
+          --filter @agrotrace/seed
+          run test
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+
+  db:
+    name: db (migrate, schema.sql freshness, tests/db)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh up infra
+      - run: ./at.sh db:migrate
+      # db:migrate always regenerates db/schema.sql from a throwaway DB replaying every migration
+      # on disk (see dump_schema() in at.sh) — never from the long-lived dev DB, which can drift.
+      # A diff here means a migration changed the schema without the committed file being updated.
+      - name: schema.sql is up to date with db/migrations
+        run: git diff --exit-code -- db/schema.sql
+      - run: ./at.sh db:test
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+
+  seed:
+    name: seed (reset + seed:test)
+    runs-on: ubuntu-latest
+    # Pinned so `./at.sh reset` and `./at.sh seed:test` see the same SEED_NOW: seed:test reseeds
+    # once more with it and compares against the first seed for byte-identical idempotency.
+    env:
+      SEED_NOW: '2026-09-24T12:00:00Z'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh up infra
+      - run: ./at.sh reset
+      - run: ./at.sh seed:test
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+
+  ds:
+    name: ds (design-system showcase, Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh ds:test
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+
+  gateway:
+    name: gateway (nginx routing, gw:test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh up gateway
+      - run: ./at.sh gw:test
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()

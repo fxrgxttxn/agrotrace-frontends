@@ -1,0 +1,14 @@
+name: Save pnpm store cache
+description: >
+  Writes the `tools` container's pnpm content-addressable store (docker volume
+  agrotrace_pnpm-store) into the tarball that pnpm-store-restore's actions/cache step will upload
+  automatically when the job finishes. Must run after every step that can populate the store
+  (install, or any pnpm command that resolves new packages) and before the job ends.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        docker run --rm -v agrotrace_pnpm-store:/data -v "${{ runner.temp }}":/backup alpine \
+          sh -c "cd /data && tar cf /backup/pnpm-store.tar ."
