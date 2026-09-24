@@ -1111,10 +1111,15 @@ export interface paths {
          *     Нет файла или нет права его видеть — 404.
          *
          *     2. **Подписанный URL** (без заголовка Authorization) — такие URL сервер отдаёт в полях `avatarUrl`,
-         *     `FileRef.url` и т.п. для аватарок, протоколов, QR и отчётов. Подпись:
-         *     `sig = hex(HMAC-SHA256(key = JWT_SECRET, message = "{id}:{exp}"))` в нижнем регистре, где `id` —
+         *     `FileRef.url` и т.п. для аватарок, протоколов, QR и отчётов. Ключ подписи выводится из `JWT_SECRET`
+         *     (R88 M2), чтобы сам секрет токенов не использовался напрямую для другой цели:
+         *     `fileUrlKey = HMAC-SHA256(key = JWT_SECRET, message = "agrotrace:file-url:v1")` (32 байта, сырые), затем
+         *     `sig = hex(HMAC-SHA256(key = fileUrlKey, message = "{id}:{exp}"))` в нижнем регистре, где `id` —
          *     UUID файла в нижнем регистре, `exp` — Unix-время истечения в секундах (десятичное, без ведущих нулей) =
-         *     момент выдачи + 3600. Пример сообщения: `3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f:1790247600`. Параметр
+         *     момент выдачи + 3600. Пример сообщения: `3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f:1790247600`; при
+         *     `JWT_SECRET` = `dev_only_change_me_32_bytes_minimum_xx` (значение из `.env.example`) `fileUrlKey` =
+         *     `ecedca06a78414e48b66ba0a401a61401c7f8af078b2fc35c8dfe5017e7a4a70` (hex), подпись —
+         *     `9de1ced479cc0f1c78c9d8deff00f42955b37d6a7cb19f9635a07a6300c29ee0`. Параметр
          *     `variant` не подписывается: клиент свободно добавляет или заменяет `variant=96|480` в выданном URL.
          *     Сравнение подписи — за постоянное время. Неверная подпись, `exp` в прошлом или только один из `exp`/`sig` — 403 FORBIDDEN;
          *     права пользователя при этом не проверяются. Если переданы `exp`/`sig`, проверяется только подпись
@@ -6554,7 +6559,7 @@ export interface components {
          */
         SignedExp: number;
         /**
-         * @description Подпись URL: hex (нижний регистр) HMAC-SHA256 с ключом `JWT_SECRET` от строки `{id}:{exp}` (`variant` не подписывается). Обязателен вместе с `exp`.
+         * @description Подпись URL: hex (нижний регистр) HMAC-SHA256 с ключом `fileUrlKey` = HMAC-SHA256(`JWT_SECRET`, `"agrotrace:file-url:v1"`) от строки `{id}:{exp}` (R88 M2, пример — в описании `downloadFile`) (`variant` не подписывается). Обязателен вместе с `exp`.
          * @example 9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
          */
         SignedSig: string;
@@ -9131,7 +9136,7 @@ export interface operations {
                  */
                 exp?: components["parameters"]["SignedExp"];
                 /**
-                 * @description Подпись URL: hex (нижний регистр) HMAC-SHA256 с ключом `JWT_SECRET` от строки `{id}:{exp}` (`variant` не подписывается). Обязателен вместе с `exp`.
+                 * @description Подпись URL: hex (нижний регистр) HMAC-SHA256 с ключом `fileUrlKey` = HMAC-SHA256(`JWT_SECRET`, `"agrotrace:file-url:v1"`) от строки `{id}:{exp}` (R88 M2, пример — в описании `downloadFile`) (`variant` не подписывается). Обязателен вместе с `exp`.
                  * @example 9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
                  */
                 sig?: components["parameters"]["SignedSig"];

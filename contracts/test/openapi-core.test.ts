@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { fileURLToPath } from 'node:url';
+import { createHmac } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { bundle, loadConfig } from '@redocly/openapi-core';
 import Ajv2020 from 'ajv/dist/2020';
@@ -968,6 +969,22 @@ describe('openapi contract: operations', () => {
     expect(d).toMatch(/\$\{PUBLIC_BASE_URL\}\/password\/reset\/\{token\}/);
     expect(d).toMatch(/\$\{PUBLIC_BASE_URL\}\/invite\/\{token\}/);
     expect(d).toMatch(/только worker, удерживающий `tg:poller`/);
+  });
+
+  it('R88 M2: signed file URLs use a key derived from JWT_SECRET; the documented vector is correct', () => {
+    const d: string = ops.find(({ op }) => op.operationId === 'downloadFile')!.op.description;
+    expect(d).toMatch(/fileUrlKey = HMAC-SHA256\(key = JWT_SECRET, message = "agrotrace:file-url:v1"\)/);
+    expect(d).toMatch(/sig = hex\(HMAC-SHA256\(key = fileUrlKey, message = "\{id\}:\{exp\}"\)\)/);
+    expect(doc.components.parameters.SignedSig.description).toMatch(/fileUrlKey/);
+    const secret = /`JWT_SECRET` = `([^`]+)`/.exec(d)![1]!;
+    const message = /Пример сообщения: `([^`]+)`/.exec(d)![1]!;
+    const key = createHmac('sha256', secret).update('agrotrace:file-url:v1').digest();
+    expect(d).toContain(key.toString('hex'));
+    expect(d).toContain(createHmac('sha256', key).update(message).digest('hex'));
+    // The old scheme (JWT_SECRET used directly as the HMAC key) must not be what the contract documents.
+    expect(d).not.toContain(createHmac('sha256', secret).update(message).digest('hex'));
+    const env = readFileSync(new URL('../../.env.example', import.meta.url), 'utf8');
+    expect(env).toContain(`JWT_SECRET=${secret}`);
   });
 
   it('IdempotencyKey text states the R53 storage precision', () => {

@@ -133,7 +133,8 @@ SignedSig:
   name: sig
   in: query
   description: >-
-    Подпись URL: hex (нижний регистр) HMAC-SHA256 с ключом `JWT_SECRET` от строки `{id}:{exp}`
+    Подпись URL: hex (нижний регистр) HMAC-SHA256 с ключом `fileUrlKey` = HMAC-SHA256(`JWT_SECRET`,
+    `"agrotrace:file-url:v1"`) от строки `{id}:{exp}` (R88 M2, пример — в описании `downloadFile`)
     (`variant` не подписывается). Обязателен вместе с `exp`.
   schema:
     type: string
