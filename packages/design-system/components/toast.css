@@ -1,10 +1,14 @@
-/* at-toast — <div class="at-toast-region" aria-live="polite">  (one per app)
-     <div class="at-toast" data-tone="ok|attention|danger|move|neutral">
-       <p class="at-toast__text">…</p> <button class="at-button" data-variant="ghost" data-size="s" data-icon-only aria-label="Закрыть">…</button>
-     </div>
-   </div> */
+/* at-toast — one fixed stack per app with two live regions:
+   <div class="at-toasts">
+     <div class="at-toast-region" role="alert">…error toasts (data-tone="danger")…</div>
+     <div class="at-toast-region" aria-live="polite">…other toasts…</div>
+   </div>
+   Toast: <div class="at-toast" data-tone="ok|attention|danger|move|neutral">
+            <p class="at-toast__text">…</p> <button class="at-button" data-variant="ghost" data-size="s" data-icon-only aria-label="Закрыть">…</button>
+          </div>
+   Toasts float above content, so they carry the single shadow (spec §10.5). */
 
-.at-toast-region {
+.at-toasts {
   position: fixed;
   z-index: 60;
   right: var(--gutter);
@@ -13,6 +17,15 @@
   gap: var(--sp-2);
   width: min(400px, calc(100vw - 2 * var(--gutter)));
   pointer-events: none;
+}
+
+.at-toast-region {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.at-toast-region:empty {
+  display: none;
 }
 
 .at-toast {
@@ -82,7 +95,7 @@
 }
 
 @media (max-width: 767px) {
-  .at-toast-region {
+  .at-toasts {
     right: var(--sp-4);
     bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + var(--sp-3));
     left: var(--sp-4);

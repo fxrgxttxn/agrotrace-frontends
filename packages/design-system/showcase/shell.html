@@ -130,12 +130,43 @@
                 </div>
                 <div class="at-field">
                   <label class="at-field__label" for="flt-from">Убрано с</label>
-                  <input class="at-input" type="date" id="flt-from" value="2026-07-01" />
+                  <div class="at-date">
+                    <input
+                      class="at-input"
+                      id="flt-from"
+                      inputmode="numeric"
+                      placeholder="ДД.ММ.ГГГГ"
+                      maxlength="10"
+                      autocomplete="off"
+                      value="01.07.2026"
+                    />
+                    <button class="at-date__button" type="button" aria-label="Открыть календарь">
+                      <svg aria-hidden="true"><use href="#i-calendar" /></svg>
+                    </button>
+                    <input
+                      class="at-date__native"
+                      type="date"
+                      tabindex="-1"
+                      aria-hidden="true"
+                      value="2026-07-01"
+                    />
+                  </div>
                 </div>
               </div>
             </details>
           </div>
 
+          <div class="at-table-mobilebar">
+            <label class="at-table-mobilebar__sort">
+              <span class="at-visually-hidden">Сортировка</span>
+              <select class="at-select">
+                <option>Сначала новые</option>
+                <option>Сначала старые</option>
+                <option>Масса, по убыванию</option>
+                <option>Код партии</option>
+              </select>
+            </label>
+          </div>
           <div class="at-table-wrap">
             <table class="at-table" data-cards>
               <caption class="at-visually-hidden">
@@ -315,10 +346,56 @@
         <a class="at-bottom-nav__link" href="#waybills"
           ><svg class="at-bottom-nav__icon" aria-hidden="true"><use href="#i-waybill" /></svg>Накладные</a
         >
-        <button class="at-bottom-nav__link" type="button" aria-expanded="false">
+        <button
+          class="at-bottom-nav__link"
+          type="button"
+          aria-expanded="false"
+          aria-controls="more-menu"
+          data-ds-open-dialog="more-menu"
+        >
           <svg class="at-bottom-nav__icon" aria-hidden="true"><use href="#i-more" /></svg>Ещё
         </button>
       </nav>
+
+      <dialog class="at-dialog" id="more-menu" aria-labelledby="more-title" data-ds-light-dismiss>
+        <div class="at-dialog__header">
+          <h2 class="at-dialog__title" id="more-title" tabindex="-1">Ещё</h2>
+          <button
+            class="at-button"
+            data-variant="ghost"
+            data-icon-only
+            type="button"
+            aria-label="Закрыть"
+            data-ds-close
+          >
+            <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+          </button>
+        </div>
+        <div class="at-dialog__body">
+          <nav aria-label="Остальные разделы">
+            <ul class="at-sidebar__list">
+              <li>
+                <a class="at-sidebar__link" href="#recall-tasks"
+                  ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-recall" /></svg
+                  ><span class="at-sidebar__label">Задачи отзыва</span></a
+                >
+              </li>
+              <li>
+                <a class="at-sidebar__link" href="#notifications"
+                  ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-bell" /></svg
+                  ><span class="at-sidebar__label">Уведомления</span></a
+                >
+              </li>
+              <li>
+                <a class="at-sidebar__link" href="#profile"
+                  ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-user" /></svg
+                  ><span class="at-sidebar__label">Профиль</span></a
+                >
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </dialog>
     </div>
   </body>
 </html>

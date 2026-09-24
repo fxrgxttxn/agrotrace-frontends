@@ -104,7 +104,8 @@
   color: inherit;
 }
 
-/* Loading / nothing-found row: <li class="at-combobox__status" role="presentation">. */
+/* Loading / nothing-found state replaces the listbox (an empty listbox is invalid ARIA):
+   <div class="at-combobox__list" role="status"><p class="at-combobox__status">…</p></div> */
 .at-combobox__status {
   display: flex;
   margin: 0;

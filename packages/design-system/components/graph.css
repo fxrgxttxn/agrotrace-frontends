@@ -27,7 +27,8 @@
   top: var(--sp-3);
   right: var(--sp-3);
   display: flex;
-  gap: var(--sp-1);
+  /* Small icon buttons: the gap keeps their 40/44 px hit areas from overlapping. */
+  gap: calc(var(--touch) - 32px);
   padding: var(--sp-1);
   border: 1px solid var(--c-line);
   border-radius: var(--r-m);

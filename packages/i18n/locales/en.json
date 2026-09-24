@@ -292,7 +292,7 @@
     "organizationId.notAllowed": "The organizationId parameter isn't allowed for this role",
     "telegram.notLinked": "Telegram isn't linked",
     "mass.exceedsBatch": "The mass exceeds the batch's current mass",
-    "mass.format": "Mass must be a number with a dot and up to 3 decimal places",
+    "mass.format": "Mass must be a number with up to 3 decimal places",
     "results.mismatch": "The indicators don't match the test's norms",
     "items.mismatch": "The items don't match the waybill's batches",
     "holderOrgId.notAllowed": "The holderOrgId parameter isn't allowed for this role",

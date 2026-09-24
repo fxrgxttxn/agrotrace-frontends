@@ -1,18 +1,69 @@
-/* at-date — native <input type="date" class="at-input">; the picker follows color-scheme. */
+/* at-date — a text field with the ДД.ММ.ГГГГ mask plus a calendar button (ruling R70).
+   The native <input type="date"> is kept only as the picker: visually hidden, opened with
+   showPicker(), its value copied back as ДД.ММ.ГГГГ. A native date field alone would follow the
+   browser locale (MM/DD/YYYY in an English browser).
+   <div class="at-date">
+     <input class="at-input" id="…" inputmode="numeric" placeholder="ДД.ММ.ГГГГ" maxlength="10" autocomplete="off">
+     <button class="at-date__button" type="button" aria-label="Открыть календарь"><svg><use href="#i-calendar"/></svg></button>
+     <input class="at-date__native" type="date" tabindex="-1" aria-hidden="true">
+   </div> */
 
-input[type='date'].at-input {
+.at-date {
+  position: relative;
+  min-width: 0;
+}
+
+.at-date > .at-input {
+  padding-right: calc(var(--touch) + var(--sp-1));
   font-variant-numeric: tabular-nums;
 }
 
-input[type='date'].at-input::-webkit-datetime-edit {
+.at-date__button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: var(--touch);
+  height: 100%;
+  margin: 0;
   padding: 0;
-}
-
-input[type='date'].at-input::-webkit-calendar-picker-indicator {
-  opacity: 0.7;
+  border: 0;
+  border-radius: 0 var(--r-m) var(--r-m) 0;
+  background: none;
+  color: var(--c-ink-muted);
   cursor: pointer;
+  transition: color var(--dur-fast) var(--ease);
 }
 
-input[type='date'].at-input::-webkit-calendar-picker-indicator:hover {
-  opacity: 1;
+.at-date__button:hover {
+  color: var(--c-field);
+}
+
+.at-date__button:focus-visible {
+  outline-offset: -2px;
+}
+
+.at-date__button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.at-date__button:disabled {
+  color: var(--c-ink-muted);
+  cursor: not-allowed;
+}
+
+/* The picker anchors to this element: keep it rendered along the field's bottom edge. */
+.at-date__native {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
 }

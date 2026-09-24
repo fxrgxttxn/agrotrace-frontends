@@ -88,11 +88,12 @@ textarea {
   color: var(--c-straw-ink);
 }
 
+/* Utility: must win over component `font:` shorthands (a code as a card, dialog or page title). */
 .at-mono {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono) !important;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'zero' 0;
-  letter-spacing: 0;
+  letter-spacing: 0 !important;
 }
 
 .at-visually-hidden {

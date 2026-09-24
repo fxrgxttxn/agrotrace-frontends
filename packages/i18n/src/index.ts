@@ -3,6 +3,7 @@ import en from '../locales/en.json' with { type: 'json' };
 
 export type { Locale } from './format.js';
 export { formatMass, formatDate, formatDateTime, formatPercent } from './format.js';
+export { formatRuDate, parseRuDate, maskRuDateInput } from './date-input.js';
 export { problemMessage, type Problem } from './problem.js';
 
 export type Dictionary = typeof ru;

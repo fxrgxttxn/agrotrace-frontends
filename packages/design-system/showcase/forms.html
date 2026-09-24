@@ -162,7 +162,27 @@
             </div>
             <div class="at-field">
               <label class="at-field__label" for="f-date">Дата уборки</label>
-              <input class="at-input" type="date" id="f-date" value="2026-08-14" />
+              <div class="at-date">
+                <input
+                  class="at-input"
+                  id="f-date"
+                  inputmode="numeric"
+                  placeholder="ДД.ММ.ГГГГ"
+                  maxlength="10"
+                  autocomplete="off"
+                  value="14.08.2026"
+                />
+                <button class="at-date__button" type="button" aria-label="Открыть календарь">
+                  <svg aria-hidden="true"><use href="#i-calendar" /></svg>
+                </button>
+                <input
+                  class="at-date__native"
+                  type="date"
+                  tabindex="-1"
+                  aria-hidden="true"
+                  value="2026-08-14"
+                />
+              </div>
             </div>
           </div>
 
@@ -469,7 +489,27 @@
             </div>
             <div class="at-field">
               <label class="at-field__label" for="b-date">Дата уборки</label>
-              <input class="at-input" type="date" id="b-date" value="2026-08-14" />
+              <div class="at-date">
+                <input
+                  class="at-input"
+                  id="b-date"
+                  inputmode="numeric"
+                  placeholder="ДД.ММ.ГГГГ"
+                  maxlength="10"
+                  autocomplete="off"
+                  value="14.08.2026"
+                />
+                <button class="at-date__button" type="button" aria-label="Открыть календарь">
+                  <svg aria-hidden="true"><use href="#i-calendar" /></svg>
+                </button>
+                <input
+                  class="at-date__native"
+                  type="date"
+                  tabindex="-1"
+                  aria-hidden="true"
+                  value="2026-08-14"
+                />
+              </div>
             </div>
             <div class="at-field" data-invalid>
               <label class="at-field__label" for="b-mass">Масса</label>
@@ -485,7 +525,7 @@
                 <span class="at-input-group__suffix">кг</span>
               </div>
               <p class="at-field__error" id="b-mass-msg" role="alert">
-                Масса должна быть числом с точкой и не более 3 знаков после запятой
+                Масса — число, не более 3 знаков в дробной части
               </p>
             </div>
             <div class="ds-form__actions">

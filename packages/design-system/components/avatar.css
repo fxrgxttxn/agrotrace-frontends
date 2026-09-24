@@ -20,7 +20,7 @@
 .at-avatar[data-size='s'] {
   width: 24px;
   height: 24px;
-  font-size: 10px;
+  font-size: var(--fs-12);
 }
 
 .at-avatar[data-size='l'] {

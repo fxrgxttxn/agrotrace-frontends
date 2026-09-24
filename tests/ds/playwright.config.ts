@@ -7,7 +7,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: true,
   reporter: [['list']],
-  expect: { toHaveScreenshot: { animations: 'disabled', caret: 'hide' } },
+  // Tight: a date-format change or one chip colour must fail (proved by mutation in the task report).
+  expect: { toHaveScreenshot: { animations: 'disabled', caret: 'hide', maxDiffPixels: 50, threshold: 0.05 } },
   use: {
     baseURL: 'http://localhost:4173',
     locale: 'ru-RU',
@@ -16,6 +17,8 @@ export default defineConfig({
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
+    // 768–1023 px: collapsed icon rail.
+    { name: 'rail', use: { ...devices['Desktop Chrome'], viewport: { width: 900, height: 800 } } },
     {
       name: 'mobile',
       use: { ...devices['Desktop Chrome'], viewport: { width: 360, height: 780 }, hasTouch: true },

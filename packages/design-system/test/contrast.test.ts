@@ -34,7 +34,7 @@ const light = block(':root');
 const dark = block(':root[data-theme="dark"]');
 
 function hex(theme: Record<string, string>, name: string): string {
-  const v = theme[name] ?? light[name];
+  const v = theme[name];
   if (!v || !/^#[0-9a-f]{6}$/i.test(v)) throw new Error(`${name} is not a #rrggbb color: ${v}`);
   return v;
 }
@@ -64,7 +64,12 @@ const PAIRS: [fg: string, bg: string, min: number][] = [
   ['--c-field-ink', '--c-field', 4.5],
   ['--c-field-ink', '--c-field-hover', 4.5],
   ['--c-field', '--c-surface', 4.5],
-  ['--c-clay', '--c-surface', 3],
+  // Clay is also the error-message text colour (at-field__error).
+  ['--c-clay', '--c-surface', 4.5],
+  ['--c-clay', '--c-ground', 4.5],
+  // Control boundaries (inputs, secondary buttons, stepper markers) — WCAG 1.4.11, R69.
+  ['--c-line-strong', '--c-surface', 3],
+  ['--c-line-strong', '--c-ground', 3],
   ['--c-field-ink', '--c-clay', 4.5],
   ['--c-field-ink', '--c-clay-hover', 4.5],
   ['--c-ink', '--c-straw-soft', 4.5],
@@ -79,6 +84,18 @@ describe('tokens.css contrast (WCAG AA)', () => {
   it('ratio() matches known WCAG values', () => {
     expect(ratio('#000000', '#ffffff')).toBeCloseTo(21, 5);
     expect(ratio('#777777', '#ffffff')).toBeCloseTo(4.48, 2);
+  });
+
+  it('both themes define the same colour tokens (no silent fallback to light)', () => {
+    const colours = (t: Record<string, string>) =>
+      Object.keys(t)
+        .filter((k) => k.startsWith('--'))
+        .sort();
+    expect(colours(dark)).toEqual(colours(light));
+  });
+
+  it('hex() refuses a token missing from the theme', () => {
+    expect(() => hex({}, '--c-ink')).toThrow();
   });
 
   it('the media-query dark block equals the explicit [data-theme="dark"] block', () => {

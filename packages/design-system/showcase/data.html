@@ -48,7 +48,7 @@
             <span class="at-chip" data-status="Accepted">Принята</span>
             <span class="at-chip" data-status="Processed">Переработана</span>
             <span class="at-chip" data-status="OnSale">В продаже</span>
-            <span class="at-chip" data-status="Sold">Продана</span>
+            <span class="at-chip" data-status="Sold">Реализована</span>
             <span class="at-chip" data-status="Blocked">Заблокирована</span>
             <span class="at-chip" data-status="Recalled">Отозвана</span>
             <span class="at-chip" data-status="WrittenOff">Списана</span>
@@ -125,6 +125,20 @@
 
         <section class="ds-section" aria-labelledby="s-table">
           <h2 id="s-table">Таблица</h2>
+          <div class="at-table-mobilebar">
+            <label class="at-check"
+              ><input type="checkbox" data-indeterminate /><span>Выбрать все</span></label
+            >
+            <label class="at-table-mobilebar__sort">
+              <span class="at-visually-hidden">Сортировка</span>
+              <select class="at-select">
+                <option>Масса, по убыванию</option>
+                <option>Масса, по возрастанию</option>
+                <option>Код партии</option>
+                <option>Сначала новые</option>
+              </select>
+            </label>
+          </div>
           <div class="at-table-wrap">
             <table class="at-table" data-cards>
               <thead>
@@ -149,7 +163,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr aria-selected="true">
+                <tr data-selected>
                   <td class="at-table__select">
                     <label class="at-check"
                       ><input type="checkbox" checked aria-label="Выбрать AT-2026-000123"
@@ -491,8 +505,8 @@
               </div>
               <div class="at-dialog__body">
                 <p>
-                  Будут заблокированы партия <b class="at-mono">AT-2026-000097</b> и 14 производных партий у 5
-                  организаций.
+                  Партия <b class="at-mono">AT-2026-000097</b> и 14 производных партий у 5 организаций будут
+                  отозваны.
                 </p>
                 <div class="at-field">
                   <label class="at-field__label" for="d-code">Код партии</label>
@@ -505,47 +519,53 @@
               </div>
             </dialog>
             <div class="ds-stack">
-              <div class="at-toast-region" aria-live="polite">
-                <div class="at-toast" data-tone="ok">
-                  <p class="at-toast__text">Партия <span class="at-mono">AT-2026-000123</span> отгружена</p>
-                  <button
-                    class="at-button"
-                    data-variant="ghost"
-                    data-size="s"
-                    data-icon-only
-                    type="button"
-                    aria-label="Закрыть"
-                  >
-                    <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
-                  </button>
+              <div class="at-toasts">
+                <div class="at-toast-region" role="alert">
+                  <div class="at-toast" data-tone="danger">
+                    <p class="at-toast__text">
+                      Отгрузка возможна после 25.09.2026<small>Срок ожидания препарата Хлорпирифос</small>
+                    </p>
+                    <button
+                      class="at-button"
+                      data-variant="ghost"
+                      data-size="s"
+                      data-icon-only
+                      type="button"
+                      aria-label="Закрыть"
+                    >
+                      <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+                    </button>
+                  </div>
                 </div>
-                <div class="at-toast" data-tone="danger">
-                  <p class="at-toast__text">
-                    Отгрузка возможна после 25.09.2026<small>Срок ожидания препарата Хлорпирифос</small>
-                  </p>
-                  <button
-                    class="at-button"
-                    data-variant="ghost"
-                    data-size="s"
-                    data-icon-only
-                    type="button"
-                    aria-label="Закрыть"
-                  >
-                    <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
-                  </button>
-                </div>
-                <div class="at-toast" data-tone="move">
-                  <p class="at-toast__text">Входящая накладная <span class="at-mono">НК-2026-00481</span></p>
-                  <button
-                    class="at-button"
-                    data-variant="ghost"
-                    data-size="s"
-                    data-icon-only
-                    type="button"
-                    aria-label="Закрыть"
-                  >
-                    <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
-                  </button>
+                <div class="at-toast-region" aria-live="polite">
+                  <div class="at-toast" data-tone="ok">
+                    <p class="at-toast__text">Партия <span class="at-mono">AT-2026-000123</span> отгружена</p>
+                    <button
+                      class="at-button"
+                      data-variant="ghost"
+                      data-size="s"
+                      data-icon-only
+                      type="button"
+                      aria-label="Закрыть"
+                    >
+                      <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+                    </button>
+                  </div>
+                  <div class="at-toast" data-tone="move">
+                    <p class="at-toast__text">
+                      Входящая накладная <span class="at-mono">НК-2026-00481</span>
+                    </p>
+                    <button
+                      class="at-button"
+                      data-variant="ghost"
+                      data-size="s"
+                      data-icon-only
+                      type="button"
+                      aria-label="Закрыть"
+                    >
+                      <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div>
@@ -747,7 +767,7 @@
             <ul class="at-graph__legend" aria-label="Обозначения">
               <li><span class="at-chip" data-status="Recalled">Отозвана</span></li>
               <li><span class="at-chip" data-status="Blocked">Заблокирована</span></li>
-              <li><span class="at-chip" data-status="Sold">Продана</span></li>
+              <li><span class="at-chip" data-status="Sold">Реализована</span></li>
             </ul>
           </div>
         </section>

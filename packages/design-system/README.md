@@ -83,12 +83,43 @@ import '@agrotrace/design-system/index.css'; // шрифты + токены + б
 <input class="at-input" id="name" /> <input class="at-input at-mono" id="inn" inputmode="numeric" />
 <!-- коды, ИНН -->
 <textarea class="at-textarea" id="comment"></textarea>
-<input class="at-input" type="date" id="harvestedAt" />
-<!-- at-date: нативный календарь -->
 ```
 
 Состояния: hover, focus (граница `--c-field` + кольцо), `aria-invalid="true"`, `disabled`, `readonly`
 (пунктирная граница — рассчитанные значения). На < 768 px текст 16 px (iOS не масштабирует).
+
+### Дата `at-date`
+
+```html
+<div class="at-date">
+  <input
+    class="at-input"
+    id="harvestedAt"
+    inputmode="numeric"
+    placeholder="ДД.ММ.ГГГГ"
+    maxlength="10"
+    autocomplete="off"
+  />
+  <button class="at-date__button" type="button" aria-label="Открыть календарь">
+    <svg aria-hidden="true"><use href="#i-calendar" /></svg>
+  </button>
+  <input class="at-date__native" type="date" tabindex="-1" aria-hidden="true" />
+</div>
+```
+
+Поле всегда показывает и принимает `ДД.ММ.ГГГГ`, независимо от языка браузера (нативный `type="date"` сам по себе
+форматирует дату по локали браузера — поэтому он только календарь). Одинаково во всех трёх фреймворках:
+
+- Значение модели — ISO-дата `YYYY-MM-DD` (как в контракте). Показ: `formatRuDate(iso)` из `/i18n`.
+- Ввод: на каждое `input` — `text.value = maskRuDateInput(text.value)` (цифры, точки ставятся сами, вставка ISO
+  конвертируется). Модель: `parseRuDate(text.value)` → ISO или `null`; `null` при непустом тексте после `blur` —
+  ошибка поля `validation.date.format` (`at-field__error`, `aria-invalid`).
+- Кнопка календаря: `native.value = parseRuDate(text.value) ?? `, затем `native.showPicker()`. На `change` нативного
+  поля: `text.value = formatRuDate(native.value)`, фокус возвращается в текстовое поле.
+- Клавиатура: Tab — текстовое поле, затем кнопка календаря (Enter/Space открывают его); нативное поле вне порядка
+  табуляции (`tabindex="-1"`, `aria-hidden`).
+- Ограничения диапазона (`min`/`max`) ставятся на нативное поле и проверяются при разборе текста.
+- `disabled` — на обоих `input` и на кнопке.
 
 ### Поле с единицей `at-input-group`
 
@@ -215,8 +246,9 @@ import '@agrotrace/design-system/index.css'; // шрифты + токены + б
 
 ### Индикатор `at-spinner`
 
-`<span class="at-spinner" aria-hidden="true"></span>` — три борозды, прорисовываются слева направо (без вращения).
-Цвет — `currentColor`. Состояние загрузки области сообщается `aria-busy="true"` на ней.
+`<span class="at-spinner" aria-hidden="true"></span>` — борозда, которую «пашут»: пунктирная колея и сплошной отрезок,
+идущий слева направо (без вращения; читается как прогресс, не как иконка). Цвет — `currentColor`. Цикличное движение —
+исключение для индикаторов загрузки (ТЗ п. 10.1.6); при `prefers-reduced-motion` отрезок стоит в начале колеи. Состояние загрузки области сообщается `aria-busy="true"` на ней.
 
 ---
 
@@ -263,6 +295,17 @@ import '@agrotrace/design-system/index.css'; // шрифты + токены + б
 ### Таблица `at-table`
 
 ```html
+<!-- только для data-cards: заменяет шапку таблицы на < 768 px -->
+<div class="at-table-mobilebar">
+  <label class="at-check"><input type="checkbox" /><span>Выбрать все</span></label>
+  <label class="at-table-mobilebar__sort">
+    <span class="at-visually-hidden">Сортировка</span>
+    <select class="at-select">
+      <option value="massKg:desc">Масса, по убыванию</option>
+      <option value="code:asc">Код партии</option>
+    </select>
+  </label>
+</div>
 <div class="at-table-wrap">
   <table class="at-table" data-cards>
     <thead>
@@ -279,7 +322,7 @@ import '@agrotrace/design-system/index.css'; // шрифты + токены + б
       </tr>
     </thead>
     <tbody>
-      <tr aria-selected="true">
+      <tr data-selected>
         <td class="at-table__select">
           <label class="at-check"
             ><input type="checkbox" checked aria-label="Выбрать AT-2026-000123"
@@ -306,11 +349,19 @@ import '@agrotrace/design-system/index.css'; // шрифты + токены + б
 
 - Сортировка: `aria-sort` (`ascending | descending | none`) на `th`, кнопка `.at-table__sort` внутри; Enter/Space — сменить порядок.
   Сортируемые столбцы отражаются в URL (ТЗ п. 9.3).
-- `data-numeric` — числа вправо; `aria-selected="true"` на `tr` — выбранная строка (солома).
+- `data-numeric` — числа вправо. Выбранная строка: `data-selected` на `tr` (солома) **и** `checked` на её флажке —
+  состояние для вспомогательных технологий несёт флажок (у `tr` в обычной таблице нет роли с `aria-selected`).
+- Зоны нажатия: `.at-table__sort` и флажки выбора визуально мелкие, но их зона нажатия — 40 × 40 (44 × 44 на < 768 px)
+  за счёт невидимого `::before`.
 - `data-cards` — на < 768 px строка становится карточкой: `td[data-label]` показывает подпись из атрибута,
   `td[data-primary]` и `td[data-status-cell]` — первая строка карточки, `.at-table__actions` — кнопки во всю ширину.
-  Пустая ячейка действий скрывается. `data-label` = текст заголовка столбца.
-- `.at-table-wrap` прокручивается по горизонтали на ≥ 768 px.
+  Пустая ячейка действий скрывается. `data-label` = текст заголовка столбца. Шапка (`thead`) в режиме карточек
+  скрыта (`display: none`); сортировка и «Выбрать все» — в `.at-table-mobilebar` над карточками (один `select`
+  «поле: направление», значение то же, что у сортировки в URL; флажок «Выбрать все» — то же состояние, что флажок
+  в шапке, включая `indeterminate`). Действия строки остаются на каждой карточке. На ≥ 768 px `.at-table-mobilebar`
+  скрыт.
+- `.at-table-wrap` прокручивается по горизонтали на любой ширине (таблица без `data-cards` не расширяет страницу);
+  в режиме карточек прокрутки нет.
 
 ### Пагинация `at-pagination`
 
@@ -343,6 +394,7 @@ import '@agrotrace/design-system/index.css'; // шрифты + токены + б
     id="tab-history"
     aria-selected="true"
     aria-controls="panel-history"
+    tabindex="0"
     type="button"
   >
     История
@@ -362,9 +414,13 @@ import '@agrotrace/design-system/index.css'; // шрифты + токены + б
 <div class="at-tabs__panel" role="tabpanel" id="panel-history" aria-labelledby="tab-history" tabindex="0">
   …
 </div>
+<div class="at-tabs__panel" role="tabpanel" id="panel-tests" aria-labelledby="tab-tests" tabindex="0" hidden>
+  …
+</div>
 ```
 
-Роуминг-табиндекс: у выбранной вкладки `tabindex="0"`, у остальных `-1`. ← / → — соседняя вкладка (по кругу),
+Роуминг-табиндекс: у выбранной вкладки явно `tabindex="0"`, у остальных `tabindex="-1"`. Неактивные панели
+выводятся с атрибутом `hidden` (или не выводятся вовсе); видима только панель выбранной вкладки. ← / → — соседняя вкладка (по кругу),
 Home / End — первая / последняя; выбор при перемещении фокуса. Вкладка карточки партии отражается в `?tab=`.
 
 ### Диалог `at-dialog`
@@ -387,32 +443,44 @@ Home / End — первая / последняя; выбор при переме
 ```
 
 Открытие — `showModal()` (фокус-ловушка и Esc — нативные), закрытие — `close()`; фокус возвращается на кнопку,
-открывшую диалог. Подложка — `--c-backdrop`. На < 768 px диалог прижат к нижнему краю, кнопки растянуты.
+открывшую диалог.
+
+- Начальный фокус: первый фокусируемый элемент тела диалога (для подтверждения отзыва — поле повтора кода партии);
+  если в теле его нет — заголовок `.at-dialog__title` с `tabindex="-1"` (не кнопка «Закрыть» и не опасная кнопка).
+- Щелчок по подложке (`::backdrop`, т. е. `event.target === dialog`) закрывает только диалоги без необратимого
+  действия (меню «Ещё», просмотр). Диалоги подтверждения (отзыв, отказ в приёмке, изъятие) закрываются только
+  кнопкой «Отмена», крестиком или Esc.
+- Опасная кнопка подтверждения недоступна (`disabled`), пока повторённый код партии не совпадает. Подложка — `--c-backdrop`. На < 768 px диалог прижат к нижнему краю, кнопки растянуты.
 
 ### Уведомления `at-toast`
 
 ```html
-<div class="at-toast-region" aria-live="polite">
-  <!-- один на приложение -->
-  <div class="at-toast" data-tone="ok">
-    <!-- ok | attention | move | danger | neutral -->
-    <p class="at-toast__text">
-      Партия AT-2026-000123 отгружена<small>…вторая строка при необходимости…</small>
-    </p>
-    <button
-      class="at-button"
-      data-variant="ghost"
-      data-size="s"
-      data-icon-only
-      type="button"
-      aria-label="Закрыть"
-    >
-      …#i-close…
-    </button>
+<div class="at-toasts">
+  <!-- один на приложение: две области -->
+  <div class="at-toast-region" role="alert">…ошибки (data-tone="danger")…</div>
+  <div class="at-toast-region" aria-live="polite">
+    <div class="at-toast" data-tone="ok">
+      <!-- ok | attention | move | danger | neutral -->
+      <p class="at-toast__text">
+        Партия AT-2026-000123 отгружена<small>…вторая строка при необходимости…</small>
+      </p>
+      <button
+        class="at-button"
+        data-variant="ghost"
+        data-size="s"
+        data-icon-only
+        type="button"
+        aria-label="Закрыть"
+      >
+        …#i-close…
+      </button>
+    </div>
   </div>
 </div>
 ```
 
+Ошибки (`data-tone="danger"`) добавляются в область `role="alert"` — объявляются сразу; остальные — в
+`aria-live="polite"`. Пустая область не занимает места. Тост плавающий, поэтому у него единственная тень (ТЗ п. 10.5).
 Автоскрытие через 5 с (ошибки — не скрываются сами). На < 768 px область — над нижней навигацией.
 
 ### Шаги `at-stepper`
@@ -583,7 +651,39 @@ Home / End — первая / последняя; выбор при переме
 </nav>
 ```
 
-«Ещё» открывает остальные пункты роли и профиль (в `at-dialog`).
+«Ещё» открывает остальные пункты роли и профиль в `at-dialog` (на < 768 px — нижний лист); `aria-expanded` на
+кнопке отражает открытие, `aria-controls` указывает на диалог:
+
+```html
+<dialog class="at-dialog" id="more-menu" aria-labelledby="more-title">
+  <div class="at-dialog__header">
+    <h2 class="at-dialog__title" id="more-title" tabindex="-1">Ещё</h2>
+    <button class="at-button" data-variant="ghost" data-icon-only type="button" aria-label="Закрыть">
+      …#i-close…
+    </button>
+  </div>
+  <div class="at-dialog__body">
+    <nav aria-label="Остальные разделы">
+      <ul class="at-sidebar__list">
+        <li>
+          <a class="at-sidebar__link" href="/recall-tasks"
+            ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-recall" /></svg
+            ><span class="at-sidebar__label">Задачи отзыва</span></a
+          >
+        </li>
+        <li>
+          <a class="at-sidebar__link" href="/profile"
+            ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-user" /></svg
+            ><span class="at-sidebar__label">Профиль</span></a
+          >
+        </li>
+      </ul>
+    </nav>
+  </div>
+</dialog>
+```
+
+Щелчок по подложке закрывает этот диалог; выбор пункта — переход и `close()`; фокус возвращается на «Ещё».
 
 ### Шапка `at-topbar`, колокольчик `at-bell`
 

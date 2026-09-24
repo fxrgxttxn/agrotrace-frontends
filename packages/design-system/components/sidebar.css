@@ -132,18 +132,18 @@
     padding-inline: var(--sp-2);
   }
 
-  .at-sidebar__brand,
-  .at-sidebar__link {
+  .at-sidebar .at-sidebar__brand,
+  .at-sidebar .at-sidebar__link {
     justify-content: center;
     width: 48px;
     padding: 0;
   }
 
-  .at-sidebar__link {
+  .at-sidebar .at-sidebar__link {
     height: 48px;
   }
 
-  .at-sidebar__link[aria-current='page']::before {
+  .at-sidebar .at-sidebar__link[aria-current='page']::before {
     left: calc(-1 * var(--sp-2) - 4px);
   }
 
@@ -156,13 +156,13 @@
     white-space: nowrap;
   }
 
-  .at-sidebar__count {
+  .at-sidebar .at-sidebar__count {
     position: absolute;
     top: 4px;
     right: 2px;
     min-width: 18px;
     padding: 0 4px;
-    font-size: 11px;
+    font-size: var(--fs-12);
     line-height: 18px;
   }
 }

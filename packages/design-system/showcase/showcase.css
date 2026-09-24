@@ -265,7 +265,7 @@
 }
 
 /* Inline demos of positioned components. */
-.ds-inline .at-toast-region,
+.ds-inline .at-toasts,
 .ds-inline .at-dialog {
   position: static;
 }

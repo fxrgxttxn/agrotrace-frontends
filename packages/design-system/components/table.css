@@ -1,18 +1,18 @@
 /* at-table — crisp data table (no shadow). Header underlined with a double hairline, like two
    furrow rows. Below 768 px a table with [data-cards] turns every row into a card and every cell
-   into a label/value pair (td[data-label]). */
+   into a label/value pair (td[data-label]); the header is replaced by .at-table-mobilebar. */
 
 .at-table-wrap {
   min-width: 0;
+  overflow-x: auto;
   border: 1px solid var(--c-line);
   border-radius: var(--r-l);
   background: var(--c-surface);
 }
 
-@media (min-width: 768px) {
-  .at-table-wrap {
-    overflow-x: auto;
-  }
+/* Card-mode toolbar (select all + sort), shown only below 768 px where the header is gone. */
+.at-table-mobilebar {
+  display: none;
 }
 
 .at-table {
@@ -39,7 +39,7 @@
 .at-table thead th {
   padding-top: var(--sp-3);
   padding-bottom: var(--sp-2);
-  border-bottom: 3px double var(--c-line-strong);
+  border-bottom: 3px double var(--c-line);
   color: var(--c-ink-muted);
   font: 500 var(--fs-13) / var(--lh-13) var(--font-body);
   white-space: nowrap;
@@ -57,12 +57,19 @@
   background: var(--c-ground);
 }
 
-.at-table tbody tr[aria-selected='true'] {
+.at-table tbody tr[data-selected] {
   background: var(--c-straw-soft);
 }
 
-.at-table tbody tr[aria-selected='true'] > :first-child {
+.at-table tbody tr[data-selected] > :first-child {
   box-shadow: inset 3px 0 0 var(--c-straw);
+}
+
+@media (max-width: 1023px) {
+  .at-table th,
+  .at-table td {
+    padding-inline: var(--sp-3);
+  }
 }
 
 /* Numbers (masses, counts): right-aligned, tabular. */
@@ -78,6 +85,23 @@
 
 .at-table .at-table__select .at-check {
   min-height: 24px;
+}
+
+/* Small visuals, full touch targets (40 px, 44 px below 768): an invisible hit area. */
+.at-table .at-table__select .at-check,
+.at-table__sort {
+  position: relative;
+}
+
+.at-table .at-table__select .at-check::before,
+.at-table__sort::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, var(--touch));
+  height: max(100%, var(--touch));
+  translate: -50% -50%;
 }
 
 .at-table .at-table__actions {
@@ -167,6 +191,7 @@ th[aria-sort='descending'] > .at-table__sort::after {
 /* Mobile: rows become cards. */
 @media (max-width: 767px) {
   .at-table-wrap:has(> .at-table[data-cards]) {
+    overflow: visible;
     border: 0;
     border-radius: 0;
     background: none;
@@ -182,13 +207,22 @@ th[aria-sort='descending'] > .at-table__sort::after {
     padding: 0 0 var(--sp-3);
   }
 
+  /* The header is gone; sorting and select-all move to .at-table-mobilebar. */
   .at-table[data-cards] thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
+    display: none;
+  }
+
+  .at-table-mobilebar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-2) var(--sp-4);
+    margin-bottom: var(--sp-3);
+  }
+
+  .at-table-mobilebar__sort {
+    flex: 1 1 160px;
   }
 
   .at-table[data-cards] tbody tr {
@@ -206,14 +240,14 @@ th[aria-sort='descending'] > .at-table__sort::after {
     background: var(--c-surface);
   }
 
-  .at-table[data-cards] tbody tr[aria-selected='true'] {
+  .at-table[data-cards] tbody tr[data-selected] {
     background: var(--c-straw-soft);
     box-shadow:
       inset 0 0 0 1.5px var(--c-straw),
       var(--shadow-1);
   }
 
-  .at-table[data-cards] tbody tr[aria-selected='true'] > :first-child {
+  .at-table[data-cards] tbody tr[data-selected] > :first-child {
     box-shadow: none;
   }
 

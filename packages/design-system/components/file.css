@@ -91,7 +91,7 @@
    the 1 px edge follows the clipped outline through four hairline drop-shadows. */
 .at-file__item {
   --tag-nose: 16px;
-  --tag-edge: var(--c-line-strong);
+  --tag-edge: var(--c-line);
   position: relative;
   z-index: 0;
   display: grid;

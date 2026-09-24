@@ -127,7 +127,7 @@
       "Accepted": "Принята",
       "Processed": "Переработана",
       "OnSale": "В продаже",
-      "Sold": "Продана",
+      "Sold": "Реализована",
       "Blocked": "Заблокирована",
       "Recalled": "Отозвана",
       "WrittenOff": "Списана"
@@ -292,7 +292,7 @@
     "organizationId.notAllowed": "Параметр organizationId недопустим для этой роли",
     "telegram.notLinked": "Telegram не привязан",
     "mass.exceedsBatch": "Масса превышает текущую массу партии",
-    "mass.format": "Масса должна быть числом с точкой и не более 3 знаков после запятой",
+    "mass.format": "Масса — число, не более 3 знаков в дробной части",
     "results.mismatch": "Набор показателей не совпадает с нормативом анализа",
     "items.mismatch": "Позиции не совпадают с партиями накладной",
     "holderOrgId.notAllowed": "Параметр holderOrgId недопустим для этой роли",

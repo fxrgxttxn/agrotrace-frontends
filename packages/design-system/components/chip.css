@@ -6,6 +6,8 @@
   --chip-fg: var(--status-neutral-fg);
   display: inline-flex;
   flex: none;
+  align-self: start;
+  justify-self: start;
   align-items: center;
   gap: 6px;
   max-width: 100%;

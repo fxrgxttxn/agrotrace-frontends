@@ -15,8 +15,7 @@ services:
     working_dir: /repo/tests/ds
     volumes: [.:/repo]
     ipc: host
-    # Chromium formats <input type="date"> by the process language: DD.MM.YYYY, as the product does.
-    environment: { CI: "1", LANG: ru_RU.UTF-8, LANGUAGE: ru }
+    environment: { CI: "1" }
   postgres:
     image: postgres:16-alpine
     environment:

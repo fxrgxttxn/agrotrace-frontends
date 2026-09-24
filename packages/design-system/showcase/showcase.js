@@ -164,7 +164,22 @@
 
     for (const btn of document.querySelectorAll('[data-ds-open-dialog]')) {
       const dlg = document.getElementById(btn.dataset.dsOpenDialog);
-      btn.addEventListener('click', () => dlg.showModal());
+      btn.addEventListener('click', () => {
+        dlg.showModal();
+        if (btn.hasAttribute('aria-expanded')) btn.setAttribute('aria-expanded', 'true');
+        // Initial focus: first field in the body, else the title (README «Диалог»).
+        const first = dlg.querySelector('.at-dialog__body :is(input, select, textarea, a, button)');
+        (first ?? dlg.querySelector('.at-dialog__title'))?.focus();
+      });
+      dlg.addEventListener('close', () => {
+        if (btn.hasAttribute('aria-expanded')) btn.setAttribute('aria-expanded', 'false');
+      });
+    }
+    // Backdrop click closes only dialogs without an irreversible action.
+    for (const dlg of document.querySelectorAll('dialog[data-ds-light-dismiss]')) {
+      dlg.addEventListener('click', (e) => {
+        if (e.target === dlg) dlg.close();
+      });
     }
     for (const btn of document.querySelectorAll('dialog [data-ds-close]')) {
       btn.addEventListener('click', () => btn.closest('dialog').close());
@@ -177,6 +192,35 @@
         for (const other of th.parentElement.querySelectorAll('th[aria-sort]'))
           other.setAttribute('aria-sort', 'none');
         th.setAttribute('aria-sort', next);
+      });
+    }
+
+    // at-date: the same logic as @agrotrace/i18n maskRuDateInput / parseRuDate / formatRuDate
+    // (frameworks import those; the showcase is plain JS).
+    const mask = (raw) => {
+      const iso = /^\s*(\d{4})-(\d{2})-(\d{2})\s*$/.exec(raw);
+      if (iso) return `${iso[3]}.${iso[2]}.${iso[1]}`;
+      const d = raw.replace(/\D/g, '').slice(0, 8);
+      return [d.slice(0, 2), d.slice(2, 4), d.slice(4)].filter(Boolean).join('.');
+    };
+    const toIso = (text) => {
+      const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(text.trim());
+      return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+    };
+    for (const box of document.querySelectorAll('.at-date')) {
+      const text = box.querySelector('.at-input');
+      const native = box.querySelector('.at-date__native');
+      text.addEventListener('input', () => {
+        text.value = mask(text.value);
+      });
+      box.querySelector('.at-date__button').addEventListener('click', () => {
+        native.value = toIso(text.value);
+        native.showPicker?.();
+      });
+      native.addEventListener('change', () => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(native.value);
+        if (m) text.value = `${m[3]}.${m[2]}.${m[1]}`;
+        text.focus();
       });
     }
 
