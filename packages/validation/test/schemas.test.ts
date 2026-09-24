@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { bundle, loadConfig } from '@redocly/openapi-core';
 import Ajv2020 from 'ajv/dist/2020';
@@ -57,6 +58,143 @@ function validateAgainstContract(name: string, value: unknown) {
   const validate = ajv.compile({ $ref: `${URN}#/components/schemas/${name}` });
   const ok = validate(value);
   return { ok, errors: ok ? [] : ajv.errorsText(validate.errors) };
+}
+
+// --- i18n key set (read directly from @agrotrace/i18n's locale files, no
+// package dependency — mirrors how @agrotrace/i18n's own test reads this
+// package's source by relative path). Used by the "no English leaks"
+// battery below (Critical 1 / R67) to assert every message toFieldErrors
+// produces is an actually-translated i18n key, not just `/^validation\./`.
+function flattenKeys(node: unknown, prefix: string, out: string[]): string[] {
+  if (node !== null && typeof node === 'object' && !Array.isArray(node)) {
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      flattenKeys(value, prefix ? `${prefix}.${key}` : key, out);
+    }
+  } else {
+    out.push(prefix);
+  }
+  return out;
+}
+const I18N_LOCALES_DIR = fileURLToPath(new URL('../../i18n/locales', import.meta.url));
+const RU_DICT = JSON.parse(readFileSync(`${I18N_LOCALES_DIR}/ru.json`, 'utf8'));
+const EN_DICT = JSON.parse(readFileSync(`${I18N_LOCALES_DIR}/en.json`, 'utf8'));
+const RU_I18N_KEYS = new Set(flattenKeys(RU_DICT, '', []));
+const EN_I18N_KEYS = new Set(flattenKeys(EN_DICT, '', []));
+
+/** One level of `$ref` resolution against `doc.components.schemas`. */
+function deref(node: Json | undefined): Json | undefined {
+  if (!node) return node;
+  if (node.$ref) return doc.components.schemas[String(node.$ref).split('/').pop()!];
+  return node;
+}
+
+/** A value of a different JSON type than `value`, to trigger `invalid_type`. */
+function mismatchedTypeValue(value: unknown): unknown {
+  if (typeof value === 'string') return 12345;
+  if (typeof value === 'number') return 'not-a-number';
+  if (typeof value === 'boolean') return 'not-a-boolean';
+  if (Array.isArray(value)) return 'not-an-array';
+  if (value !== null && typeof value === 'object') return 'not-an-object';
+  return undefined; // null / unknown: no safe mismatch to try
+}
+
+/**
+ * Runs the Critical-1/R67 battery against one schema: empty object, each
+ * required field removed, each property replaced with a mismatched type,
+ * a bogus value for any enum-typed property, an out-of-range length for
+ * any string property with `minLength`/`maxLength`, and an unknown key.
+ * Every failure's `toFieldErrors()` messages must match `/^validation\./`
+ * and be translated in both i18n locales.
+ *
+ * Scope: top-level properties only (not into nested objects/array items —
+ * those are covered by the targeted nested-path test below).
+ */
+function expectOnlyTranslatedValidationKeys(error: z.ZodError) {
+  const messages = Object.values(V.toFieldErrors(error)).flat();
+  for (const message of messages) {
+    expect(message).toMatch(/^validation\./);
+    expect(RU_I18N_KEYS.has(message), `ru: missing translation for '${message}'`).toBe(true);
+    expect(EN_I18N_KEYS.has(message), `en: missing translation for '${message}'`).toBe(true);
+  }
+}
+
+function runNoEnglishLeaksBattery(name: string, schema: z.ZodTypeAny, contractSchema: Json, example: Json) {
+  describe(name, () => {
+    it('empty object', () => {
+      const result = schema.safeParse({});
+      if (result.success) return; // e.g. bodies where every property is optional
+      expectOnlyTranslatedValidationKeys(result.error);
+    });
+
+    const required: string[] = Array.isArray(contractSchema.required) ? contractSchema.required : [];
+    for (const key of required) {
+      it(`missing required field '${key}'`, () => {
+        const clone: Json = { ...example };
+        delete clone[key];
+        const result = schema.safeParse(clone);
+        expect(result.success).toBe(false);
+        if (result.success) return;
+        expectOnlyTranslatedValidationKeys(result.error);
+      });
+    }
+
+    for (const key of Object.keys(example)) {
+      const propSchema = deref(contractSchema.properties?.[key]);
+      const value = example[key];
+
+      const mismatch = mismatchedTypeValue(value);
+      if (mismatch !== undefined) {
+        it(`wrong type for '${key}'`, () => {
+          const result = schema.safeParse({ ...example, [key]: mismatch });
+          expect(result.success).toBe(false);
+          if (result.success) return;
+          expectOnlyTranslatedValidationKeys(result.error);
+        });
+      }
+
+      if (Array.isArray(propSchema?.enum)) {
+        it(`bogus enum value for '${key}'`, () => {
+          const result = schema.safeParse({ ...example, [key]: '__NOT_A_VALID_ENUM_VALUE__' });
+          expect(result.success).toBe(false);
+          if (result.success) return;
+          expectOnlyTranslatedValidationKeys(result.error);
+        });
+      }
+
+      if (
+        typeof value === 'string' &&
+        typeof propSchema?.minLength === 'number' &&
+        propSchema.minLength > 0
+      ) {
+        it(`too-short string for '${key}' (minLength ${propSchema.minLength})`, () => {
+          const tooShort = 'a'.repeat(Math.max(0, propSchema.minLength - 1));
+          const result = schema.safeParse({ ...example, [key]: tooShort });
+          expect(result.success).toBe(false);
+          if (result.success) return;
+          expectOnlyTranslatedValidationKeys(result.error);
+        });
+      }
+
+      if (typeof value === 'string' && typeof propSchema?.maxLength === 'number') {
+        it(`too-long string for '${key}' (maxLength ${propSchema.maxLength})`, () => {
+          const tooLong = 'a'.repeat(propSchema.maxLength + 1);
+          const result = schema.safeParse({ ...example, [key]: tooLong });
+          expect(result.success).toBe(false);
+          if (result.success) return;
+          expectOnlyTranslatedValidationKeys(result.error);
+        });
+      }
+    }
+
+    it('unknown key', () => {
+      const result = schema.safeParse({ ...example, __bogus_unknown_field__: 'x' });
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expectOnlyTranslatedValidationKeys(result.error);
+      const errors = V.toFieldErrors(result.error);
+      expect(errors['__bogus_unknown_field__']).toEqual(['validation.unknownField']);
+    });
+  });
 }
 
 const REQUEST_BODY_SCHEMAS = [
@@ -134,30 +272,34 @@ describe('every schema with a JSON example: the example parses, and the parsed o
   }
 });
 
-describe('generic invalid-input coverage for every schema (unknown key + missing required field)', () => {
+// Critical 1 / R67: for EVERY exported schema, run the full battery (empty
+// object, each required field removed, each property wrong-typed, bogus
+// enum values, too-short/too-long strings, an unknown key) and assert every
+// message toFieldErrors() produces matches `/^validation\./` and is
+// translated in both i18n locales — never one of Zod's English defaults.
+describe('every schema only ever produces translated validation.* keys (no Zod English leaks)', () => {
   for (const name of REQUEST_BODY_SCHEMAS) {
     if (NO_JSON_EXAMPLE.has(name)) continue;
     const contractSchema = doc.components.schemas[name] as Json;
     const example = contractSchema.example;
     if (example === undefined || typeof example !== 'object' || Array.isArray(example)) continue;
+    const schema = (V as unknown as Record<string, z.ZodTypeAny>)[`${name}Schema`];
+    runNoEnglishLeaksBattery(name, schema, contractSchema, example);
+  }
 
-    describe(name, () => {
-      it('rejects an unknown property (additionalProperties: false)', () => {
-        const schema = (V as unknown as Record<string, z.ZodTypeAny>)[`${name}Schema`];
-        const withBogusKey = { ...example, __bogus__: 'x' };
-        expect(schema.safeParse(withBogusKey).success).toBe(false);
-      });
-
-      const required: string[] = Array.isArray(contractSchema.required) ? contractSchema.required : [];
-      if (required.length > 0) {
-        it(`rejects a missing required field ('${required[0]}')`, () => {
-          const schema = (V as unknown as Record<string, z.ZodTypeAny>)[`${name}Schema`];
-          const clone: Json = { ...example };
-          delete clone[required[0]!];
-          expect(schema.safeParse(clone).success).toBe(false);
-        });
-      }
-    });
+  // DictionaryInput's 5 arms are named schemas in their own right with their
+  // own examples/required lists — battery them individually too.
+  const DICTIONARY_ARMS = [
+    'ProductInput',
+    'SubstanceInput',
+    'IndicatorInput',
+    'NormInput',
+    'RegionInput',
+  ] as const;
+  for (const arm of DICTIONARY_ARMS) {
+    const contractSchema = doc.components.schemas[arm] as Json;
+    const schema = (V as unknown as Record<string, z.ZodTypeAny>)[`${arm}Schema`];
+    runNoEnglishLeaksBattery(arm, schema, contractSchema, contractSchema.example);
   }
 });
 
@@ -207,26 +349,147 @@ describe('inn (common primitive, FNS checksum)', () => {
   });
 });
 
+// R66: the contract's INN examples were fixed to checksum-valid values
+// ('2311123456' -> '2311123457' everywhere), so the checksum can be (and
+// now is) enforced on RegisterOrganizationRequestSchema.inn without
+// rejecting the contract's own example.
+describe('RegisterOrganizationRequestSchema enforces the INN checksum (R66)', () => {
+  const base = {
+    type: 'FARM',
+    regionCode: '23',
+    admin: { email: 'a@b.ru', fullName: 'А Б', password: 'Urozhai-2026!' },
+  };
+
+  it('accepts the (checksum-valid) contract example', () => {
+    const example = doc.components.schemas.RegisterOrganizationRequest.example;
+    expect(V.RegisterOrganizationRequestSchema.safeParse(example).success).toBe(true);
+  });
+
+  it('rejects a checksum-invalid INN with validation.inn.checksum', () => {
+    const result = V.RegisterOrganizationRequestSchema.safeParse({ ...base, inn: '2311123456' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(V.toFieldErrors(result.error)).toEqual({ inn: ['validation.inn.checksum'] });
+  });
+
+  it('accepts a checksum-valid INN', () => {
+    expect(V.RegisterOrganizationRequestSchema.safeParse({ ...base, inn: '2311123457' }).success).toBe(true);
+  });
+});
+
 describe('toFieldErrors', () => {
-  it('flattens a nested array path (items.0.massDeclaredKg)', () => {
+  it('flattens a nested array path (items.0.massDeclaredKg) to an exact error object', () => {
     const result = V.WaybillCreateSchema.safeParse({
       receiverOrgId: '4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d',
       items: [{ batchId: '1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c', massDeclaredKg: 'not-a-mass' }],
     });
     expect(result.success).toBe(false);
     if (result.success) return;
-    const errors = V.toFieldErrors(result.error);
-    expect(errors['items.0.massDeclaredKg']).toContain('validation.mass.format');
+    expect(V.toFieldErrors(result.error)).toEqual({
+      'items.0.massDeclaredKg': ['validation.mass.format'],
+    });
   });
 
-  it('produces one entry per invalid field, each a non-empty list of i18n keys', () => {
+  it('produces an exact error object, one entry per invalid field', () => {
     const result = V.LoginRequestSchema.safeParse({ email: 'not-an-email' });
     expect(result.success).toBe(false);
     if (result.success) return;
-    const errors = V.toFieldErrors(result.error);
-    expect(errors['email']).toEqual(['validation.email']);
-    expect(errors['password']).toBeDefined();
-    expect(errors['password']!.length).toBeGreaterThan(0);
+    expect(V.toFieldErrors(result.error)).toEqual({
+      email: ['validation.email'],
+      password: ['validation.required'],
+    });
+  });
+
+  it("expands unrecognized_keys into one entry per offending key, at that key's own path", () => {
+    const result = V.LoginRequestSchema.safeParse({
+      email: 'a@b.ru',
+      password: 'Urozhai-2026!',
+      foo: 1,
+      bar: 2,
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(V.toFieldErrors(result.error)).toEqual({
+      foo: ['validation.unknownField'],
+      bar: ['validation.unknownField'],
+    });
+  });
+
+  it('never leaks a Zod English default for a wrong-typed field', () => {
+    const result = V.ChannelsUpdateSchema.safeParse({ email: 'yes', telegram: 1 });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(V.toFieldErrors(result.error)).toEqual({
+      email: ['validation.type'],
+      telegram: ['validation.type'],
+    });
+  });
+
+  it('never leaks a Zod English default for a bogus enum value', () => {
+    const result = V.UserPatchSchema.safeParse({ status: 'DELETED' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(V.toFieldErrors(result.error)).toEqual({ status: ['validation.enum'] });
+  });
+
+  it('never leaks a Zod English default for a missing required boolean/array', () => {
+    const result = V.RecallCreateSchema.safeParse({ sourceBatchId: '1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(V.toFieldErrors(result.error)).toEqual({
+      reason: ['validation.required'],
+      blockUpstream: ['validation.required'],
+    });
+  });
+});
+
+// Important 2: a present-but-too-short string must be `validation.minLength`,
+// never `validation.required` (required is only for missing/empty, per the
+// contract's own examples — public.yaml:147 `PublicComplaintRequest.text`,
+// common.yaml:196 `Password`). Both fields have minLength > 1.
+describe('codePointString distinguishes empty (required) from too-short (minLength) — Important 2', () => {
+  it('an empty complaint text is validation.required (not validation.minLength)', () => {
+    const result = V.PublicComplaintRequestSchema.safeParse({ text: '', altcha: 'x' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const messages = V.toFieldErrors(result.error).text ?? [];
+    expect(messages).toContain('validation.required');
+    expect(messages).not.toContain('validation.minLength');
+  });
+
+  it('a present, non-empty, but too-short complaint text is validation.minLength', () => {
+    const result = V.PublicComplaintRequestSchema.safeParse({ text: 'short', altcha: 'x' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(V.toFieldErrors(result.error).text).toEqual(['validation.minLength']);
+  });
+
+  it('an empty password is validation.required (via its own dedicated min(1) check)', () => {
+    const result = V.ResetPasswordRequestSchema.safeParse({ token: 'a'.repeat(20), password: '' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(V.toFieldErrors(result.error).password).toContain('validation.required');
+  });
+
+  it('9 chars is one below the 10-char minimum: still validation.minLength, not validation.required', () => {
+    const result = V.PublicComplaintRequestSchema.safeParse({ text: 'x'.repeat(9), altcha: 'x' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(V.toFieldErrors(result.error).text).toEqual(['validation.minLength']);
+  });
+});
+
+// Important 4: minProperties: 1 — an empty object must be rejected for
+// every schema that only has optional properties.
+describe('minProperties: 1 rejects {} — Important 4', () => {
+  it('OrganizationAdminPatchSchema', () => {
+    expect(V.OrganizationAdminPatchSchema.safeParse({}).success).toBe(false);
+  });
+  it('MeUpdateSchema', () => {
+    expect(V.MeUpdateSchema.safeParse({}).success).toBe(false);
+  });
+  it('UserPatchSchema', () => {
+    expect(V.UserPatchSchema.safeParse({}).success).toBe(false);
   });
 });
 

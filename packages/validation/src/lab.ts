@@ -1,44 +1,57 @@
 import { z } from 'zod';
-import { decimal, fileUpload, uuid } from './common.js';
+import { decimal, errorMap, fileUpload, uuid } from './common.js';
 
 export const LabTestCreateSchema = z
-  .object({
-    batchId: uuid,
-    labOrgId: uuid,
-  })
+  .object(
+    {
+      batchId: uuid,
+      labOrgId: uuid,
+    },
+    { errorMap },
+  )
   .strict();
 export type LabTestCreate = z.infer<typeof LabTestCreateSchema>;
 
 /** Body is optional at the operation level; when sent it must be `{}`. */
-export const LabSampleRequestSchema = z.object({}).strict();
+export const LabSampleRequestSchema = z.object({}, { errorMap }).strict();
 export type LabSampleRequest = z.infer<typeof LabSampleRequestSchema>;
 
 const labResult = z
-  .object({
-    indicatorId: uuid,
-    value: decimal,
-  })
+  .object(
+    {
+      indicatorId: uuid,
+      value: decimal,
+    },
+    { errorMap },
+  )
   .strict();
 
 export const LabResultsInputSchema = z
-  .object({
-    results: z
-      .array(labResult)
-      .min(1)
-      .max(200)
-      .superRefine((items, ctx) => {
-        const seen = new Set<string>();
-        for (const item of items) {
-          if (seen.has(item.indicatorId)) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'validation.duplicate', path: ['results'] });
-            return;
+  .object(
+    {
+      results: z
+        .array(labResult, { errorMap })
+        .min(1)
+        .max(200)
+        .superRefine((items, ctx) => {
+          const seen = new Set<string>();
+          for (const item of items) {
+            if (seen.has(item.indicatorId)) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'validation.duplicate',
+                path: ['results'],
+              });
+              return;
+            }
+            seen.add(item.indicatorId);
           }
-          seen.add(item.indicatorId);
-        }
-      }),
-  })
+        }),
+    },
+    { errorMap },
+  )
   .strict();
 export type LabResultsInput = z.infer<typeof LabResultsInputSchema>;
 
-export const ProtocolUploadSchema = z.object({ file: fileUpload }).strict();
+export const ProtocolUploadSchema = z.object({ file: fileUpload }, { errorMap }).strict();
 export type ProtocolUpload = z.infer<typeof ProtocolUploadSchema>;

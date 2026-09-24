@@ -12,11 +12,67 @@ import { z } from 'zod';
 /** Length in Unicode code points (R36) — not `.length` (UTF-16 code units). */
 export const codePointLength = (s: string): number => [...s].length;
 
-/** `z.string()` refined to a code-point length range, matching JSON Schema's `maxLength`/`minLength`. */
+/**
+ * Per-schema `ZodErrorMap` (R67 — Critical 1 fix round): maps Zod's own
+ * issue codes to `validation.*` i18n keys so that a missing/mistyped field,
+ * a bad enum/literal value, or an unrecognized key never surfaces Zod's
+ * English default text (`"Required"`, `"Expected string, received number"`,
+ * `"Invalid enum value…"`, `"Unrecognized key(s)…"`).
+ *
+ * This is passed explicitly as `{ errorMap }` to every `z.string()`,
+ * `z.number()`, `z.boolean()`, `z.enum()`, `z.literal()`, `z.object()`,
+ * `z.array()`, `z.union()`, `z.discriminatedUnion()` and `z.tuple()` call in
+ * this package — deliberately NOT installed globally via `z.setErrorMap()`,
+ * which would affect any other consumer of the `zod` module in the same
+ * process.
+ *
+ * A check with its own explicit i18n-key message (e.g. `.regex(p, key)` or
+ * `.refine(fn, key)`, as used throughout this file) always wins over this
+ * map — Zod only consults a schema's `errorMap` when that particular issue
+ * has no message of its own.
+ */
+export const errorMap: z.ZodErrorMap = (issue) => {
+  switch (issue.code) {
+    case z.ZodIssueCode.invalid_type:
+      return {
+        message: issue.received === z.ZodParsedType.undefined ? 'validation.required' : 'validation.type',
+      };
+    case z.ZodIssueCode.invalid_literal:
+    case z.ZodIssueCode.invalid_enum_value:
+    case z.ZodIssueCode.invalid_union_discriminator:
+      return { message: 'validation.enum' };
+    case z.ZodIssueCode.unrecognized_keys:
+      return { message: 'validation.unknownField' };
+    case z.ZodIssueCode.too_small:
+      if (issue.type === 'string') return { message: 'validation.minLength' };
+      if (issue.type === 'array' || issue.type === 'set') return { message: 'validation.minItems' };
+      return { message: 'validation.min' };
+    case z.ZodIssueCode.too_big:
+      if (issue.type === 'string') return { message: 'validation.maxLength' };
+      if (issue.type === 'array' || issue.type === 'set') return { message: 'validation.maxItems' };
+      return { message: 'validation.max' };
+    case z.ZodIssueCode.invalid_union:
+      return { message: 'validation.invalid' };
+    default:
+      return { message: 'validation.invalid' };
+  }
+};
+
+/**
+ * `z.string()` refined to a code-point length range, matching JSON Schema's
+ * `maxLength`/`minLength`. A missing property is caught upstream by the
+ * base `z.string({ errorMap })`'s own `invalid_type` issue
+ * (→ `validation.required`); this only needs to tell "present but empty"
+ * (→ `validation.required`, min > 0) apart from "present but shorter than
+ * the minimum" (→ `validation.minLength`) — Important 2.
+ */
 export function codePointString(min: number, max: number, pattern?: RegExp) {
   return z
-    .string()
-    .refine((s) => codePointLength(s) >= min, min > 0 ? 'validation.required' : 'validation.minLength')
+    .string({ errorMap })
+    .refine(
+      (s) => codePointLength(s) >= min,
+      (s) => ({ message: codePointLength(s) === 0 ? 'validation.required' : 'validation.minLength' }),
+    )
     .refine((s) => codePointLength(s) <= max, 'validation.maxLength')
     .refine((s) => !pattern || pattern.test(s), 'validation.pattern');
 }
@@ -38,13 +94,13 @@ export function isValidInn(s: string): boolean {
 
 /** INN (10 or 12 digits) with FNS checksum validation. */
 export const inn = z
-  .string()
+  .string({ errorMap })
   .regex(/^\d{10}(\d{2})?$/, 'validation.inn.format')
   .refine(isValidInn, 'validation.inn.checksum');
 
 /** RFC 5322 email, matching the contract's `Email` schema (maxLength 254). */
 export const email = z
-  .string()
+  .string({ errorMap })
   .min(1, 'validation.required')
   .email('validation.email')
   .refine((s) => codePointLength(s) <= 254, 'validation.maxLength');
@@ -54,22 +110,24 @@ export const email = z
  * Compared byte-exact server-side — never trimmed or normalized here.
  */
 export const password = z
-  .string()
+  .string({ errorMap })
   .min(1, 'validation.required')
   .refine((s) => codePointLength(s) >= 10, 'validation.password.min')
   .refine((s) => codePointLength(s) <= 128, 'validation.password.max');
 
 /** UUID (contract `Uuid`). */
-export const uuid = z.string().uuid('validation.uuid');
+export const uuid = z.string({ errorMap }).uuid('validation.uuid');
 
 /** Calendar date, `YYYY-MM-DD` (contract `Date`). */
-export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'validation.date.format');
+export const isoDate = z.string({ errorMap }).regex(/^\d{4}-\d{2}-\d{2}$/, 'validation.date.format');
 
 /** Instant in UTC with a `Z` suffix (contract `DateTime`). */
-export const isoDateTime = z.string().datetime({ offset: false, message: 'validation.dateTime.format' });
+export const isoDateTime = z
+  .string({ errorMap })
+  .datetime({ offset: false, message: 'validation.dateTime.format' });
 
 /** Percent, exactly two decimal digits (contract `Percent`). */
-export const percent = z.string().regex(/^\d{1,3}\.\d{2}$/, 'validation.percent.format');
+export const percent = z.string({ errorMap }).regex(/^\d{1,3}\.\d{2}$/, 'validation.percent.format');
 
 /**
  * Mass in kilograms. Form-level input is looser than the wire format: up to
@@ -79,7 +137,7 @@ export const percent = z.string().regex(/^\d{1,3}\.\d{2}$/, 'validation.percent.
  * rejected as `validation.positive`.
  */
 export const massKg = z
-  .string()
+  .string({ errorMap })
   .regex(/^\d{1,9}(\.\d{1,3})?$/, 'validation.mass.format')
   .transform((s) => {
     const [intPart, decPart = ''] = s.split('.');
@@ -88,10 +146,10 @@ export const massKg = z
   .refine((v) => /^(?!0+\.000$)\d{1,9}\.\d{3}$/.test(v), 'validation.positive');
 
 /** Non-negative decimal string (contract `Decimal`: up to 8 int digits, up to 6 decimals). */
-export const decimal = z.string().regex(/^\d{1,8}(\.\d{1,6})?$/, 'validation.decimal.format');
+export const decimal = z.string({ errorMap }).regex(/^\d{1,8}(\.\d{1,6})?$/, 'validation.decimal.format');
 
 /** Region code from the `regions` dictionary (contract `RegionCode`). */
-export const regionCode = z.string().regex(/^[0-9A-Z-]{1,8}$/, 'validation.pattern');
+export const regionCode = z.string({ errorMap }).regex(/^[0-9A-Z-]{1,8}$/, 'validation.pattern');
 
 /** Non-blank name/title string (contract `NameString`): not only whitespace, never trimmed. */
 export const nameString = codePointString(1, 255, /\S/);
@@ -103,6 +161,11 @@ export const nameString = codePointString(1, 255, /\S/);
  * accepted where available (SSR/node test environments fall back to
  * accepting any non-empty value).
  */
+export const fileUpload =
+  typeof File !== 'undefined'
+    ? z.instanceof(File, { message: 'validation.required' })
+    : z.custom<unknown>((v) => v !== undefined && v !== null, { message: 'validation.required' });
+
 /** Enforces JSON Schema `minProperties: 1` on a `.strict()`/`.partial()` object schema. */
 export function atLeastOneKey<Shape extends z.ZodRawShape>(
   schema: z.ZodObject<Shape, 'strict', z.ZodTypeAny>,
@@ -111,8 +174,3 @@ export function atLeastOneKey<Shape extends z.ZodRawShape>(
     message: 'validation.minProperties',
   });
 }
-
-export const fileUpload =
-  typeof File !== 'undefined'
-    ? z.instanceof(File, { message: 'validation.required' })
-    : z.custom<unknown>((v) => v !== undefined && v !== null, { message: 'validation.required' });

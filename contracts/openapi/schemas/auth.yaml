@@ -176,6 +176,9 @@ RegisterOrganizationRequest:
     inn:
       type: string
       pattern: '^\d{10}(\d{2})?$'
+      description: >-
+        ИНН (10 или 12 цифр) с контрольной суммой ФНС; несовпадение контрольной суммы — 400 VALIDATION
+        (`errors.inn: [validation.inn.checksum]`).
     type:
       $ref: '#/RegistrableOrganizationType'
     name:
@@ -196,7 +199,7 @@ RegisterOrganizationRequest:
         password:
           $ref: './common.yaml#/Password'
   example:
-    inn: '2311123456'
+    inn: '2311123457'
     type: FARM
     name: КФХ Петров
     regionCode: '23'

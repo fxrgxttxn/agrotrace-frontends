@@ -1,13 +1,16 @@
 import { z } from 'zod';
-import { codePointString, isoDateTime, regionCode, uuid } from './common.js';
+import { codePointString, errorMap, isoDateTime, regionCode, uuid } from './common.js';
 
 const fieldName = codePointString(1, 160, /\S/);
-const areaHa = z.string().regex(/^(?!0+\.00$)\d{1,8}\.\d{2}$/, 'validation.areaHa.format');
-const dose = z.string().regex(/^(?!0+\.000$)\d{1,7}\.\d{3}$/, 'validation.dose.format');
-const doseUnit = z.enum(['л/га', 'мл/га', 'кг/га', 'г/га']);
+const areaHa = z.string({ errorMap }).regex(/^(?!0+\.00$)\d{1,8}\.\d{2}$/, 'validation.areaHa.format');
+const dose = z.string({ errorMap }).regex(/^(?!0+\.000$)\d{1,7}\.\d{3}$/, 'validation.dose.format');
+const doseUnit = z.enum(['л/га', 'мл/га', 'кг/га', 'г/га'], { errorMap });
+
+const longitude = z.number({ errorMap }).min(-180).max(180);
+const latitude = z.number({ errorMap }).min(-90).max(90);
 
 const geoJsonRing = z
-  .array(z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]))
+  .array(z.tuple([longitude, latitude], { errorMap }), { errorMap })
   .min(4)
   .max(1000)
   .refine((ring) => {
@@ -17,30 +20,39 @@ const geoJsonRing = z
   }, 'validation.geometry.ringNotClosed');
 
 const geoJsonPolygon = z
-  .object({
-    type: z.literal('Polygon'),
-    coordinates: z.array(geoJsonRing).min(1).max(10),
-  })
+  .object(
+    {
+      type: z.literal('Polygon', { errorMap }),
+      coordinates: z.array(geoJsonRing, { errorMap }).min(1).max(10),
+    },
+    { errorMap },
+  )
   .strict();
 
 const nullableGeoJsonPolygon = geoJsonPolygon.nullable();
 
 export const FieldInputSchema = z
-  .object({
-    name: fieldName,
-    areaHa,
-    regionCode,
-    geometry: nullableGeoJsonPolygon.optional(),
-  })
+  .object(
+    {
+      name: fieldName,
+      areaHa,
+      regionCode,
+      geometry: nullableGeoJsonPolygon.optional(),
+    },
+    { errorMap },
+  )
   .strict();
 export type FieldInput = z.infer<typeof FieldInputSchema>;
 
 export const TreatmentInputSchema = z
-  .object({
-    substanceId: uuid,
-    dose,
-    doseUnit,
-    appliedAt: isoDateTime,
-  })
+  .object(
+    {
+      substanceId: uuid,
+      dose,
+      doseUnit,
+      appliedAt: isoDateTime,
+    },
+    { errorMap },
+  )
   .strict();
 export type TreatmentInput = z.infer<typeof TreatmentInputSchema>;

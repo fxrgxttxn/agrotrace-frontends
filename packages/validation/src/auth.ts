@@ -1,80 +1,103 @@
 import { z } from 'zod';
-import { codePointString, email, nameString, password, uuid } from './common.js';
+import { codePointString, email, errorMap, inn, nameString, password, uuid } from './common.js';
 
-const totpCode = z.string().regex(/^\d{6}$/, 'validation.totp.format');
+const totpCode = z.string({ errorMap }).regex(/^\d{6}$/, 'validation.totp.format');
 const token = codePointString(16, 256);
 
 export const LoginRequestSchema = z
-  .object({
-    email,
-    password: codePointString(1, 128),
-  })
+  .object(
+    {
+      email,
+      password: codePointString(1, 128),
+    },
+    { errorMap },
+  )
   .strict();
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
 export const TwoFactorVerifyRequestSchema = z
-  .object({
-    challengeId: uuid,
-    code: totpCode,
-  })
+  .object(
+    {
+      challengeId: uuid,
+      code: totpCode,
+    },
+    { errorMap },
+  )
   .strict();
 export type TwoFactorVerifyRequest = z.infer<typeof TwoFactorVerifyRequestSchema>;
 
 export const TwoFactorSetupRequestSchema = z
-  .object({
-    code: totpCode.optional(),
-  })
+  .object(
+    {
+      code: totpCode.optional(),
+    },
+    { errorMap },
+  )
   .strict();
 export type TwoFactorSetupRequest = z.infer<typeof TwoFactorSetupRequestSchema>;
 
 export const ForgotPasswordRequestSchema = z
-  .object({
-    email,
-  })
+  .object(
+    {
+      email,
+    },
+    { errorMap },
+  )
   .strict();
 export type ForgotPasswordRequest = z.infer<typeof ForgotPasswordRequestSchema>;
 
 export const ResetPasswordRequestSchema = z
-  .object({
-    token,
-    password,
-  })
+  .object(
+    {
+      token,
+      password,
+    },
+    { errorMap },
+  )
   .strict();
 export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequestSchema>;
 
-const RegistrableOrganizationType = z.enum(['FARM', 'PROCESSOR', 'LAB', 'RETAILER', 'AUTHORITY']);
+const RegistrableOrganizationType = z.enum(['FARM', 'PROCESSOR', 'LAB', 'RETAILER', 'AUTHORITY'], {
+  errorMap,
+});
 
-// Wire format only (`^\d{10}(\d{2})?$`, matching the contract exactly): the
-// FNS checksum is deliberately NOT enforced here. An INN failing checksum is
-// simply one DaData will not find, and the server already reports that as
-// 400 `validation.inn.notFound` — duplicating the checksum client-side would
-// reject the contract's own (fictional, checksum-invalid) example INN. The
-// checksum-validating `inn` primitive (common.ts) remains available for
-// callers that want an earlier, purely-client-side check.
-const registrationInn = z.string().regex(/^\d{10}(\d{2})?$/, 'validation.inn.format');
-
+// R66: the contract's own INN examples were fixed to real FNS-checksum-valid
+// INNs (contracts/openapi/schemas/{admin,auth,organizations}.yaml,
+// '2311123456' -> '2311123457'), so the checksum can now be enforced here
+// without rejecting the contract's own example. A checksum failure reports
+// `validation.inn.checksum` (also documented on the contract's
+// `RegisterOrganizationRequest.inn` property).
 export const RegisterOrganizationRequestSchema = z
-  .object({
-    inn: registrationInn,
-    type: RegistrableOrganizationType,
-    name: nameString.optional(),
-    regionCode: codePointString(1, 8),
-    admin: z
-      .object({
-        email,
-        fullName: nameString,
-        password,
-      })
-      .strict(),
-  })
+  .object(
+    {
+      inn,
+      type: RegistrableOrganizationType,
+      name: nameString.optional(),
+      regionCode: codePointString(1, 8),
+      admin: z
+        .object(
+          {
+            email,
+            fullName: nameString,
+            password,
+          },
+          { errorMap },
+        )
+        .strict(),
+    },
+    { errorMap },
+  )
   .strict();
 export type RegisterOrganizationRequest = z.infer<typeof RegisterOrganizationRequestSchema>;
 
 export const AcceptInviteRequestSchema = z
-  .object({
-    token,
-    fullName: nameString,
-    password,
-  })
+  .object(
+    {
+      token,
+      fullName: nameString,
+      password,
+    },
+    { errorMap },
+  )
   .strict();
 export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequestSchema>;

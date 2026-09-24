@@ -70,7 +70,7 @@ OrganizationAdmin:
     name: КФХ Петров
     type: FARM
     logoUrl: null
-    inn: '2311123456'
+    inn: '2311123457'
     address: 352380, Краснодарский край, г. Кропоткин, ул. Полевая, д. 12
     region:
       code: '23'

@@ -2604,7 +2604,7 @@ export interface components {
         /**
          * @description `name` необязателен: при доступности DaData название и адрес берутся из DaData по ИНН. Если DaData недоступна и `name` не передан — 400 VALIDATION (`errors.name`). ИНН не найден в DaData — 400 VALIDATION (`errors.inn: [validation.inn.notFound]`); ИНН или email уже зарегистрированы — 400 VALIDATION (`validation.inn.taken` / `validation.email.taken`).
          * @example {
-         *       "inn": "2311123456",
+         *       "inn": "2311123457",
          *       "type": "FARM",
          *       "name": "КФХ Петров",
          *       "regionCode": "23",
@@ -2616,6 +2616,7 @@ export interface components {
          *     }
          */
         RegisterOrganizationRequest: {
+            /** @description ИНН (10 или 12 цифр) с контрольной суммой ФНС; несовпадение контрольной суммы — 400 VALIDATION (`errors.inn: [validation.inn.checksum]`). */
             inn: string;
             type: components["schemas"]["RegistrableOrganizationType"];
             name?: components["schemas"]["NameString"];
@@ -2870,7 +2871,7 @@ export interface components {
          *       "name": "КФХ Петров",
          *       "type": "FARM",
          *       "logoUrl": "/api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a",
-         *       "inn": "2311123456",
+         *       "inn": "2311123457",
          *       "address": "352380, Краснодарский край, г. Кропоткин, ул. Полевая, д. 12",
          *       "region": {
          *         "code": "23",
@@ -5489,7 +5490,7 @@ export interface components {
          *       "name": "КФХ Петров",
          *       "type": "FARM",
          *       "logoUrl": null,
-         *       "inn": "2311123456",
+         *       "inn": "2311123457",
          *       "address": "352380, Краснодарский край, г. Кропоткин, ул. Полевая, д. 12",
          *       "region": {
          *         "code": "23",
