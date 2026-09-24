@@ -169,6 +169,24 @@
       "IMPORTED": "Imported from Mercury",
       "NOT_FOUND": "Not found in Mercury",
       "FAILED": "Mercury unavailable"
+    },
+    "user": {
+      "INVITED": "Invited",
+      "ACTIVE": "Active",
+      "BLOCKED": "Blocked"
+    },
+    "organization": {
+      "PENDING": "Pending",
+      "MANUAL_CHECK": "Needs Manual Check",
+      "ACTIVE": "Active",
+      "REJECTED": "Rejected",
+      "SUSPENDED": "Suspended"
+    },
+    "safety": {
+      "SAFE": "Safe",
+      "RECALLED": "Recalled",
+      "BLOCKED": "Blocked",
+      "UNKNOWN": "No Data"
     }
   },
   "role": {
@@ -188,14 +206,108 @@
     "PLATFORM": "Platform"
   },
   "notification": {
-    "LAB_ASSIGNED": "Batch sent for lab testing",
-    "LAB_RESULT": "Lab result",
-    "WAYBILL_INCOMING": "Incoming waybill",
-    "RECALL": "Recall",
-    "RECALL_TASK": "Recall task",
-    "OVERDUE": "Recall task overdue",
-    "COMPLAINT": "Complaint",
-    "LAB_OVERDUE": "Lab sample overdue"
+    "LAB_ASSIGNED": {
+      "label": "Batch sent for lab testing",
+      "title": "Lab test of batch {publicCode}",
+      "body": "{productName}, batch {publicCode}: tested by {labName} ({reason}), due {dueAt}",
+      "email": {
+        "subject": "AgroTrace: batch {publicCode} sent for lab testing",
+        "body": "Batch {publicCode} ({productName}) was sent for testing to {labName}. Reason: {reason}. Due {dueAt}."
+      },
+      "telegram": "🧪 Batch {publicCode} ({productName}) — test at \"{labName}\" due {dueAt}"
+    },
+    "LAB_RESULT": {
+      "label": "Lab result",
+      "title": "Lab result for batch {publicCode}",
+      "body": "{productName}, batch {publicCode}: {conclusion}",
+      "email": {
+        "subject": "AgroTrace: lab result for batch {publicCode}",
+        "body": "Lab results were entered for batch {publicCode} ({productName}). Conclusion: {conclusion}."
+      },
+      "telegram": "📋 Batch {publicCode} ({productName}): {conclusion}"
+    },
+    "WAYBILL_INCOMING": {
+      "label": "Incoming waybill",
+      "title": "Incoming waybill {number}",
+      "body": "{senderName} sent waybill {number}: {itemsCount} item(s)",
+      "email": {
+        "subject": "AgroTrace: incoming waybill {number}",
+        "body": "{senderName} sent you waybill {number} ({itemsCount} item(s)). Check the masses and accept or reject the delivery."
+      },
+      "telegram": "🚚 Waybill {number} from {senderName}, items: {itemsCount}"
+    },
+    "RECALL": {
+      "label": "Recall",
+      "OPENED": {
+        "title": "Recall of batch {publicCode}",
+        "body": "A recall was started for batch {publicCode}. Trigger: {trigger}",
+        "email": {
+          "subject": "AgroTrace: recall of batch {publicCode}",
+          "body": "A product recall was started from source batch {publicCode} (trigger: {trigger}). Check your organization's seizure tasks."
+        },
+        "telegram": "⚠️ Recall of batch {publicCode} ({trigger})"
+      },
+      "CLOSED": {
+        "title": "Recall of batch {publicCode} closed",
+        "body": "Every seizure task of the recall of batch {publicCode} is confirmed",
+        "email": {
+          "subject": "AgroTrace: recall of batch {publicCode} closed",
+          "body": "The recall from source batch {publicCode} (trigger: {trigger}) is closed: every seizure task is confirmed."
+        },
+        "telegram": "✅ Recall of batch {publicCode} closed"
+      }
+    },
+    "RECALL_TASK": {
+      "label": "Recall task",
+      "CREATED": {
+        "title": "Seize batch {publicCode}",
+        "body": "Batch {publicCode} is recalled: confirm the seizure by {dueAt}",
+        "email": {
+          "subject": "AgroTrace: seize batch {publicCode} by {dueAt}",
+          "body": "Batch {publicCode} is recalled. Seize it and confirm the seizure in the system by {dueAt}."
+        },
+        "telegram": "⛔ Seize batch {publicCode} by {dueAt}"
+      },
+      "REASSIGNED": {
+        "title": "Seizure of batch {publicCode} reassigned to you",
+        "body": "The receiver rejected batch {publicCode}: confirm the seizure by {dueAt}",
+        "email": {
+          "subject": "AgroTrace: seize batch {publicCode} by {dueAt}",
+          "body": "The receiver rejected recalled batch {publicCode}; the seizure task is now your organization's. Confirm the seizure by {dueAt}."
+        },
+        "telegram": "⛔ Seizure of batch {publicCode} reassigned to you, due {dueAt}"
+      }
+    },
+    "OVERDUE": {
+      "label": "Recall task overdue",
+      "title": "Seizure of batch {publicCode} overdue",
+      "body": "{holderName} has not confirmed the seizure of batch {publicCode} (due {dueAt})",
+      "email": {
+        "subject": "AgroTrace: seizure of batch {publicCode} overdue",
+        "body": "The seizure of batch {publicCode} was due {dueAt}; holder: {holderName}. The task was escalated to the inspectors."
+      },
+      "telegram": "⏰ Seizure of batch {publicCode} overdue ({holderName}), was due {dueAt}"
+    },
+    "COMPLAINT": {
+      "label": "Complaint",
+      "title": "Complaint about batch {publicCode}",
+      "body": "New customer complaint: {productName}, batch {publicCode}",
+      "email": {
+        "subject": "AgroTrace: complaint about batch {publicCode}",
+        "body": "A customer complained about \"{productName}\" (batch {publicCode}). Review it under Complaints."
+      },
+      "telegram": "📣 Complaint about batch {publicCode} ({productName})"
+    },
+    "LAB_OVERDUE": {
+      "label": "Lab sample overdue",
+      "title": "Lab test of batch {publicCode} overdue",
+      "body": "{labName} has not entered a result for batch {publicCode} by {dueAt}",
+      "email": {
+        "subject": "AgroTrace: lab test of batch {publicCode} overdue",
+        "body": "{labName} did not enter the lab result for batch {publicCode} by the due date ({dueAt}). The test was escalated."
+      },
+      "telegram": "⏰ Lab test of batch {publicCode} at \"{labName}\" overdue (due {dueAt})"
+    }
   },
   "productCategory": {
     "GRAIN": "Grain",
@@ -216,6 +328,144 @@
     "кг/га": "kg/ha",
     "г/га": "g/ha"
   },
+  "batchKind": {
+    "RAW": "Raw",
+    "DERIVED": "Derived"
+  },
+  "testReason": {
+    "NEW_FARM": "New farm",
+    "LOW_RATING": "Trust rating below 70",
+    "RECENT_PESTICIDE": "Pesticides in the last 30 days",
+    "SAMPLED": "Random sample",
+    "NONE": "No test required"
+  },
+  "batchStatusReason": {
+    "CREATED": "Batch registered",
+    "TEST_REQUIRED": "Sent for lab testing",
+    "TEST_NOT_REQUIRED": "No test required",
+    "LAB_PASS": "Lab test passed",
+    "LAB_FAIL": "Norms exceeded",
+    "WAYBILL_SENT": "Shipped on a waybill",
+    "WAYBILL_ACCEPTED": "Accepted by the receiver",
+    "WAYBILL_REJECTED": "Rejected by the receiver",
+    "PROCESSED": "Used in processing",
+    "ON_SALE": "Put on sale",
+    "SOLD": "Sold",
+    "RECALLED": "Recalled",
+    "WRITTEN_OFF": "Seizure confirmed"
+  },
+  "batchAction": {
+    "sendToLab": "Send for Testing",
+    "approveWithoutTest": "Approve Without Test",
+    "labPass": "Lab Test Passed",
+    "labFail": "Lab Test Failed",
+    "ship": "Ship",
+    "accept": "Accept",
+    "reject": "Reject",
+    "process": "Process",
+    "putOnSale": "Put on Sale",
+    "sell": "Mark as Sold",
+    "recall": "Recall",
+    "writeOff": "Confirm Seizure"
+  },
+  "waybillAction": {
+    "send": "Send",
+    "delete": "Delete Draft",
+    "accept": "Accept",
+    "reject": "Reject"
+  },
+  "waybillDirection": {
+    "incoming": "Incoming",
+    "outgoing": "Outgoing"
+  },
+  "batchOrigin": {
+    "me": "Created by Us",
+    "all": "All Visible"
+  },
+  "batchHolder": {
+    "me": "Held by Us",
+    "all": "All Visible"
+  },
+  "labTestReason": {
+    "PLANNED": "Planned sample",
+    "RISK": "Risk model",
+    "COMPLAINT": "Customer complaint",
+    "INSPECTOR": "Assigned by an inspector"
+  },
+  "labConclusion": {
+    "PASS": "Meets the norms",
+    "FAIL": "Norms exceeded"
+  },
+  "labTestAction": {
+    "sample": "Sample Taken",
+    "submitResults": "Enter Results",
+    "uploadProtocol": "Upload Report"
+  },
+  "recallTrigger": {
+    "LAB": "Lab test",
+    "INSPECTOR": "Inspector decision",
+    "COMPLAINT": "Customer complaint"
+  },
+  "recallDirection": {
+    "SOURCE": "Source batch",
+    "DOWN": "Derived",
+    "UP": "Origin"
+  },
+  "complaintDecision": {
+    "REJECT": "Reject",
+    "LAB_TEST": "Order a Lab Test",
+    "RECALL": "Start a Recall"
+  },
+  "dashboardScope": {
+    "inspector": "Oversight",
+    "org": "Organization",
+    "lab": "Laboratory"
+  },
+  "reportType": {
+    "batches": "Batches",
+    "recalls": "Recalls",
+    "recall": "Recall report",
+    "lab-tests": "Lab tests",
+    "complaints": "Complaints",
+    "org": "Organization summary"
+  },
+  "reportFormat": {
+    "xlsx": "Excel (XLSX)",
+    "pdf": "PDF"
+  },
+  "auditEntity": {
+    "organization": "Organization",
+    "user": "User",
+    "field": "Field",
+    "treatment": "Treatment",
+    "batch": "Batch",
+    "waybill": "Waybill",
+    "labTest": "Lab test",
+    "recall": "Recall",
+    "recallTask": "Recall task",
+    "complaint": "Complaint",
+    "product": "Product",
+    "substance": "Substance",
+    "indicator": "Indicator",
+    "norm": "Norm",
+    "region": "Region",
+    "file": "File",
+    "batchDocument": "Batch document"
+  },
+  "backend": {
+    "express": "Express",
+    "django": "Django",
+    "laravel": "Laravel",
+    "seed": "Demo data",
+    "system": "System"
+  },
+  "dictionary": {
+    "products": "Products",
+    "substances": "Substances",
+    "indicators": "Indicators",
+    "norms": "Norms",
+    "regions": "Regions"
+  },
   "unit": {
     "kg": "kg"
   },
@@ -223,13 +473,13 @@
     "batches": "{count, plural, one {# batch} other {# batches}}"
   },
   "rules": {
-    "BR-01": "Shipping is possible after {until}: the waiting period for {substance} has not elapsed",
+    "BR-01": "Batch {publicCode} can be shipped from {until}: the waiting period for {substance} has not elapsed",
     "BR-02": "Indicator conclusion: exceeding the norm on even one indicator gives a FAIL result",
     "BR-03": "The risk model determines whether a batch requires mandatory lab testing",
-    "BR-04": "Processing output cannot exceed input minus the normative loss",
-    "BR-05": "A batch is only eligible as processing input in Approved or Accepted status",
-    "BR-06": "A blocked or recalled batch is unavailable for operations",
-    "BR-07": "A mass discrepancy over 2% on acceptance requires a discrepancy report",
+    "BR-04": "Processing output {outputKg} exceeds the allowed {allowedKg}: input {inputKg} minus the normative loss",
+    "BR-05": "Batch {publicCode} in status \"{status}\" cannot be a processing input — only Approved or Accepted",
+    "BR-06": "Batch {publicCode} in status \"{status}\" is unavailable for this operation",
+    "BR-07": "Mass discrepancy of batch {publicCode} is {percent}: a discrepancy over 2% requires a report",
     "BR-08": "A recall task becomes overdue 24 hours after the recall opens",
     "BR-09": "A farm's trust rating is recalculated from lab test results",
     "BR-10": "A recall closes once every seizure task has been confirmed",

@@ -29,35 +29,6 @@ function flatten(node: unknown, prefix: string, out: string[]): string[] {
 const RU_KEYS = flatten(ru, '', []).sort();
 const EN_KEYS = flatten(en, '', []).sort();
 
-// Ruling R5 (+ R42, R48, R54 REFERENCE_IN_USE) — exact ProblemCode enum from the contract.
-const PROBLEM_CODES = [
-  'VALIDATION',
-  'UNAUTHORIZED',
-  'FORBIDDEN',
-  'NOT_FOUND',
-  'INVALID_TRANSITION',
-  'VERSION_CONFLICT',
-  'BUSINESS_RULE',
-  'FILE_TOO_LARGE',
-  'UNSUPPORTED_MEDIA_TYPE',
-  'RATE_LIMITED',
-  'ACCOUNT_LOCKED',
-  'INVALID_CREDENTIALS',
-  'TWO_FACTOR_REQUIRED',
-  'INVALID_TWO_FACTOR_CODE',
-  'TOKEN_EXPIRED',
-  'IDEMPOTENCY_KEY_REUSED',
-  'INVALID_IDEMPOTENCY_KEY',
-  'CAPTCHA_FAILED',
-  'GRAPH_CYCLE',
-  'BACKEND_UNAVAILABLE',
-  'EXTERNAL_UNAVAILABLE',
-  'INTERNAL',
-  'NO_LAB_AVAILABLE',
-  'IDEMPOTENCY_KEY_IN_PROGRESS',
-  'REFERENCE_IN_USE',
-];
-
 const BR_RULES = Array.from({ length: 11 }, (_, i) => `BR-${String(i + 1).padStart(2, '0')}`);
 
 const VALIDATION_SRC = fileURLToPath(new URL('../../validation/src', import.meta.url));
@@ -105,16 +76,8 @@ describe('ru/en key parity', () => {
   });
 });
 
-describe('every ProblemCode is translated', () => {
-  it(`found ${PROBLEM_CODES.length} problem codes to check (fixture sanity)`, () => {
-    expect(PROBLEM_CODES.length).toBe(25);
-  });
-  for (const code of PROBLEM_CODES) {
-    it(`errors.${code}`, () => {
-      expect(RU_KEYS).toContain(`errors.${code}`);
-      expect(EN_KEYS).toContain(`errors.${code}`);
-    });
-  }
+describe('problem codes', () => {
+  // Every ProblemCode of the contract (derived from the bundled contract, R87) — test/contract.test.ts.
   it('errors.UNKNOWN (fallback) is translated', () => {
     expect(RU_KEYS).toContain('errors.UNKNOWN');
     expect(EN_KEYS).toContain('errors.UNKNOWN');
@@ -201,10 +164,16 @@ describe('problemMessage', () => {
 
   it('BR-01 with params, date formatted', () => {
     const message = problemMessage(
-      { code: 'BUSINESS_RULE', rule: 'BR-01', params: { until: '2026-09-25', substance: 'Хлорпирифос' } },
+      {
+        code: 'BUSINESS_RULE',
+        rule: 'BR-01',
+        params: { publicCode: '<publicCode>', until: '2026-09-25', substance: 'Хлорпирифос' },
+      },
       t,
     );
-    expect(message).toBe('Отгрузка возможна после 25.09.2026: срок ожидания препарата Хлорпирифос');
+    expect(message).toBe(
+      'Партию <publicCode> можно отгрузить с 25.09.2026: не истёк срок ожидания препарата Хлорпирифос',
+    );
   });
 
   it('falls back to errors.<code> when there is no rule', () => {
@@ -218,11 +187,15 @@ describe('problemMessage', () => {
   it('works with the English locale too', () => {
     const tEn = createT('en');
     const message = problemMessage(
-      { code: 'BUSINESS_RULE', rule: 'BR-01', params: { until: '2026-09-25', substance: 'Chlorpyrifos' } },
+      {
+        code: 'BUSINESS_RULE',
+        rule: 'BR-01',
+        params: { publicCode: 'AT-2026-000123', until: '2026-09-25', substance: 'Chlorpyrifos' },
+      },
       tEn,
     );
     expect(message).toBe(
-      'Shipping is possible after 09/25/2026: the waiting period for Chlorpyrifos has not elapsed',
+      'Batch AT-2026-000123 can be shipped from 09/25/2026: the waiting period for Chlorpyrifos has not elapsed',
     );
   });
 });

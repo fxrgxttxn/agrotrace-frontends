@@ -173,6 +173,9 @@ importers:
 
   packages/i18n:
     devDependencies:
+      '@redocly/openapi-core':
+        specifier: ^1.25.11
+        version: 1.34.20(supports-color@10.2.2)
       '@types/node':
         specifier: ^22.9.0
         version: 22.20.4

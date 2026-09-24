@@ -169,6 +169,24 @@
       "IMPORTED": "Получен из Меркурия",
       "NOT_FOUND": "Не найден в Меркурии",
       "FAILED": "Меркурий недоступен"
+    },
+    "user": {
+      "INVITED": "Приглашён",
+      "ACTIVE": "Активен",
+      "BLOCKED": "Заблокирован"
+    },
+    "organization": {
+      "PENDING": "На рассмотрении",
+      "MANUAL_CHECK": "Требует ручной проверки",
+      "ACTIVE": "Активна",
+      "REJECTED": "Отклонена",
+      "SUSPENDED": "Приостановлена"
+    },
+    "safety": {
+      "SAFE": "Безопасна",
+      "RECALLED": "Отозвана",
+      "BLOCKED": "Заблокирована",
+      "UNKNOWN": "Нет данных"
     }
   },
   "role": {
@@ -188,14 +206,108 @@
     "PLATFORM": "Платформа"
   },
   "notification": {
-    "LAB_ASSIGNED": "Партия направлена на анализ",
-    "LAB_RESULT": "Результат анализа",
-    "WAYBILL_INCOMING": "Входящая накладная",
-    "RECALL": "Отзыв",
-    "RECALL_TASK": "Задача отзыва",
-    "OVERDUE": "Просрочка задачи отзыва",
-    "COMPLAINT": "Жалоба",
-    "LAB_OVERDUE": "Просроченная проба"
+    "LAB_ASSIGNED": {
+      "label": "Партия направлена на анализ",
+      "title": "Анализ партии {publicCode}",
+      "body": "{productName}, партия {publicCode}: анализ в лаборатории {labName} ({reason}), срок — {dueAt}",
+      "email": {
+        "subject": "AgroTrace: партия {publicCode} направлена на анализ",
+        "body": "Партия {publicCode} ({productName}) направлена на анализ в лабораторию {labName}. Основание: {reason}. Срок выполнения — {dueAt}."
+      },
+      "telegram": "🧪 Партия {publicCode} ({productName}) — анализ в «{labName}» до {dueAt}"
+    },
+    "LAB_RESULT": {
+      "label": "Результат анализа",
+      "title": "Результат анализа партии {publicCode}",
+      "body": "{productName}, партия {publicCode}: {conclusion}",
+      "email": {
+        "subject": "AgroTrace: результат анализа партии {publicCode}",
+        "body": "По партии {publicCode} ({productName}) внесены результаты анализа. Заключение: {conclusion}."
+      },
+      "telegram": "📋 Партия {publicCode} ({productName}): {conclusion}"
+    },
+    "WAYBILL_INCOMING": {
+      "label": "Входящая накладная",
+      "title": "Входящая накладная {number}",
+      "body": "{senderName} отправил накладную {number}: позиций — {itemsCount}",
+      "email": {
+        "subject": "AgroTrace: входящая накладная {number}",
+        "body": "Организация {senderName} отправила вам накладную {number} (позиций: {itemsCount}). Проверьте массу и примите или отклоните поставку."
+      },
+      "telegram": "🚚 Накладная {number} от {senderName}, позиций: {itemsCount}"
+    },
+    "RECALL": {
+      "label": "Отзыв",
+      "OPENED": {
+        "title": "Отзыв партии {publicCode}",
+        "body": "Запущен отзыв по партии {publicCode}. Основание: {trigger}",
+        "email": {
+          "subject": "AgroTrace: отзыв партии {publicCode}",
+          "body": "Запущен отзыв продукции по исходной партии {publicCode} (основание: {trigger}). Проверьте задачи изъятия своей организации."
+        },
+        "telegram": "⚠️ Отзыв партии {publicCode} ({trigger})"
+      },
+      "CLOSED": {
+        "title": "Отзыв партии {publicCode} закрыт",
+        "body": "Все задачи изъятия по отзыву партии {publicCode} подтверждены",
+        "email": {
+          "subject": "AgroTrace: отзыв партии {publicCode} закрыт",
+          "body": "Отзыв по исходной партии {publicCode} (основание: {trigger}) закрыт: все задачи изъятия подтверждены."
+        },
+        "telegram": "✅ Отзыв партии {publicCode} закрыт"
+      }
+    },
+    "RECALL_TASK": {
+      "label": "Задача отзыва",
+      "CREATED": {
+        "title": "Изъять партию {publicCode}",
+        "body": "Партия {publicCode} отозвана: подтвердите изъятие до {dueAt}",
+        "email": {
+          "subject": "AgroTrace: изъять партию {publicCode} до {dueAt}",
+          "body": "Партия {publicCode} отозвана. Изымите её и подтвердите изъятие в системе до {dueAt}."
+        },
+        "telegram": "⛔ Изъять партию {publicCode} до {dueAt}"
+      },
+      "REASSIGNED": {
+        "title": "Задача изъятия партии {publicCode} передана вам",
+        "body": "Получатель отказался от партии {publicCode}: подтвердите изъятие до {dueAt}",
+        "email": {
+          "subject": "AgroTrace: изъять партию {publicCode} до {dueAt}",
+          "body": "Получатель отказался от отозванной партии {publicCode}, задача изъятия передана вашей организации. Подтвердите изъятие до {dueAt}."
+        },
+        "telegram": "⛔ Задача изъятия партии {publicCode} передана вам, срок — {dueAt}"
+      }
+    },
+    "OVERDUE": {
+      "label": "Просрочка задачи отзыва",
+      "title": "Просрочено изъятие партии {publicCode}",
+      "body": "{holderName} не подтвердил изъятие партии {publicCode} (срок — {dueAt})",
+      "email": {
+        "subject": "AgroTrace: просрочено изъятие партии {publicCode}",
+        "body": "Срок изъятия партии {publicCode} истёк {dueAt}, держатель — {holderName}. Задача эскалирована инспектору."
+      },
+      "telegram": "⏰ Просрочено изъятие партии {publicCode} ({holderName}), срок был {dueAt}"
+    },
+    "COMPLAINT": {
+      "label": "Жалоба",
+      "title": "Жалоба на партию {publicCode}",
+      "body": "Новая жалоба покупателя: {productName}, партия {publicCode}",
+      "email": {
+        "subject": "AgroTrace: жалоба на партию {publicCode}",
+        "body": "Поступила жалоба покупателя на продукцию «{productName}» (партия {publicCode}). Рассмотрите её в разделе «Жалобы»."
+      },
+      "telegram": "📣 Жалоба на партию {publicCode} ({productName})"
+    },
+    "LAB_OVERDUE": {
+      "label": "Просроченная проба",
+      "title": "Анализ партии {publicCode} просрочен",
+      "body": "Лаборатория {labName} не внесла результат по партии {publicCode} до {dueAt}",
+      "email": {
+        "subject": "AgroTrace: просрочен анализ партии {publicCode}",
+        "body": "Лаборатория {labName} не внесла результат анализа партии {publicCode} в срок ({dueAt}). Задача эскалирована."
+      },
+      "telegram": "⏰ Анализ партии {publicCode} в «{labName}» просрочен (срок {dueAt})"
+    }
   },
   "productCategory": {
     "GRAIN": "Зерно",
@@ -216,6 +328,144 @@
     "кг/га": "кг/га",
     "г/га": "г/га"
   },
+  "batchKind": {
+    "RAW": "Сырьевая",
+    "DERIVED": "Производная"
+  },
+  "testReason": {
+    "NEW_FARM": "Новое хозяйство",
+    "LOW_RATING": "Рейтинг доверия ниже 70",
+    "RECENT_PESTICIDE": "Пестициды за последние 30 дней",
+    "SAMPLED": "Выборочная проверка",
+    "NONE": "Анализ не требуется"
+  },
+  "batchStatusReason": {
+    "CREATED": "Партия зарегистрирована",
+    "TEST_REQUIRED": "Направлена на анализ",
+    "TEST_NOT_REQUIRED": "Анализ не требуется",
+    "LAB_PASS": "Анализ пройден",
+    "LAB_FAIL": "Превышение нормативов",
+    "WAYBILL_SENT": "Отгружена по накладной",
+    "WAYBILL_ACCEPTED": "Принята получателем",
+    "WAYBILL_REJECTED": "Отказ получателя",
+    "PROCESSED": "Использована в переработке",
+    "ON_SALE": "Выставлена в продажу",
+    "SOLD": "Реализована",
+    "RECALLED": "Отозвана",
+    "WRITTEN_OFF": "Изъятие подтверждено"
+  },
+  "batchAction": {
+    "sendToLab": "Направить на анализ",
+    "approveWithoutTest": "Допустить без анализа",
+    "labPass": "Анализ пройден",
+    "labFail": "Анализ не пройден",
+    "ship": "Отгрузить",
+    "accept": "Принять",
+    "reject": "Отказаться",
+    "process": "Переработать",
+    "putOnSale": "Выставить на продажу",
+    "sell": "Отметить реализацию",
+    "recall": "Отозвать",
+    "writeOff": "Подтвердить изъятие"
+  },
+  "waybillAction": {
+    "send": "Отправить",
+    "delete": "Удалить черновик",
+    "accept": "Принять",
+    "reject": "Отказаться"
+  },
+  "waybillDirection": {
+    "incoming": "Входящие",
+    "outgoing": "Исходящие"
+  },
+  "batchOrigin": {
+    "me": "Созданные нами",
+    "all": "Все доступные"
+  },
+  "batchHolder": {
+    "me": "У нашей организации",
+    "all": "Все доступные"
+  },
+  "labTestReason": {
+    "PLANNED": "Плановая выборка",
+    "RISK": "Риск-модель",
+    "COMPLAINT": "Жалоба покупателя",
+    "INSPECTOR": "Назначен инспектором"
+  },
+  "labConclusion": {
+    "PASS": "Соответствует нормативам",
+    "FAIL": "Превышение нормативов"
+  },
+  "labTestAction": {
+    "sample": "Проба отобрана",
+    "submitResults": "Внести результаты",
+    "uploadProtocol": "Загрузить протокол"
+  },
+  "recallTrigger": {
+    "LAB": "Лабораторный анализ",
+    "INSPECTOR": "Решение инспектора",
+    "COMPLAINT": "Жалоба покупателя"
+  },
+  "recallDirection": {
+    "SOURCE": "Исходная партия",
+    "DOWN": "Производная",
+    "UP": "Источник"
+  },
+  "complaintDecision": {
+    "REJECT": "Отклонить",
+    "LAB_TEST": "Назначить анализ",
+    "RECALL": "Запустить отзыв"
+  },
+  "dashboardScope": {
+    "inspector": "Надзор",
+    "org": "Организация",
+    "lab": "Лаборатория"
+  },
+  "reportType": {
+    "batches": "Партии",
+    "recalls": "Отзывы",
+    "recall": "Отчёт по отзыву",
+    "lab-tests": "Лабораторные анализы",
+    "complaints": "Жалобы",
+    "org": "Сводка по организации"
+  },
+  "reportFormat": {
+    "xlsx": "Excel (XLSX)",
+    "pdf": "PDF"
+  },
+  "auditEntity": {
+    "organization": "Организация",
+    "user": "Пользователь",
+    "field": "Поле",
+    "treatment": "Обработка",
+    "batch": "Партия",
+    "waybill": "Накладная",
+    "labTest": "Анализ",
+    "recall": "Отзыв",
+    "recallTask": "Задача отзыва",
+    "complaint": "Жалоба",
+    "product": "Продукт",
+    "substance": "Препарат",
+    "indicator": "Показатель",
+    "norm": "Норматив",
+    "region": "Регион",
+    "file": "Файл",
+    "batchDocument": "Документ партии"
+  },
+  "backend": {
+    "express": "Express",
+    "django": "Django",
+    "laravel": "Laravel",
+    "seed": "Демо-данные",
+    "system": "Система"
+  },
+  "dictionary": {
+    "products": "Продукты",
+    "substances": "Препараты",
+    "indicators": "Показатели",
+    "norms": "Нормативы",
+    "regions": "Регионы"
+  },
   "unit": {
     "kg": "кг"
   },
@@ -223,13 +473,13 @@
     "batches": "{count, plural, one {# партия} few {# партии} many {# партий} other {# партий}}"
   },
   "rules": {
-    "BR-01": "Отгрузка возможна после {until}: срок ожидания препарата {substance}",
+    "BR-01": "Партию {publicCode} можно отгрузить с {until}: не истёк срок ожидания препарата {substance}",
     "BR-02": "Заключение по показателям: превышение норматива хотя бы по одному показателю даёт результат FAIL",
     "BR-03": "Риск-модель определяет обязательный лабораторный контроль партии",
-    "BR-04": "Выход переработки не может превышать вход за вычетом нормы потерь",
-    "BR-05": "Партия допускается как вход переработки только в статусе «Допущена» или «Принята»",
-    "BR-06": "Заблокированная или отозванная партия недоступна для операций",
-    "BR-07": "Расхождение массы при приёмке свыше 2% требует акта расхождения",
+    "BR-04": "Выход переработки {outputKg} больше допустимого {allowedKg}: вход {inputKg} за вычетом нормы потерь",
+    "BR-05": "Партия {publicCode} в статусе «{status}» не может быть входом переработки — только «Допущена» или «Принята»",
+    "BR-06": "Партия {publicCode} в статусе «{status}» недоступна для этой операции",
+    "BR-07": "Расхождение массы партии {publicCode} — {percent}: при расхождении больше 2% нужен акт",
     "BR-08": "Задача отзыва просрочена через 24 часа после открытия отзыва",
     "BR-09": "Рейтинг доверия хозяйства пересчитывается по результатам анализов",
     "BR-10": "Отзыв закрывается, когда подтверждены все задачи изъятия",

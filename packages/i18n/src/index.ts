@@ -4,7 +4,9 @@ import en from '../locales/en.json' with { type: 'json' };
 export type { Locale } from './format.js';
 export { formatMass, formatDate, formatDateTime, formatPercent } from './format.js';
 export { formatRuDate, parseRuDate, maskRuDateInput, isWithinRuDateBounds } from './date-input.js';
-export { problemMessage, type Problem } from './problem.js';
+export { problemMessage, type Problem, type T } from './problem.js';
+export { ENUM_LABELS, enumLabel } from './enum-labels.js';
+export { notificationMessage, NOTIFICATION_PARAM_LABELS, type NotificationPart } from './notification.js';
 
 export type Dictionary = typeof ru;
 
