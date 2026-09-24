@@ -3,11 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "ds": "playwright test"
+    "ds": "playwright test",
+    "typecheck": "tsc --noEmit -p ."
   },
   "devDependencies": {
     "@axe-core/playwright": "4.10.2",
     "@playwright/test": "1.48.2",
-    "http-server": "14.1.1"
+    "@types/node": "^22.9.0",
+    "http-server": "14.1.1",
+    "typescript": "~5.6.3"
   }
 }

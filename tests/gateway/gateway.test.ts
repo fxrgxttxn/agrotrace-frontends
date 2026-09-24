@@ -48,7 +48,7 @@ describe('gateway: 9 frontend x backend combinations', () => {
         const res = await fetchAs(host, '/api/v1/health/live');
         expect(res.status).toBe(502);
         expect(res.headers.get('content-type')).toBe('application/problem+json');
-        const body = await res.json();
+        const body = (await res.json()) as Record<string, unknown>;
         expect(body.status).toBe(502);
         expect(body.code).toBe('BACKEND_UNAVAILABLE');
         expect(body.type).toBe(problem502.type);
@@ -129,7 +129,7 @@ describe('gateway: 413 body too large', () => {
     });
     expect(res.status).toBe(413);
     expect(res.headers.get('content-type')).toBe('application/problem+json');
-    const body = await res.json();
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe(413);
     expect(body.code).toBe('FILE_TOO_LARGE');
     expect(body.title).toBe('File too large');

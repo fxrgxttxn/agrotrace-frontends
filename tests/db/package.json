@@ -2,6 +2,15 @@
   "name": "@agrotrace/tests-db",
   "private": true,
   "type": "module",
-  "scripts": { "test": "vitest run" },
-  "devDependencies": { "pg": "^8.13.1", "@types/pg": "^8.11.10", "vitest": "^2.1.4" }
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "pg": "^8.13.1",
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.4"
+  }
 }

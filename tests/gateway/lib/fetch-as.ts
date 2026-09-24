@@ -50,7 +50,8 @@ export function fetchAs(host: string, path: string, opts: FetchAsOptions = {}): 
               getAll: (name: string) => {
                 const out: string[] = [];
                 for (let i = 0; i < res.rawHeaders.length; i += 2) {
-                  if (res.rawHeaders[i].toLowerCase() === name.toLowerCase()) out.push(res.rawHeaders[i + 1]);
+                  if (res.rawHeaders[i]!.toLowerCase() === name.toLowerCase())
+                    out.push(res.rawHeaders[i + 1]!);
                 }
                 return out;
               },
