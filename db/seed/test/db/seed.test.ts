@@ -1,5 +1,5 @@
 /**
- * Checks the seeded dev database and MinIO (run by `./at.sh seed:test` after `./at.sh seed`).
+ * Checks the seeded dev database and MinIO (`./at.sh seed:test`; global-setup.ts seeds first with SEED_NOW).
  * Every check re-derives the expected value from the rows with @agrotrace/domain or raw SQL,
  * independently of the simulator that produced them.
  */
@@ -21,17 +21,21 @@ import {
 import argon2 from 'argon2';
 import pg from 'pg';
 import sharp from 'sharp';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import entityMachines from '../../../../contracts/rules/entity-state-machines.json' with { type: 'json' };
+import waybillMachine from '../../../../contracts/rules/waybill-state-machine.json' with { type: 'json' };
 import notificationRules from '../../../../contracts/rules/notifications.json' with { type: 'json' };
 import { DEMO_PASSWORD, loadData, SEED_ROOT } from '../../src/data';
 import { s3Client } from '../../src/seed';
-import { NOW } from '../../src/time';
 import { env } from './db';
 
 type R = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 const iso = (d: unknown): string => new Date(d as string).toISOString().replace('.000Z', 'Z');
 const data = loadData();
+/** SEED_NOW the global setup seeded with (every seeded moment is at or before it). */
+const NOW = inject('seedNow');
+const YEAR = NOW.slice(0, 4);
 let db: pg.Client;
 const q = async (sql: string, params: unknown[] = []): Promise<R[]> => (await db.query(sql, params)).rows;
 
@@ -40,6 +44,27 @@ beforeAll(async () => {
   await db.connect();
 });
 afterAll(() => db.end());
+
+/** Batch status at moment t (last history row at or before t). */
+async function statusAt(batchId: string, t: unknown): Promise<string> {
+  const [h] = await q(
+    'SELECT to_status FROM batch_status_history WHERE batch_id = $1 AND changed_at <= $2 ORDER BY changed_at DESC, id DESC LIMIT 1',
+    [batchId, t],
+  );
+  return h!.to_status;
+}
+
+/** Holder at moment t: receiver of the last waybill with the batch accepted at or before t, else the origin. */
+async function holderAt(batchId: string, t: unknown): Promise<string> {
+  const [w] = await q(
+    `SELECT w.receiver_org_id FROM waybills w JOIN waybill_items i ON i.waybill_id = w.id
+      WHERE i.batch_id = $1 AND w.status = 'ACCEPTED' AND w.accepted_at <= $2 ORDER BY w.accepted_at DESC LIMIT 1`,
+    [batchId, t],
+  );
+  if (w) return w.receiver_org_id;
+  const [b] = await q('SELECT origin_org_id FROM batches WHERE id = $1', [batchId]);
+  return b!.origin_org_id;
+}
 
 describe('composition (spec §7.8)', () => {
   it('has the dictionaries: 15 products with photos, 20 substances, 12 indicators, 3–5 norms per product', async () => {
@@ -122,7 +147,9 @@ describe('composition (spec §7.8)', () => {
 
   it('has 40 batches with codes AT-2026-000001…40 and a graph of depth 4; the sequences continue after them', async () => {
     const codes = (await q('SELECT public_code FROM batches ORDER BY public_code')).map((b) => b.public_code);
-    expect(codes).toEqual(Array.from({ length: 40 }, (_, i) => `AT-2026-${String(i + 1).padStart(6, '0')}`));
+    expect(codes).toEqual(
+      Array.from({ length: 40 }, (_, i) => `AT-${YEAR}-${String(i + 1).padStart(6, '0')}`),
+    );
     const [depth] = await q(`
       WITH RECURSIVE down AS (
         SELECT l.child_batch_id AS id, 1 AS depth FROM batch_links l
@@ -144,19 +171,27 @@ describe('composition (spec §7.8)', () => {
     const labStatuses = (await q('SELECT DISTINCT status FROM lab_tests')).map((r) => r.status).sort();
     expect(labStatuses).toEqual(['DONE', 'ESCALATED', 'QUEUED', 'SAMPLED']);
     const recalls = await q('SELECT * FROM recalls ORDER BY opened_at');
-    expect(recalls.map((r) => r.status)).toEqual(['CLOSED', 'OPEN']);
-    const [open] = recalls.filter((r) => r.status === 'OPEN');
-    expect(open!.trigger).toBe('LAB');
-    const tasks = (await q('SELECT DISTINCT status FROM recall_tasks WHERE recall_id = $1', [open!.id]))
-      .map((r) => r.status)
-      .sort();
-    expect(tasks).toEqual(['CONFIRMED', 'OPEN', 'OVERDUE']);
+    expect(recalls.map((r) => `${r.status} ${r.trigger}`)).toEqual([
+      'CLOSED COMPLAINT',
+      'OPEN LAB',
+      'OPEN INSPECTOR',
+    ]);
+    const taskStatuses = async (r: R): Promise<string[]> =>
+      (await q('SELECT DISTINCT status FROM recall_tasks WHERE recall_id = $1', [r.id]))
+        .map((x) => x.status)
+        .sort();
+    // R75: the old LAB recall has confirmed and already escalated tasks, the fresh one open tasks.
+    expect(await taskStatuses(recalls[1]!)).toEqual(['CONFIRMED', 'OVERDUE']);
+    expect(await taskStatuses(recalls[2]!)).toEqual(['OPEN']);
+    expect(Date.parse(NOW) - Date.parse(recalls[1]!.opened_at)).toBeGreaterThan(24 * 3_600_000);
+    expect(Date.parse(NOW) - Date.parse(recalls[2]!.opened_at)).toBe(2 * 3_600_000);
+    expect(recalls[2]!.block_upstream).toBe(true);
     const complaints = (await q('SELECT DISTINCT status FROM complaints')).map((r) => r.status).sort();
     expect(complaints).toEqual(['DECIDED', 'IN_REVIEW', 'NEW']);
     expect((await q('SELECT 1 FROM notifications')).length).toBeGreaterThan(0);
   });
 
-  it('writes audit rows only as backend seed, and nothing is dated after the fixed now', async () => {
+  it('writes audit rows only as backend seed, and nothing is dated after SEED_NOW', async () => {
     expect(await q(`SELECT 1 FROM audit_log WHERE backend <> 'seed'`)).toHaveLength(0);
     expect((await q('SELECT 1 FROM audit_log')).length).toBeGreaterThan(100);
     for (const [table, col] of [
@@ -255,15 +290,40 @@ describe('batches', () => {
     expect(await q(`SELECT 1 FROM batches WHERE kind = 'RAW' AND field_id IS NULL`)).toHaveLength(0);
   });
 
-  it('QR files exist only where the contract allows them (R43, R44)', async () => {
+  it('QR was generated only by the holder in a status that allows it (R43, R44)', async () => {
     const withQr = await q(`
-      SELECT b.public_code, b.qr_generated_at, png.kind AS png_kind, pdf.kind AS pdf_kind, png.original_name AS png_name
+      SELECT b.id, b.public_code, b.kind, b.origin_org_id, b.qr_generated_at, png.kind AS png_kind, pdf.kind AS pdf_kind,
+             png.original_name AS png_name, pdf.original_name AS pdf_name, png.owner_id, png.mime AS png_mime, pdf.mime AS pdf_mime
         FROM batches b JOIN files png ON png.id = b.qr_png_file_id JOIN files pdf ON pdf.id = b.qr_pdf_file_id`);
     expect(withQr.length).toBeGreaterThanOrEqual(5);
+    let processorOwn = 0;
     for (const b of withQr) {
-      expect([b.png_kind, b.pdf_kind]).toEqual(['QR', 'QR']);
-      expect(b.png_name).toBe(`${b.public_code}.png`);
+      expect([b.png_kind, b.pdf_kind, b.png_mime, b.pdf_mime]).toEqual([
+        'QR',
+        'QR',
+        'image/png',
+        'application/pdf',
+      ]);
+      expect([b.png_name, b.pdf_name]).toEqual([`${b.public_code}.png`, `${b.public_code}.pdf`]);
+      const statusThen = await statusAt(b.id, b.qr_generated_at);
+      const holderThen = await holderAt(b.id, b.qr_generated_at);
+      const [holder] = await q('SELECT type FROM organizations WHERE id = $1', [holderThen]);
+      const [owner] = await q(
+        `SELECT u.organization_id, r.code FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id WHERE u.id = $1`,
+        [b.owner_id],
+      );
+      expect(owner!.organization_id, b.public_code).toBe(holderThen); // generated by the holder (NOT_HOLDER otherwise)
+      expect(['PROCESSOR', 'RETAILER']).toContain(owner!.code);
+      const allowed =
+        (['Accepted', 'OnSale'].includes(statusThen) && ['PROCESSOR', 'RETAILER'].includes(holder!.type)) ||
+        (statusThen === 'Approved' &&
+          b.kind === 'DERIVED' &&
+          b.origin_org_id === holderThen &&
+          owner!.code === 'PROCESSOR');
+      expect(allowed, `${b.public_code}: ${statusThen} at ${holder!.type}`).toBe(true);
+      if (statusThen === 'Approved') processorOwn++;
     }
+    expect(processorOwn).toBeGreaterThan(0);
   });
 });
 
@@ -331,7 +391,7 @@ describe('recalls', () => {
 
   it('recall_batches are exactly the engine traversal with minimal depth and the status before the recall', async () => {
     const recalls = await q('SELECT * FROM recalls');
-    expect(recalls).toHaveLength(2);
+    expect(recalls).toHaveLength(3);
     for (const r of recalls) {
       const expected = await q(
         `WITH RECURSIVE down AS (
@@ -404,7 +464,7 @@ describe('recalls', () => {
   });
 
   it('the open recall recalled every downstream batch that could move, and the FAIL test links it (R57)', async () => {
-    const [open] = await q(`SELECT * FROM recalls WHERE status = 'OPEN'`);
+    const [open] = await q(`SELECT * FROM recalls WHERE status = 'OPEN' AND trigger = 'LAB'`);
     const down = await q(
       `WITH RECURSIVE down AS (SELECT child_batch_id AS id FROM batch_links WHERE parent_batch_id = $1
          UNION SELECT l.child_batch_id FROM batch_links l JOIN down d ON l.parent_batch_id = d.id)
@@ -482,6 +542,145 @@ describe('notifications', () => {
       [notificationRules.forcedChannels],
     );
     expect(forced).toHaveLength(0);
+  });
+
+  it('every dispatch reached exactly the recipient groups of notifications.json', async () => {
+    const users = await q(
+      `SELECT u.id, u.organization_id, u.is_org_admin, array_agg(r.code) AS roles FROM users u
+         JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id
+        WHERE u.status = 'ACTIVE' AND u.deleted_at IS NULL GROUP BY u.id`,
+    );
+    const ofOrg = (org: unknown): string[] => users.filter((u) => u.organization_id === org).map((u) => u.id);
+    const inspectors = users.filter((u) => u.roles.includes('INSPECTOR')).map((u) => u.id);
+    const one = async (sql: string, id: unknown): Promise<R> => (await q(sql, [id]))[0]!;
+    const groups: Record<string, (p: R, at: unknown) => Promise<string[]>> = {
+      labOrg: async (p) =>
+        ofOrg((await one('SELECT lab_org_id FROM lab_tests WHERE id = $1', p.labTestId)).lab_org_id),
+      labOrgHeads: async (p) => {
+        const lab = (await one('SELECT lab_org_id FROM lab_tests WHERE id = $1', p.labTestId)).lab_org_id;
+        return users.filter((u) => u.organization_id === lab && u.is_org_admin).map((u) => u.id);
+      },
+      batchOrigin: async (p) =>
+        ofOrg((await one('SELECT origin_org_id FROM batches WHERE id = $1', p.batchId)).origin_org_id),
+      batchHolder: async (p, at) => {
+        const origin = (await one('SELECT origin_org_id FROM batches WHERE id = $1', p.batchId))
+          .origin_org_id;
+        const holder = await holderAt(p.batchId, at);
+        return holder === origin ? [] : ofOrg(holder);
+      },
+      waybillReceiver: async (p) =>
+        ofOrg((await one('SELECT receiver_org_id FROM waybills WHERE id = $1', p.waybillId)).receiver_org_id),
+      taskHolder: async (p) =>
+        ofOrg((await one('SELECT holder_org_id FROM recall_tasks WHERE id = $1', p.taskId)).holder_org_id),
+      taskHolders: async (p) =>
+        (
+          await q('SELECT DISTINCT holder_org_id FROM recall_tasks WHERE recall_id = $1', [p.recallId])
+        ).flatMap((t) => ofOrg(t.holder_org_id)),
+      sourceOrigin: async (p) =>
+        ofOrg((await one('SELECT origin_org_id FROM batches WHERE id = $1', p.sourceBatchId)).origin_org_id),
+      inspectors: async () => inspectors,
+      inspectorsIfUnplanned: async (p) =>
+        ['INSPECTOR', 'COMPLAINT'].includes(
+          (await one('SELECT reason FROM lab_tests WHERE id = $1', p.labTestId)).reason,
+        )
+          ? inspectors
+          : [],
+    };
+    const dispatches = await q(
+      `SELECT type, payload, min(created_at) AS at, array_agg(user_id ORDER BY user_id) AS users
+         FROM notifications WHERE channel = 'IN_APP' GROUP BY type, payload`,
+    );
+    expect(dispatches.length).toBeGreaterThan(50);
+    for (const d of dispatches) {
+      const rule = notificationRules.types[d.type as keyof typeof notificationRules.types] as {
+        recipients: string[];
+        recipientsOnClose?: string[];
+      };
+      const names =
+        d.type === 'RECALL' && d.payload.event === 'CLOSED' ? rule.recipientsOnClose! : rule.recipients;
+      const expected = new Set<string>();
+      for (const g of names) {
+        expect(groups[g], `unknown recipient group ${g}`).toBeDefined();
+        for (const id of await groups[g]!(d.payload, d.at)) expected.add(id);
+      }
+      expect(d.users, `${d.type} ${JSON.stringify(d.payload)}`).toEqual([...expected].sort());
+    }
+  });
+});
+
+describe('entity lifecycles (contracts/rules/*state-machine*.json)', () => {
+  const machines: Record<string, { transitions: { from: string; to: string }[]; statuses: string[] }> = {
+    labTest: entityMachines.labTest,
+    recall: entityMachines.recall,
+    recallTask: entityMachines.recallTask,
+    complaint: entityMachines.complaint,
+    waybill: waybillMachine,
+  };
+  const tables: Record<string, string> = {
+    labTest: 'lab_tests',
+    recall: 'recalls',
+    recallTask: 'recall_tasks',
+    complaint: 'complaints',
+    waybill: 'waybills',
+  };
+
+  for (const [type, machine] of Object.entries(machines)) {
+    it(`${type}: the audited status changes follow the machine and end in the stored status`, async () => {
+      const rows = await q(`SELECT id, status FROM ${tables[type]}`);
+      expect(rows.length).toBeGreaterThan(0);
+      const audit = await q(
+        `SELECT entity_id, diff FROM audit_log WHERE entity_type = $1 AND diff ? 'status' ORDER BY id`,
+        [type],
+      );
+      for (const r of rows) {
+        const changes = audit
+          .filter((a) => a.entity_id === r.id)
+          .map((a) => a.diff.status as [string | null, string]);
+        expect(changes[0]![0], `${type} ${r.id} created`).toBeNull();
+        // creation shows the status at the end of the creating operation (a recall may close in it, BR-10)
+        const initial = machine.statuses[0]!;
+        let current = initial;
+        if (changes[0]![1] !== initial) {
+          expect(machine.transitions.some((t) => t.from === initial && t.to === changes[0]![1])).toBe(true);
+        }
+        current = changes[0]![1];
+        for (const [from, to] of changes.slice(1)) {
+          expect(from).toBe(current);
+          expect(
+            machine.transitions.some((t) => t.from === from && t.to === to),
+            `${type}: ${from} → ${to}`,
+          ).toBe(true);
+          current = to;
+        }
+        expect(current).toBe(r.status);
+      }
+    });
+  }
+});
+
+describe('start-up (R73)', () => {
+  it('nothing is due for a scheduler: open tasks and queued/sampled tests are not past due, overdue ones are escalated', async () => {
+    expect(await q(`SELECT 1 FROM recall_tasks WHERE status = 'OPEN' AND due_at < $1`, [NOW])).toHaveLength(
+      0,
+    );
+    expect(
+      await q(
+        `SELECT 1 FROM lab_tests WHERE status IN ('QUEUED','SAMPLED') AND due_at < $1 AND deleted_at IS NULL`,
+        [NOW],
+      ),
+    ).toHaveLength(0);
+    expect(
+      await q(
+        `SELECT 1 FROM recall_tasks WHERE status = 'OVERDUE' AND (escalated_at IS NULL OR escalated_at <= due_at)`,
+      ),
+    ).toHaveLength(0);
+    expect(
+      await q(
+        `SELECT 1 FROM lab_tests WHERE status = 'ESCALATED' AND (escalated_at IS NULL OR escalated_at <= due_at)`,
+      ),
+    ).toHaveLength(0);
+    expect((await q(`SELECT 1 FROM recall_tasks WHERE status = 'OPEN'`)).length).toBeGreaterThan(0);
+    expect((await q(`SELECT 1 FROM recall_tasks WHERE status = 'OVERDUE'`)).length).toBeGreaterThan(0);
   });
 });
 
@@ -603,9 +802,13 @@ describe('docs/demo-accounts.md', () => {
       expect(label && RU[label], b.public_code).toBe(b.status);
       expect(status!.includes('QR'), b.public_code).toBe(b.qr_png_file_id !== null);
     }
-    for (const w of await q('SELECT number, status FROM waybills')) {
-      const line = doc.split('\n').find((l) => l.startsWith(`| ${w.number} |`));
-      if (line) expect(line.split('|')[2]!.trim(), w.number).toBe(w.status);
+    const waybillList = doc.slice(doc.indexOf('## Накладные'), doc.indexOf('## Полный список партий'));
+    const waybills = await q('SELECT number, status FROM waybills');
+    expect(waybills).toHaveLength(29);
+    for (const w of waybills) {
+      const line = waybillList.split('\n').find((l) => l.startsWith(`| ${w.number} |`));
+      expect(line, w.number).toBeDefined();
+      expect(line!.split('|')[2]!.trim(), w.number).toBe(w.status);
     }
   });
 });

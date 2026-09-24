@@ -24,7 +24,7 @@ import {
 import notificationRules from '../../../contracts/rules/notifications.json' with { type: 'json' };
 import type { OrgType, RoleCode, SeedData } from './data.js';
 import { hashInt, uuid } from './ids.js';
-import { cmp, iso, NOW, plusSeconds } from './time.js';
+import { cmp, iso, plusSeconds, REFERENCE_NOW } from './time.js';
 
 export type Row = Record<string, unknown>;
 
@@ -97,13 +97,14 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`seed scenario is invalid: ${msg}`);
 }
 
-/** Scheduler ticks of the demo world: every 5 minutes at hh:03, hh:08, … hh:58. */
-export function firstTickAfter(t: string): string {
-  const ms = Date.parse(t);
+/**
+ * Scheduler ticks of the demo world: every 5 minutes, aligned so that SEED_NOW itself is a tick —
+ * whatever a scheduler would change at start-up has already been changed (R73).
+ */
+export function firstTickAfter(t: string, seedNow: string): string {
   const step = 5 * 60_000;
-  const offset = 3 * 60_000;
-  const k = Math.floor((ms - offset) / step) + 1;
-  return iso(k * step + offset);
+  const now = Date.parse(seedNow);
+  return iso(now + step * (Math.floor((Date.parse(t) - now) / step) + 1));
 }
 
 const ms6 = (v: string): bigint => {
@@ -171,7 +172,6 @@ export class World {
     at: string;
     touched: Map<Row, { type: string; before: Row | null }>;
   } | null = null;
-  private readonly overdueSkips = new Set<string>();
   private readonly regionByCode: Map<string, string>;
   private readonly roleIdByCode: Map<string, number>;
   private readonly rolesByUser = new Map<string, RoleCode[]>();
@@ -182,6 +182,8 @@ export class World {
     roles: { id: number; code: string }[],
     readonly bucket: string,
     readonly publicBaseUrl: string,
+    /** SEED_NOW: the moment the demo world is "now"; every timestamp is an offset from it (R73). */
+    readonly seedNow: string,
   ) {
     this.regionByCode = new Map(regions.map((r) => [r.code, r.id]));
     this.roleIdByCode = new Map(roles.map((r) => [r.code, r.id]));
@@ -189,8 +191,23 @@ export class World {
 
   // ───────────────────────── infrastructure ─────────────────────────
 
-  get now(): string {
-    return this.clock;
+  /** Year of SEED_NOW: used in batch codes and waybill numbers (R75). */
+  get year(): number {
+    return new Date(this.seedNow).getUTCFullYear();
+  }
+
+  /**
+   * Maps a moment of the story (written against REFERENCE_NOW, 2026-09-20T09:00Z) to the same offset
+   * before SEED_NOW.
+   */
+  story(t: string): string {
+    return iso(Date.parse(t) + Date.parse(this.seedNow) - Date.parse(REFERENCE_NOW));
+  }
+
+  /** Moment an async handler (worker) processed an event of `at`: a few seconds later, never after SEED_NOW. */
+  private async(at: string, seconds: number): string {
+    const t = plusSeconds(at, seconds);
+    return cmp(t, this.seedNow) > 0 ? this.seedNow : t;
   }
 
   private region(code: string): string {
@@ -259,24 +276,15 @@ export class World {
     };
     for (const test of this.t.lab_tests) {
       if (test.status !== 'QUEUED' && test.status !== 'SAMPLED') continue;
-      const tick = firstTickAfter(test.due_at as string);
+      const tick = firstTickAfter(test.due_at as string, this.seedNow);
       consider(tick, `a${test.id as string}`, () => this.escalateLabTest(test, tick));
     }
     for (const task of this.t.recall_tasks) {
       if (task.status !== 'OPEN') continue;
-      let tick = firstTickAfter(task.due_at as string);
-      while (this.overdueSkips.has(`${task.id as string}@${tick}`)) tick = firstTickAfter(tick);
+      const tick = firstTickAfter(task.due_at as string, this.seedNow);
       consider(tick, `b${task.id as string}`, () => this.escalateRecallTask(task, tick));
     }
     return best;
-  }
-
-  /**
-   * The recall-task-overdue tick at `tick` skips this task (FOR UPDATE SKIP LOCKED: a holder's
-   * confirmation attempt held the row and rolled back), so it stays OPEN until the next tick.
-   */
-  skipOverdueTick(task: Row, tick: string): void {
-    this.overdueSkips.add(`${task.id as string}@${iso(tick)}`);
   }
 
   // ───────────────────────── lookups ─────────────────────────
@@ -378,7 +386,7 @@ export class World {
       add(this.activeUsers((u) => (this.rolesByUser.get(u.id as string) ?? []).includes(role)));
     const forced = notificationRules.forcedChannels.includes(type);
     for (const userId of ids)
-      this.notifications.push({ userId, type, payload, at: plusSeconds(at, 2), forced });
+      this.notifications.push({ userId, type, payload, at: this.async(at, 2), forced });
   }
 
   // ───────────────────────── dictionaries, organizations, users ─────────────────────────
@@ -683,7 +691,7 @@ export class World {
     this.batchSeq += 1;
     const row: Row = {
       id: uuid('batch', key),
-      public_code: formatBatchCode({ year: 2026, seq: this.batchSeq }).code,
+      public_code: formatBatchCode({ year: this.year, seq: this.batchSeq }).code,
       product_id: null,
       origin_org_id: null,
       holder_org_id: null,
@@ -761,7 +769,7 @@ export class World {
     if (rating === org.trust_rating) return;
     const before = auditView(org);
     org.trust_rating = rating;
-    org.updated_at = plusSeconds(at, 3);
+    org.updated_at = this.async(at, 3);
     this.audit.push({
       action: 'system.ratingRecalculate',
       actorId: null,
@@ -769,7 +777,7 @@ export class World {
       entityId: org.id as string,
       before,
       after: auditView(org),
-      at: plusSeconds(at, 3),
+      at: this.async(at, 3),
     });
   }
 
@@ -889,7 +897,7 @@ export class World {
         b,
         lab,
         risk.reason === 'SAMPLED' ? 'PLANNED' : 'RISK',
-        user.id as string,
+        null, // assigned by the risk model, not by a user (R74)
       );
       this.transition(b, 'OnTest', 'TEST_REQUIRED', null);
     }
@@ -1054,7 +1062,7 @@ export class World {
     this.waybillSeq += 1;
     const row: Row = {
       id: uuid('waybill', key),
-      number: `WB-2026-${String(this.waybillSeq).padStart(6, '0')}`,
+      number: `WB-${this.year}-${String(this.waybillSeq).padStart(6, '0')}`,
       sender_org_id: org.id,
       receiver_org_id: receiver.id,
       status: 'DRAFT',
@@ -1561,7 +1569,7 @@ export class World {
           at,
         );
       }
-      this.recalculateRating(sourceOrigin, plusSeconds(at, 1));
+      this.recalculateRating(sourceOrigin, this.async(at, 1));
     });
     return recall;
   }
@@ -1736,9 +1744,48 @@ export class World {
     this.flushRecallEvents();
   }
 
-  /** Closes the simulation at NOW (runs the scheduler up to it) and checks global invariants. */
+  /** createRecall (INSPECTOR): manual recall with a reason, optionally blocking the upstream sources. */
+  createRecall(
+    at: string,
+    userKey: string,
+    key: string,
+    batchKey: string,
+    reason: string,
+    blockUpstream: boolean,
+  ): Row {
+    this.begin('createRecall', userKey, at);
+    this.requireRole(userKey, 'INSPECTOR');
+    const b = this.batch(batchKey);
+    assert(b.deleted_at === null, `batch ${batchKey} is deleted`);
+    const recall = this.runRecallEngine(key, b, { trigger: 'INSPECTOR', reason, blockUpstream });
+    this.end();
+    this.flushRecallEvents();
+    return recall;
+  }
+
+  /**
+   * Closes the simulation at SEED_NOW (runs the scheduler up to and including the tick at SEED_NOW) and
+   * checks global invariants, incl. "a scheduler tick at start-up changes nothing" (R73).
+   */
   finish(): void {
-    this.advance(NOW);
+    this.advance(this.seedNow);
+    const now = Date.parse(this.seedNow);
+    for (const t of this.t.lab_tests) {
+      if (t.status === 'QUEUED' || t.status === 'SAMPLED')
+        assert(Date.parse(t.due_at as string) >= now, `lab test ${t._key as string} is overdue`);
+    }
+    for (const t of this.t.recall_tasks) {
+      if (t.status === 'OPEN')
+        assert(Date.parse(t.due_at as string) >= now, `recall task ${t.id as string} is overdue`);
+    }
+    for (const table of Object.values(this.t)) {
+      for (const r of table) {
+        for (const [k, v] of Object.entries(r)) {
+          if (typeof v === 'string' && /_at$/.test(k) && k !== 'due_at')
+            assert(Date.parse(v) <= now, `${k} after SEED_NOW`);
+        }
+      }
+    }
     for (const org of this.t.organizations) {
       if (org.type === 'FARM')
         assert(

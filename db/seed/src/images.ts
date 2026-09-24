@@ -4,7 +4,7 @@
  */
 import { hashInt } from './ids.js';
 
-const LEGAL_FORMS = new Set(['ООО', 'АО', 'ПАО', 'ЗАО', 'КФХ', 'ФГБУ', 'ИП']);
+const LEGAL_FORMS = new Set(['ООО', 'АО', 'ПАО', 'ЗАО', 'АНО', 'КФХ', 'ФГБУ', 'ИП']);
 
 /** Two-letter monogram: capitalized words of the name without legal forms and quotes. */
 export function monogram(name: string): string {

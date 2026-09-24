@@ -1,5 +1,20 @@
-/** Fixed "now" of the demo world: every seeded timestamp is at or before it. */
-export const NOW = '2026-09-20T09:00:00Z';
+/**
+ * The story in scenario.ts is written against this moment; the seed shifts every timestamp by
+ * SEED_NOW − REFERENCE_NOW (R73), so the demo world always ends "now".
+ */
+export const REFERENCE_NOW = '2026-09-20T09:00:00Z';
+
+/** SEED_NOW from the environment (ISO instant), else the real clock truncated to the minute. */
+export function seedNowFrom(value: string | undefined, clock = Date.now()): string {
+  if (value) {
+    const t = Date.parse(value);
+    if (Number.isNaN(t) || !/(Z|[+-]\d\d:\d\d)$/.test(value))
+      throw new RangeError(`SEED_NOW is not an ISO instant: ${value}`);
+    if (t % 60_000 !== 0) throw new RangeError(`SEED_NOW must be a whole minute: ${value}`);
+    return iso(t);
+  }
+  return iso(Math.floor(clock / 60_000) * 60_000);
+}
 
 const MIN = 60_000;
 

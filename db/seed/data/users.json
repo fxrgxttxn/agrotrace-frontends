@@ -4,7 +4,7 @@
     "org": "zarya",
     "email": "zarya.head@agrotrace.test",
     "fullName": "Соколов Андрей Викторович",
-    "phone": "+7 920 911-20-14",
+    "phone": "+7 000 101-01-11",
     "roles": ["FARMER"],
     "isOrgAdmin": true,
     "avatar": "avatar-1"
@@ -14,7 +14,7 @@
     "org": "zarya",
     "email": "zarya.agronom@agrotrace.test",
     "fullName": "Кузьмина Ольга Петровна",
-    "phone": "+7 920 911-20-15",
+    "phone": "+7 000 102-02-12",
     "roles": ["FARMER"],
     "isOrgAdmin": false
   },
@@ -23,7 +23,7 @@
     "org": "petrov",
     "email": "petrov@agrotrace.test",
     "fullName": "Петров Иван Сергеевич",
-    "phone": "+7 915 764-03-22",
+    "phone": "+7 000 103-03-13",
     "roles": ["FARMER"],
     "isOrgAdmin": true,
     "avatar": "avatar-2"
@@ -33,7 +33,7 @@
     "org": "lugovaya",
     "email": "lugovaya.head@agrotrace.test",
     "fullName": "Васильева Наталья Игоревна",
-    "phone": "+7 910 673-45-01",
+    "phone": "+7 000 104-04-14",
     "roles": ["FARMER"],
     "isOrgAdmin": true,
     "avatar": "avatar-3"
@@ -43,7 +43,7 @@
     "org": "lugovaya",
     "email": "lugovaya.zootech@agrotrace.test",
     "fullName": "Орлов Дмитрий Андреевич",
-    "phone": "+7 910 673-45-02",
+    "phone": "+7 000 105-05-15",
     "roles": ["FARMER"],
     "isOrgAdmin": false
   },
@@ -52,7 +52,7 @@
     "org": "molkombinat",
     "email": "molkombinat.head@agrotrace.test",
     "fullName": "Григорьев Павел Олегович",
-    "phone": "+7 49232 4-10-01",
+    "phone": "+7 000 106-06-16",
     "roles": ["PROCESSOR"],
     "isOrgAdmin": true
   },
@@ -61,7 +61,7 @@
     "org": "molkombinat",
     "email": "molkombinat.technolog@agrotrace.test",
     "fullName": "Лебедева Марина Сергеевна",
-    "phone": "+7 49232 4-10-07",
+    "phone": "+7 000 107-07-17",
     "roles": ["PROCESSOR"],
     "isOrgAdmin": false
   },
@@ -70,7 +70,7 @@
     "org": "melkombinat",
     "email": "melkombinat.head@agrotrace.test",
     "fullName": "Фёдоров Виктор Николаевич",
-    "phone": "+7 4922 33-08-50",
+    "phone": "+7 000 108-08-18",
     "roles": ["PROCESSOR"],
     "isOrgAdmin": true
   },
@@ -79,7 +79,7 @@
     "org": "vetlab",
     "email": "vetlab.head@agrotrace.test",
     "fullName": "Морозова Елена Александровна",
-    "phone": "+7 4922 32-15-40",
+    "phone": "+7 000 109-09-19",
     "roles": ["LAB"],
     "isOrgAdmin": true
   },
@@ -88,7 +88,7 @@
     "org": "vetlab",
     "email": "vetlab.analyst@agrotrace.test",
     "fullName": "Никитин Артём Игоревич",
-    "phone": "+7 4922 32-15-44",
+    "phone": "+7 000 110-10-20",
     "roles": ["LAB"],
     "isOrgAdmin": false
   },
@@ -97,7 +97,7 @@
     "org": "agrotest",
     "email": "agrotest.head@agrotrace.test",
     "fullName": "Зайцев Константин Юрьевич",
-    "phone": "+7 49231 2-40-19",
+    "phone": "+7 000 111-11-21",
     "roles": ["LAB"],
     "isOrgAdmin": true
   },
@@ -106,7 +106,7 @@
     "org": "provizia",
     "email": "provizia.head@agrotrace.test",
     "fullName": "Смирнова Татьяна Викторовна",
-    "phone": "+7 4922 60-70-80",
+    "phone": "+7 000 112-12-22",
     "roles": ["RETAILER"],
     "isOrgAdmin": true,
     "avatar": "avatar-4"
@@ -116,7 +116,7 @@
     "org": "provizia",
     "email": "provizia.manager@agrotrace.test",
     "fullName": "Козлов Роман Александрович",
-    "phone": "+7 4922 60-70-81",
+    "phone": "+7 000 113-13-23",
     "roles": ["RETAILER"],
     "isOrgAdmin": false
   },
@@ -125,7 +125,7 @@
     "org": "lavka",
     "email": "lavka.head@agrotrace.test",
     "fullName": "Белова Ирина Дмитриевна",
-    "phone": "+7 49231 2-11-05",
+    "phone": "+7 000 114-14-24",
     "roles": ["RETAILER"],
     "isOrgAdmin": true
   },
@@ -134,7 +134,7 @@
     "org": "koltso",
     "email": "koltso.head@agrotrace.test",
     "fullName": "Егоров Сергей Павлович",
-    "phone": "+7 4932 41-22-30",
+    "phone": "+7 000 115-15-25",
     "roles": ["RETAILER"],
     "isOrgAdmin": true
   },
@@ -143,7 +143,7 @@
     "org": "rsn",
     "email": "inspector.head@agrotrace.test",
     "fullName": "Волков Алексей Михайлович",
-    "phone": "+7 4922 53-01-10",
+    "phone": "+7 000 116-16-26",
     "roles": ["INSPECTOR"],
     "isOrgAdmin": true,
     "avatar": "avatar-5"
@@ -153,7 +153,7 @@
     "org": "rsn",
     "email": "inspector@agrotrace.test",
     "fullName": "Павлова Анна Сергеевна",
-    "phone": "+7 4922 53-01-12",
+    "phone": "+7 000 117-17-27",
     "roles": ["INSPECTOR"],
     "isOrgAdmin": false
   },
@@ -162,7 +162,7 @@
     "org": "platform",
     "email": "admin@agrotrace.test",
     "fullName": "Семёнов Максим Андреевич",
-    "phone": "+7 495 120-44-00",
+    "phone": "+7 000 118-18-28",
     "roles": ["ADMIN"],
     "isOrgAdmin": true,
     "avatar": "avatar-6"
@@ -172,7 +172,7 @@
     "org": "platform",
     "email": "support@agrotrace.test",
     "fullName": "Романова Юлия Олеговна",
-    "phone": "+7 495 120-44-01",
+    "phone": "+7 000 119-19-29",
     "roles": ["ADMIN"],
     "isOrgAdmin": false
   }

@@ -124,11 +124,12 @@ case "$cmd" in
     $DC exec -T redis redis-cli ping && \
     $DC exec -T rabbitmq rabbitmq-diagnostics -q check_running && \
     $T sh -c 'curl -fsS http://minio:9000/minio/health/live && curl -fsS http://mailpit:8025/livez' && echo "infra ok" ;;
-  # Demo data (db/seed): replaces all data of the dev DB (except roles, regions, schema_migrations)
-  # and its MinIO objects, flushes Redis. Idempotent.
-  seed)        $T pnpm --filter @agrotrace/seed seed ;;
-  # Checks the seeded dev DB + MinIO (run after `seed`; re-seeds once to prove idempotency).
-  seed:test)   $T pnpm --filter @agrotrace/seed test:db "$@" ;;
+  # Demo data (db/seed): replaces all data of the dev DB (except roles, regions, schema_migrations),
+  # its MinIO objects and Redis, and regenerates docs/demo-accounts.md. Timestamps end at SEED_NOW
+  # (env, ISO minute; default: now). Idempotent for the same SEED_NOW.
+  seed)        $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
+  # Seeds (SEED_NOW pinned for the run), checks the dev DB + MinIO, seeds again and compares.
+  seed:test)   $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed test:db "$@" ;;
   # Rolls the dev DB back to zero migrations, migrates up again and seeds.
   reset)
     $DC up -d --wait postgres
@@ -136,6 +137,6 @@ case "$cmd" in
       $DC run --rm dbmate --no-dump-schema rollback
     done
     $DC run --rm dbmate --no-dump-schema --wait up
-    $T pnpm --filter @agrotrace/seed seed ;;
+    $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
   help|*)  grep -E '^\s+[a-z:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
 esac

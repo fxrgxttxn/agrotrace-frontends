@@ -1,18 +1,21 @@
 /**
  * `./at.sh seed`: replaces all data of the dev database and its MinIO objects with the demo world.
  * Idempotent: every run truncates the data tables (all but roles, regions, schema_migrations),
- * re-creates the same rows (fixed ids, codes and timestamps) and re-uploads the same objects.
+ * re-creates the same rows (fixed ids and codes; timestamps are offsets before SEED_NOW, R73) and
+ * re-uploads the same objects — byte-identical for the same SEED_NOW.
  */
 import { connect } from 'node:net';
 import { pathToFileURL } from 'node:url';
 import { DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import pg from 'pg';
-import { DEMO_PASSWORD, loadData } from './data.js';
+import { DEMO_PASSWORD, loadData, SEED_ROOT } from './data.js';
 import { renderFiles, type StoredObject } from './files.js';
 import { uuid } from './ids.js';
 import { hashDemoPassword } from './passwords.js';
 import { runScenario } from './scenario.js';
-import { cmp, NOW } from './time.js';
+import { writeFileSync } from 'node:fs';
+import { renderDemoAccounts } from './docs.js';
+import { cmp, seedNowFrom } from './time.js';
 import { auditDiff, World, type RegionRef, type Row } from './world.js';
 
 /** Tables the seed never touches. */
@@ -25,6 +28,10 @@ export interface SeedEnv {
   s3: { endpoint: string; accessKey: string; secretKey: string; bucket: string };
   redisUrl: string | undefined;
   publicBaseUrl: string;
+  /** SEED_NOW (R73): every seeded timestamp is an offset before it. */
+  seedNow: string;
+  /** SEED_ALLOW_DB: name of a database other than `agrotrace` the seed may overwrite (R76). */
+  allowDb: string | undefined;
 }
 
 export function envFromProcess(e = process.env): SeedEnv {
@@ -43,6 +50,8 @@ export function envFromProcess(e = process.env): SeedEnv {
     },
     redisUrl: e.REDIS_URL || undefined,
     publicBaseUrl: e.PUBLIC_BASE_URL || 'http://react-express.localhost',
+    seedNow: seedNowFrom(e.SEED_NOW),
+    allowDb: e.SEED_ALLOW_DB || undefined,
   };
 }
 
@@ -63,8 +72,9 @@ export function buildWorld(
   roles: { id: number; code: string }[],
   bucket: string,
   publicBaseUrl: string,
+  seedNow: string,
 ): World {
-  const w = new World(loadData(), regions, roles, bucket, publicBaseUrl);
+  const w = new World(loadData(), regions, roles, bucket, publicBaseUrl, seedNow);
   runScenario(w);
   return w;
 }
@@ -101,7 +111,7 @@ const stableByTime = <T>(items: T[], time: (x: T) => string): T[] =>
 /** notifications rows: IN_APP for every recipient, EMAIL when enabled or forced (notification.dispatch). */
 function notificationRows(w: World): Row[] {
   const rows: Row[] = [];
-  const readBefore = Date.parse(NOW) - 72 * 3_600_000;
+  const readBefore = Date.parse(w.seedNow) - 72 * 3_600_000;
   for (const n of stableByTime(w.notifications, (x) => x.at)) {
     const user = w.t.users.find((u) => u.id === n.userId)!;
     const channels = user.notification_channels as { email: boolean; telegram: boolean };
@@ -139,10 +149,16 @@ function auditRows(w: World): Row[] {
   });
 }
 
-/** Sends FLUSHDB to the Redis database of REDIS_URL (public page cache, idempotency keys, limits). */
+/**
+ * Sends FLUSHDB to the Redis database of REDIS_URL (public page cache, idempotency keys, limits),
+ * authenticating with the URL's user/password when present.
+ */
 function flushRedis(url: string): Promise<void> {
   const u = new URL(url);
   const db = u.pathname.replace('/', '') || '0';
+  const pass = decodeURIComponent(u.password);
+  const user = decodeURIComponent(u.username);
+  const auth = pass ? (user && user !== 'default' ? [user, pass] : [pass]) : [];
   const cmd = (...args: string[]): string =>
     `*${args.length}\r\n${args.map((a) => `$${Buffer.byteLength(a)}\r\n${a}\r\n`).join('')}`;
   return new Promise((resolve, reject) => {
@@ -150,11 +166,13 @@ function flushRedis(url: string): Promise<void> {
     let buf = '';
     sock.setTimeout(5000, () => sock.destroy(new Error('redis timeout')));
     sock.on('error', reject);
-    sock.on('connect', () => sock.write(cmd('SELECT', db) + cmd('FLUSHDB')));
+    sock.on('connect', () =>
+      sock.write((auth.length ? cmd('AUTH', ...auth) : '') + cmd('SELECT', db) + cmd('FLUSHDB')),
+    );
     sock.on('data', (d) => {
       buf += d.toString();
       if (buf.includes('-')) return sock.destroy(new Error(`redis: ${buf.trim()}`));
-      if ((buf.match(/\+OK\r\n/g) ?? []).length === 2) {
+      if ((buf.match(/\+OK\r\n/g) ?? []).length === (auth.length ? 3 : 2)) {
         sock.end();
         resolve();
       }
@@ -187,16 +205,29 @@ async function deleteKeys(s3: S3Client, bucket: string, keys: string[]): Promise
   }
 }
 
+/** Refuses to overwrite any database but `agrotrace` unless SEED_ALLOW_DB names it (R76). */
+export function assertSeedableDb(env: SeedEnv): void {
+  const name = decodeURIComponent(new URL(env.databaseUrl).pathname.replace(/^\//, ''));
+  if (name !== 'agrotrace' && name !== env.allowDb) {
+    throw new Error(`refusing to seed database "${name}": only "agrotrace" or SEED_ALLOW_DB=${name}`);
+  }
+}
+
+/** docs/demo-accounts.md (generated from the demo world, R75). */
+export const DEMO_ACCOUNTS_URL = new URL('../../docs/demo-accounts.md', SEED_ROOT);
+
 export async function runSeed(
   env: SeedEnv = envFromProcess(),
   log: (s: string) => void = console.log,
+  opts: { writeDocs?: boolean } = {},
 ): Promise<World> {
+  assertSeedableDb(env);
   const db = new pg.Client({ connectionString: env.databaseUrl });
   await db.connect();
   try {
     const regions = (await db.query<RegionRef>('SELECT id, code FROM regions')).rows;
     const roles = (await db.query<{ id: number; code: string }>('SELECT id, code FROM roles')).rows;
-    const w = buildWorld(regions, roles, env.s3.bucket, env.publicBaseUrl);
+    const w = buildWorld(regions, roles, env.s3.bucket, env.publicBaseUrl, env.seedNow);
     for (const u of w.t.users) u.password_hash = await hashDemoPassword(u.email as string, DEMO_PASSWORD);
     const objects: StoredObject[] = await renderFiles(w, env.s3.bucket);
 
@@ -215,6 +246,9 @@ export async function runSeed(
         new PutObjectCommand({ Bucket: env.s3.bucket, Key: o.key, Body: o.body, ContentType: o.contentType }),
       );
     }
+
+    // Flush Redis first: if it fails, nothing has been replaced yet (R76).
+    if (env.redisUrl) await flushRedis(env.redisUrl);
 
     await db.query('BEGIN');
     const tables = (
@@ -279,12 +313,12 @@ export async function runSeed(
       (k) => !fresh.has(k),
     );
     await deleteKeys(s3, env.s3.bucket, stale);
-    if (env.redisUrl) await flushRedis(env.redisUrl);
+    if (opts.writeDocs ?? true) writeFileSync(DEMO_ACCOUNTS_URL, renderDemoAccounts(w));
 
     log(
       `seed: ${t.organizations.length} organizations, ${t.users.length} users, ${t.batches.length} batches, ` +
         `${t.waybills.length} waybills, ${t.lab_tests.length} lab tests, ${t.recalls.length} recalls, ` +
-        `${t.files.length} files (${objects.length} objects), ${w.notifications.length} notifications`,
+        `${t.files.length} files (${objects.length} objects), ${w.notifications.length} notifications; now ${w.seedNow}`,
     );
     return w;
   } catch (e) {

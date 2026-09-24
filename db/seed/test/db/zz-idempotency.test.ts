@@ -1,6 +1,6 @@
-/** Runs last: a second `seed` must produce byte-identical table contents (fixed ids, codes, times). */
+/** Runs last: a second `seed` with the same SEED_NOW must produce byte-identical table contents. */
 import { ListObjectsV2Command } from '@aws-sdk/client-s3';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, inject, it } from 'vitest';
 import { runSeed, s3Client } from '../../src/seed';
 import { env, tableChecksums, withDb } from './db';
 
@@ -8,7 +8,7 @@ describe('idempotency', () => {
   it('seeding again gives the same database content and the same MinIO objects', async () => {
     const before = await withDb(tableChecksums);
     expect(before.batches).toMatch(/^40:/);
-    await runSeed(env, () => undefined);
+    await runSeed({ ...env, seedNow: inject('seedNow') }, () => undefined, { writeDocs: false });
     const after = await withDb(tableChecksums);
     expect(after).toEqual(before);
 

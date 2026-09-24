@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { loadData, SEED_ROOT } from '../../src/data';
 import { logoSvg, AVATARS } from '../../src/images';
 import { buildWorld } from '../../src/seed';
-import { at } from '../../src/time';
+import { addDaysToDate } from '@agrotrace/domain';
+import { renderDemoAccounts } from '../../src/docs';
+import { at, iso, REFERENCE_NOW, seedNowFrom } from '../../src/time';
 import { World } from '../../src/world';
 
 const regions = ['33', '50', '37', '52', '76', '62'].map((code, i) => ({
@@ -16,7 +18,8 @@ const roles = ['FARMER', 'PROCESSOR', 'LAB', 'RETAILER', 'INSPECTOR', 'ADMIN'].m
   id: i + 1,
   code,
 }));
-const world = (): World => buildWorld(regions, roles, 'agrotrace', 'http://react-express.localhost');
+const world = (now = REFERENCE_NOW): World =>
+  buildWorld(regions, roles, 'agrotrace', 'http://react-express.localhost', now);
 const data = loadData();
 
 describe('scenario', () => {
@@ -33,10 +36,13 @@ describe('scenario', () => {
     }
   });
 
-  it('is deterministic: two replays give identical rows', () => {
+  it('is deterministic for a pinned SEED_NOW: two replays give identical rows', () => {
     const again = world();
     expect(JSON.stringify(again.t)).toBe(JSON.stringify(w.t));
     expect(JSON.stringify(again.notifications)).toBe(JSON.stringify(w.notifications));
+    expect(JSON.stringify(again.audit.map((a) => [a.action, a.entityId, a.at]))).toBe(
+      JSON.stringify(w.audit.map((a) => [a.action, a.entityId, a.at])),
+    );
   });
 
   it('keeps the codes and states that docs/demo-accounts.md describes', () => {
@@ -48,21 +54,83 @@ describe('scenario', () => {
       'AT-2026-000027',
       'AT-2026-000040',
     ]);
-    const tasks = Object.fromEntries(
-      ['milk3', 'tvorog2', 'butter3', 'butter4'].map((k) => [k, w.task('recall-milk', k).status]),
-    );
-    expect(tasks).toEqual({ milk3: 'CONFIRMED', tvorog2: 'OVERDUE', butter3: 'OPEN', butter4: 'OVERDUE' });
+    const tasks = (recall: string, keys: string[]): Record<string, unknown> =>
+      Object.fromEntries(keys.map((k) => [k, w.task(recall, k).status]));
+    expect(tasks('recall-milk', ['milk3', 'tvorog2', 'butter3', 'butter4'])).toEqual({
+      milk3: 'CONFIRMED',
+      tvorog2: 'OVERDUE',
+      butter3: 'OVERDUE',
+      butter4: 'OVERDUE',
+    });
+    expect(tasks('recall-cream', ['butter2', 'ghee1'])).toEqual({ butter2: 'OPEN', ghee1: 'OPEN' });
+    expect(w.recall('recall-milk').status).toBe('OPEN');
+    expect(w.recall('recall-cream').status).toBe('OPEN');
     expect(w.recall('recall-carrot').status).toBe('CLOSED');
     expect(w.waybill('wb-barley1-draft').number).toBe('WB-2026-000026');
-    expect(w.br01(at('2026-09-20 09:00'), 'wb-barley1-draft')).toEqual([
-      { ok: false, until: '2026-10-05', substance: 'Тилт, КЭ (пропиконазол)' },
+    // BR-01 blocks the barley draft until 30 days after «Тилт, КЭ» was applied (relative to SEED_NOW).
+    const tilt = w.t.treatments.find((t) => t.substance_id === w.keys.substance.get('tilt')!.id)!;
+    expect(w.br01(w.seedNow, 'wb-barley1-draft')).toEqual([
+      {
+        ok: false,
+        until: addDaysToDate(String(tilt.applied_at).slice(0, 10), 30),
+        substance: 'Тилт, КЭ (пропиконазол)',
+      },
     ]);
+    expect(Date.parse(tilt.applied_at as string)).toBe(Date.parse(w.seedNow) - (15 * 24 + 3) * 3_600_000);
+  });
+
+  it('risk-model lab tests have no author (R74)', () => {
+    for (const t of w.t.lab_tests) {
+      if (t.reason === 'RISK' || t.reason === 'PLANNED') expect(t.created_by, t._key as string).toBeNull();
+      else expect(t.created_by).not.toBeNull();
+    }
+  });
+
+  it('shifts with SEED_NOW: any moment gives a valid world a scheduler tick would not change (R73)', () => {
+    for (const now of [
+      '2027-01-04T00:00:00Z',
+      '2026-12-31T23:57:00Z',
+      '2028-02-29T13:41:00Z',
+      '2026-09-24T18:05:00Z',
+    ]) {
+      const v = world(now); // finish() asserts the scheduler invariant and that nothing is after SEED_NOW
+      expect(v.t.batches.map((b) => b.status)).toEqual(w.t.batches.map((b) => b.status));
+      expect(v.batch('M1').public_code).toBe(`AT-${now.slice(0, 4)}-000001`);
+      expect(v.waybill('wb-M1').number).toBe(`WB-${now.slice(0, 4)}-000001`);
+      for (const t of v.t.recall_tasks) {
+        if (t.status === 'OPEN') expect(Date.parse(t.due_at as string)).toBeGreaterThan(Date.parse(now));
+      }
+      for (const t of v.t.lab_tests) {
+        if (['QUEUED', 'SAMPLED'].includes(t.status as string)) {
+          expect(Date.parse(t.due_at as string)).toBeGreaterThan(Date.parse(now));
+        }
+      }
+      const shift = Date.parse(now) - Date.parse(REFERENCE_NOW);
+      expect(v.recall('recall-cream').opened_at).toBe(
+        iso(Date.parse(w.recall('recall-cream').opened_at as string) + shift),
+      );
+    }
+  });
+
+  it('SEED_NOW parsing: explicit ISO minute, or the real clock truncated to the minute', () => {
+    expect(seedNowFrom('2026-10-01T12:34:00Z')).toBe('2026-10-01T12:34:00Z');
+    expect(seedNowFrom('2026-10-01T15:34:00+03:00')).toBe('2026-10-01T12:34:00Z');
+    expect(seedNowFrom(undefined, Date.parse('2026-10-01T12:34:56.789Z'))).toBe('2026-10-01T12:34:00Z');
+    expect(() => seedNowFrom('2026-10-01T12:34:30Z')).toThrow(/whole minute/);
+    expect(() => seedNowFrom('yesterday')).toThrow(/ISO/);
+  });
+
+  it('docs/demo-accounts.md is the generator output', () => {
+    const doc = readFileSync(new URL('../../docs/demo-accounts.md', SEED_ROOT), 'utf8');
+    const current = world(seedNowFrom(undefined));
+    // Codes carry the year of SEED_NOW: the committed file is the output for the current year.
+    expect(doc).toBe(renderDemoAccounts(current));
   });
 
   it('rejects an invalid step instead of writing it', () => {
     /** A farm with one freshly registered wheat batch `x` (NEW_FARM → OnTest) and a draft waybill of it. */
     const fresh = (): World => {
-      const v = new World(data, regions, roles, 'agrotrace', 'http://x');
+      const v = new World(data, regions, roles, 'agrotrace', 'http://x', REFERENCE_NOW);
       v.seedOrganizations(at('2026-05-11 10:00'));
       v.seedDictionaries(at('2026-05-12 10:00'), 'admin');
       v.createField(at('2026-05-18 09:10'), 'zarya.agronom', 'zarya-north');

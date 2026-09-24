@@ -4,13 +4,15 @@
  * 2026-09-20T09:00:00Z (src/time.ts). All batch codes, waybill numbers and ids are deterministic;
  * docs/demo-accounts.md lists the key objects for the defense script.
  */
-import { at, cmp, iso, plusMinutes } from './time.js';
+import { at as storyAt, cmp, iso, plusMinutes } from './time.js';
 import type { World } from './world.js';
 
 /** Lab user who works the tests of a lab organization. */
 const LAB_USER: Record<string, string> = { vetlab: 'vetlab.analyst', agrotest: 'agrotest.head' };
 
 export function runScenario(w: World): void {
+  /** Story time (written against REFERENCE_NOW) → the same offset before SEED_NOW (R73). */
+  const at = (s: string): string => w.story(storyAt(s));
   const steps: { t: string; n: number; fn: (t: string) => void }[] = [];
   const on = (time: string, fn: (t: string) => void): void => {
     steps.push({ t: time.endsWith('Z') ? iso(time) : at(time), n: steps.length, fn });
@@ -496,20 +498,32 @@ export function runScenario(w: World): void {
     ),
   );
 
-  // ── The open recall: the inspector's control test of M3 fails (tetracyclines) ──
+  // ── Open recall #1 (LAB, >24 h old): the inspector's control test of M3 fails (tetracyclines).
+  // Its tasks: Провизия confirmed; Лавка, Молкомбинат and Золотое кольцо (receiver of an in-transit
+  // batch) are past due and already escalated to OVERDUE by the scheduler. ──
   on('2026-09-15 18:30', (t) => w.createLabTest(t, 'inspector.head', 'M3:control', 'M3', 'agrotest'));
   on('2026-09-16 11:30', (t) => w.registerLabSample(t, 'agrotest.head', 'M3:control'));
-  ship('molkombinat.technolog', 'wb-butter4', 'koltso', ['butter4'], '2026-09-19 06:00', '2026-09-19 06:10');
-  on('2026-09-19 08:57', (t) =>
+  ship('molkombinat.technolog', 'wb-butter4', 'koltso', ['butter4'], '2026-09-18 06:00', '2026-09-18 06:10');
+  on('2026-09-18 14:20', (t) =>
     w.submitLabResults(t, 'agrotest.head', 'M3:control', { tetra: '0.034' }, 'recall-milk'),
   );
-  on('2026-09-19 09:20', (t) => w.uploadLabProtocol(t, 'agrotest.head', 'M3:control'));
+  on('2026-09-18 14:50', (t) => w.uploadLabProtocol(t, 'agrotest.head', 'M3:control'));
+  on('2026-09-18 16:00', (t) => w.confirmRecallTask(t, 'provizia.manager', 'recall-milk', 'milk3'));
   // Луговая's rating is now below 70: its next batch goes to the lab (LOW_RATING).
   raw('2026-09-19 10:15', 'lugovaya.zootech', 'M7', 'lugovaya-meadow', 'rawmilk', '3620', '2026-09-19 05:10');
-  on('2026-09-19 11:20', (t) => w.confirmRecallTask(t, 'provizia.manager', 'recall-milk', 'milk3'));
-  // 2026-09-20 08:58: the overdue tick escalates the tasks of Лавка and Золотое кольцо; Молкомбинат's
-  // task row is locked by a confirmation attempt that rolls back, so it is still OPEN at "now".
-  on('2026-09-19 12:00', () => w.skipOverdueTick(w.task('recall-milk', 'butter3'), at('2026-09-20 08:58')));
+
+  // ── Open recall #2 (INSPECTOR, 2 h old): cream of the depth-4 chain, with the upstream sources
+  // blocked for investigation; tasks of Провизия and Золотое кольцо are OPEN. ──
+  on('2026-09-20 07:00', (t) =>
+    w.createRecall(
+      t,
+      'inspector.head',
+      'recall-cream',
+      'cream1',
+      'Плановая проверка Молкомбината: нарушение режима пастеризации на линии сливок, продукция линии отзывается.',
+      true,
+    ),
+  );
 
   steps.sort((a, b) => cmp(a.t, b.t) || a.n - b.n);
   for (const s of steps) s.fn(s.t);
