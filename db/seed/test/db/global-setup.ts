@@ -8,7 +8,7 @@ import { envFromProcess, runSeed } from '../../src/seed';
 
 export default async function setup({ provide }: GlobalSetupContext): Promise<void> {
   const env = envFromProcess();
-  await runSeed(env, (s) => console.log(s), { writeDocs: false });
+  await runSeed(env, (s) => console.log(s));
   provide('seedNow', env.seedNow);
 }
 

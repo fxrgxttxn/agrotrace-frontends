@@ -1045,7 +1045,7 @@ Pipeline на GitHub Actions; unit, API и e2e запускаются матри
 - **Окружения:** локальное (dev), демо-стенд (staging) на облачной VPS с доменами вида `react-express.<домен>`.
 - **Dev-режим полностью в Docker** (на машине разработчика не требуются Node, Python, PHP): профиль `dev` монтирует исходники и включает hot reload; на Windows — polling-наблюдение файлов (`CHOKIDAR_USEPOLLING`, `server.watch.usePolling` у Vite, `--poll` у Angular CLI, `WATCHFILES_FORCE_POLLING` у uvicorn). Локальная установка тулчейнов — по желанию, для IDE.
 - Конфигурация через переменные окружения, файл `.env.example` в репозитории.
-- `./at seed` — начальное наполнение (п. 7.8); `./at reset` — пересоздание БД.
+- `./at seed` — начальное наполнение (п. 7.8; отслеживаемые файлы не меняет); `./at seed:docs` — перегенерация `docs/demo-accounts.md`; `./at reset` — пересоздание БД.
 
 ### 14.5. Мониторинг и журналирование
 

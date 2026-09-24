@@ -26,6 +26,7 @@ import entityMachines from '../../../../contracts/rules/entity-state-machines.js
 import waybillMachine from '../../../../contracts/rules/waybill-state-machine.json' with { type: 'json' };
 import notificationRules from '../../../../contracts/rules/notifications.json' with { type: 'json' };
 import { DEMO_PASSWORD, loadData, SEED_ROOT } from '../../src/data';
+import { REFERENCE_NOW } from '../../src/time';
 import { s3Client } from '../../src/seed';
 import { env } from './db';
 
@@ -797,8 +798,13 @@ describe('users and files', () => {
 });
 
 /** docs/demo-accounts.md with table cells trimmed (`| a | b |`), whatever the column padding. */
+/**
+ * The committed document (rendered for REFERENCE_NOW, R86) with its codes moved to the year of this run's
+ * SEED_NOW — "коды для года запуска: AT-<год>-…" — then normalized table cells.
+ */
 const demoAccounts = (): string =>
   readFileSync(new URL('../../docs/demo-accounts.md', SEED_ROOT), 'utf8')
+    .replace(new RegExp(`\\b(AT|WB)-${REFERENCE_NOW.slice(0, 4)}-(\\d{6})\\b`, 'g'), `$1-${YEAR}-$2`)
     .split('\n')
     .map((l) => (l.startsWith('|') ? l.replace(/ *\| */g, ' | ').trim() : l))
     .join('\n');

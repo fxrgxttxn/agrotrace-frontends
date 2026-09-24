@@ -6,7 +6,7 @@ import { loadData, SEED_ROOT } from '../../src/data';
 import { logoSvg, AVATARS } from '../../src/images';
 import { buildWorld } from '../../src/seed';
 import { addDaysToDate } from '@agrotrace/domain';
-import { renderDemoAccounts } from '../../src/docs';
+import { generateDemoAccounts, renderDemoAccounts } from '../../src/docs';
 import { at, iso, REFERENCE_NOW, seedNowFrom } from '../../src/time';
 import { World, type Row } from '../../src/world';
 
@@ -149,15 +149,14 @@ describe('scenario', () => {
     expect(() => seedNowFrom('yesterday')).toThrow(/ISO/);
   });
 
-  it('docs/demo-accounts.md is the generator output', () => {
+  it('docs/demo-accounts.md is the generator output for REFERENCE_NOW (R86)', () => {
     const doc = readFileSync(new URL('../../docs/demo-accounts.md', SEED_ROOT), 'utf8');
-    // Replay with the exact SEED_NOW the committed file records in its own header (R77), not an
-    // unpinned "now": the file changes only when someone actually re-runs `./at.sh seed`, never on
-    // its own just because a calendar year rolled over since it was last generated.
-    const seedNow = doc.match(/for SEED_NOW=(\S+) —/)?.[1];
-    if (!seedNow) throw new Error('docs/demo-accounts.md is missing its SEED_NOW marker');
-    const current = world(seedNow);
-    expect(doc).toBe(renderDemoAccounts(current));
+    // `./at.sh seed:docs` always renders the story moment, never the real clock: the file is stable across
+    // seeds and calendar years and changes only with the generator or the story.
+    expect(doc).toBe(generateDemoAccounts());
+    expect(doc).toBe(renderDemoAccounts(world(REFERENCE_NOW)));
+    expect(doc).toContain(`for REFERENCE_NOW=${REFERENCE_NOW} —`);
+    expect(doc).toMatch(/коды для года запуска: AT-<год>-…/);
   });
 
   it('rejects an invalid step instead of writing it', () => {

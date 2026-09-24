@@ -6,6 +6,7 @@
   "description": "Demo data loader (./at.sh seed): dictionaries, organizations, users, fields, batch graph, waybills, lab tests, recalls, complaints, notifications, audit and MinIO files.",
   "scripts": {
     "seed": "tsx src/seed.ts",
+    "docs": "tsx src/docs.ts",
     "gen:images": "tsx src/gen-images.ts",
     "test": "vitest run --config vitest.unit.config.ts",
     "test:db": "vitest run --config vitest.db.config.ts",

@@ -1,5 +1,6 @@
 /**
- * `./at.sh seed`: replaces all data of the dev database and its MinIO objects with the demo world.
+ * `./at.sh seed`: replaces all data of the dev database and its MinIO objects with the demo world. It never
+ * writes tracked files (R86): docs/demo-accounts.md is rendered only by `./at.sh seed:docs` (src/docs.ts).
  * Idempotent: every run truncates the data tables (all but roles, regions, schema_migrations),
  * re-creates the same rows (fixed ids and codes; timestamps are offsets before SEED_NOW, R73) and
  * re-uploads the same objects — byte-identical for the same SEED_NOW.
@@ -8,13 +9,11 @@ import { connect } from 'node:net';
 import { pathToFileURL } from 'node:url';
 import { DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import pg from 'pg';
-import { DEMO_PASSWORD, loadData, SEED_ROOT } from './data.js';
+import { DEMO_PASSWORD, loadData } from './data.js';
 import { renderFiles, type StoredObject } from './files.js';
 import { uuid } from './ids.js';
 import { hashDemoPassword } from './passwords.js';
 import { runScenario } from './scenario.js';
-import { writeFileSync } from 'node:fs';
-import { renderDemoAccounts } from './docs.js';
 import { cmp, seedNowFrom } from './time.js';
 import { auditDiff, World, type RegionRef, type Row } from './world.js';
 
@@ -213,13 +212,9 @@ export function assertSeedableDb(env: SeedEnv): void {
   }
 }
 
-/** docs/demo-accounts.md (generated from the demo world, R75). */
-export const DEMO_ACCOUNTS_URL = new URL('../../docs/demo-accounts.md', SEED_ROOT);
-
 export async function runSeed(
   env: SeedEnv = envFromProcess(),
   log: (s: string) => void = console.log,
-  opts: { writeDocs?: boolean } = {},
 ): Promise<World> {
   assertSeedableDb(env);
   const db = new pg.Client({ connectionString: env.databaseUrl });
@@ -314,7 +309,6 @@ export async function runSeed(
       (k) => !fresh.has(k),
     );
     await deleteKeys(s3, env.s3.bucket, stale);
-    if (opts.writeDocs ?? true) writeFileSync(DEMO_ACCOUNTS_URL, renderDemoAccounts(w));
 
     log(
       `seed: ${t.organizations.length} organizations, ${t.users.length} users, ${t.batches.length} batches, ` +

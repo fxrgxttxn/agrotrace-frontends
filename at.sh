@@ -178,9 +178,11 @@ case "$cmd" in
     $DC exec -T rabbitmq rabbitmq-diagnostics -q check_running && \
     $T sh -c 'curl -fsS http://minio:9000/minio/health/live && curl -fsS http://mailpit:8025/livez' && echo "infra ok" ;;
   # Demo data (db/seed): replaces all data of the dev DB (except roles, regions, schema_migrations),
-  # its MinIO objects and Redis, and regenerates docs/demo-accounts.md. Timestamps end at SEED_NOW
-  # (env, ISO minute; default: now). Idempotent for the same SEED_NOW.
+  # its MinIO objects and Redis. Timestamps end at SEED_NOW (env, ISO minute; default: now).
+  # Idempotent for the same SEED_NOW. Never writes tracked files (R86).
   seed)        $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
+  # Regenerates docs/demo-accounts.md from the demo story at REFERENCE_NOW (no database needed, R86).
+  seed:docs)   $T pnpm --filter @agrotrace/seed docs ;;
   # Seeds (SEED_NOW pinned for the run), checks the dev DB + MinIO, seeds again and compares.
   seed:test)   $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed test:db "$@" ;;
   # Rolls the dev DB back to zero migrations, migrates up again and seeds.
