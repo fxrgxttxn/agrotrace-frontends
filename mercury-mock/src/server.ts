@@ -8,7 +8,7 @@ import {
 } from './store.js';
 
 export interface ServerConfig {
-  /** Probability (0..1) that any request (other than /health) fails with 500. */
+  /** Probability (0..1) that an /api/v1/vsd* request fails with 500. */
   failRate: number;
   /** Delay in ms applied when a request carries `X-Mock-Fail: timeout`. */
   timeoutMs: number;
@@ -31,13 +31,23 @@ export function configFromEnv(
   };
 }
 
-function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
+function sendJson(
+  res: http.ServerResponse,
+  status: number,
+  body: unknown,
+  extraHeaders: Record<string, string> = {},
+): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(payload),
+    ...extraHeaders,
   });
   res.end(payload);
+}
+
+function methodNotAllowed(res: http.ServerResponse): void {
+  sendJson(res, 405, { error: 'METHOD_NOT_ALLOWED' }, { Allow: 'GET' });
 }
 
 function delay(ms: number): Promise<void> {
@@ -59,28 +69,40 @@ async function handleRequest(
   const url = new URL(req.url ?? '/', 'http://mercury-mock.internal');
 
   if (url.pathname === '/health') {
+    if (req.method !== 'GET') {
+      methodNotAllowed(res);
+      return;
+    }
     sendJson(res, 200, { status: 'ok' });
     return;
   }
 
-  const mockFail = readMockFailHeader(req);
+  // Fail injection (X-Mock-Fail header, MOCK_FAIL_RATE) only applies to the
+  // /api/v1/vsd* data endpoints — never to /health (checked above) and never
+  // to unknown routes, so a probe against a typo'd path or a health check
+  // can't be mistaken for the mock's own simulated outage.
+  const vsdListMatch = url.pathname === '/api/v1/vsd';
+  const vsdByIdMatch = /^\/api\/v1\/vsd\/([^/]+)$/.exec(url.pathname);
+  const isVsdRoute = vsdListMatch || vsdByIdMatch !== null;
 
-  if (mockFail === 'timeout') {
-    await delay(config.timeoutMs);
-  } else if (mockFail === '500') {
-    sendJson(res, 500, { error: 'INTERNAL' });
-    return;
-  } else if (config.failRate > 0 && Math.random() < config.failRate) {
-    sendJson(res, 500, { error: 'INTERNAL' });
-    return;
+  if (isVsdRoute) {
+    const mockFail = readMockFailHeader(req);
+    if (mockFail === 'timeout') {
+      await delay(config.timeoutMs);
+    } else if (mockFail === '500') {
+      sendJson(res, 500, { error: 'INTERNAL' });
+      return;
+    } else if (config.failRate > 0 && Math.random() < config.failRate) {
+      sendJson(res, 500, { error: 'INTERNAL' });
+      return;
+    }
   }
 
-  if (req.method !== 'GET') {
-    sendJson(res, 404, { error: 'NOT_FOUND' });
-    return;
-  }
-
-  if (url.pathname === '/api/v1/vsd') {
+  if (vsdListMatch) {
+    if (req.method !== 'GET') {
+      methodNotAllowed(res);
+      return;
+    }
     const filters = {
       productCode: url.searchParams.get('productCode') ?? undefined,
       senderInn: url.searchParams.get('senderInn') ?? undefined,
@@ -100,9 +122,20 @@ async function handleRequest(
     return;
   }
 
-  const vsdMatch = /^\/api\/v1\/vsd\/([^/]+)$/.exec(url.pathname);
-  if (vsdMatch) {
-    const uuid = decodeURIComponent(vsdMatch[1]!);
+  if (vsdByIdMatch) {
+    if (req.method !== 'GET') {
+      methodNotAllowed(res);
+      return;
+    }
+    let uuid: string;
+    try {
+      uuid = decodeURIComponent(vsdByIdMatch[1]!);
+    } catch {
+      // Malformed percent-encoding (e.g. an incomplete %-escape) in the uuid
+      // segment is a client input error, not a server error.
+      sendJson(res, 400, { error: 'BAD_REQUEST' });
+      return;
+    }
     const found = findVsdByUuid(config.data, uuid);
     if (!found) {
       sendJson(res, 404, { error: 'NOT_FOUND' });

@@ -68,7 +68,8 @@ services:
     networks: [at]
   mercury-mock:
     build: { context: ./mercury-mock }
-    healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"], interval: 3s, retries: 20 }
+    # Healthcheck is defined once, in mercury-mock/Dockerfile (HEALTHCHECK),
+    # so it also applies when the image is run outside this compose file.
     networks: [at]
 networks:
   at: {}

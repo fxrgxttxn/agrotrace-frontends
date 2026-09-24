@@ -134,6 +134,34 @@ describe('mercury-mock server', () => {
       expect(res.status).toBe(404);
       expect(res.body).toEqual({ error: 'NOT_FOUND' });
     });
+
+    it('returns 400 { error: "BAD_REQUEST" } for malformed percent-encoding in the uuid segment', async () => {
+      const res = await request(baseUrl, '/api/v1/vsd/%E0%A4%A');
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'BAD_REQUEST' });
+    });
+  });
+
+  describe('unknown routes and unsupported methods', () => {
+    it('GET on an unknown path returns 404 { error: "NOT_FOUND" }', async () => {
+      const res = await request(baseUrl, '/nope');
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: 'NOT_FOUND' });
+    });
+
+    it('POST /api/v1/vsd returns 405 { error: "METHOD_NOT_ALLOWED" } with Allow: GET', async () => {
+      const res = await request(baseUrl, '/api/v1/vsd', { method: 'POST' });
+      expect(res.status).toBe(405);
+      expect(res.body).toEqual({ error: 'METHOD_NOT_ALLOWED' });
+      expect(res.headers.get('allow')).toBe('GET');
+    });
+
+    it('POST /health returns 405 { error: "METHOD_NOT_ALLOWED" } with Allow: GET', async () => {
+      const res = await request(baseUrl, '/health', { method: 'POST' });
+      expect(res.status).toBe(405);
+      expect(res.body).toEqual({ error: 'METHOD_NOT_ALLOWED' });
+      expect(res.headers.get('allow')).toBe('GET');
+    });
   });
 
   describe('X-Mock-Fail header', () => {
@@ -142,6 +170,15 @@ describe('mercury-mock server', () => {
         headers: { 'X-Mock-Fail': '500' },
       });
       expect(res.status).toBe(500);
+      expect(res.body).toEqual({ error: 'INTERNAL' });
+    });
+
+    it('X-Mock-Fail: 500 on an unknown path still returns 404 (fail injection is scoped to /api/v1/vsd*)', async () => {
+      const res = await request(baseUrl, '/nope', {
+        headers: { 'X-Mock-Fail': '500' },
+      });
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: 'NOT_FOUND' });
     });
 
     it('X-Mock-Fail: timeout delays the response by ~MOCK_TIMEOUT_MS', async () => {
