@@ -1,4 +1,9 @@
 import pg from 'pg';
+import { assertTestDatabase } from './guard';
+
+// Refuse before any pool exists (R83): never a dev or production database.
+assertTestDatabase(process.env.DATABASE_URL, 'DATABASE_URL');
+assertTestDatabase(process.env.APP_DATABASE_URL, 'APP_DATABASE_URL');
 
 export const appPool = new pg.Pool({ connectionString: process.env.APP_DATABASE_URL });
 export const ownerPool = new pg.Pool({ connectionString: process.env.DATABASE_URL?.replace('?sslmode=disable', '') });

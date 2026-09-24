@@ -116,7 +116,21 @@ case "$cmd" in
   install)   $T pnpm install "$@" ;;
   sh)        $T bash ;;
   pnpm)      $T pnpm "$@" ;;
-  test)      $T pnpm -r --workspace-concurrency=1 test "$@" ;;
+  # Unit tests of every workspace package outside tests/* (db/seed runs its unit suite only). The
+  # tests/* packages need live services and run only through their own commands (R83): db:test,
+  # gw:test, ds:test — `test:all` runs everything in order.
+  test)      $T pnpm -r --workspace-concurrency=1 --filter '!./tests/**' test "$@" ;;
+  # Everything, in dependency order: unit → tests/db (throwaway agrotrace_test) → dev DB migrated and
+  # seed checked → gateway up + gw:test → design-system showcase (Playwright).
+  test:all)
+    "$0" test
+    "$0" up infra
+    "$0" db:test
+    "$0" db:migrate
+    "$0" seed:test
+    "$0" up gateway
+    "$0" gw:test
+    "$0" ds:test ;;
   # ESLint's flat config (eslint.config.js) already covers the whole repo tree in one pass — `-r`
   # would instead run per-workspace-package `lint` scripts, none of which exist (only the root
   # package.json has one), so recursing here silently lints nothing.

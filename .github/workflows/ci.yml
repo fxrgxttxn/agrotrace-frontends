@@ -41,17 +41,8 @@ jobs:
       - uses: ./.github/actions/pnpm-store-restore
       - run: ./at.sh install
       - run: ./at.sh pnpm --filter @agrotrace/contracts run lint:openapi
-      - run: >-
-          ./at.sh pnpm
-          --filter @agrotrace/contracts
-          --filter @agrotrace/domain
-          --filter @agrotrace/api-client
-          --filter @agrotrace/validation
-          --filter @agrotrace/i18n
-          --filter @agrotrace/design-system
-          --filter @agrotrace/mercury-mock
-          --filter @agrotrace/seed
-          run test
+      # Every workspace package outside tests/* (R83); tests/* run in the db, gateway and ds jobs.
+      - run: ./at.sh test
       - uses: ./.github/actions/pnpm-store-save
         if: always()
 
