@@ -33,11 +33,16 @@ afterEach(() => {
 
 describe('single-flight refresh across two tabs sharing navigator.locks', () => {
   it('both tabs converge on the same fresh token and neither logs out, even if both end up calling refresh', async () => {
-    // Web Locks only serialize *access*, not knowledge of the result: because BroadcastChannel
-    // delivery is a separate macrotask, tab B's queued lock callback can still run (and see the
-    // pre-broadcast store) before tab A's message has actually arrived. That's an inherent race,
-    // not a bug — R32/R40's server-side 10s grace window exists precisely so a second, redundant
-    // refresh call in this situation still ends up correct rather than logging anyone out.
+    // Web Locks fully serialize *access*, not just the decision to call the network: tab B's
+    // queued lock callback only starts once tab A's entire `doRefresh` — including its network
+    // round trip — has settled. In a real browser sharing one cookie jar, that means B's own
+    // subsequent /auth/refresh call (if the store-recheck doesn't catch it first, e.g. because
+    // BroadcastChannel delivery — a separate macrotask — hasn't landed yet) runs *after* A's
+    // fetch completed and so presents the already-rotated cookie: it simply succeeds too, rather
+    // than failing. So a redundant call here is harmless because it isn't actually redundant in
+    // the failing sense — it's just a second, wasted, successful rotation. (This mock doesn't
+    // model a shared cookie jar — fetchA/fetchB are independent — but both always succeed
+    // unconditionally for /auth/refresh, which is the relevant behaviour this models.)
     const locks = new MockLockManager();
     vi.stubGlobal('navigator', { locks });
 
@@ -297,5 +302,34 @@ describe('Important 3: the grace wait is skipped when it cannot possibly help', 
 
     expect(newToken).toBeNull();
     expect(onAuthLost).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Minor D: a transient refresh failure is shared among callers queued behind the same Web Lock', () => {
+  it('does not make one /auth/refresh call per queued caller during an outage', async () => {
+    const locks = new MockLockManager();
+    vi.stubGlobal('navigator', { locks });
+
+    const session = createMemoryTokenStore('stale');
+    let refreshCalls = 0;
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      if (requestUrl(input).endsWith('/auth/refresh')) {
+        refreshCalls += 1;
+        return new Response('', { status: 503 });
+      }
+      return problemResponse({ code: 'UNAUTHORIZED' }, 401);
+    });
+    const api = createApi({ baseUrl: BASE_URL, session, fetch });
+
+    // Three requests, all sent with the same (soon to be revealed stale) token, all 401 and all
+    // ask to refresh at essentially the same moment — each queues behind the same Web Lock.
+    const results = await Promise.allSettled([api.GET('/me'), api.GET('/me'), api.GET('/me')]);
+
+    for (const result of results) expect(result.status).toBe('rejected');
+    // Without Minor D, each of the three would make its own /auth/refresh call in turn as the
+    // lock hands off between them (an outage causing 3x the load instead of 1x); with it, they
+    // share the one rejection.
+    expect(refreshCalls).toBe(1);
+    expect(session.get()).toBe('stale'); // untouched — a transient failure never logs out
   });
 });

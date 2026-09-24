@@ -75,12 +75,43 @@ function urlPath(url: string): string {
   return separatorIndex === -1 ? url : url.slice(0, separatorIndex);
 }
 
-/** Any `/auth/*` operation (login, refresh, logout, 2FA, password reset, invites, registration —
- * contracts/openapi/paths/auth.yaml) — Critical fix: a 401 from *any* of these (wrong password,
- * bad 2FA code, …) must never trigger our refresh-and-retry or `onAuthLost` protocol, which is only
- * about a previously-valid *session* going stale. */
-function isAuthPath(url: string): boolean {
-  return /\/auth\//.test(urlPath(url));
+function endsWithAnyPath(url: string, suffixes: readonly string[]): boolean {
+  const path = urlPath(url);
+  return suffixes.some((suffix) => path.endsWith(suffix));
+}
+
+/** R62: exactly the `/auth/*` operations with `security: []` in the contract
+ * (contracts/openapi/paths/auth.yaml) — i.e. the ones that don't require a valid access token in
+ * the first place, so a 401 from any of them (wrong password, bad/reused 2FA code, an
+ * expired/used password-reset or invite token, …) is a normal application-level response, never
+ * evidence that a previously-good *session* has gone stale. Every other `/auth/*` operation
+ * (currently only `/auth/2fa/setup`) is bearer-secured and refreshes-and-retries on 401 exactly
+ * like any other endpoint. Exported so test/no-refresh-paths.test.ts can assert this list matches
+ * the contract's actual `security: []` operations under `/auth/` — keep the two in sync by hand;
+ * the test fails loudly if they drift. */
+export const NO_REFRESH_AUTH_PATHS = [
+  '/auth/login',
+  '/auth/refresh',
+  '/auth/logout',
+  '/auth/2fa/verify',
+  '/auth/password/forgot',
+  '/auth/password/reset',
+  '/auth/register-organization',
+  '/auth/accept-invite',
+] as const;
+
+function isNoRefreshAuthPath(url: string): boolean {
+  return endsWithAnyPath(url, NO_REFRESH_AUTH_PATHS);
+}
+
+/** The only two operations that get `credentials: 'include'` (contracts/openapi/paths/auth.yaml —
+ * both set/clear the httpOnly `at_refresh` cookie, path `/api/v1/auth`). Deliberately a *narrower*
+ * set than {@link NO_REFRESH_AUTH_PATHS}: e.g. `/auth/login` also has `security: []` but doesn't
+ * need `credentials: 'include'` to receive its `Set-Cookie` on a same-origin request. */
+const CREDENTIALS_INCLUDE_PATHS = ['/auth/refresh', '/auth/logout'] as const;
+
+function isCredentialsIncludePath(url: string): boolean {
+  return endsWithAnyPath(url, CREDENTIALS_INCLUDE_PATHS);
 }
 
 async function readProblemCode(response: Response): Promise<string | undefined> {
@@ -117,6 +148,13 @@ class RefreshCoordinator {
   /** Resolvers waiting on the *next* broadcast token (used only for the grace window below — the
    * permanent listener above always updates the store regardless of whether anyone is waiting). */
   private waiters: Array<(token: string) => void> = [];
+  /** Minor B dedupe key: the token `onAuthLost` has already been reported dead for, so concurrent
+   * callers discovering the *same* dead token don't each fire it separately. `undefined` means "no
+   * report outstanding"; reset back to that by the store subscription below whenever a fresh,
+   * non-null token is installed (by us, another tab's broadcast, or a login elsewhere in the app),
+   * so a later, genuinely new auth-loss episode can still report. */
+  private reportedDeadToken: string | null | undefined = undefined;
+  private unsubscribe: () => void;
 
   constructor(
     private readonly baseUrl: string,
@@ -124,6 +162,9 @@ class RefreshCoordinator {
     private readonly fetchImpl: FetchLike,
     private readonly onAuthLost?: () => void,
   ) {
+    this.unsubscribe = this.session.subscribe((token) => {
+      if (token !== null) this.reportedDeadToken = undefined;
+    });
     try {
       if (typeof BroadcastChannel !== 'undefined') {
         this.channel = new BroadcastChannel(AUTH_BROADCAST_CHANNEL);
@@ -155,11 +196,40 @@ class RefreshCoordinator {
     return this.runSingleFlight(tokenAtFailure, false);
   }
 
+  /** Minor A/B: no-ops (leaving the store and `onAuthLost` alone) if the store has already moved
+   * past `deadToken` — some other tab or request has since installed something newer, so this
+   * particular 401 is stale information, not grounds to log out — or if `onAuthLost` has already
+   * fired for this exact token. Otherwise clears the store and reports it, once. */
+  reportAuthLoss(deadToken: string | null): void {
+    if (this.session.get() !== deadToken) return;
+    if (this.reportedDeadToken === deadToken) return;
+    this.reportedDeadToken = deadToken;
+    this.session.set(null);
+    this.onAuthLost?.();
+  }
+
   private runSingleFlight(tokenAtFailure: string | null, usedLock: boolean): Promise<string | null> {
     if (!this.inFlight) {
-      this.inFlight = this.doRefresh(tokenAtFailure, usedLock).finally(() => {
-        this.inFlight = null;
-      });
+      const attempt = this.doRefresh(tokenAtFailure, usedLock);
+      this.inFlight = attempt;
+      attempt.then(
+        () => {
+          if (this.inFlight === attempt) this.inFlight = null;
+        },
+        () => {
+          // Minor D: on a *transient* failure (network error / 5xx — normal under R61, e.g. during
+          // a backend restart), keep this rejected attempt briefly cached rather than clearing it
+          // immediately, so every caller already queued behind the same Web Lock at the moment of
+          // the outage shares this one rejection instead of each making its own network call in
+          // turn as the lock hands off to them one by one. A macrotask is long enough for a mock
+          // (or real) lock's already-queued callbacks to drain — since those are chained via
+          // microtasks internally — but short enough that a genuinely later, new 401 still gets a
+          // fresh attempt rather than being permanently stuck on a stale failure.
+          setTimeout(() => {
+            if (this.inFlight === attempt) this.inFlight = null;
+          }, 0);
+        },
+      );
     }
     return this.inFlight;
   }
@@ -205,15 +275,21 @@ class RefreshCoordinator {
     }
 
     if (response.ok) {
-      let body: { accessToken: string };
+      let body: { accessToken?: unknown };
       try {
-        body = (await response.json()) as { accessToken: string };
+        body = (await response.json()) as { accessToken?: unknown };
       } catch (error) {
         throw ApiProblem.transient('Malformed response from /auth/refresh', response.status, error);
       }
-      this.session.set(body.accessToken);
-      this.channel?.postMessage({ token: body.accessToken });
-      return body.accessToken;
+      // Minor C: a 200 with no usable accessToken is just as malformed as unparsable JSON — never
+      // install/broadcast a non-string (or empty) token.
+      if (typeof body.accessToken !== 'string' || body.accessToken.length === 0) {
+        throw ApiProblem.transient('Malformed response from /auth/refresh (no accessToken)', response.status);
+      }
+      const accessToken = body.accessToken;
+      this.session.set(accessToken);
+      this.channel?.postMessage({ token: accessToken });
+      return accessToken;
     }
 
     if (response.status === 401) {
@@ -240,15 +316,8 @@ class RefreshCoordinator {
     }
 
     if (response.status === 401 || response.status === 403) {
-      // Never clobber a token some other tab installed while we were waiting or calling out —
-      // only null out the token we actually know is dead.
-      const current = this.session.get();
-      if (current !== tokenAtFailure) {
-        return current;
-      }
-      this.session.set(null);
-      this.onAuthLost?.();
-      return null;
+      this.reportAuthLoss(tokenAtFailure);
+      return this.session.get();
     }
 
     // Any other status (5xx, an unexpected 4xx): transient per R61 — only 401/403 end the session.
@@ -256,6 +325,7 @@ class RefreshCoordinator {
   }
 
   close(): void {
+    this.unsubscribe();
     this.channel?.close();
   }
 }
@@ -275,9 +345,9 @@ export interface CreateApiOptions {
 
 /** Builds the typed openapi-fetch client with the shared middleware behaviour: Bearer injection,
  * a unique `X-Request-Id` per request, `credentials: 'include'` only for `/auth/refresh` and
- * `/auth/logout`, single-flight refresh-and-retry on 401 (never for `/auth/*` itself, and never for
- * a request that carried no Authorization header to begin with), and automatic retry of
- * 409 IDEMPOTENCY_KEY_IN_PROGRESS responses. */
+ * `/auth/logout`, single-flight refresh-and-retry on 401 (never for the `security: []` `/auth/*`
+ * operations — R62 — and never for a request that carried no Authorization header to begin with),
+ * and automatic retry of 409 IDEMPOTENCY_KEY_IN_PROGRESS responses. */
 export function createApi(opts: CreateApiOptions): Api {
   const baseUrl = opts.baseUrl ?? '/api/v1';
   const baseFetch: FetchLike = opts.fetch ?? ((input, init) => fetch(input, init));
@@ -290,7 +360,8 @@ export function createApi(opts: CreateApiOptions): Api {
     // its body (and any Idempotency-Key/If-Match header), however many retries this takes.
     const baseRequest = input instanceof Request && init === undefined ? input : new Request(input, init);
     const url = baseRequest.url;
-    const isAuthEndpoint = isAuthPath(url);
+    const skipRefresh = isNoRefreshAuthPath(url);
+    const withCredentials = isCredentialsIncludePath(url);
 
     const send = async (): Promise<{ response: Response; tokenUsed: string | null }> => {
       const headers = new Headers(baseRequest.headers);
@@ -299,7 +370,7 @@ export function createApi(opts: CreateApiOptions): Api {
       headers.set('X-Request-Id', newRequestId());
       const attempt = new Request(baseRequest.clone(), {
         headers,
-        credentials: isAuthEndpoint ? 'include' : baseRequest.credentials,
+        credentials: withCredentials ? 'include' : baseRequest.credentials,
       });
       const response = await baseFetch(attempt);
       return { response, tokenUsed: token };
@@ -310,10 +381,11 @@ export function createApi(opts: CreateApiOptions): Api {
     let idempotencyAttempts = 0;
 
     for (;;) {
-      // Never for /auth/* (Critical fix — a wrong password or bad 2FA code is not a stale
-      // session), and never for a request that was sent with no Authorization header at all
-      // (nothing to refresh).
-      if (response.status === 401 && !isAuthEndpoint && tokenUsed !== null) {
+      // R62: never for a `security: []` /auth/* operation (a wrong password or bad 2FA code is
+      // not a stale session — but a bearer-secured one like /auth/2fa/setup refreshes normally),
+      // and never for a request that was sent with no Authorization header at all (nothing to
+      // refresh).
+      if (response.status === 401 && !skipRefresh && tokenUsed !== null) {
         if (!refreshed) {
           refreshed = true;
           const newToken = await coordinator.refresh(tokenUsed);
@@ -322,9 +394,10 @@ export function createApi(opts: CreateApiOptions): Api {
           continue;
         }
         // Brief gap: the retry with a freshly-refreshed token still got 401 — that token is no
-        // good either.
-        opts.session.set(null);
-        opts.onAuthLost?.();
+        // good either (Minors A/B: reportAuthLoss no-ops if the store has already moved past
+        // `tokenUsed`, and dedupes so concurrent requests discovering the same dead token don't
+        // each fire onAuthLost separately).
+        coordinator.reportAuthLoss(tokenUsed);
         return response;
       }
 

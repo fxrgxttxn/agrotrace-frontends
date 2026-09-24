@@ -277,4 +277,77 @@ describe('openEventStream', () => {
       }
     });
   });
+
+  describe('R63: a transient refresh() rejection (5xx/network — normal per R61) must not kill the stream', () => {
+    it('recovers once refresh() stops rejecting: rejects once, then succeeds', async () => {
+      vi.useFakeTimers();
+      try {
+        let attempt = 0;
+        let token = 'old-token';
+        const refresh = vi.fn(async () => {
+          attempt += 1;
+          if (attempt === 1) throw new Error('backend restarting');
+          token = 'recovered-token';
+          return token;
+        });
+
+        openEventStream({
+          token: () => token,
+          onEvent: () => {},
+          refresh,
+          EventSourceImpl: MockEventSource as unknown as typeof EventSource,
+        });
+        const first = MockEventSource.instances[0]!;
+
+        first.fail(); // -> refresh() rejects (attempt 1) -> scheduled for retry, not left dangling
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(refresh).toHaveBeenCalledTimes(1);
+        expect(MockEventSource.instances).toHaveLength(1); // still just the one, failed connection
+
+        // Backoff has advanced to 2s for the next attempt.
+        await vi.advanceTimersByTimeAsync(2000);
+
+        expect(refresh).toHaveBeenCalledTimes(2);
+        expect(MockEventSource.instances).toHaveLength(2); // recovered: a new stream was opened
+        const second = MockEventSource.instances[1]!;
+        expect(new URL(second.url, 'http://localhost').searchParams.get('access_token')).toBe(
+          'recovered-token',
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('gives up (onError, no unhandled rejection) after 10 consecutive rejections, without ever opening', async () => {
+      vi.useFakeTimers();
+      try {
+        const onError = vi.fn();
+        const refresh = vi.fn(async () => {
+          throw new Error('backend down');
+        });
+
+        openEventStream({
+          token: () => 'old-token',
+          onEvent: () => {},
+          onError,
+          refresh,
+          EventSourceImpl: MockEventSource as unknown as typeof EventSource,
+        });
+        MockEventSource.instances[0]!.fail(); // failure #1 (the connection itself)
+
+        // Drain every backoff step up to (and past) the give-up threshold: 1+2+4+8+16+30+30+30+30s
+        // (the initial CLOSED failure, then refresh() rejecting 9 times in a row) ≈ 151s.
+        await vi.advanceTimersByTimeAsync(160_000);
+
+        expect(refresh).toHaveBeenCalledTimes(9); // failure #1 was the CLOSED connection, not a refresh call
+        // Twice, as with a plain give-up (see the "stops... refresh returns null" test above):
+        // once forwarding the initial CLOSED connection's raw error event, once more for the
+        // terminal "gave up retrying" signal once the failure budget is exhausted.
+        expect(onError).toHaveBeenCalledTimes(2);
+        expect(MockEventSource.instances).toHaveLength(1); // never once opened a second EventSource
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

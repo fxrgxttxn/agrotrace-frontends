@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { createApi, newIdempotencyKey, withVariant } from '../src/client';
 import { createMemoryTokenStore } from '../src/session';
 import {
+  MockBroadcastChannel,
   afterMs,
   jsonResponse,
   noContentResponse,
@@ -22,10 +23,15 @@ const ME_BODY = {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // This file doesn't test cross-tab behaviour (refresh-race.test.ts does) — stubbing avoids every
+  // createApi() call here opening a real Node BroadcastChannel that outlives the test.
+  MockBroadcastChannel.reset();
+  vi.stubGlobal('BroadcastChannel', MockBroadcastChannel);
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('createApi — Bearer injection and request headers', () => {
@@ -66,21 +72,28 @@ describe('createApi — Bearer injection and request headers', () => {
     expect(ids[0]).not.toBe(ids[1]);
   });
 
-  it('sends credentials: include only for /auth/refresh and /auth/logout', async () => {
+  it('sends credentials: include for /auth/refresh and /auth/logout only — not /me, and not other security: [] /auth/* calls like /auth/login', async () => {
     const session = createMemoryTokenStore('abc123');
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       if (requestUrl(input).endsWith('/auth/logout')) return noContentResponse();
+      if (requestUrl(input).endsWith('/auth/login'))
+        return jsonResponse({ twoFactorRequired: false, accessToken: 'x', expiresIn: 900, user: {} });
       return jsonResponse(ME_BODY);
     });
     const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock });
 
     await api.GET('/me');
     await api.POST('/auth/logout');
+    await api.POST('/auth/login', { body: { email: 'petrov@kfh-petrov.ru', password: 'Correct-Passw0rd!' } });
 
     const [meInput, meInit] = fetchMock.mock.calls[0]!;
     const [logoutInput, logoutInit] = fetchMock.mock.calls[1]!;
+    const [loginInput, loginInit] = fetchMock.mock.calls[2]!;
     expect(requestCredentials(meInput, meInit)).not.toBe('include');
     expect(requestCredentials(logoutInput, logoutInit)).toBe('include');
+    // /auth/login is also a security: [] (no-refresh) path, but it is NOT one of the two
+    // credentials-scoped ones — a same-origin request already receives its Set-Cookie without it.
+    expect(requestCredentials(loginInput, loginInit)).not.toBe('include');
   });
 });
 
@@ -287,17 +300,48 @@ describe('Critical: /auth/* 401s never trigger refresh-and-retry (or onAuthLost)
     expect(result.response.status).toBe(401);
   });
 
-  it('holds for an *authenticated* /auth/* call too, not just anonymous ones', async () => {
+  it('holds even when a Bearer token happens to be attached to a security: [] call', async () => {
+    // A stray Authorization header on a public /auth/* call (e.g. a leftover token from a
+    // previous session) still must not trigger a refresh — the 401 here is INVALID_CREDENTIALS
+    // for the login attempt, nothing to do with whatever token happened to be in the store.
     const session = createMemoryTokenStore('abc123');
-    const fetchMock = vi.fn(async () => problemResponse({ code: 'UNAUTHORIZED' }, 401));
+    const fetchMock = vi.fn(async () => problemResponse({ code: 'INVALID_CREDENTIALS' }, 401));
+    const onAuthLost = vi.fn();
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    const result = await api.POST('/auth/login', {
+      body: { email: 'petrov@kfh-petrov.ru', password: 'Wr0ngPassword!' },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onAuthLost).not.toHaveBeenCalled();
+    expect(result.response.status).toBe(401);
+  });
+});
+
+describe('R62: bearer-secured /auth/* operations (e.g. /auth/2fa/setup) refresh on 401 like any other call', () => {
+  it('refreshes and retries a 401 TOKEN_EXPIRED from /auth/2fa/setup', async () => {
+    const session = createMemoryTokenStore('stale');
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith('/auth/refresh')) return jsonResponse({ accessToken: 'fresh', expiresIn: 900 });
+      const token = requestHeaders(input, init).get('Authorization');
+      if (token === 'Bearer fresh')
+        return jsonResponse({ totpEnabled: false, secret: 'x', otpauthUrl: 'otpauth://x' });
+      return problemResponse({ code: 'TOKEN_EXPIRED' }, 401);
+    });
     const onAuthLost = vi.fn();
     const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
 
     const result = await api.POST('/auth/2fa/setup', { body: {} });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.response.status).toBe(200);
+    expect(session.get()).toBe('fresh');
     expect(onAuthLost).not.toHaveBeenCalled();
-    expect(result.response.status).toBe(401);
+    const refreshCalls = fetchMock.mock.calls.filter(([input]) =>
+      requestUrl(input).endsWith('/auth/refresh'),
+    );
+    expect(refreshCalls).toHaveLength(1);
   });
 });
 
@@ -500,6 +544,66 @@ describe('R61: transient refresh failures (network error, 5xx, malformed body) n
 
     expect(session.get()).toBe('stale');
     expect(onAuthLost).not.toHaveBeenCalled();
+  });
+
+  it('Minor C: a 200 from /auth/refresh with no string accessToken is transient too — never set/broadcast', async () => {
+    const session = createMemoryTokenStore('stale');
+    const onAuthLost = vi.fn();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (requestUrl(input).endsWith('/auth/refresh')) return jsonResponse({ expiresIn: 900 }); // no accessToken
+      return problemResponse({ code: 'UNAUTHORIZED' }, 401);
+    });
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    await expect(api.GET('/me')).rejects.toMatchObject({ code: 'BACKEND_UNAVAILABLE' });
+
+    expect(session.get()).toBe('stale');
+    expect(onAuthLost).not.toHaveBeenCalled();
+  });
+});
+
+describe('Minors A/B: second-401 handling never clobbers a newer token, and dedupes onAuthLost', () => {
+  it('Minor A: does not null a token that something else already moved past while the retry was in flight', async () => {
+    const session = createMemoryTokenStore('stale');
+    const onAuthLost = vi.fn();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith('/auth/refresh')) return jsonResponse({ accessToken: 'fresh1', expiresIn: 900 });
+      const token = requestHeaders(input, init).get('Authorization');
+      if (token === 'Bearer fresh1') {
+        // Simulate another concurrent flow moving the store on to an even newer token while this
+        // retry (using the now-superseded 'fresh1') is still in flight.
+        session.set('fresh2');
+        return afterMs(50, problemResponse({ code: 'UNAUTHORIZED' }, 401));
+      }
+      return problemResponse({ code: 'UNAUTHORIZED' }, 401);
+    });
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    const promise = api.GET('/me');
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(session.get()).toBe('fresh2'); // never nulled
+    expect(onAuthLost).not.toHaveBeenCalled();
+    expect(result.response.status).toBe(401);
+  });
+
+  it('Minor B: onAuthLost fires at most once per dead token, even across separate later calls that find the same still-dead token', async () => {
+    const session = createMemoryTokenStore(null);
+    const onAuthLost = vi.fn();
+    const fetchMock = vi.fn(async () => problemResponse({ code: 'TOKEN_EXPIRED' }, 401));
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    // Two independent, non-concurrent app-boot-style attempts to silently restore a session — the
+    // store stays null throughout, so a plain "did the store change" check alone can't tell the
+    // second attempt that this was already reported.
+    await api.refresh();
+    await vi.advanceTimersByTimeAsync(50);
+    await api.refresh();
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(onAuthLost).toHaveBeenCalledTimes(1);
   });
 });
 
