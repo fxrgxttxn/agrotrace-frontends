@@ -107,6 +107,7 @@
 /* Loading / nothing-found row: <li class="at-combobox__status" role="presentation">. */
 .at-combobox__status {
   display: flex;
+  margin: 0;
   align-items: center;
   gap: var(--sp-3);
   min-height: var(--touch);

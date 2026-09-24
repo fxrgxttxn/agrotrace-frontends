@@ -32,3 +32,11 @@
 @import url('./components/metric.css');
 @import url('./components/progress.css');
 @import url('./components/graph.css');
+
+/* App shell */
+@import url('./components/shell.css');
+@import url('./components/sidebar.css');
+@import url('./components/bottom-nav.css');
+@import url('./components/topbar.css');
+@import url('./components/bell.css');
+@import url('./components/page.css');

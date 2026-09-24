@@ -1,0 +1,46 @@
+/* at-bell — <a class="at-bell" href="/notifications" aria-label="Уведомления, непрочитанных: 3">
+     <svg class="at-bell__icon" aria-hidden="true"><use href="#i-bell" /></svg>
+     <span class="at-bell__count" aria-hidden="true">3</span>        (absent when 0; «99+» above 99)
+   </a> */
+
+.at-bell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--touch);
+  height: var(--touch);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-m);
+  background: none;
+  color: var(--c-ink);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.at-bell:hover {
+  background: var(--c-surface);
+  color: var(--c-ink);
+}
+
+.at-bell__icon {
+  width: 22px;
+  height: 22px;
+}
+
+/* Count: a straw seed pinned to the bell, ringed with the ground color to cut it out. */
+.at-bell__count {
+  position: absolute;
+  top: 3px;
+  right: 1px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--c-straw);
+  color: var(--c-straw-ink);
+  font: 600 11px / 18px var(--font-body);
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--c-ground);
+}

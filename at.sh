@@ -107,6 +107,7 @@ case "$cmd" in
     $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
     $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" -e APP_DATABASE_URL="$TEST_APP_DATABASE_URL" tools \
       pnpm --filter @agrotrace/tests-db test ;;
+  ds:test)     $DC run --rm playwright npx --no-install playwright test "$@" ;;
   psql)        $DC exec postgres psql -U agrotrace_owner agrotrace ;;
   check)
     $DC exec -T postgres pg_isready -U agrotrace_owner && \

@@ -135,7 +135,8 @@
   margin: auto;
 }
 
-/* Three furrows ploughed left to right, one after another; no rotation. */
+/* Three furrows, offset like a slanted field row (the brand mark), ploughed one after another
+   left to right; no rotation. With motion disabled the three full furrows stay. */
 .at-spinner,
 .at-button[aria-busy='true']::after {
   --spin-c: currentColor;
@@ -143,9 +144,9 @@
   width: 18px;
   height: 12px;
   background:
-    linear-gradient(var(--spin-c) 0 0) 0 0 / 100% 2px no-repeat,
-    linear-gradient(var(--spin-c) 0 0) 0 50% / 62% 2px no-repeat,
-    linear-gradient(var(--spin-c) 0 0) 0 100% / 28% 2px no-repeat;
+    linear-gradient(var(--spin-c) 0 0) 6px 0 / 12px 2px no-repeat,
+    linear-gradient(var(--spin-c) 0 0) 3px 50% / 12px 2px no-repeat,
+    linear-gradient(var(--spin-c) 0 0) 0 100% / 12px 2px no-repeat;
   animation: at-furrow 1.2s var(--ease) infinite;
 }
 
@@ -166,21 +167,21 @@
   }
   30% {
     background-size:
-      100% 2px,
+      12px 2px,
       0 2px,
       0 2px;
   }
   60% {
     background-size:
-      100% 2px,
-      100% 2px,
+      12px 2px,
+      12px 2px,
       0 2px;
   }
   90%,
   100% {
     background-size:
-      100% 2px,
-      100% 2px,
-      100% 2px;
+      12px 2px,
+      12px 2px,
+      12px 2px;
   }
 }

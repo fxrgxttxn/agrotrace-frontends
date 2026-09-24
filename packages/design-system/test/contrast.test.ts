@@ -68,6 +68,7 @@ const PAIRS: [fg: string, bg: string, min: number][] = [
   ['--c-field-ink', '--c-clay', 4.5],
   ['--c-field-ink', '--c-clay-hover', 4.5],
   ['--c-ink', '--c-straw-soft', 4.5],
+  ['--c-ink-muted', '--c-straw-soft', 4.5],
   ['--c-straw-ink', '--c-straw', 4.5],
   ['--c-focus', '--c-ground', 3],
   ['--c-focus', '--c-surface', 3],

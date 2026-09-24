@@ -95,6 +95,7 @@
   color: var(--c-ink);
   font-weight: 500;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .at-table__primary a:hover {
@@ -193,7 +194,7 @@ th[aria-sort='descending'] > .at-table__sort::after {
   .at-table[data-cards] tbody tr {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
-    column-gap: var(--sp-3);
+    column-gap: 0;
     margin-bottom: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
     border-radius: var(--r-l);
@@ -216,18 +217,14 @@ th[aria-sort='descending'] > .at-table__sort::after {
     box-shadow: none;
   }
 
-  .at-table[data-cards] tbody tr + tr > * {
-    border-top: 0;
-  }
-
   .at-table[data-cards] td {
     display: grid;
     grid-column: 1 / -1;
     grid-template-columns: minmax(96px, 40%) minmax(0, 1fr);
     gap: var(--sp-3);
     align-items: baseline;
-    padding: 6px 0;
-    border-top: 1px solid var(--c-line);
+    padding: 5px 0;
+    border-top: 0;
     text-align: start;
   }
 
@@ -247,16 +244,23 @@ th[aria-sort='descending'] > .at-table__sort::after {
     display: block;
     grid-column: 2;
     grid-row: 1;
-    padding: 0 0 var(--sp-2);
-    border-top: 0;
+    min-width: 0;
+    padding: 0 0 10px;
   }
 
   .at-table[data-cards] td[data-status-cell] {
     display: block;
     grid-column: 3;
     grid-row: 1;
-    padding: 0 0 var(--sp-2);
-    border-top: 0;
+    padding: 0 0 10px var(--sp-3);
+  }
+
+  /* The card head (select, title, status) is underlined by one hairline. */
+  .at-table[data-cards] td[data-primary],
+  .at-table[data-cards] td[data-status-cell],
+  .at-table[data-cards] td.at-table__select {
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--c-line);
   }
 
   .at-table[data-cards] td[data-primary]::before,
@@ -271,8 +275,7 @@ th[aria-sort='descending'] > .at-table__sort::after {
     grid-column: 1;
     grid-row: 1;
     width: auto;
-    padding: 0 var(--sp-1) 0 0;
-    border-top: 0;
+    padding: 0 var(--sp-3) 10px 0;
   }
 
   .at-table[data-cards] td.at-table__select .at-check {

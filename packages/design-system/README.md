@@ -139,7 +139,9 @@ import '@agrotrace/design-system/index.css'; // шрифты + токены + б
 
 - Закрыт: `aria-expanded="false"` на поле и `hidden` на списке.
 - `data-active` — подсвеченный с клавиатуры вариант (тот же, что в `aria-activedescendant`); `aria-selected="true"` — выбранный.
-- Загрузка/пусто — строка `<li class="at-combobox__status" role="presentation">` (при загрузке: `<span class="at-spinner" aria-hidden="true"></span>Поиск`, поле с `aria-busy="true"`; пусто: «Ничего не найдено.»).
+- Загрузка / пусто — вместо списка вариантов тот же контейнер без `role=listbox`:
+  `<div class="at-combobox__list" id="product-list" role="status"><p class="at-combobox__status">…</p></div>`
+  (загрузка: `<span class="at-spinner" aria-hidden="true"></span>Поиск` и `aria-busy="true"` на поле; пусто: «Ничего не найдено.»).
 - Серверный поиск: запрос с задержкой ~250 мс после ввода; совпадение выделяется `<mark>`.
 - Клавиатура: ↓ — открыть / следующий; ↑ — предыдущий; Home / End — первый / последний (при открытом списке);
   Enter — выбрать подсвеченный и закрыть; Esc — закрыть без выбора; Tab — закрыть, фокус дальше.
@@ -514,3 +516,127 @@ Home / End — первая / последняя; выбор при переме
 
 Цвета узлов — `--status-<статус>-bg|fg` (читаются через `getComputedStyle`). На < 768 px граф открывается
 кнопкой в режиме `data-fullscreen`; Esc и кнопка «Закрыть» выходят из него.
+
+---
+
+## Каркас
+
+### Оболочка `at-shell`
+
+```html
+<div class="at-shell">
+  <a class="at-shell__skip" href="#main">К содержимому</a>
+  <nav class="at-sidebar" aria-label="Основное меню">…</nav>
+  <header class="at-topbar">…</header>
+  <main class="at-shell__main" id="main" tabindex="-1"><div class="at-page">…</div></main>
+  <nav class="at-bottom-nav" aria-label="Основное меню">…</nav>
+</div>
+```
+
+| Ширина      | Навигация                                                                                                                   |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------- |
+| ≥ 1024 px   | `at-sidebar` 240 px с подписями                                                                                             |
+| 768–1023 px | `at-sidebar` свёрнут до 72 px: только иконки, подписи остаются для экранных дикторов, `title` на ссылке                     |
+| < 768 px    | `at-sidebar` скрыт; `at-bottom-nav` фиксирован снизу (4 основных пункта роли + «Ещё»), отступ `env(safe-area-inset-bottom)` |
+
+Обе навигации в разметке всегда; CSS показывает одну. Набор пунктов — по роли.
+
+### Боковое меню `at-sidebar`
+
+```html
+<nav class="at-sidebar" aria-label="Основное меню">
+  <a class="at-sidebar__brand" href="/" title="AgroTrace"
+    >…знак…<span class="at-sidebar__label">AgroTrace</span></a
+  >
+  <ul class="at-sidebar__list">
+    <li>
+      <a class="at-sidebar__link" href="/batches" aria-current="page" title="Партии">
+        <svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-batch" /></svg>
+        <span class="at-sidebar__label">Партии</span>
+      </a>
+    </li>
+    <li>
+      <a class="at-sidebar__link" href="/recall-tasks" title="Задачи отзыва">
+        <svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-recall" /></svg>
+        <span class="at-sidebar__label">Задачи отзыва</span>
+        <span class="at-visually-hidden">, открытых:</span><span class="at-sidebar__count">1</span>
+      </a>
+    </li>
+  </ul>
+  <div class="at-sidebar__footer">…необязательно…</div>
+</nav>
+```
+
+`aria-current="page"` — текущий раздел (и для вложенных маршрутов раздела).
+
+### Нижняя навигация `at-bottom-nav`
+
+```html
+<nav class="at-bottom-nav" aria-label="Основное меню">
+  <a class="at-bottom-nav__link" href="/batches" aria-current="page">
+    <svg class="at-bottom-nav__icon" aria-hidden="true"><use href="#i-batch" /></svg>Партии
+  </a>
+  …ещё 3 ссылки…
+  <button class="at-bottom-nav__link" type="button" aria-expanded="false" aria-controls="more-menu">
+    <svg class="at-bottom-nav__icon" aria-hidden="true"><use href="#i-more" /></svg>Ещё
+  </button>
+</nav>
+```
+
+«Ещё» открывает остальные пункты роли и профиль (в `at-dialog`).
+
+### Шапка `at-topbar`, колокольчик `at-bell`
+
+```html
+<header class="at-topbar">
+  <div class="at-topbar__org">
+    <span class="at-avatar" data-size="m" data-shape="square"><img src="…логотип…" alt="" /></span>
+    <span class="at-topbar__org-name">КФХ Петров</span>
+  </div>
+  <div class="at-topbar__actions">
+    <a class="at-bell" href="/notifications" aria-label="Уведомления, непрочитанных: 3">
+      <svg class="at-bell__icon" aria-hidden="true"><use href="#i-bell" /></svg>
+      <span class="at-bell__count" aria-hidden="true">3</span>
+    </a>
+    <a class="at-topbar__profile" href="/profile" aria-label="Профиль, Иван Петров">
+      <span class="at-avatar" data-size="m" aria-hidden="true">ИП</span>
+    </a>
+  </div>
+</header>
+```
+
+Счётчик: нет элемента при 0, «99+» свыше 99; число дублируется в `aria-label` ссылки. Новое уведомление по SSE
+обновляет счётчик и показывает `at-toast`.
+
+### Страница `at-page`
+
+```html
+<div class="at-page">
+  <div class="at-page__header">
+    <h1 class="at-page__title">Партии</h1>
+    <!-- существительное, без подзаголовка -->
+    <div class="at-page__actions">
+      <a class="at-button" data-variant="primary" href="/batches/new">Зарегистрировать партию</a>
+    </div>
+  </div>
+  <div class="at-page__toolbar">
+    <div class="at-page__search">
+      <svg aria-hidden="true"><use href="#i-search" /></svg>
+      <input class="at-input" type="search" placeholder="Код, продукт" aria-label="Поиск партий" />
+    </div>
+    <details class="at-page__filters" open>
+      <summary class="at-page__filters-toggle">
+        Фильтры<span class="at-visually-hidden">, выбрано:</span>
+        <span class="at-page__filters-count">1</span>
+      </summary>
+      <div class="at-page__filters-body">…at-field со select / date…</div>
+    </details>
+  </div>
+  …таблица, пагинация…
+</div>
+```
+
+- Фильтры: на ≥ 768 px `details` всегда открыт (фреймворк держит `open` по `matchMedia('(min-width: 768px)')`),
+  `summary` скрыт, поля — в строку. На < 768 px `summary` — кнопка «Фильтры» со счётчиком выбранных, панель
+  раскрывается под строкой поиска. Значения фильтров — в query-параметрах URL.
+- Поля страницы — `--gutter`, ширина контента до 1440 px.
