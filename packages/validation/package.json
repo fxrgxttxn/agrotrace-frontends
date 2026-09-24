@@ -1,0 +1,27 @@
+{
+  "name": "@agrotrace/validation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared Zod request-body schemas aligned with the OpenAPI contract, used by the React, Angular and Svelte frontends and the Express backend.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@redocly/openapi-core": "^1.25.11",
+    "@types/node": "^22.9.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
