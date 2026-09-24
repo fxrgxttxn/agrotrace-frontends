@@ -57,6 +57,31 @@ info:
     транзакции, что и изменение состояния (откат операции отменяет и событие), публикует её relay после коммита,
     неопубликованные строки повторяет sweeper каждые 5 с; события не теряются, потребители дедуплицируют по id
     события. Уведомления асинхронны: в ответах операций их нет.
+
+
+    Общие ключи Redis (R82). Все три реализации работают с одним Redis (`REDIS_URL`), поэтому ключи, их значения и
+    TTL едины: запись, сделанная одной реализацией, читается любой другой. Значения — JSON (UTF-8) или строка, как в
+    таблице; `exp` — момент истечения в секундах Unix (целое), `sha256hex` — sha256 в hex нижним регистром.
+
+      | Ключ | Значение | TTL, с | Запись и удаление |
+      |---|---|---|---|
+      | `pub:batch:{publicCode}` | точный JSON `PublicBatch` (тело ответа `getPublicBatch`) | 300 | `getPublicBatch` при промахе кэша: `SET … EX 300`; удаляется (`DEL`) в том же запросе после коммита каждой операцией, меняющей статус, держателя, `labSummary` или `path` партии либо её предков и потомков, показанных на странице; каскад отзыва удаляет ключи всех затронутых партий |
+      | `pwreset:{sha256hex(token)}` | `{"userId": "<uuid>", "exp": <unix>}` | 3600 | `forgotPassword`; `resetPassword` читает `GETDEL` (одноразовый) |
+      | `invite:{sha256hex(token)}` | `{"userId": "<uuid>", "exp": <unix>}` | 604800 | `inviteUser`; `acceptInvite` читает `GETDEL` (одноразовый) |
+      | `tgcode:{code}` | `{"userId": "<uuid>"}` | 600 | `createTelegramCode`; привязку выполняет поллер Telegram (`GETDEL`) |
+      | `tgcode-user:{userId}` | код (строка) | 600 | `createTelegramCode`: прежний код пользователя удаляется (`DEL tgcode:{прежний}`) — новый код аннулирует прежний |
+      | `totp-used:{userId}:{step}` | `"1"` | 90 | принятый код TOTP шага `step` (R35): `SET NX EX 90`; ключ уже есть — повтор кода, 401 INVALID_TWO_FACTOR_CODE |
+      | `2fa:{challengeId}` | `{"userId": "<uuid>", "exp": <unix>}` | 300 | `login` при включённой TOTP (R35); `verifyTwoFactor`: успех — `GETDEL` |
+      | `2fa-fail:{challengeId}` | счётчик неверных кодов | 300 | `verifyTwoFactor`: `INCR`, при 1 — `EXPIRE 300`; при 5 — `DEL` обоих ключей challenge |
+      | `idem:{userId}:{Idempotency-Key}` | см. параметр `Idempotency-Key` (R48, R53) | 60 / 86400 | операции с `x-idempotent` |
+      | `rl:{scope}:{subject}:{windowStartEpochSec}` | счётчик (R30) | окно скоупа | `contracts/rules/rate-limits.json` |
+      | `tg:poller` | идентификатор процесса-поллера | 30 | `SET NX EX 30`, продление каждые 10 с (`SET … XX EX 30`, только владельцем) |
+
+    Токены ссылок из писем — 32 случайных байта в base64url без `=` (43 символа); в Redis хранится только sha256
+    токена. Ссылки: `${PUBLIC_BASE_URL}/password/reset/{token}` и `${PUBLIC_BASE_URL}/invite/{token}`. Telegram
+    `getUpdates` опрашивает только worker, удерживающий `tg:poller` (остальные не опрашивают); смещение
+    (`offset` = последний `update_id` + 1) подтверждается на стороне Telegram, поэтому новый владелец продолжает с
+    места предыдущего, а повторно полученное сообщение безвредно (`GETDEL` кода).
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary

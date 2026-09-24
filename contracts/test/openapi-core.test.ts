@@ -932,6 +932,44 @@ describe('openapi contract: operations', () => {
     expect(doc.info.description).toMatch(/`batchDocument`/);
   });
 
+  it('R82: info.description has the shared Redis keys table with exact values and TTLs', () => {
+    const d: string = doc.info.description;
+    const rows = new Map(
+      d
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => /^\| `[^`]+` \|/.test(l))
+        .map((l) => {
+          const cells = l.split(' | ').map((c) => c.replace(/^\| ?| ?\|$/g, '').trim());
+          return [cells[0]!.replace(/`/g, ''), cells] as const;
+        }),
+    );
+    const expected: [string, RegExp, string, RegExp][] = [
+      ['pub:batch:{publicCode}', /точный JSON `PublicBatch`/, '300', /после коммита[^|]*каскад отзыва/],
+      ['pwreset:{sha256hex(token)}', /"userId"[^|]*"exp"/, '3600', /GETDEL/],
+      ['invite:{sha256hex(token)}', /"userId"[^|]*"exp"/, '604800', /GETDEL/],
+      ['tgcode:{code}', /\{"userId": "<uuid>"\}/, '600', /createTelegramCode/],
+      ['totp-used:{userId}:{step}', /"1"/, '90', /SET NX EX 90/],
+      ['tg:poller', /поллер/, '30', /SET NX EX 30[^|]*10 с/],
+    ];
+    const bad: string[] = [];
+    for (const [key, value, ttl, how] of expected) {
+      const row = rows.get(key);
+      if (!row) {
+        bad.push(`${key}: row missing`);
+        continue;
+      }
+      if (!value.test(row[1]!)) bad.push(`${key}: value ${row[1]}`);
+      if (row[2] !== ttl) bad.push(`${key}: TTL ${row[2]} != ${ttl}`);
+      if (!how.test(row[3]!)) bad.push(`${key}: ${how}`);
+    }
+    expect(bad).toEqual([]);
+    expect(d).toMatch(/32 случайных байта в base64url/);
+    expect(d).toMatch(/\$\{PUBLIC_BASE_URL\}\/password\/reset\/\{token\}/);
+    expect(d).toMatch(/\$\{PUBLIC_BASE_URL\}\/invite\/\{token\}/);
+    expect(d).toMatch(/только worker, удерживающий `tg:poller`/);
+  });
+
   it('IdempotencyKey text states the R53 storage precision', () => {
     const d: string = doc.components.parameters.IdempotencyKey.description;
     expect(d).toMatch(/cjson\.decode/);
