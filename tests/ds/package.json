@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "playwright test"
+    "ds": "playwright test"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.10.2",
