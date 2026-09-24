@@ -4,7 +4,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildSprite } from '../scripts/build-sprite.ts';
+import { buildSprite, compact } from '../scripts/build-sprite.ts';
 import { literalColors } from './literal-colors.ts';
 
 const root = join(__dirname, '..');
@@ -316,6 +316,17 @@ describe('sprite.svg', () => {
     }
   });
 
+  it('compact() drops whitespace between tags and collapses it inside multi-line tags', () => {
+    const multiLine = `
+  <path
+    d="M2 2
+      L4 4"
+  />
+  <circle cx="1"   r="2" />
+`;
+    expect(compact(multiLine)).toBe('<path d="M2 2 L4 4" /><circle cx="1" r="2" />');
+  });
+
   it('each symbol body equals its icon file body', () => {
     for (const name of ICONS) {
       const body = /<symbol id="i-[^"]+"[^>]*>([\s\S]*?)<\/symbol>/.exec(
@@ -408,6 +419,20 @@ describe('illustrations', () => {
         for (const el of els) {
           expect(ILLU_ELEMENTS, `<${el.name}>`).toContain(el.name);
           for (const a of Object.keys(el.attrs)) expect(ILLU_ATTRS.has(a), `${el.name}[${a}]`).toBe(true);
+        }
+      });
+
+      it('every shape declares its paint: a fill token, or fill: none with a stroke token', () => {
+        for (const el of els.filter((e) => !['svg', 'g'].includes(e.name))) {
+          const decl = Object.fromEntries(
+            (el.attrs.style ?? '')
+              .split(';')
+              .filter((s) => s.trim())
+              .map((s) => s.split(':').map((p) => p.trim())),
+          ) as Record<string, string>;
+          const where = `${el.name} ${el.attrs.style ?? '(no style)'}`;
+          expect(decl.fill, where).toBeDefined();
+          if (decl.fill === 'none') expect(decl.stroke, where).toMatch(/^var\(--c-/);
         }
       });
 

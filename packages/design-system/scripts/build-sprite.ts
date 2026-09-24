@@ -1,6 +1,6 @@
 // Builds sprite.svg from icons/manifest.json + icons/<name>.svg: one <symbol id="i-<name>"> per
 // manifest entry, in manifest order, carrying the icon's viewBox and stroke rules. Deterministic:
-// the output depends only on the manifest and the icon files (whitespace between tags is dropped).
+// the output depends only on the manifest and the icon files (see compact()).
 // Run with `pnpm --filter @agrotrace/design-system build:sprite`; the result is committed and a
 // test fails when it is stale.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -10,13 +10,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const RULES =
   'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"';
 
+/** Drops whitespace between tags; any other whitespace run (e.g. inside a multi-line tag) becomes one space. */
+export function compact(markup: string): string {
+  return markup.trim().replace(/>\s+</g, '><').replace(/\s+/g, ' ');
+}
+
 export function buildSprite(root: string): string {
   const names = JSON.parse(readFileSync(join(root, 'icons', 'manifest.json'), 'utf8')) as string[];
   const symbols = names.map((name) => {
     const src = readFileSync(join(root, 'icons', `${name}.svg`), 'utf8');
     const body = /<svg[^>]*>([\s\S]*)<\/svg>/.exec(src)?.[1];
     if (body === undefined) throw new Error(`icons/${name}.svg: no <svg> root`);
-    return `  <symbol id="i-${name}" ${RULES}>${body.replace(/\s*\n\s*/g, '')}</symbol>\n`;
+    return `  <symbol id="i-${name}" ${RULES}>${compact(body)}</symbol>\n`;
   });
   return (
     '<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden">\n' +
