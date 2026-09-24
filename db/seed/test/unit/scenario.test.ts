@@ -122,8 +122,12 @@ describe('scenario', () => {
 
   it('docs/demo-accounts.md is the generator output', () => {
     const doc = readFileSync(new URL('../../docs/demo-accounts.md', SEED_ROOT), 'utf8');
-    const current = world(seedNowFrom(undefined));
-    // Codes carry the year of SEED_NOW: the committed file is the output for the current year.
+    // Replay with the exact SEED_NOW the committed file records in its own header (R77), not an
+    // unpinned "now": the file changes only when someone actually re-runs `./at.sh seed`, never on
+    // its own just because a calendar year rolled over since it was last generated.
+    const seedNow = doc.match(/for SEED_NOW=(\S+) —/)?.[1];
+    if (!seedNow) throw new Error('docs/demo-accounts.md is missing its SEED_NOW marker');
+    const current = world(seedNow);
     expect(doc).toBe(renderDemoAccounts(current));
   });
 
