@@ -66,6 +66,10 @@ services:
     image: axllent/mailpit:v1.21
     ports: ["8025:8025", "1025:1025"]
     networks: [at]
+  mercury-mock:
+    build: { context: ./mercury-mock }
+    healthcheck: { test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"], interval: 3s, retries: 20 }
+    networks: [at]
 networks:
   at: {}
 volumes:

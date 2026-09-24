@@ -1,0 +1,21 @@
+{
+  "name": "@agrotrace/mercury-mock",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Emulator of FGIS \"Mercury\" (Russian veterinary e-certification system) REST API, used by the three backends' Mercury adapters in dev/test.",
+  "main": "./dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
