@@ -49,6 +49,13 @@ info:
     Списки: `sort` принимает только поля из `x-sort.fields` операции (иначе 400 `errors.sort: [validation.sort]`),
     по умолчанию — `x-sort.default`; сортировка выполняется в БД, при равенстве — по `id` по возрастанию, значения
     null всегда в конце. `q` — подстрока без учёта регистра, `%`, `_` и `\` в ней — обычные символы.
+
+
+    События очереди (`contracts/events`, R55): «после коммита публикуется событие / отправляется уведомление» в
+    описаниях операций всегда означает транзакционный outbox — строка `outbox_events` вставляется в той же
+    транзакции, что и изменение состояния (откат операции отменяет и событие), публикует её relay после коммита,
+    неопубликованные строки повторяет sweeper каждые 5 с; события не теряются, потребители дедуплицируют по id
+    события. Уведомления асинхронны: в ответах операций их нет.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -141,7 +148,8 @@ tags:
       7. BR-10: если не создано ни одной задачи (`shouldCloseRecall([])` = true), отзыв сразу CLOSED, `closed_at` =
          `opened_at`, `version` = 2.
 
-      Асинхронно, после коммита, через очередь своей реализации: событие `recall.requested` — уведомления RECALL
+      Асинхронно, через очередь своей реализации: событие `recall.requested` (строка `outbox_events` в той же
+      транзакции, публикация после коммита — транзакционный outbox, R55) — уведомления RECALL
       (инспекторам, держателям задач, создателю исходной партии) и RECALL_TASK (держателю каждой задачи), затем
       `rating.recalculate` для хозяйства — создателя исходной партии (BR-09, полный пересчёт). В теле ответа операции
       этих результатов нет.
@@ -149,7 +157,8 @@ tags:
       Просрочка (BR-08): планировщик `recall-task-overdue` каждые 5 минут (`pg_try_advisory_lock(hashtext(
       'agrotrace.scheduler.recall-task-overdue'))`) в одной транзакции выбирает задачи OPEN с now > `due_at`
       `FOR UPDATE SKIP LOCKED`, переводит их в OVERDUE (`escalated_at` = now(), `version` + 1, аудит
-      `system.recallTaskOverdue`) и после коммита публикует `notification.dispatch` OVERDUE (держатель + инспекторы).
+      `system.recallTaskOverdue`) и в той же транзакции пишет в outbox `notification.dispatch` OVERDUE (держатель +
+      инспекторы).
       Подтверждение задачи (`confirmRecallTask`) переводит партию в WrittenOff и закрывает отзыв, когда все задачи
       CONFIRMED (BR-10).
   - name: Complaints

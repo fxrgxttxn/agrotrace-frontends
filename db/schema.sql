@@ -427,6 +427,22 @@ CREATE TABLE public.organizations (
 
 
 --
+-- Name: outbox_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.outbox_events (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    backend character varying(8) NOT NULL,
+    type character varying(64) NOT NULL,
+    payload jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    published_at timestamp with time zone,
+    attempts integer DEFAULT 0 NOT NULL,
+    CONSTRAINT outbox_events_backend_check CHECK (((backend)::text = ANY ((ARRAY['express'::character varying, 'django'::character varying, 'laravel'::character varying])::text[])))
+);
+
+
+--
 -- Name: products; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -891,6 +907,14 @@ ALTER TABLE ONLY public.organizations
 
 
 --
+-- Name: outbox_events outbox_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outbox_events
+    ADD CONSTRAINT outbox_events_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: products products_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1164,6 +1188,13 @@ CREATE INDEX ix_lab_tests_queue ON public.lab_tests USING btree (lab_org_id, sta
 --
 
 CREATE INDEX ix_notifications_user ON public.notifications USING btree (user_id, is_read, created_at DESC) WHERE ((channel)::text = 'IN_APP'::text);
+
+
+--
+-- Name: ix_outbox_unpublished; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_outbox_unpublished ON public.outbox_events USING btree (backend, created_at) WHERE (published_at IS NULL);
 
 
 --
@@ -2291,6 +2322,13 @@ GRANT SELECT,USAGE ON SEQUENCE public.notifications_seq_seq TO agrotrace_app;
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.organizations TO agrotrace_app;
+
+
+--
+-- Name: TABLE outbox_events; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.outbox_events TO agrotrace_app;
 
 
 --

@@ -38,7 +38,21 @@ CREATE INDEX ix_audit_entity ON audit_log(entity_type, entity_id);
 CREATE INDEX ix_audit_created ON audit_log(created_at DESC);
 REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM agrotrace_app;
 GRANT SELECT, INSERT ON audit_log TO agrotrace_app;
+
+-- Transactional outbox for queue events (R55): inserted in the same transaction as the state change,
+-- published after commit by the relay, retried by the per-backend sweeper.
+CREATE TABLE outbox_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  backend varchar(8) NOT NULL CHECK (backend IN ('express','django','laravel')),
+  type varchar(64) NOT NULL,
+  payload jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  published_at timestamptz,
+  attempts integer NOT NULL DEFAULT 0
+);
+CREATE INDEX ix_outbox_unpublished ON outbox_events(backend, created_at) WHERE published_at IS NULL;
 -- migrate:down
+DROP TABLE IF EXISTS outbox_events;
 DROP TABLE audit_log;
 DROP TRIGGER t_notifications_notify ON notifications; DROP FUNCTION notify_notification();
 DROP TABLE notifications;

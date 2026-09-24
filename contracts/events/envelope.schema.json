@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agrotrace.local/contracts/events/envelope.schema.json",
   "title": "AgroTrace queue event envelope",
-  "description": "Common document of every queue event (spec 8.1, 8.2.1). Transport: each backend publishes only to its own durable direct exchange `agrotrace.{backend}` with routing key = `type`; its worker consumes only the durable queue `agrotrace.{backend}.worker` bound to all event types, so an event is handled by exactly one worker of the backend that created it. Express publishes this document as the message body (persistent, content_type application/json, message_id = id); Celery and Laravel Queue pass this document as the single argument of the task/job named by `type` (their own wrapper format is library-defined). Events are published only AFTER the database transaction that caused them commits; a publish failure is retried 3 times (delays 1 s, 2 s, 4 s) and then logged at ERROR level, the API operation still succeeds. Delivery is at-least-once: every handler is idempotent (see each event). A failed handler is retried up to 5 times with delays 2, 4, 8, 16, 32 s, then the message goes to the dead-letter queue `agrotrace.{backend}.dead`.",
+  "description": "Common document of every queue event (spec 8.1, 8.2.1). Transport (R55, Task 2 topology in infra/rabbitmq/definitions.json — no other exchange or queue names): each backend publishes only to its own durable topic exchange `agrotrace.{backend}` with routing key = `type`; its worker consumes only the quorum queue `agrotrace.{backend}.jobs` (bound with `#`), so an event is handled by exactly one worker of the backend that created it; rejected messages dead-letter to `agrotrace.{backend}.jobs.dlq`. Express publishes this document as the message body (persistent, content_type application/json, message_id = id); Celery and Laravel Queue pass this document as the single argument of the task/job named by `type` (their wrapper format is library-defined). Transactional outbox (R55, spec 11.2 — events are never lost): the event is written as a row of `outbox_events` (id = event id, backend = the writing implementation, type, payload = this whole document) in the SAME transaction as the state change that causes it; after commit the API process publishes it with publisher confirms and sets `published_at = now()`; a sweeper in every backend (every 5 s, skipped unless pg_try_advisory_lock(hashtext('agrotrace.outbox.{backend}')) succeeds) selects `outbox_events WHERE backend = self AND published_at IS NULL ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 100`, publishes each row, increments `attempts` and sets `published_at` on confirm. Events produced by scheduler jobs and by worker handlers use the same outbox inside their own transactions. A row may therefore be published more than once: delivery is at-least-once and every consumer deduplicates by event `id` (see each event). A failed handler is retried in-process up to 5 times with delays 2, 4, 8, 16, 32 s, then the message is rejected without requeue and dead-letters to `agrotrace.{backend}.jobs.dlq`.",
   "type": "object",
   "required": ["id", "type", "occurredAt", "backend", "requestId", "data"],
   "additionalProperties": false,
@@ -21,12 +21,17 @@
       "format": "date-time",
       "description": "Commit time of the causing transaction, ISO 8601 UTC with Z."
     },
-    "backend": { "type": "string", "enum": ["express", "django", "laravel"] },
+    "backend": {
+      "type": "string",
+      "enum": ["express", "django", "laravel"]
+    },
     "requestId": {
       "type": ["string", "null"],
       "maxLength": 64,
       "description": "X-Request-Id of the API request that caused the event; null for scheduler jobs. An event published by a worker copies the requestId of the event being handled."
     },
-    "data": { "type": "object" }
+    "data": {
+      "type": "object"
+    }
   }
 }

@@ -547,18 +547,18 @@ flowchart LR
 | Batches | `POST /batches/{id}/on-sale`, `POST /batches/{id}/sold` | Выставление в продажу, реализация |
 | Processing | `POST /processing` | Переработка: входы → выходы |
 | Waybills | `GET/POST /waybills`, `GET /waybills/{id}`, `POST /waybills/{id}/send`, `/accept`, `/reject` | Накладные и приёмка |
-| Lab | `GET /lab-tests`, `GET /lab-tests/{id}`, `POST /lab-tests/{id}/results` | Очередь проб, ввод результатов |
+| Lab | `GET/POST /lab-tests`, `GET /lab-tests/{id}`, `POST /lab-tests/{id}/sample`, `POST /lab-tests/{id}/results` | Очередь проб, внеплановый анализ (инспектор), регистрация пробы, ввод результатов |
 | Lab | `PUT/GET /lab-tests/{id}/protocol` | Загрузка и скачивание PDF-протокола |
 | Recalls | `GET/POST /recalls`, `GET /recalls/{id}`, `GET /recalls/{id}/graph` | Отзывы, ручной запуск |
 | Recalls | `GET /recall-tasks`, `POST /recall-tasks/{id}/confirm` | Задачи изъятия |
-| Complaints | `GET /complaints`, `GET /complaints/{id}`, `POST /complaints/{id}/decision` | Рассмотрение жалоб |
+| Complaints | `GET /complaints`, `GET /complaints/{id}`, `POST /complaints/{id}/review`, `POST /complaints/{id}/decision` | Взятие в работу и рассмотрение жалоб |
 | Notifications | `GET /notifications`, `POST /notifications/read`, `GET /events/stream` | Центр уведомлений, SSE |
 | Analytics | `GET /analytics/dashboard?scope=inspector\|org\|lab`, `GET /reports/{type}?format=xlsx\|pdf` | Дашборды, экспорт |
 | Admin | `GET/PATCH /admin/organizations`, `POST /admin/organizations/{id}/approve` | Заявки организаций |
 | Admin | CRUD `/dictionaries/{name}`, `POST /dictionaries/{name}/import`, `PUT /dictionaries/products/{id}/image` | Справочники, импорт CSV/XLSX, фото продуктов |
 | Admin | `GET /audit-log` | Журнал аудита |
 | Files | `GET /files/{id}?variant=96\|480` | Скачивание файла с проверкой прав |
-| Public | `GET /public/batches/{publicCode}`, `POST /public/batches/{publicCode}/complaints`, `GET /public/captcha` | QR-страница, жалоба, задача ALTCHA; без авторизации |
+| Public | `GET /public/batches/{publicCode}`, `POST /public/batches/{publicCode}/complaints`, `GET /public/captcha`, `GET /public/regions` | QR-страница, жалоба, задача ALTCHA, регионы для формы регистрации; без авторизации |
 | Public | `GET /public/files/{id}?variant=` | Публичные изображения (фото продукта, логотип) |
 | Health | `GET /health/live`, `GET /health/ready` | Проверки здоровья (БД, Redis, RabbitMQ, MinIO) |
 

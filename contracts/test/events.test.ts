@@ -45,6 +45,26 @@ describe('queue events', () => {
     }
   });
 
+  it('envelope transport uses the Task 2 RabbitMQ topology and the transactional outbox (R55)', () => {
+    const defs = JSON.parse(
+      readFileSync(new URL('../../infra/rabbitmq/definitions.json', import.meta.url), 'utf8'),
+    );
+    const d: string = read('envelope.schema.json').description;
+    const backends = read('envelope.schema.json').properties.backend.enum as string[];
+    for (const b of backends) {
+      const ex = defs.exchanges.find((e: Json) => e.name === `agrotrace.${b}`);
+      expect(ex?.type, b).toBe('topic');
+      expect(defs.queues.map((q: Json) => q.name)).toEqual(
+        expect.arrayContaining([`agrotrace.${b}.jobs`, `agrotrace.${b}.jobs.dlq`]),
+      );
+    }
+    expect(d).toMatch(/topic exchange `agrotrace\.\{backend\}`/);
+    expect(d).toMatch(/`agrotrace\.\{backend\}\.jobs`/);
+    expect(d).toMatch(/`agrotrace\.\{backend\}\.jobs\.dlq`/);
+    expect(d).toMatch(/outbox_events/);
+    expect(d).not.toMatch(/\.worker`|\.dead`|direct exchange|still succeeds/);
+  });
+
   it('every schema example is valid', () => {
     const bad: string[] = [];
     for (const f of EVENT_FILES) {

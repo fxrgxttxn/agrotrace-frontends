@@ -15,6 +15,35 @@ async function user(c: pg.PoolClient) {
 }
 
 describe('service schema', () => {
+  it('outbox_events: defaults, backend CHECK, app role can claim unpublished rows (R55)', () =>
+    withTx(async (c) => {
+      const r = await c.query(
+        `INSERT INTO outbox_events(backend, type, payload) VALUES ('django','recall.requested','{"id":"x"}')
+         RETURNING id, attempts, published_at, created_at`,
+      );
+      expect(r.rows[0].attempts).toBe(0);
+      expect(r.rows[0].published_at).toBeNull();
+      expect(r.rows[0].created_at).toBeInstanceOf(Date);
+      const claimed = await c.query(
+        `SELECT id FROM outbox_events WHERE backend = 'django' AND published_at IS NULL
+         ORDER BY created_at FOR UPDATE SKIP LOCKED`,
+      );
+      expect(claimed.rows.map((x) => x.id)).toContain(r.rows[0].id);
+      await c.query(`UPDATE outbox_events SET published_at = now(), attempts = attempts + 1 WHERE id = $1`, [
+        r.rows[0].id,
+      ]);
+      await c.query('SAVEPOINT s');
+      await expectPgError(
+        c.query(`INSERT INTO outbox_events(backend, type, payload) VALUES ('go','x','{}')`),
+        '23514',
+      );
+      await c.query('ROLLBACK TO SAVEPOINT s');
+      const idx = await c.query(
+        `SELECT indexdef FROM pg_indexes WHERE tablename = 'outbox_events' AND indexdef LIKE '%published_at IS NULL%'`,
+      );
+      expect(idx.rows[0]?.indexdef).toMatch(/\(backend, created_at\)/);
+    }));
+
   it('app role cannot update or delete audit_log', () =>
     withTx(async (c) => {
       await c.query(
