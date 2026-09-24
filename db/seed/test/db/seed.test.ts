@@ -146,10 +146,10 @@ describe('composition (spec §7.8)', () => {
     expect((await q('SELECT 1 FROM treatments')).length).toBeGreaterThanOrEqual(10);
   });
 
-  it('has 40 batches with codes AT-2026-000001…40 and a graph of depth 4; the sequences continue after them', async () => {
+  it('has 41 batches with codes AT-2026-000001…41 and a graph of depth 4; the sequences continue after them', async () => {
     const codes = (await q('SELECT public_code FROM batches ORDER BY public_code')).map((b) => b.public_code);
     expect(codes).toEqual(
-      Array.from({ length: 40 }, (_, i) => `AT-${YEAR}-${String(i + 1).padStart(6, '0')}`),
+      Array.from({ length: 41 }, (_, i) => `AT-${YEAR}-${String(i + 1).padStart(6, '0')}`),
     );
     const [depth] = await q(`
       WITH RECURSIVE down AS (
@@ -159,21 +159,22 @@ describe('composition (spec §7.8)', () => {
       SELECT max(depth)::int AS max FROM down`);
     expect(depth!.max).toBe(4);
     const [seq] = await q('SELECT last_value::int AS v, is_called FROM batch_code_seq');
-    expect(seq).toEqual({ v: 40, is_called: true });
+    expect(seq).toEqual({ v: 41, is_called: true });
     const [wseq] = await q('SELECT last_value::int AS v FROM waybill_number_seq');
     const [{ n }] = (await q('SELECT count(*)::int AS n FROM waybills')) as [R];
     expect(wseq!.v).toBe(n);
   });
 
-  it('covers every waybill status, lab results incl. exactly one FAIL, a closed and an open recall, complaints of every status', async () => {
+  it('covers every waybill status, lab results incl. two FAILs, a closed and open recalls, complaints of every status', async () => {
     const wb = (await q('SELECT DISTINCT status FROM waybills')).map((r) => r.status).sort();
     expect(wb).toEqual(['ACCEPTED', 'DRAFT', 'REJECTED', 'SENT']);
-    expect(await q(`SELECT 1 FROM lab_tests WHERE conclusion = 'FAIL'`)).toHaveLength(1);
+    expect(await q(`SELECT 1 FROM lab_tests WHERE conclusion = 'FAIL'`)).toHaveLength(2);
     const labStatuses = (await q('SELECT DISTINCT status FROM lab_tests')).map((r) => r.status).sort();
     expect(labStatuses).toEqual(['DONE', 'ESCALATED', 'QUEUED', 'SAMPLED']);
     const recalls = await q('SELECT * FROM recalls ORDER BY opened_at');
     expect(recalls.map((r) => `${r.status} ${r.trigger}`)).toEqual([
       'CLOSED COMPLAINT',
+      'OPEN LAB',
       'OPEN LAB',
       'OPEN INSPECTOR',
     ]);
@@ -183,10 +184,12 @@ describe('composition (spec §7.8)', () => {
         .sort();
     // R75: the old LAB recall has confirmed and already escalated tasks, the fresh one open tasks.
     expect(await taskStatuses(recalls[1]!)).toEqual(['CONFIRMED', 'OVERDUE']);
-    expect(await taskStatuses(recalls[2]!)).toEqual(['OPEN']);
+    expect(await taskStatuses(recalls[2]!)).toEqual(['OPEN']); // R88 M8: the barley FAIL, 16 h old
+    expect(await taskStatuses(recalls[3]!)).toEqual(['OPEN']);
     expect(Date.parse(NOW) - Date.parse(recalls[1]!.opened_at)).toBeGreaterThan(24 * 3_600_000);
-    expect(Date.parse(NOW) - Date.parse(recalls[2]!.opened_at)).toBe(2 * 3_600_000);
-    expect(recalls[2]!.block_upstream).toBe(true);
+    expect(Date.parse(NOW) - Date.parse(recalls[2]!.opened_at)).toBe(16 * 3_600_000);
+    expect(Date.parse(NOW) - Date.parse(recalls[3]!.opened_at)).toBe(2 * 3_600_000);
+    expect(recalls[3]!.block_upstream).toBe(true);
     const complaints = (await q('SELECT DISTINCT status FROM complaints')).map((r) => r.status).sort();
     expect(complaints).toEqual(['DECIDED', 'IN_REVIEW', 'NEW']);
     expect((await q('SELECT 1 FROM notifications')).length).toBeGreaterThan(0);
@@ -212,7 +215,7 @@ describe('composition (spec §7.8)', () => {
 describe('batches', () => {
   it('every history passes the state machine and ends in the batch status; version = number of transitions', async () => {
     const batches = await q('SELECT id, public_code, status, version FROM batches');
-    expect(batches).toHaveLength(40);
+    expect(batches).toHaveLength(41);
     const history = await q('SELECT * FROM batch_status_history ORDER BY id');
     for (const b of batches) {
       const h = history.filter((x) => x.batch_id === b.id);
@@ -325,6 +328,33 @@ describe('batches', () => {
       if (statusThen === 'Approved') processorOwn++;
     }
     expect(processorOwn).toBeGreaterThan(0);
+  });
+});
+
+describe('Blocked by the lab (R88 M8)', () => {
+  it('a raw batch that failed its lab test before any processing went OnTest → Blocked (LAB_FAIL) → Recalled', async () => {
+    const rows = await q(
+      `SELECT b.id, b.public_code, b.status, b.kind FROM batches b
+        WHERE EXISTS (SELECT 1 FROM batch_status_history h WHERE h.batch_id = b.id AND h.to_status = 'Blocked')`,
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    for (const b of rows) {
+      const h = await q(
+        'SELECT from_status, to_status, reason FROM batch_status_history WHERE batch_id = $1 ORDER BY id',
+        [b.id],
+      );
+      const i = h.findIndex((x) => x.to_status === 'Blocked');
+      expect(h[i]).toMatchObject({ from_status: 'OnTest', reason: 'LAB_FAIL' });
+      expect(h.slice(0, i).some((x) => x.to_status === 'Processed')).toBe(false);
+      expect(await q('SELECT 1 FROM batch_links WHERE parent_batch_id = $1', [b.id])).toHaveLength(0);
+      const [t] = await q(
+        `SELECT t.conclusion, t.recall_id, rb.status_before FROM lab_tests t
+           JOIN recall_batches rb ON rb.recall_id = t.recall_id AND rb.batch_id = t.batch_id
+          WHERE t.batch_id = $1 AND t.conclusion = 'FAIL'`,
+        [b.id],
+      );
+      expect(t).toMatchObject({ conclusion: 'FAIL', status_before: 'Blocked' });
+    }
   });
 });
 
@@ -445,7 +475,7 @@ describe('recalls', () => {
 
   it('recall_batches are exactly the engine traversal with minimal depth and the status before the recall', async () => {
     const recalls = await q('SELECT * FROM recalls');
-    expect(recalls).toHaveLength(3);
+    expect(recalls).toHaveLength(4);
     for (const r of recalls) {
       const expected = await q(
         `WITH RECURSIVE down AS (
@@ -573,7 +603,7 @@ describe('trust rating (BR-09)', () => {
     }
     expect(
       (await q(`SELECT trust_rating FROM organizations WHERE type = 'FARM' AND trust_rating < 70`)).length,
-    ).toBe(1);
+    ).toBe(2); // Луговая and, after the barley FAIL + recall (R88 M8), Заря
   });
 });
 

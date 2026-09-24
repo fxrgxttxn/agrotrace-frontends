@@ -512,6 +512,16 @@ export function runScenario(w: World): void {
   // Луговая's rating is now below 70: its next batch goes to the lab (LOW_RATING).
   raw('2026-09-19 10:15', 'lugovaya.zootech', 'M7', 'lugovaya-meadow', 'rawmilk', '3620', '2026-09-19 05:10');
 
+  // ── Lab FAIL on a not-yet-processed batch (R88 M8): Заря's barley (Тилт, КЭ 15 days ago → RECENT_PESTICIDE)
+  // exceeds the DON norm → OnTest → Blocked (LAB_FAIL); the FAIL starts recall #3 (LAB) on the spot, which moves
+  // the Blocked source to Recalled (contract: Recalls tag, step 5) — its OPEN task is Заря's own. ──
+  raw('2026-09-19 11:30', 'zarya.agronom', 'barley2', 'zarya-north', 'barley', '7400', '2026-09-19 06:00');
+  on('2026-09-19 13:00', (t) => w.registerLabSample(t, labUser('barley2:risk'), 'barley2:risk'));
+  on('2026-09-19 17:00', (t) =>
+    w.submitLabResults(t, labUser('barley2:risk'), 'barley2:risk', { don: '1.450' }, 'recall-barley'),
+  );
+  on('2026-09-19 17:30', (t) => w.uploadLabProtocol(t, labUser('barley2:risk'), 'barley2:risk'));
+
   // ── Open recall #2 (INSPECTOR, 2 h old): cream of the depth-4 chain, with the upstream sources
   // blocked for investigation; tasks of Провизия and Золотое кольцо are OPEN. ──
   on('2026-09-20 07:00', (t) =>

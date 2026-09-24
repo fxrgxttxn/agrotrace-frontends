@@ -32,7 +32,7 @@ function trackedFiles(): Map<string, string> {
 describe('idempotency', () => {
   it('seeding again gives the same database content and the same MinIO objects', async () => {
     const before = await withDb(tableChecksums);
-    expect(before.batches).toMatch(/^40:/);
+    expect(before.batches).toMatch(/^41:/);
     await runSeed({ ...env, seedNow: inject('seedNow') }, () => undefined);
     const after = await withDb(tableChecksums);
     expect(after).toEqual(before);

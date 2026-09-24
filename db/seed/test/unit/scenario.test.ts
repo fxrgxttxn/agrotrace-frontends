@@ -25,8 +25,8 @@ const data = loadData();
 describe('scenario', () => {
   const w = world();
 
-  it('replays into 40 batches whose histories follow the state machine', () => {
-    expect(w.t.batches).toHaveLength(40);
+  it('replays into 41 batches whose histories follow the state machine', () => {
+    expect(w.t.batches).toHaveLength(41);
     for (const b of w.t.batches) {
       const h = w.t.batch_status_history.filter((x) => x.batch_id === b.id);
       for (const x of h.slice(1))
@@ -110,6 +110,29 @@ describe('scenario', () => {
         iso(Date.parse(w.recall('recall-cream').opened_at as string) + shift),
       );
     }
+  });
+
+  it('a lab FAIL on a not-yet-processed batch blocks it, and the FAIL recall moves it on (R88 M8)', () => {
+    const b = w.batch('barley2');
+    expect(b.public_code).toBe('AT-2026-000041');
+    const h = w.t.batch_status_history
+      .filter((x) => x.batch_id === b.id)
+      .map((x) => `${x.from_status ?? '∅'}→${x.to_status} ${x.reason as string}`);
+    expect(h).toEqual([
+      '∅→Created CREATED',
+      'Created→OnTest TEST_REQUIRED',
+      'OnTest→Blocked LAB_FAIL',
+      'Blocked→Recalled RECALLED',
+    ]);
+    expect(w.test('barley2:risk')).toMatchObject({ status: 'DONE', conclusion: 'FAIL' });
+    const r = w.recall('recall-barley');
+    expect(r).toMatchObject({ trigger: 'LAB', status: 'OPEN', source_batch_id: b.id });
+    expect(w.t.recall_batches.find((x) => x.recall_id === r.id && x.batch_id === b.id)).toMatchObject({
+      direction: 'SOURCE',
+      status_before: 'Blocked',
+    });
+    expect(w.task('recall-barley', 'barley2').status).toBe('OPEN');
+    expect(w.t.batch_links.some((l) => l.parent_batch_id === b.id)).toBe(false);
   });
 
   it('VSD import (R81): one VSD row per DAIRY/MEAT raw batch, replayed against the mercury-mock data', () => {
