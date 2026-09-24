@@ -333,7 +333,7 @@ describe('sprite.svg', () => {
         sprite.slice(sprite.indexOf(`id="i-${name}"`) - 8),
       )?.[1];
       const file = /<svg[^>]*>([\s\S]*)<\/svg>/.exec(read(`icons/${name}.svg`))?.[1];
-      expect(body, name).toBe(file?.replace(/\s*\n\s*/g, ''));
+      expect(body, name).toBe(compact(file ?? ''));
     }
   });
 });
