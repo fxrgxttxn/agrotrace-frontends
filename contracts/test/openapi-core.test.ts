@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { bundle, loadConfig } from '@redocly/openapi-core';
 import Ajv2020 from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
@@ -41,6 +41,7 @@ const PROBLEM_CODES = [
   'INTERNAL',
   'NO_LAB_AVAILABLE', // R42
   'IDEMPOTENCY_KEY_IN_PROGRESS', // R48
+  'REFERENCE_IN_USE', // Task 10 D-table: hard delete of a referenced region
 ];
 
 const RATE_LIMITS = JSON.parse(readFileSync(new URL('../rules/rate-limits.json', import.meta.url), 'utf8'));
@@ -130,10 +131,61 @@ const EXPECTED_ACCESS: Record<string, Json> = {
   deleteWaybill: WAYBILL_SENDERS,
   acceptWaybill: WAYBILL_RECEIVERS,
   rejectWaybill: WAYBILL_RECEIVERS,
+  // Public regions for the registration form (Task 10)
+  listPublicRegions: PUBLIC,
+  // Lab (4.3: results and protocol — LAB; unplanned test — INSPECTOR; read by visibility, T9 note a)
+  listLabTests: ANY,
+  createLabTest: { roles: ['INSPECTOR'] },
+  getLabTest: ANY,
+  registerLabSample: { roles: ['LAB'] },
+  submitLabResults: { roles: ['LAB'] },
+  uploadLabProtocol: { roles: ['LAB'] },
+  downloadLabProtocol: ANY,
+  // Recalls (4.3: manual recall — INSPECTOR; registry — INSPECTOR, ADMIN read)
+  listRecalls: { roles: ['INSPECTOR', 'ADMIN'] },
+  createRecall: { roles: ['INSPECTOR'] },
+  getRecall: { roles: ['INSPECTOR', 'ADMIN'] },
+  getRecallGraph: { roles: ['INSPECTOR', 'ADMIN'] },
+  // Recall tasks (4.3: confirm FARMER/PROCESSOR/RETAILER, INSPECTOR read, ADMIN —)
+  listRecallTasks: { roles: ['FARMER', 'PROCESSOR', 'RETAILER', 'INSPECTOR'] },
+  confirmRecallTask: { roles: ['FARMER', 'PROCESSOR', 'RETAILER'] },
+  // Complaints (4.3: INSPECTOR only)
+  listComplaints: { roles: ['INSPECTOR'] },
+  getComplaint: { roles: ['INSPECTOR'] },
+  startComplaintReview: { roles: ['INSPECTOR'] },
+  decideComplaint: { roles: ['INSPECTOR'] },
+  // Notifications
+  listNotifications: ANY,
+  markNotificationsRead: ANY,
+  // Analytics (scope per role is validated inside; reports per type — x-report-access)
+  getDashboard: ANY,
+  downloadReport: { roles: ALL_ROLES },
+  // Admin
+  listAdminOrganizations: { roles: ['ADMIN'] },
+  updateAdminOrganization: { roles: ['ADMIN'] },
+  approveOrganization: { roles: ['ADMIN'] },
+  listAuditLog: { roles: ['INSPECTOR', 'ADMIN'] },
+  // Dictionaries (4.3: read — all roles; write, import, product photo — ADMIN)
+  listDictionary: ANY,
+  createDictionaryEntry: { roles: ['ADMIN'] },
+  updateDictionaryEntry: { roles: ['ADMIN'] },
+  deleteDictionaryEntry: { roles: ['ADMIN'] },
+  importDictionary: { roles: ['ADMIN'] },
+  uploadProductImage: { roles: ['ADMIN'] },
 };
 
-// Operations that require `Idempotency-Key` (spec 8.3 + R4). Task 10 adds confirmRecallTask.
-const EXPECTED_IDEMPOTENT = ['createWaybill', 'sendWaybill', 'acceptWaybill'];
+// Operations that require `Idempotency-Key` (spec 8.3 + R4).
+const EXPECTED_IDEMPOTENT = ['createWaybill', 'sendWaybill', 'acceptWaybill', 'confirmRecallTask'];
+
+// Report access per type (Task 10): roles with system-wide access, headRoles = org heads only, own organization.
+const EXPECTED_REPORT_ACCESS = {
+  batches: { roles: ['INSPECTOR', 'ADMIN'], headRoles: ['FARMER', 'PROCESSOR', 'RETAILER'] },
+  recalls: { roles: ['INSPECTOR', 'ADMIN'], headRoles: [] },
+  recall: { roles: ['INSPECTOR', 'ADMIN'], headRoles: [] },
+  'lab-tests': { roles: ['INSPECTOR', 'ADMIN'], headRoles: ['LAB'] },
+  complaints: { roles: ['INSPECTOR', 'ADMIN'], headRoles: [] },
+  org: { roles: ['INSPECTOR', 'ADMIN'], headRoles: ['FARMER', 'PROCESSOR', 'LAB', 'RETAILER'] },
+};
 
 // State-changing operations on versioned entities that require `If-Match` (R27, R37).
 const EXPECTED_IF_MATCH = [
@@ -143,6 +195,9 @@ const EXPECTED_IF_MATCH = [
   'acceptWaybill',
   'rejectWaybill',
   'deleteWaybill',
+  'registerLabSample',
+  'submitLabResults',
+  'confirmRecallTask',
 ];
 
 // 422 BUSINESS_RULE: rules each operation can violate and the exact `params` keys per rule.
@@ -182,6 +237,25 @@ const EXPECTED_LOCKS: Record<string, string[]> = {
   markBatchSold: ['batches'],
   createBatchQr: ['batches'],
   processBatches: ['batches'],
+  registerLabSample: ['labTest'],
+  submitLabResults: ['labTest', 'batches'],
+  uploadLabProtocol: ['labTest'],
+  createRecall: ['batches'],
+  confirmRecallTask: ['recall', 'batches', 'recallTasks'],
+  startComplaintReview: ['complaint'],
+  decideComplaint: ['complaint', 'batches'],
+};
+
+// R52: total lock order for every operation.
+const LOCK_ORDER = ['waybill', 'recall', 'labTest', 'complaint', 'batches', 'recallTasks'];
+
+const ENTITY_SM = JSON.parse(
+  readFileSync(new URL('../rules/entity-state-machines.json', import.meta.url), 'utf8'),
+);
+// INVALID_TRANSITION `{from,to}` of operations without x-transition: statuses of the entity they change.
+const TRANSITION_STATUSES_BY_OP: Record<string, () => string[]> = {
+  updateUser: () => doc.components.schemas.UserStatus.enum,
+  updateAdminOrganization: () => ENTITY_SM.organization.statuses,
 };
 
 const WAYBILL_SM = JSON.parse(
@@ -216,7 +290,36 @@ const CLOSED_SCHEMAS = [
   'WaybillAccept',
   'WaybillReject',
   'OrganizationDirectoryPage',
+  // Task 10
+  'LabTestPage',
+  'LabTest',
+  'LabTestCreate',
+  'LabSampleRequest',
+  'LabResultsInput',
+  'RecallTaskPage',
+  'RecallTaskConfirm',
+  'RecallPage',
+  'Recall',
+  'RecallCreate',
+  'RecallGraph',
+  'ComplaintPage',
+  'Complaint',
+  'ComplaintReviewRequest',
+  'ComplaintDecision',
+  'Dashboard',
+  'OrganizationAdminPage',
+  'OrganizationAdminPatch',
+  'AuditPage',
+  'DictionaryPage',
+  'DictionaryInput',
+  'ImportReport',
+  'NotificationPage',
+  'MarkReadRequest',
+  'ProtocolUpload',
+  'ImportUpload',
 ];
+// Deliberately open maps inside closed schemas (values are free-form by design).
+const OPEN_BY_DESIGN = ['AuditPage.items[].diff', 'NotificationPage.items[].payload'];
 
 interface Op {
   id: string; // "post /auth/login"
@@ -557,8 +660,8 @@ describe('openapi contract: operations', () => {
   it('403/409 problem examples use the documented params keys and transition targets', () => {
     const bad: string[] = [];
     const batchStatuses: string[] = STATE_MACHINE.statuses;
-    const userStatuses: string[] = doc.components.schemas.UserStatus.enum;
     let noLabOnCreateBatch = false;
+    let referenceInUse = 0;
     for (const { id, op } of ops) {
       const hasIfMatch = (op.parameters ?? []).map(deref).some((p: Json) => p.name === 'If-Match');
       const tr = op['x-transition'];
@@ -575,9 +678,15 @@ describe('openapi contract: operations', () => {
             if (!batchStatuses.includes(e.params.to) || !batchStatuses.includes(e.params.from))
               bad.push(`${id}: batch INVALID_TRANSITION ${e.params.from}->${e.params.to}`);
           } else if (keys === '["from","to"]') {
-            const allowedTo = tr ? [tr.to] : userStatuses;
-            const allowedFrom =
-              tr?.entity === 'waybill' ? WAYBILL_SM.statuses : tr ? batchStatuses : userStatuses;
+            const entityStatuses: string[] | undefined = !tr
+              ? TRANSITION_STATUSES_BY_OP[op.operationId]?.()
+              : tr.entity === 'waybill'
+                ? WAYBILL_SM.statuses
+                : tr.entity === 'batch'
+                  ? batchStatuses
+                  : ENTITY_SM[tr.entity]?.statuses;
+            const allowedTo: string[] = tr ? [tr.to] : (entityStatuses ?? []);
+            const allowedFrom: string[] = entityStatuses ?? [];
             if (!allowedTo.includes(e.params.to) || !allowedFrom.includes(e.params.from))
               bad.push(`${id}: INVALID_TRANSITION ${e.params.from}->${e.params.to}`);
           } else bad.push(`${id}: INVALID_TRANSITION params ${keys}`);
@@ -592,6 +701,11 @@ describe('openapi contract: operations', () => {
         if (e.code === 'IDEMPOTENCY_KEY_REUSED' || e.code === 'IDEMPOTENCY_KEY_IN_PROGRESS') {
           if (keys !== '[]' || op['x-idempotent'] !== true) bad.push(`${id}: ${e.code}`);
         }
+        if (e.code === 'REFERENCE_IN_USE') {
+          if (keys !== '["usedBy"]' || op.operationId !== 'deleteDictionaryEntry')
+            bad.push(`${id}: REFERENCE_IN_USE only on deleteDictionaryEntry with params {usedBy}`);
+          else referenceInUse++;
+        }
       }
       for (const e of problemExamples(op, '403')) {
         if (e.code !== 'FORBIDDEN') bad.push(`${id}: 403 code ${e.code}`);
@@ -603,6 +717,7 @@ describe('openapi contract: operations', () => {
       }
     }
     if (!noLabOnCreateBatch) bad.push('createBatch: NO_LAB_AVAILABLE example missing (R42)');
+    if (referenceInUse !== 1) bad.push('deleteDictionaryEntry: REFERENCE_IN_USE example missing');
     expect(bad).toEqual([]);
   });
 
@@ -612,10 +727,13 @@ describe('openapi contract: operations', () => {
     for (const { id, op } of ops) {
       if (!('x-locks' in op)) continue;
       actual[op.operationId] = op['x-locks'];
+      const idx = (op['x-locks'] as string[]).map((l) => LOCK_ORDER.indexOf(l));
+      if (idx.some((i, k) => i < 0 || (k > 0 && i <= idx[k - 1]!)))
+        bad.push(`${id}: x-locks ${op['x-locks']} violate the R52 order ${LOCK_ORDER.join(' → ')}`);
       const codes = problemExamples(op, '409').map((e) => e.code);
       if (!codes.includes('VERSION_CONFLICT')) bad.push(`${id}: 409 VERSION_CONFLICT example`);
       const desc: string = op.description ?? '';
-      if (!/Блокировки \(R47\)/.test(desc))
+      if (!/Блокировки \(R47[,)]/.test(desc))
         bad.push(`${id}: description must reference the R47 locking protocol`);
     }
     expect(actual).toEqual(EXPECTED_LOCKS);
@@ -642,13 +760,28 @@ describe('openapi contract: operations', () => {
     expect(doc.components.schemas.WaybillActionName.enum).toEqual(wActions);
     const bad: string[] = [];
     const seen: string[] = [];
+    const seenEntity = new Set<string>();
     for (const { id, op } of ops) {
       const tr = op['x-transition'];
       if (!tr) continue;
-      const sm = tr.entity === 'waybill' ? WAYBILL_SM : tr.entity === 'batch' ? STATE_MACHINE : null;
+      const sm =
+        tr.entity === 'waybill' ? WAYBILL_SM : tr.entity === 'batch' ? STATE_MACHINE : ENTITY_SM[tr.entity];
       const match = sm?.transitions.filter((t: Json) => t.action === tr.action && t.to === tr.to) ?? [];
       if (!match.length) bad.push(`${id}: ${tr.entity}.${tr.action} -> ${tr.to} not in rules`);
+      // Entity machines (Task 10) name the performing operation: it must be this one.
+      if (ENTITY_SM[tr.entity] && !match.every((t: Json) => t.by === op.operationId))
+        bad.push(`${id}: ${tr.entity}.${tr.action} is performed by another operation`);
       if (tr.entity === 'waybill') seen.push(tr.action);
+      else seenEntity.add(`${tr.entity}.${tr.action}.${op.operationId}`);
+    }
+    // Every entity transition performed by a single-transition operation is declared by that operation.
+    for (const [entity, sm] of Object.entries<Json>(ENTITY_SM)) {
+      if (entity === 'description') continue;
+      for (const t of sm.transitions as Json[]) {
+        if (t.by === 'system' || t.by === 'updateAdminOrganization') continue;
+        if (!seenEntity.has(`${entity}.${t.action}.${t.by}`))
+          bad.push(`${t.by}: x-transition ${entity}.${t.action} missing`);
+      }
     }
     expect(bad).toEqual([]);
     expect(seen.sort()).toEqual([...wActions].sort());
@@ -665,6 +798,117 @@ describe('openapi contract: operations', () => {
     expect(params.origin?.schema).toEqual({ type: 'string', enum: ['me', 'all'], default: 'all' });
     expect(params.orgId?.schema).toEqual({ type: 'string', format: 'uuid' });
     expect(op.description).toMatch(/validation\.orgId\.notAllowed/);
+  });
+
+  it('role-restricted filters are rejected with validation.<param>.notAllowed, never ignored (R51)', () => {
+    const restricted: [string, string][] = [
+      ['listFields', 'organizationId'],
+      ['listUsers', 'organizationId'],
+      ['listWaybills', 'direction'],
+      ['listBatches', 'orgId'],
+      ['listLabTests', 'labOrgId'],
+      ['listRecallTasks', 'holderOrgId'],
+      ['listDictionary', 'includeDeleted'],
+      ['getDashboard', 'scope'],
+    ];
+    const bad: string[] = [];
+    for (const [opId, param] of restricted) {
+      const op = ops.find(({ op }) => op.operationId === opId)?.op;
+      const text = JSON.stringify([op?.description, ...(op?.parameters ?? []).map(deref)]);
+      if (
+        !text.includes(`validation.${param}.notAllowed`) &&
+        !text.includes('validation.<параметр>.notAllowed')
+      )
+        bad.push(`${opId}: ${param}`);
+    }
+    for (const { id, op } of ops.filter(({ op }) => 'x-sort' in op)) {
+      const text = JSON.stringify([op.description, ...(op.parameters ?? []).map(deref)]);
+      if (/игнорируется|учитывается только/.test(text)) bad.push(`${id}: silently ignored filter`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('downloadReport declares x-report-access per ReportType; its roles union equals x-roles', () => {
+    const op = ops.find(({ op }) => op.operationId === 'downloadReport')!.op;
+    expect(op['x-report-access']).toEqual(EXPECTED_REPORT_ACCESS);
+    expect(Object.keys(op['x-report-access']).sort()).toEqual(
+      [...doc.components.schemas.ReportType.enum].sort(),
+    );
+    const union = new Set(
+      Object.values<Json>(op['x-report-access']).flatMap((a) => [...a.roles, ...a.headRoles]),
+    );
+    expect([...union].sort()).toEqual([...op['x-roles']].sort());
+  });
+
+  it('Dashboard is a oneOf discriminated by scope with one variant per DashboardScope', () => {
+    const d = doc.components.schemas.Dashboard;
+    expect(d.discriminator.propertyName).toBe('scope');
+    const consts = (d.oneOf as Json[]).map((v) => deref(v).properties.scope.const);
+    expect(consts.sort()).toEqual([...doc.components.schemas.DashboardScope.enum].sort());
+    for (const [k, ref] of Object.entries<string>(d.discriminator.mapping))
+      expect(deref({ $ref: ref }).properties.scope.const).toBe(k);
+  });
+
+  it('IdempotencyKey text states the R53 storage precision', () => {
+    const d: string = doc.components.parameters.IdempotencyKey.description;
+    expect(d).toMatch(/cjson\.decode/);
+    expect(d).toMatch(/вложенное JSON-значение/);
+    expect(d).toMatch(/не сохраняется/);
+    expect(d).toMatch(/createWaybill[^.]*второй черновик/);
+  });
+
+  it('status and code enums equal the DB CHECK lists and contracts/rules/entity-state-machines.json', () => {
+    const dir = new URL('../../db/migrations/', import.meta.url);
+    const sql = readdirSync(dir)
+      .filter((f) => f.endsWith('.sql'))
+      .map((f) => readFileSync(new URL(f, dir), 'utf8'))
+      .join('\n');
+    const check = (table: string, column: string): string[] => {
+      const block = new RegExp(`CREATE TABLE ${table} \\(([\\s\\S]*?)\\n\\);`).exec(sql)?.[1] ?? '';
+      const m = new RegExp(`\\b${column} [^\\n]*?CHECK \\(${column} IN\\s*\\(([^)]*)\\)`).exec(block);
+      if (!m) throw new Error(`no CHECK for ${table}.${column}`);
+      return m[1]!.split(',').map((s) => s.trim().replace(/^'|'$/g, ''));
+    };
+    const s = doc.components.schemas;
+    const pairs: [string, string[], string[]][] = [
+      ['lab_tests.status', check('lab_tests', 'status'), s.LabTestStatus.enum],
+      ['lab_tests.status (rules)', check('lab_tests', 'status'), ENTITY_SM.labTest.statuses],
+      ['lab_tests.reason', check('lab_tests', 'reason'), s.LabTestReason.enum],
+      ['lab_tests.conclusion', check('lab_tests', 'conclusion'), s.LabConclusion.enum],
+      ['recalls.trigger', check('recalls', 'trigger'), s.RecallTrigger.enum],
+      ['recalls.status', check('recalls', 'status'), s.RecallStatus.enum],
+      ['recalls.status (rules)', check('recalls', 'status'), ENTITY_SM.recall.statuses],
+      ['recall_batches.direction', check('recall_batches', 'direction'), s.RecallDirection.enum],
+      ['recall_tasks.status', check('recall_tasks', 'status'), s.RecallTaskStatus.enum],
+      ['recall_tasks.status (rules)', check('recall_tasks', 'status'), ENTITY_SM.recallTask.statuses],
+      ['complaints.status', check('complaints', 'status'), s.ComplaintStatus.enum],
+      ['complaints.status (rules)', check('complaints', 'status'), ENTITY_SM.complaint.statuses],
+      ['complaints.decision', check('complaints', 'decision'), s.ComplaintDecisionType.enum],
+      ['organizations.status', check('organizations', 'status'), s.OrganizationStatus.enum],
+      ['organizations.status (rules)', check('organizations', 'status'), ENTITY_SM.organization.statuses],
+      ['notifications.type', check('notifications', 'type'), s.NotificationType.enum],
+      ['audit_log.backend', check('audit_log', 'backend'), s.AuditEntry.properties.backend.enum],
+      ['products.category', check('products', 'category'), s.ProductCategory.enum],
+      ['substances.type', check('substances', 'type'), s.SubstanceType.enum],
+    ];
+    const bad = pairs
+      .filter(([, db, api]) => JSON.stringify(db) !== JSON.stringify(api))
+      .map(([name, db, api]) => `${name}: DB ${db.join(',')} != ${api.join(',')}`);
+    expect(bad).toEqual([]);
+  });
+
+  it('NotificationType equals contracts/rules/notifications.json types; forced channels are recall types', () => {
+    const rules = JSON.parse(readFileSync(new URL('../rules/notifications.json', import.meta.url), 'utf8'));
+    expect(Object.keys(rules.types)).toEqual(doc.components.schemas.NotificationType.enum);
+    expect(rules.forcedChannels).toEqual(['RECALL', 'RECALL_TASK', 'OVERDUE']);
+    const groups = Object.keys(rules.recipientGroups);
+    const bad: string[] = [];
+    for (const [type, t] of Object.entries<Json>(rules.types)) {
+      for (const g of [...t.recipients, ...(t.recipientsOnClose ?? [])])
+        if (!groups.includes(g)) bad.push(`${type}: unknown recipient group ${g}`);
+      if (t.payload.includes('eventId')) bad.push(`${type}: eventId is implicit`);
+    }
+    expect(bad).toEqual([]);
   });
 
   it('every operation with a `sort` parameter declares x-sort {fields, default} and paginates', () => {
@@ -703,7 +947,7 @@ describe('openapi contract: operations', () => {
           seen.add(s);
           const isObject =
             s.type === 'object' || (Array.isArray(s.type) && s.type.includes('object')) || s.properties;
-          if (isObject && s.additionalProperties !== false) open.push(path);
+          if (isObject && s.additionalProperties !== false && !OPEN_BY_DESIGN.includes(path)) open.push(path);
           for (const [prop, sub] of Object.entries<Json>(s.properties ?? {})) walk(sub, `${path}.${prop}`);
           if (s.items) walk(s.items, `${path}[]`);
           for (const k of ['oneOf', 'anyOf', 'allOf']) (s[k] ?? []).forEach((x: Json) => walk(x, path));
@@ -896,6 +1140,38 @@ describe('openapi contract: examples validate against their schemas', () => {
       ['BatchCreate', { fieldId: 'x', productId: 'y', massKg: '1.000', harvestedAt: 'z' }, false],
       ['ProcessingRequest', { inputs: [], outputs: [] }, false],
       ['DiscrepancyPercent', '100000.00', true],
+      // Task 10
+      ['LossNormPercent', '100.00', true],
+      ['LossNormPercent', '0.00', true],
+      ['LossNormPercent', '100.01', false],
+      ['LossNormPercent', '5.5', false],
+      ['IndicatorValue', '0.015000', true],
+      ['IndicatorValue', '0.015', false],
+      ['Hours', '18.25', true],
+      ['Hours', '18.2', false],
+      ['LabResultsInput', { results: [] }, false],
+      [
+        'LabResultsInput',
+        { results: [{ indicatorId: '2b4d6f8a-0c2e-4a4b-8d6f-8a0c2e4b6d8f', value: '1e3' }] },
+        false,
+      ],
+      ['ComplaintDecision', { decision: 'LAB_TEST', comment: 'Проверить' }, false],
+      [
+        'ComplaintDecision',
+        { decision: 'REJECT', comment: 'Нет', labOrgId: '5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b' },
+        false,
+      ],
+      ['ComplaintDecision', { decision: 'REJECT', comment: 'Нет', blockUpstream: true }, false],
+      ['ComplaintDecision', { decision: 'RECALL', comment: 'Отзыв', blockUpstream: true }, true],
+      ['ComplaintDecision', { decision: 'RECALL', comment: '   ' }, false],
+      ['MarkReadRequest', { ids: ['b7c8d9e0-f1a2-4b3c-8d4e-5f6a7b8c9d0e'], upToSeq: 3 }, false],
+      ['MarkReadRequest', { upToSeq: 1042 }, true],
+      ['MarkReadRequest', { ids: [] }, false],
+      ['OrganizationAdminPatch', {}, false],
+      ['OrganizationAdminPatch', { status: 'PENDING' }, false],
+      ['RecallCreate', { sourceBatchId: '1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c', reason: 'x' }, false],
+      ['NormInput', { productId: 'x', indicatorId: 'y', maxValue: '-1' }, false],
+      ['RegionInput', { code: 'кр', name: 'Край' }, false],
     ];
     const bad: string[] = [];
     for (const [name, value, valid] of cases) {

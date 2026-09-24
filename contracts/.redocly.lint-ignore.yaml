@@ -7,10 +7,12 @@ openapi/paths/health.yaml:
     - '#/~1health~1live/get/responses'
     - '#/~1health~1ready/get/responses'
 # Public operations without a rate-limit scope (ruling R30 lists only user, login-ip, forgot, complaint-ip)
-# and without any 4xx outcome: logout is idempotent (always 204), captcha always returns a new challenge.
+# and without any 4xx outcome: logout is idempotent (always 204), captcha always returns a new challenge,
+# the regions list (Task 10, registration form) has no parameters and always returns the whole dictionary.
 openapi/paths/auth.yaml:
   operation-4xx-response:
     - '#/~1auth~1logout/post/responses'
 openapi/paths/public.yaml:
   operation-4xx-response:
     - '#/~1public~1captcha/get/responses'
+    - '#/~1public~1regions/get/responses'

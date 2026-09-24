@@ -203,3 +203,32 @@
         $ref: '../components/responses.yaml#/BadRequest'
       '404':
         $ref: '../components/responses.yaml#/NotFound'
+/public/regions:
+  get:
+    operationId: listPublicRegions
+    summary: Справочник регионов
+    description: >-
+      Все регионы справочника `regions` без авторизации — для формы регистрации организации (`regionCode`) и фильтров.
+      Порядок — по `name` (кодовые точки Unicode), затем по `code`. Без пагинации (справочник мал).
+    tags: [Public]
+    security: []
+    x-roles: [PUBLIC]
+    responses:
+      '200':
+        description: Регионы.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/common.yaml#/Region'
+            example:
+              - code: '33'
+                name: Владимирская область
+              - code: '23'
+                name: Краснодарский край

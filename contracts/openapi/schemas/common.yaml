@@ -146,6 +146,7 @@ ProblemCode:
     - INTERNAL
     - NO_LAB_AVAILABLE
     - IDEMPOTENCY_KEY_IN_PROGRESS
+    - REFERENCE_IN_USE
   example: VALIDATION
 Problem:
   type: object

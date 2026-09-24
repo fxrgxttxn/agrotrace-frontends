@@ -9,7 +9,10 @@ info:
     `ANY` — любой авторизованный), `x-org-admin` — для ролей кроме ADMIN требуется руководитель своей
     организации, `x-idempotent` — обязателен `Idempotency-Key`, `x-access: signed` — вместо Bearer допускается
     подписанный URL, `x-rate-limit` — скоупы лимитов из `contracts/rules/rate-limits.json` (скоуп `user`
-    действует для всех запросов с Bearer). Строки: сервер никогда не обрезает пробелы и не превращает пустые
+    действует для всех запросов с Bearer), `x-locks` — протокол блокировок (ниже), `x-transition` — переход статуса
+    из `contracts/rules/*state-machine*.json`, `x-sort` — сортировка списков, `x-report-access` — доступ к типам
+    отчётов. Фильтр списка, недоступный роли пользователя или неприменимый к запросу, никогда не игнорируется
+    молча: 400 `errors.<параметр>: [validation.<параметр>.notAllowed]` (R51). Строки: сервер никогда не обрезает пробелы и не превращает пустые
     строки в null; пароли сравниваются побайтно; поля имён и названий не могут состоять только из пробельных
     символов (`pattern: '\S'`); email приводится к нижнему регистру перед проверкой уникальности и поиском;
     длины строк (`minLength`/`maxLength`) считаются в кодовых точках Unicode.
@@ -29,11 +32,12 @@ info:
     (статус сущности из пути) → 400 по ссылкам тела → поэлементные проверки. Возвращается первая сработавшая ошибка.
 
 
-    Протокол блокировок (R47) для операций, изменяющих партии или накладные (их блокируемые строки перечислены
-    в `x-locks` операции): транзакция READ COMMITTED; сначала `SELECT … FOR UPDATE` родительской строки
-    (накладная, отзыв, анализ, задача отзыва — элемент `waybill` и т.п. в `x-locks`), затем всех затрагиваемых
-    партий одним запросом `SELECT … FOR UPDATE … ORDER BY id` (элемент `batches`), затем прочих затрагиваемых
-    строк (например, задачи отзыва — `recallTasks`), тоже `ORDER BY id`. Все проверки из порядка
+    Протокол блокировок (R47, R52) для операций с `x-locks` (перечислены блокируемые строки в порядке блокировки):
+    транзакция READ COMMITTED (операции, запускающие движок отзыва, — REPEATABLE READ, описание тега Recalls). Единый
+    порядок для всех операций (R52): `waybill` → `recall` → `labTest` → `complaint` → `batches` (все затрагиваемые
+    партии одним запросом `SELECT … FOR UPDATE … ORDER BY id`) → `recallTasks` (`ORDER BY id`) → прочие строки;
+    элемент, не нужный операции, пропускается, но порядок остальных не меняется (операции над задачей отзыва
+    блокируют её партию раньше самой задачи). Все проверки из порядка
     проверок, начиная с 404, выполняются над заблокированными строками; `If-Match` сравнивается с `version`
     заблокированной строки (compare-and-set), при расхождении — 409 VERSION_CONFLICT. Взаимоблокировка (SQLSTATE
     40P01) или ошибка сериализации (40001) — транзакция повторяется целиком один раз; повторный сбой — 409
@@ -90,19 +94,84 @@ tags:
         получатель (кроме DRAFT);
       - INSPECTOR и ADMIN — все накладные, кроме DRAFT (только чтение); LAB — нет доступа.
   - name: Lab
-    description: Лабораторные анализы и протоколы.
+    description: |
+      Лабораторные анализы и протоколы (БП-2). Видимость (удалённые анализы не видны никому; при нескольких ролях —
+      объединение):
+
+      - LAB — анализы своей лаборатории (`lab_org_id` = организация пользователя), в любом статусе;
+      - INSPECTOR и ADMIN — все анализы (INSPECTOR назначает внеплановые, ADMIN — только чтение);
+      - FARMER, PROCESSOR, RETAILER — анализы партий, видимых пользователю (описание тега Batches), только чтение.
+
+      Анализ создаётся: риск-моделью при регистрации партии (`createBatch`, reason RISK/PLANNED, партия → OnTest),
+      инспектором (`createLabTest`, INSPECTOR) и решением по жалобе (`decideComplaint`, COMPLAINT); срок `dueAt` =
+      `addWorkingDays(createdAt, 5)`. Эскалация (БП-2): планировщик `lab-escalation` каждые 5 минут переводит анализы
+      QUEUED/SAMPLED с now > `dueAt` в ESCALATED и публикует `lab.escalate` (уведомление LAB_OVERDUE руководителям
+      лаборатории и инспекторам) — `contracts/events/lab.escalate.schema.json`. Анализы партии, отозванной до внесения
+      результатов, не отменяются: результат вносится, но переход партии (labPass/labFail) не выполняется, так как она
+      не в статусе OnTest.
   - name: Recalls
-    description: Отзывы и задачи изъятия.
+    description: |
+      Отзывы и задачи изъятия (БП-5, FR-QA-07). Отзывы видят INSPECTOR и ADMIN (запускает только INSPECTOR); задачи —
+      их держатели и INSPECTOR.
+
+      Движок отзыва выполняется синхронно, внутри транзакции операции, которая его запускает (`createRecall`,
+      `submitLabResults` при заключении FAIL, `decideComplaint` с решением RECALL), на уровне REPEATABLE READ (п. 8.2.3);
+      ответ операции уже содержит применённый результат. Шаги:
+
+      1. Если по исходной партии есть отзыв в статусе OPEN — новый не создаётся, операция использует существующий
+         (шаги 2–7 не выполняются). Одновременное создание: нарушение уникального индекса `ux_recalls_open_source`
+         (SQLSTATE 23505) — транзакция повторяется целиком один раз и находит существующий отзыв.
+      2. Обход графа `batch_links` (п. 7.6, сырой рекурсивный SQL): DOWN — все потомки исходной партии, глубина 1…20;
+         UP — только при `blockUpstream` = true: все предки, глубина 1…20 (их другие потомки не включаются). Каждая
+         партия учитывается один раз с наименьшей глубиной; мягко удалённые партии пропускаются.
+      3. Блокировки (R47, R52): исходная и все найденные партии одним запросом `FOR UPDATE ORDER BY id`. Изменение
+         любой из них после начала транзакции даёт ошибку сериализации 40001 — повтор по протоколу R47, поэтому
+         связь, добавленная параллельной переработкой, не будет пропущена.
+      4. Строка `recalls`: OPEN, `opened_at` = now(), `trigger`, `reason`, `block_upstream`, `lab_test_id` /
+         `complaint_id`, `created_by` = автор запроса, `version` = 1.
+      5. Для исходной (SOURCE, глубина 0) и каждой найденной партии — строка `recall_batches` (`direction`, `depth`,
+         `status_before` = статус до отзыва). Партии в статусах Created, OnTest, Approved, InTransit, Accepted, OnSale,
+         Blocked переходят в Recalled (действие `recall`, `reason` RECALLED, автор — пользователь запроса, `version` + 1,
+         сброс кэша публичной страницы). Партии Processed, Sold, WrittenOff и уже Recalled (другим отзывом) статус не
+         меняют и задач не получают (п. 5.1).
+      6. Задача изъятия — для каждой партии, перешедшей в Recalled: держатель задачи — держатель партии, а для партии
+         со `status_before` = InTransit — получатель накладной SENT с этой партией (T9 note c; при отказе получателя от
+         накладной задача переназначается отправителю — `rejectWaybill`, R50); `due_at` = `recallTaskDueAt(opened_at)`
+         (+24 ч, BR-08); статус OPEN; `version` = 1.
+      7. BR-10: если не создано ни одной задачи (`shouldCloseRecall([])` = true), отзыв сразу CLOSED, `closed_at` =
+         `opened_at`, `version` = 2.
+
+      Асинхронно, после коммита, через очередь своей реализации: событие `recall.requested` — уведомления RECALL
+      (инспекторам, держателям задач, создателю исходной партии) и RECALL_TASK (держателю каждой задачи), затем
+      `rating.recalculate` для хозяйства — создателя исходной партии (BR-09, полный пересчёт). В теле ответа операции
+      этих результатов нет.
+
+      Просрочка (BR-08): планировщик `recall-task-overdue` каждые 5 минут (`pg_try_advisory_lock(hashtext(
+      'agrotrace.scheduler.recall-task-overdue'))`) в одной транзакции выбирает задачи OPEN с now > `due_at`
+      `FOR UPDATE SKIP LOCKED`, переводит их в OVERDUE (`escalated_at` = now(), `version` + 1, аудит
+      `system.recallTaskOverdue`) и после коммита публикует `notification.dispatch` OVERDUE (держатель + инспекторы).
+      Подтверждение задачи (`confirmRecallTask`) переводит партию в WrittenOff и закрывает отзыв, когда все задачи
+      CONFIRMED (BR-10).
   - name: Complaints
-    description: Рассмотрение жалоб покупателей.
+    description: >-
+      Рассмотрение жалоб покупателей (БП-6), только INSPECTOR. Жалоба создаётся с публичной страницы (NEW,
+      уведомление COMPLAINT инспекторам), берётся в работу (IN_REVIEW) и получает окончательное решение (DECIDED):
+      REJECT, LAB_TEST или RECALL. Переходы — `contracts/rules/entity-state-machines.json` (`complaint`).
   - name: Notifications
-    description: Центр уведомлений.
+    description: >-
+      Центр уведомлений (FR-NOTIF-01…04). Какие операции создают уведомления, кому и с какими ключами `payload` —
+      `contracts/rules/notifications.json`; доставка — событие `notification.dispatch` (contracts/events), SSE —
+      `GET /events/stream`. Уведомления RECALL, RECALL_TASK и OVERDUE отправляются во все доступные каналы независимо
+      от настроек пользователя (FR-NOTIF-03).
   - name: Analytics
-    description: Дашборды и отчёты.
+    description: Дашборды по ролям и выгрузка отчётов XLSX/PDF (FR-ANL-01…05).
   - name: Admin
-    description: Заявки организаций и журнал аудита.
+    description: Организации и заявки на регистрацию (ADMIN), журнал аудита (ADMIN, INSPECTOR — чтение).
   - name: Dictionaries
-    description: Справочники, импорт и фото продуктов.
+    description: >-
+      Справочники п. 7.2 (products, substances, indicators, norms, regions): чтение — все авторизованные, изменение,
+      импорт CSV/XLSX и фото продуктов — ADMIN. Удаление: products, substances, indicators — мягкое (`deleted_at`);
+      norms и regions — физическое (в таблицах нет `deleted_at`).
   - name: Files
     description: Скачивание файлов с проверкой прав.
   - name: Public
@@ -196,6 +265,60 @@ paths:
     $ref: './openapi/paths/public.yaml#/~1public~1captcha'
   /public/files/{id}:
     $ref: './openapi/paths/public.yaml#/~1public~1files~1{id}'
+  /public/regions:
+    $ref: './openapi/paths/public.yaml#/~1public~1regions'
+  /lab-tests:
+    $ref: './openapi/paths/lab.yaml#/~1lab-tests'
+  /lab-tests/{id}:
+    $ref: './openapi/paths/lab.yaml#/~1lab-tests~1{id}'
+  /lab-tests/{id}/sample:
+    $ref: './openapi/paths/lab.yaml#/~1lab-tests~1{id}~1sample'
+  /lab-tests/{id}/results:
+    $ref: './openapi/paths/lab.yaml#/~1lab-tests~1{id}~1results'
+  /lab-tests/{id}/protocol:
+    $ref: './openapi/paths/lab.yaml#/~1lab-tests~1{id}~1protocol'
+  /recalls:
+    $ref: './openapi/paths/recalls.yaml#/~1recalls'
+  /recalls/{id}:
+    $ref: './openapi/paths/recalls.yaml#/~1recalls~1{id}'
+  /recalls/{id}/graph:
+    $ref: './openapi/paths/recalls.yaml#/~1recalls~1{id}~1graph'
+  /recall-tasks:
+    $ref: './openapi/paths/recall-tasks.yaml#/~1recall-tasks'
+  /recall-tasks/{id}/confirm:
+    $ref: './openapi/paths/recall-tasks.yaml#/~1recall-tasks~1{id}~1confirm'
+  /complaints:
+    $ref: './openapi/paths/complaints.yaml#/~1complaints'
+  /complaints/{id}:
+    $ref: './openapi/paths/complaints.yaml#/~1complaints~1{id}'
+  /complaints/{id}/review:
+    $ref: './openapi/paths/complaints.yaml#/~1complaints~1{id}~1review'
+  /complaints/{id}/decision:
+    $ref: './openapi/paths/complaints.yaml#/~1complaints~1{id}~1decision'
+  /notifications:
+    $ref: './openapi/paths/notifications.yaml#/~1notifications'
+  /notifications/read:
+    $ref: './openapi/paths/notifications.yaml#/~1notifications~1read'
+  /analytics/dashboard:
+    $ref: './openapi/paths/analytics.yaml#/~1analytics~1dashboard'
+  /reports/{type}:
+    $ref: './openapi/paths/reports.yaml#/~1reports~1{type}'
+  /admin/organizations:
+    $ref: './openapi/paths/admin.yaml#/~1admin~1organizations'
+  /admin/organizations/{id}:
+    $ref: './openapi/paths/admin.yaml#/~1admin~1organizations~1{id}'
+  /admin/organizations/{id}/approve:
+    $ref: './openapi/paths/admin.yaml#/~1admin~1organizations~1{id}~1approve'
+  /dictionaries/{name}:
+    $ref: './openapi/paths/dictionaries.yaml#/~1dictionaries~1{name}'
+  /dictionaries/{name}/{id}:
+    $ref: './openapi/paths/dictionaries.yaml#/~1dictionaries~1{name}~1{id}'
+  /dictionaries/{name}/import:
+    $ref: './openapi/paths/dictionaries.yaml#/~1dictionaries~1{name}~1import'
+  /dictionaries/products/{id}/image:
+    $ref: './openapi/paths/dictionaries.yaml#/~1dictionaries~1products~1{id}~1image'
+  /audit-log:
+    $ref: './openapi/paths/audit.yaml#/~1audit-log'
   /health/live:
     $ref: './openapi/paths/health.yaml#/~1health~1live'
   /health/ready:
@@ -243,6 +366,8 @@ components:
       $ref: './openapi/components/parameters.yaml#/DateFrom'
     DateTo:
       $ref: './openapi/components/parameters.yaml#/DateTo'
+    DictionaryName:
+      $ref: './openapi/components/parameters.yaml#/DictionaryName'
   responses:
     BadRequest:
       $ref: './openapi/components/responses.yaml#/BadRequest'
@@ -309,6 +434,10 @@ components:
       $ref: './openapi/components/headers.yaml#/SetRefreshCookie'
     ClearRefreshCookie:
       $ref: './openapi/components/headers.yaml#/ClearRefreshCookie'
+    ReportContentDisposition:
+      $ref: './openapi/components/headers.yaml#/ReportContentDisposition'
+    CacheControlNoStore:
+      $ref: './openapi/components/headers.yaml#/CacheControlNoStore'
   schemas:
     Uuid:
       $ref: './openapi/schemas/common.yaml#/Uuid'
@@ -546,3 +675,147 @@ components:
       $ref: './openapi/schemas/waybills.yaml#/WaybillAccept'
     WaybillReject:
       $ref: './openapi/schemas/waybills.yaml#/WaybillReject'
+    ProtocolUpload:
+      $ref: './openapi/schemas/files.yaml#/ProtocolUpload'
+    ImportUpload:
+      $ref: './openapi/schemas/files.yaml#/ImportUpload'
+    NotificationPage:
+      $ref: './openapi/schemas/notifications.yaml#/NotificationPage'
+    MarkReadRequest:
+      $ref: './openapi/schemas/notifications.yaml#/MarkReadRequest'
+    LabTestStatus:
+      $ref: './openapi/schemas/lab.yaml#/LabTestStatus'
+    LabTestReason:
+      $ref: './openapi/schemas/lab.yaml#/LabTestReason'
+    LabConclusion:
+      $ref: './openapi/schemas/lab.yaml#/LabConclusion'
+    IndicatorValue:
+      $ref: './openapi/schemas/lab.yaml#/IndicatorValue'
+    LabNorm:
+      $ref: './openapi/schemas/lab.yaml#/LabNorm'
+    LabResult:
+      $ref: './openapi/schemas/lab.yaml#/LabResult'
+    LabTestActionName:
+      $ref: './openapi/schemas/lab.yaml#/LabTestActionName'
+    LabTestListItem:
+      $ref: './openapi/schemas/lab.yaml#/LabTestListItem'
+    LabTestPage:
+      $ref: './openapi/schemas/lab.yaml#/LabTestPage'
+    LabTest:
+      $ref: './openapi/schemas/lab.yaml#/LabTest'
+    LabTestCreate:
+      $ref: './openapi/schemas/lab.yaml#/LabTestCreate'
+    LabSampleRequest:
+      $ref: './openapi/schemas/lab.yaml#/LabSampleRequest'
+    LabResultsInput:
+      $ref: './openapi/schemas/lab.yaml#/LabResultsInput'
+    ActorRef:
+      $ref: './openapi/schemas/recalls.yaml#/ActorRef'
+    RecallTrigger:
+      $ref: './openapi/schemas/recalls.yaml#/RecallTrigger'
+    RecallStatus:
+      $ref: './openapi/schemas/recalls.yaml#/RecallStatus'
+    RecallDirection:
+      $ref: './openapi/schemas/recalls.yaml#/RecallDirection'
+    RecallTaskStatus:
+      $ref: './openapi/schemas/recalls.yaml#/RecallTaskStatus'
+    RecallProgress:
+      $ref: './openapi/schemas/recalls.yaml#/RecallProgress'
+    RecallTask:
+      $ref: './openapi/schemas/recalls.yaml#/RecallTask'
+    RecallTaskPage:
+      $ref: './openapi/schemas/recalls.yaml#/RecallTaskPage'
+    RecallTaskConfirm:
+      $ref: './openapi/schemas/recalls.yaml#/RecallTaskConfirm'
+    RecallBatch:
+      $ref: './openapi/schemas/recalls.yaml#/RecallBatch'
+    RecallListItem:
+      $ref: './openapi/schemas/recalls.yaml#/RecallListItem'
+    RecallPage:
+      $ref: './openapi/schemas/recalls.yaml#/RecallPage'
+    Recall:
+      $ref: './openapi/schemas/recalls.yaml#/Recall'
+    RecallCreate:
+      $ref: './openapi/schemas/recalls.yaml#/RecallCreate'
+    RecallGraph:
+      $ref: './openapi/schemas/recalls.yaml#/RecallGraph'
+    ComplaintStatus:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintStatus'
+    ComplaintDecisionType:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintDecisionType'
+    ComplaintListItem:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintListItem'
+    ComplaintPage:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintPage'
+    Complaint:
+      $ref: './openapi/schemas/complaints.yaml#/Complaint'
+    ComplaintReviewRequest:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintReviewRequest'
+    ComplaintComment:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintComment'
+    ComplaintDecision:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintDecision'
+    DashboardScope:
+      $ref: './openapi/schemas/analytics.yaml#/DashboardScope'
+    Hours:
+      $ref: './openapi/schemas/analytics.yaml#/Hours'
+    DashboardPeriod:
+      $ref: './openapi/schemas/analytics.yaml#/DashboardPeriod'
+    RejectedShareItem:
+      $ref: './openapi/schemas/analytics.yaml#/RejectedShareItem'
+    InspectorDashboard:
+      $ref: './openapi/schemas/analytics.yaml#/InspectorDashboard'
+    OrgDashboard:
+      $ref: './openapi/schemas/analytics.yaml#/OrgDashboard'
+    LabDashboard:
+      $ref: './openapi/schemas/analytics.yaml#/LabDashboard'
+    Dashboard:
+      $ref: './openapi/schemas/analytics.yaml#/Dashboard'
+    ReportType:
+      $ref: './openapi/schemas/analytics.yaml#/ReportType'
+    ReportFormat:
+      $ref: './openapi/schemas/analytics.yaml#/ReportFormat'
+    OrganizationAdmin:
+      $ref: './openapi/schemas/admin.yaml#/OrganizationAdmin'
+    OrganizationAdminPage:
+      $ref: './openapi/schemas/admin.yaml#/OrganizationAdminPage'
+    OrganizationAdminPatch:
+      $ref: './openapi/schemas/admin.yaml#/OrganizationAdminPatch'
+    AuditEntityType:
+      $ref: './openapi/schemas/admin.yaml#/AuditEntityType'
+    AuditEntry:
+      $ref: './openapi/schemas/admin.yaml#/AuditEntry'
+    AuditPage:
+      $ref: './openapi/schemas/admin.yaml#/AuditPage'
+    DictionaryName:
+      $ref: './openapi/schemas/dictionaries.yaml#/DictionaryName'
+    LossNormPercent:
+      $ref: './openapi/schemas/dictionaries.yaml#/LossNormPercent'
+    Product:
+      $ref: './openapi/schemas/dictionaries.yaml#/Product'
+    ProductInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/ProductInput'
+    Substance:
+      $ref: './openapi/schemas/dictionaries.yaml#/Substance'
+    SubstanceInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/SubstanceInput'
+    Indicator:
+      $ref: './openapi/schemas/dictionaries.yaml#/Indicator'
+    IndicatorInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/IndicatorInput'
+    Norm:
+      $ref: './openapi/schemas/dictionaries.yaml#/Norm'
+    NormInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/NormInput'
+    RegionEntry:
+      $ref: './openapi/schemas/dictionaries.yaml#/RegionEntry'
+    RegionInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/RegionInput'
+    DictionaryEntry:
+      $ref: './openapi/schemas/dictionaries.yaml#/DictionaryEntry'
+    DictionaryInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/DictionaryInput'
+    DictionaryPage:
+      $ref: './openapi/schemas/dictionaries.yaml#/DictionaryPage'
+    ImportReport:
+      $ref: './openapi/schemas/dictionaries.yaml#/ImportReport'

@@ -1,0 +1,297 @@
+# Модуль Complaints (БП-6, FR-QA-08). Жалобы создаёт покупатель: POST /public/batches/{publicCode}/complaints.
+/complaints:
+  get:
+    operationId: listComplaints
+    summary: Список жалоб
+    description: |
+      Все жалобы (только INSPECTOR; удалённые не видны). Фильтры (объединяются по И):
+
+      - `status`, `decision` — одно или несколько значений (параметр повторяется);
+      - `batchId` — жалобы на партию;
+      - `from`/`to` — по дате UTC `createdAt`;
+      - `q` — подстрока `publicCode` партии или текста жалобы без учёта регистра.
+
+      Сортировка — `x-sort`.
+    tags: [Complaints]
+    x-roles: [INSPECTOR]
+    x-sort:
+      fields: [createdAt, decidedAt]
+      default: createdAt,desc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: status
+        in: query
+        description: Фильтр по статусам (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/complaints.yaml#/ComplaintStatus'
+      - name: decision
+        in: query
+        description: Фильтр по решениям (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/complaints.yaml#/ComplaintDecisionType'
+      - name: batchId
+        in: query
+        description: Жалобы на партию.
+        schema:
+          type: string
+          format: uuid
+      - $ref: '../components/parameters.yaml#/DateFrom'
+      - $ref: '../components/parameters.yaml#/DateTo'
+    responses:
+      '200':
+        description: Страница жалоб.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/complaints.yaml#/ComplaintPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/complaints/{id}:
+  get:
+    operationId: getComplaint
+    summary: Карточка жалобы
+    description: Жалоба с контактом покупателя и итогом решения. Не существует или удалена — 404.
+    tags: [Complaints]
+    x-roles: [INSPECTOR]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: Карточка жалобы.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/complaints.yaml#/Complaint'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/complaints/{id}/review:
+  post:
+    operationId: startComplaintReview
+    summary: Взять жалобу в работу
+    description: |
+      Инспектор берёт новую жалобу в работу. Порядок проверок:
+
+      1. Тело по схеме — 400.
+
+      Блокировки (R47, R52): жалоба `FOR UPDATE`; шаги 2–3 — над заблокированной строкой.
+
+      2. Жалоба не существует или удалена — 404.
+
+      3. Статус не NEW — 409 INVALID_TRANSITION `{from: <статус>, to: IN_REVIEW}`.
+
+      Результат: статус IN_REVIEW, `inspector` = пользователь.
+    tags: [Complaints]
+    x-roles: [INSPECTOR]
+    x-locks: [complaint]
+    x-transition: { entity: complaint, action: review, to: IN_REVIEW }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/complaints.yaml#/ComplaintReviewRequest'
+    responses:
+      '200':
+        description: Жалоба в работе.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/complaints.yaml#/Complaint'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Жалоба уже в работе или решена (INVALID_TRANSITION) либо повторная взаимоблокировка (VERSION_CONFLICT).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              invalidTransition:
+                summary: Жалоба уже решена
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: DECIDED
+                    to: IN_REVIEW
+              lockRetryFailed:
+                summary: Повторная взаимоблокировка
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/complaints/{id}/decision:
+  post:
+    operationId: decideComplaint
+    summary: Решение по жалобе
+    description: |
+      Инспектор принимает решение (БП-6): REJECT — отклонить; LAB_TEST — внеплановый анализ; RECALL — отзыв. Решение
+      окончательное. При RECALL транзакция уровня REPEATABLE READ (движок отзыва). Первая сработавшая проверка
+      возвращается:
+
+      1. Тело по схеме (в том числе `labOrgId` только и обязательно при LAB_TEST, `blockUpstream` только при RECALL)
+      — 400.
+
+      Блокировки (R47, R52): жалоба `FOR UPDATE`; при RECALL затем партии одним запросом `FOR UPDATE ORDER BY id`
+      (движок, шаг 3); шаги 2–4 — над заблокированной жалобой.
+
+      2. Жалоба не существует или удалена — 404.
+
+      3. Статус DECIDED — 409 INVALID_TRANSITION `{from: DECIDED, to: DECIDED}` (решение принимается из NEW или
+      IN_REVIEW, любым инспектором).
+
+      4. LAB_TEST: организация `labOrgId` не существует или не ACTIVE — 400 `errors.labOrgId: [validation.notFound]`,
+      тип не LAB — `[validation.labOrg.type]`.
+
+      Результат: статус DECIDED, `decision`, `decisionComment` = `comment`, `inspector` = пользователь, `decidedAt` =
+      текущее время, и по решению:
+
+      - REJECT — только это;
+      - LAB_TEST — анализ как в `createLabTest`, но `reason` = COMPLAINT, лаборатория `labOrgId`; `labTestId` жалобы =
+        его id; уведомление LAB_ASSIGNED после коммита. Результат этого анализа с FAIL автоматически запускает отзыв
+        с `trigger` LAB (`submitLabResults`);
+      - RECALL — движок отзыва (описание тега Recalls): исходная партия — партия жалобы, `trigger` COMPLAINT,
+        `complaintId` — эта жалоба, `reason` = `comment`, `blockUpstream` из тела (по умолчанию false), автор —
+        пользователь; если по партии уже есть отзыв OPEN — новый не создаётся. `recallId` жалобы — id нового или
+        существующего отзыва; при новом отзыве после коммита — `recall.requested`.
+    tags: [Complaints]
+    x-roles: [INSPECTOR]
+    x-locks: [complaint, batches]
+    x-transition: { entity: complaint, action: decide, to: DECIDED }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/complaints.yaml#/ComplaintDecision'
+          examples:
+            labTest:
+              summary: Назначить внеплановый анализ
+              value:
+                decision: LAB_TEST
+                comment: Назначен внеплановый анализ на остаточные пестициды
+                labOrgId: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+            recall:
+              summary: Сразу запустить отзыв
+              value:
+                decision: RECALL
+                comment: Подтверждённые жалобы нескольких покупателей на тошноту
+                blockUpstream: false
+            reject:
+              summary: Отклонить
+              value:
+                decision: REJECT
+                comment: Претензия не связана с качеством продукции
+    responses:
+      '200':
+        description: Решение принято.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/complaints.yaml#/Complaint'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Решение уже принято (INVALID_TRANSITION) либо повторный конфликт блокировок (VERSION_CONFLICT).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              invalidTransition:
+                summary: Решение уже принято
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: DECIDED
+                    to: DECIDED
+              lockRetryFailed:
+                summary: Повторная взаимоблокировка
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

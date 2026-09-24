@@ -1,0 +1,110 @@
+# Модуль Notifications (FR-NOTIF-01…04). Матрица типов — contracts/rules/notifications.json.
+/notifications:
+  get:
+    operationId: listNotifications
+    summary: Центр уведомлений
+    description: |
+      Собственные уведомления пользователя канала IN_APP (строки EMAIL/TELEGRAM не отдаются). Фильтры (по И):
+
+      - `isRead` — `false`: только непрочитанные, `true`: только прочитанные;
+      - `type` — один или несколько типов (параметр повторяется);
+      - `from`/`to` — по дате UTC `createdAt`.
+
+      Сортировка — `x-sort` (`seq` монотонно растёт, поэтому `seq,desc` — от новых к старым). Счётчик непрочитанных
+      приходит событием SSE `unread` (`GET /events/stream`).
+    tags: [Notifications]
+    x-roles: [ANY]
+    x-sort:
+      fields: [seq]
+      default: seq,desc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - name: isRead
+        in: query
+        description: Фильтр по признаку прочтения.
+        schema:
+          type: boolean
+      - name: type
+        in: query
+        description: Фильтр по типам (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/notifications.yaml#/NotificationType'
+      - $ref: '../components/parameters.yaml#/DateFrom'
+      - $ref: '../components/parameters.yaml#/DateTo'
+    responses:
+      '200':
+        description: Страница уведомлений.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/notifications.yaml#/NotificationPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/notifications/read:
+  post:
+    operationId: markNotificationsRead
+    summary: Отметка уведомлений прочитанными
+    description: |
+      Отмечает собственные уведомления IN_APP прочитанными (`is_read` = true; уже прочитанные не меняются — операция
+      идемпотентна): по списку `ids` либо все с `seq` ≤ `upToSeq`. Id, не принадлежащий пользователю, не существующий
+      или не IN_APP, — 400 `errors["ids[i]"]: [validation.notFound]`, ничего не отмечается.
+
+      Ответ — число оставшихся непрочитанных. После коммита backend выполняет
+      `SELECT pg_notify('notifications', json_build_object('user_id', :userId, 'unread', true)::text)`: каждая
+      реализация, получив по LISTEN полезную нагрузку без `id`, отправляет потокам SSE этого пользователя только
+      событие `unread` с новым счётчиком (с `id` — как раньше: `notification`, затем `unread`).
+    tags: [Notifications]
+    x-roles: [ANY]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/notifications.yaml#/MarkReadRequest'
+          examples:
+            byIds:
+              summary: Отметить выбранные
+              value:
+                ids: [b7c8d9e0-f1a2-4b3c-8d4e-5f6a7b8c9d0e]
+            upToSeq:
+              summary: Прочитать все до последнего показанного
+              value:
+                upToSeq: 1042
+    responses:
+      '200':
+        description: Уведомления отмечены; счётчик непрочитанных.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/notifications.yaml#/UnreadCount'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

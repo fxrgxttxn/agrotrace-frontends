@@ -7,7 +7,8 @@
       Накладные, видимые пользователю (описание тега Waybills). Фильтры (объединяются по И):
 
       - `direction` — `outgoing`: отправитель — организация пользователя; `incoming`: получатель — организация
-        пользователя; без параметра — обе. Для INSPECTOR и ADMIN игнорируется;
+        пользователя; без параметра — обе. Только для FARMER, PROCESSOR, RETAILER (INSPECTOR и ADMIN — 400
+        `errors.direction: [validation.direction.notAllowed]`, R51);
       - `status` — один или несколько статусов (параметр повторяется);
       - `counterpartyOrgId` — вторая сторона накладной (для INSPECTOR и ADMIN — отправитель или получатель);
       - `from`/`to` — по дате UTC `createdAt`;

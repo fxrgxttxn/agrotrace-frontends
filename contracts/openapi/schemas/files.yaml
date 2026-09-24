@@ -27,3 +27,28 @@ FileBinary:
   type: string
   format: binary
   description: Содержимое файла.
+ProtocolUpload:
+  type: object
+  description: >-
+    PDF-протокол испытаний в поле `file`: только PDF (сигнатура `%PDF-`), хранится как есть. MIME проверяется
+    по сигнатуре содержимого.
+  required: [file]
+  additionalProperties: false
+  properties:
+    file:
+      type: string
+      format: binary
+      contentMediaType: application/octet-stream
+ImportUpload:
+  type: object
+  description: >-
+    Файл импорта справочника в поле `file`: CSV (UTF-8) или XLSX; формат — в описании `importDictionary`.
+    Тип определяется по содержимому: ZIP-контейнер OOXML с `xl/workbook.xml` — XLSX; иначе корректный UTF-8 текст без
+    нулевых байтов — CSV; прочее — 415.
+  required: [file]
+  additionalProperties: false
+  properties:
+    file:
+      type: string
+      format: binary
+      contentMediaType: application/octet-stream

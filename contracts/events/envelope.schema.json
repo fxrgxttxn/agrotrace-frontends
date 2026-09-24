@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agrotrace.local/contracts/events/envelope.schema.json",
+  "title": "AgroTrace queue event envelope",
+  "description": "Common document of every queue event (spec 8.1, 8.2.1). Transport: each backend publishes only to its own durable direct exchange `agrotrace.{backend}` with routing key = `type`; its worker consumes only the durable queue `agrotrace.{backend}.worker` bound to all event types, so an event is handled by exactly one worker of the backend that created it. Express publishes this document as the message body (persistent, content_type application/json, message_id = id); Celery and Laravel Queue pass this document as the single argument of the task/job named by `type` (their own wrapper format is library-defined). Events are published only AFTER the database transaction that caused them commits; a publish failure is retried 3 times (delays 1 s, 2 s, 4 s) and then logged at ERROR level, the API operation still succeeds. Delivery is at-least-once: every handler is idempotent (see each event). A failed handler is retried up to 5 times with delays 2, 4, 8, 16, 32 s, then the message goes to the dead-letter queue `agrotrace.{backend}.dead`.",
+  "type": "object",
+  "required": ["id", "type", "occurredAt", "backend", "requestId", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Event id (UUID v4), also the AMQP message_id; stored as `eventId` in notification payloads for deduplication."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["recall.requested", "notification.dispatch", "lab.escalate", "rating.recalculate"]
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Commit time of the causing transaction, ISO 8601 UTC with Z."
+    },
+    "backend": { "type": "string", "enum": ["express", "django", "laravel"] },
+    "requestId": {
+      "type": ["string", "null"],
+      "maxLength": 64,
+      "description": "X-Request-Id of the API request that caused the event; null for scheduler jobs. An event published by a worker copies the requestId of the event being handled."
+    },
+    "data": { "type": "object" }
+  }
+}

@@ -6,8 +6,8 @@
     summary: Список полей
     description: >-
       FARMER видит неудалённые поля своего хозяйства, INSPECTOR и ADMIN — всех хозяйств. Фильтры: `q` — подстрока
-      названия без учёта регистра; `regionCode`; `organizationId` — только для INSPECTOR и ADMIN (для FARMER
-      игнорируется). Сортировка — `x-sort`.
+      названия без учёта регистра; `regionCode`; `organizationId` — только для INSPECTOR и ADMIN (FARMER с этим параметром — 400
+      `errors.organizationId: [validation.organizationId.notAllowed]`, R51). Сортировка — `x-sort`.
     tags: [Fields]
     x-roles: [FARMER, INSPECTOR, ADMIN]
     x-sort:
@@ -25,7 +25,7 @@
           $ref: '../schemas/dictionaries-ref.yaml#/RegionCode'
       - name: organizationId
         in: query
-        description: Фильтр по хозяйству (учитывается только для INSPECTOR и ADMIN).
+        description: Фильтр по хозяйству (только INSPECTOR и ADMIN, иначе 400 `validation.organizationId.notAllowed`, R51).
         schema:
           type: string
           format: uuid

@@ -89,3 +89,17 @@ RetryAfterInProgress:
     type: integer
     const: 1
   example: 1
+ReportContentDisposition:
+  description: >-
+    Отчёт отдаётся как вложение: `attachment; filename="<имя>"; filename*=UTF-8''<имя>`. Имя только из символов
+    ASCII `[a-z0-9._-]` по правилам операции `downloadReport`, поэтому обе формы совпадают.
+  schema:
+    type: string
+    pattern: '^attachment; filename="agrotrace-[a-z0-9._-]+\.(xlsx|pdf)"; filename\*=UTF-8''''agrotrace-[a-z0-9._-]+\.(xlsx|pdf)$'
+  example: attachment; filename="agrotrace-recalls_2026-08-26_2026-09-24.xlsx"; filename*=UTF-8''agrotrace-recalls_2026-08-26_2026-09-24.xlsx
+CacheControlNoStore:
+  description: Динамически сформированный ответ не кэшируется.
+  schema:
+    type: string
+    enum: [no-store]
+  example: no-store

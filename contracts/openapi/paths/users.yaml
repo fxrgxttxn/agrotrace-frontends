@@ -20,7 +20,9 @@
       - $ref: '../components/parameters.yaml#/Q'
       - name: organizationId
         in: query
-        description: Фильтр по организации (учитывается только для ADMIN; для остальных — всегда своя организация).
+        description: >-
+          Фильтр по организации — только для ADMIN (руководитель всегда видит свою организацию; с этим параметром —
+          400 `errors.organizationId: [validation.organizationId.notAllowed]`, R51).
         schema:
           type: string
           format: uuid

@@ -1,0 +1,297 @@
+# Дашборды и отчёты (FR-ANL-01…05).
+DashboardScope:
+  type: string
+  description: >-
+    inspector — вся система (роли INSPECTOR, ADMIN); org — своя организация (FARMER, PROCESSOR, RETAILER);
+    lab — своя лаборатория (LAB).
+  enum: [inspector, org, lab]
+  example: inspector
+Hours:
+  type: string
+  pattern: '^\d{1,9}\.\d{2}$'
+  description: >-
+    Средняя длительность в часах, ровно два знака после точки: S / (N × 3600), где S — сумма длительностей в целых
+    секундах (`floor(extract(epoch from конец - начало))` по каждой записи), N — число записей; округление половины
+    вверх (как `ratioPercent2(S, N × 360000)` из `@agrotrace/domain`).
+  example: '18.25'
+DashboardPeriod:
+  type: object
+  description: >-
+    Применённое окно (даты UTC, включительно). По умолчанию `to` = текущая дата UTC, `from` = `to` − 29 дней
+    (30 дней).
+  required: [from, to]
+  additionalProperties: false
+  properties:
+    from:
+      $ref: './common.yaml#/Date'
+    to:
+      $ref: './common.yaml#/Date'
+  example:
+    from: '2026-08-26'
+    to: '2026-09-24'
+RejectedShareItem:
+  type: object
+  description: >-
+    Доля забракованных: среди анализов, завершённых в окне (`status` DONE, `completedAt` в окне), `tested` — их число,
+    `failed` — с заключением FAIL, `share` = `ratioPercent2(failed, tested)` (проценты, два знака, округление половины
+    вверх).
+  required: [key, name, tested, failed, share]
+  additionalProperties: false
+  properties:
+    key:
+      $ref: './common.yaml#/Uuid'
+    name:
+      type: string
+    tested:
+      type: integer
+      minimum: 1
+    failed:
+      type: integer
+      minimum: 0
+    share:
+      $ref: './common.yaml#/Percent'
+  example:
+    key: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+    name: КФХ Петров
+    tested: 8
+    failed: 1
+    share: '12.50'
+InspectorDashboard:
+  type: object
+  description: |
+    Дашборд инспектора (FR-ANL-01), вся система, удалённые записи не учитываются:
+
+    - `batchesTotal` — партии, созданные в окне (`created_at`);
+    - `rejectedShare.byProduct` / `byFarm` — `RejectedShareItem` по продукту партии (`key` = id продукта) и по
+      хозяйству-создателю сырьевой партии (`key` = id организации типа FARM; производные партии в `byFarm` не входят);
+      не более 10 строк каждый, порядок — `share` по убыванию, затем `tested` по убыванию, затем `name`;
+    - `activeRecalls` — отзывы в статусе OPEN на момент запроса (не зависит от окна);
+    - `avgRecallHours` — средняя длительность (`closedAt` − `openedAt`) отзывов, закрытых в окне; null — таких нет;
+    - `violationsByRegion` — все регионы справочника (в том числе с нулём), `count` — анализы с FAIL, завершённые в
+      окне, по региону организации-создателя партии; порядок — по `code`.
+  required: [scope, period, batchesTotal, rejectedShare, activeRecalls, avgRecallHours, violationsByRegion]
+  additionalProperties: false
+  properties:
+    scope:
+      type: string
+      const: inspector
+    period:
+      $ref: '#/DashboardPeriod'
+    batchesTotal:
+      type: integer
+      minimum: 0
+    rejectedShare:
+      type: object
+      required: [byProduct, byFarm]
+      additionalProperties: false
+      properties:
+        byProduct:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/RejectedShareItem'
+        byFarm:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/RejectedShareItem'
+    activeRecalls:
+      type: integer
+      minimum: 0
+    avgRecallHours:
+      oneOf:
+        - $ref: '#/Hours'
+        - type: 'null'
+    violationsByRegion:
+      type: array
+      items:
+        type: object
+        required: [code, name, count]
+        additionalProperties: false
+        properties:
+          code:
+            type: string
+          name:
+            type: string
+          count:
+            type: integer
+            minimum: 0
+  example:
+    scope: inspector
+    period:
+      from: '2026-08-26'
+      to: '2026-09-24'
+    batchesTotal: 40
+    rejectedShare:
+      byProduct:
+        - key: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+          name: Пшеница озимая
+          tested: 8
+          failed: 1
+          share: '12.50'
+      byFarm:
+        - key: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+          name: КФХ Петров
+          tested: 8
+          failed: 1
+          share: '12.50'
+    activeRecalls: 1
+    avgRecallHours: '18.25'
+    violationsByRegion:
+      - code: '23'
+        name: Краснодарский край
+        count: 1
+      - code: '50'
+        name: Московская область
+        count: 0
+OrgDashboard:
+  type: object
+  description: |
+    Дашборд организации (FR-ANL-02) пользователя, удалённые записи не учитываются:
+
+    - `byStatus` — все 11 статусов в порядке `contracts/rules/state-machine.json` (в том числе с нулём), `count` —
+      партии, держатель которых — организация, на момент запроса (не зависит от окна);
+    - `labResults` — анализы, завершённые в окне, по партиям, созданным организацией (`origin`): `pass` / `fail`;
+    - `openTasks` — задачи отзыва организации в статусе OPEN или OVERDUE на момент запроса; `overdueTasks` — из них
+      с now > `dueAt`.
+  required: [scope, period, organization, byStatus, labResults, openTasks, overdueTasks]
+  additionalProperties: false
+  properties:
+    scope:
+      type: string
+      const: org
+    period:
+      $ref: '#/DashboardPeriod'
+    organization:
+      $ref: './common.yaml#/OrganizationRef'
+    byStatus:
+      type: array
+      minItems: 11
+      maxItems: 11
+      items:
+        type: object
+        required: [status, count]
+        additionalProperties: false
+        properties:
+          status:
+            $ref: './common.yaml#/BatchStatus'
+          count:
+            type: integer
+            minimum: 0
+    labResults:
+      type: object
+      required: [pass, fail]
+      additionalProperties: false
+      properties:
+        pass:
+          type: integer
+          minimum: 0
+        fail:
+          type: integer
+          minimum: 0
+    openTasks:
+      type: integer
+      minimum: 0
+    overdueTasks:
+      type: integer
+      minimum: 0
+  example:
+    scope: org
+    period:
+      from: '2026-08-26'
+      to: '2026-09-24'
+    organization:
+      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+      name: КФХ Петров
+      type: FARM
+      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+    byStatus:
+      - { status: Created, count: 0 }
+      - { status: OnTest, count: 1 }
+      - { status: Approved, count: 3 }
+      - { status: InTransit, count: 1 }
+      - { status: Accepted, count: 0 }
+      - { status: Processed, count: 0 }
+      - { status: OnSale, count: 0 }
+      - { status: Sold, count: 0 }
+      - { status: Blocked, count: 0 }
+      - { status: Recalled, count: 1 }
+      - { status: WrittenOff, count: 2 }
+    labResults:
+      pass: 7
+      fail: 1
+    openTasks: 1
+    overdueTasks: 0
+LabDashboard:
+  type: object
+  description: |
+    Дашборд лаборатории пользователя (FR-ANL-03), удалённые анализы не учитываются:
+
+    - `queue` — анализы лаборатории в статусах QUEUED, SAMPLED, ESCALATED на момент запроса; `overdue` — из них
+      с now > `dueAt`;
+    - `completed` — анализы, завершённые в окне (`completedAt`); `failed` — из них с FAIL;
+    - `avgHours` — средняя длительность (`completedAt` − `createdAt`) анализов, завершённых в окне; null — таких нет.
+  required: [scope, period, organization, queue, overdue, completed, failed, avgHours]
+  additionalProperties: false
+  properties:
+    scope:
+      type: string
+      const: lab
+    period:
+      $ref: '#/DashboardPeriod'
+    organization:
+      $ref: './common.yaml#/OrganizationRef'
+    queue:
+      type: integer
+      minimum: 0
+    overdue:
+      type: integer
+      minimum: 0
+    completed:
+      type: integer
+      minimum: 0
+    failed:
+      type: integer
+      minimum: 0
+    avgHours:
+      oneOf:
+        - $ref: '#/Hours'
+        - type: 'null'
+  example:
+    scope: lab
+    period:
+      from: '2026-08-26'
+      to: '2026-09-24'
+    organization:
+      id: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+      name: ИЛ «Кубаньтест»
+      type: LAB
+      logoUrl: null
+    queue: 4
+    overdue: 1
+    completed: 12
+    failed: 1
+    avgHours: '52.40'
+Dashboard:
+  description: Дашборд выбранной области (`scope`).
+  oneOf:
+    - $ref: '#/InspectorDashboard'
+    - $ref: '#/OrgDashboard'
+    - $ref: '#/LabDashboard'
+  discriminator:
+    propertyName: scope
+    mapping:
+      inspector: '#/InspectorDashboard'
+      org: '#/OrgDashboard'
+      lab: '#/LabDashboard'
+ReportType:
+  type: string
+  description: >-
+    batches — реестр партий; recalls — реестр отзывов; recall — отчёт по одному отзыву (FR-ANL-04); lab-tests —
+    анализы; complaints — жалобы; org — сводка по организации.
+  enum: [batches, recalls, recall, lab-tests, complaints, org]
+  example: recalls
+ReportFormat:
+  type: string
+  enum: [xlsx, pdf]
+  example: xlsx
