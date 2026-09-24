@@ -2,23 +2,49 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agrotrace.local/contracts/events/lab.escalate.schema.json",
   "title": "lab.escalate",
-  "description": "Published by the scheduler job `lab-escalation` (every 5 minutes, tick skipped unless pg_try_advisory_lock(hashtext('agrotrace.scheduler.lab-escalation')) succeeds) once per lab test it escalated. The job, in one transaction, selects `lab_tests WHERE status IN ('QUEUED','SAMPLED') AND due_at < now() AND deleted_at IS NULL FOR UPDATE SKIP LOCKED` (isOverdue: now > dueAt), sets status ESCALATED, escalated_at = now(), version + 1, writes audit rows (action `system.labTestEscalate`) and inserts this event per test into `outbox_events` (published after commit by the outbox relay, see envelope). The handler creates notification LAB_OVERDUE for the heads of the lab organization and all inspectors, exactly like notification.dispatch (deduplicated by `eventId` = this event id).",
+  "description": "Published by the scheduler job `lab-escalation` (every 5 minutes, tick skipped unless pg_try_advisory_lock(hashtext('agrotrace.scheduler.lab-escalation')) succeeds) once per lab test it escalated. The job, in one transaction, selects `lab_tests WHERE status IN ('QUEUED','SAMPLED') AND due_at < now() AND deleted_at IS NULL FOR UPDATE SKIP LOCKED` (isOverdue: now > dueAt), sets status ESCALATED, escalated_at = now(), version + 1, writes audit rows (action `system.labTestEscalate`) and inserts this event per test into `outbox_events` (published after commit by the outbox relay, see envelope). The handler creates notification LAB_OVERDUE for the heads of the lab organization and all inspectors, exactly like notification.dispatch, in one transaction that starts with the processed_events claim (envelope, R56).",
   "type": "object",
-  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "allOf": [
+    {
+      "$ref": "envelope.schema.json"
+    }
+  ],
   "properties": {
-    "type": { "const": "lab.escalate" },
-    "requestId": { "type": "null" },
+    "type": {
+      "const": "lab.escalate"
+    },
+    "requestId": {
+      "type": "null"
+    },
     "data": {
       "type": "object",
       "required": ["labTestId", "labOrgId", "batchId", "publicCode", "dueAt", "escalatedAt"],
       "additionalProperties": false,
       "properties": {
-        "labTestId": { "type": "string", "format": "uuid" },
-        "labOrgId": { "type": "string", "format": "uuid" },
-        "batchId": { "type": "string", "format": "uuid" },
-        "publicCode": { "type": "string", "pattern": "^AT-\\d{4}-\\d{6,}$" },
-        "dueAt": { "type": "string", "format": "date-time" },
-        "escalatedAt": { "type": "string", "format": "date-time" }
+        "labTestId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "labOrgId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "publicCode": {
+          "type": "string",
+          "pattern": "^AT-\\d{4}-\\d{6,}$"
+        },
+        "dueAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "escalatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     }
   },

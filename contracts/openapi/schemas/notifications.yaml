@@ -25,7 +25,7 @@ Notification:
       additionalProperties: true
       description: >-
         Данные для текста и ссылки: ровно ключи, перечисленные для `type` в `contracts/rules/notifications.json`
-        (`types.<TYPE>.payload`), плюс `eventId` — id события очереди, создавшего уведомление (дедупликация).
+        (`types.<TYPE>.payload`).
         Идентификаторы — uuid, даты — ISO 8601 UTC.
     isRead:
       type: boolean
@@ -42,7 +42,6 @@ Notification:
       publicCode: AT-2026-000123
       dueAt: '2026-09-25T15:00:00Z'
       event: CREATED
-      eventId: 0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e
     isRead: false
     createdAt: '2026-09-24T09:00:12Z'
 UnreadCount:
@@ -82,7 +81,6 @@ NotificationPage:
           publicCode: AT-2026-000123
           dueAt: '2026-09-25T15:00:00Z'
           event: CREATED
-          eventId: 0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e
         isRead: false
         createdAt: '2026-09-24T09:00:12Z'
     page: 1

@@ -1,5 +1,5 @@
 {
-  "description": "Notification matrix (FR-NOTIF-01..04). `types` keys equal the DB CHECK on notifications.type and the NotificationType enum. `producedBy` lists operationIds (or system jobs) that emit the notification after their transaction commits; `recipients` are logical groups resolved to users by the worker of notification.dispatch (ACTIVE, non-deleted users only, deduplicated by user id); `payload` lists the exact keys of Notification.payload (every payload additionally carries `eventId` = id of the queue event that created it). One IN_APP row is always created per recipient; EMAIL/TELEGRAM rows follow the user's channel settings, except for `forcedChannels` types, which go to every available channel (email always, Telegram when linked) regardless of settings (FR-NOTIF-03).",
+  "description": "Notification matrix (FR-NOTIF-01..04). `types` keys equal the DB CHECK on notifications.type and the NotificationType enum. `producedBy` lists operationIds (or system jobs) that emit the notification after their transaction commits; `recipients` are logical groups resolved to users by the worker of notification.dispatch (ACTIVE, non-deleted users only, deduplicated by user id); `payload` lists the exact keys of Notification.payload. One IN_APP row is always created per recipient; EMAIL/TELEGRAM rows follow the user's channel settings, except for `forcedChannels` types, which go to every available channel (email always, Telegram when linked) regardless of settings (FR-NOTIF-03).",
   "recipientGroups": {
     "labOrg": "all users of the lab organization of the test",
     "labOrgHeads": "users with is_org_admin = true of the lab organization of the test",
@@ -39,7 +39,11 @@
       "payload": ["waybillId", "number", "senderOrgId", "senderName", "itemsCount"]
     },
     "RECALL": {
-      "producedBy": ["recall.requested (event OPENED)", "confirmRecallTask (event CLOSED)"],
+      "producedBy": [
+        "recall.requested (event OPENED)",
+        "recall engine at creation (event CLOSED, vacuous BR-10 close with no tasks: notification.dispatch in the same transaction, R59)",
+        "confirmRecallTask (event CLOSED)"
+      ],
       "recipients": ["inspectors", "taskHolders", "sourceOrigin"],
       "recipientsOnClose": ["inspectors"],
       "payload": ["recallId", "event", "sourceBatchId", "publicCode", "trigger"]

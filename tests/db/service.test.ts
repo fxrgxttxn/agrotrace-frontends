@@ -15,6 +15,25 @@ async function user(c: pg.PoolClient) {
 }
 
 describe('service schema', () => {
+  it('processed_events: the second claim of the same event inserts 0 rows (R56)', () =>
+    withTx(async (c) => {
+      const claim = (id: string) =>
+        c.query(
+          `INSERT INTO processed_events(event_id, backend) VALUES ($1, 'laravel') ON CONFLICT DO NOTHING`,
+          [id],
+        );
+      const id = '0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e';
+      expect((await claim(id)).rowCount).toBe(1);
+      expect((await claim(id)).rowCount).toBe(0);
+      const r = await c.query(`SELECT processed_at FROM processed_events WHERE event_id = $1`, [id]);
+      expect(r.rows[0].processed_at).toBeInstanceOf(Date);
+      await c.query('SAVEPOINT s');
+      await expectPgError(
+        c.query(`INSERT INTO processed_events(event_id, backend) VALUES (gen_random_uuid(), 'go')`),
+        '23514',
+      );
+    }));
+
   it('outbox_events: defaults, backend CHECK, app role can claim unpublished rows (R55)', () =>
     withTx(async (c) => {
       const r = await c.query(

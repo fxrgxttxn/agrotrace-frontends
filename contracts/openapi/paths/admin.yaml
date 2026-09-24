@@ -75,6 +75,8 @@
 
       1. Тело по схеме — 400.
 
+      Блокировки (R47, R59): организация `FOR UPDATE`; шаги 2–4 — над заблокированной строкой.
+
       2. Организация не существует или удалена — 404.
 
       3. `status` отличается от текущего и переход не разрешён для этой операции (`entity-state-machines.json`,
@@ -89,6 +91,7 @@
       может быть получателем новых накладных. Уведомления не отправляются.
     tags: [Admin]
     x-roles: [ADMIN]
+    x-locks: [organization]
     parameters:
       - $ref: '../components/parameters.yaml#/IdPath'
     requestBody:
@@ -118,7 +121,9 @@
       '404':
         $ref: '../components/responses.yaml#/NotFound'
       '409':
-        description: Недопустимая смена статуса (INVALID_TRANSITION).
+        description: >-
+          Недопустимая смена статуса (INVALID_TRANSITION) либо повторная взаимоблокировка (VERSION_CONFLICT без
+          `params`, R47).
         headers:
           X-Request-Id:
             $ref: '../components/headers.yaml#/XRequestId'
@@ -128,14 +133,24 @@
           application/problem+json:
             schema:
               $ref: '../schemas/common.yaml#/Problem'
-            example:
-              type: /problems/invalid-transition
-              title: Invalid status transition
-              status: 409
-              code: INVALID_TRANSITION
-              params:
-                from: PENDING
-                to: SUSPENDED
+            examples:
+              invalidTransition:
+                summary: Недопустимая смена статуса
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: PENDING
+                    to: SUSPENDED
+              lockRetryFailed:
+                summary: Повторная взаимоблокировка
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
       '429':
         $ref: '../components/responses.yaml#/TooManyRequests'
 /admin/organizations/{id}/approve:
@@ -145,6 +160,8 @@
     description: |
       Одобряет заявку на регистрацию (FR-IAM-01): PENDING или MANUAL_CHECK → ACTIVE. Порядок проверок:
 
+      Блокировки (R47, R59): организация `FOR UPDATE`; шаги 1–2 — над заблокированной строкой.
+
       1. Организация не существует или удалена — 404.
 
       2. Статус не PENDING и не MANUAL_CHECK — 409 INVALID_TRANSITION `{from: <статус>, to: ACTIVE}`.
@@ -153,6 +170,7 @@
       организации не меняются. Уведомления не отправляются (тип не предусмотрен `NotificationType`).
     tags: [Admin]
     x-roles: [ADMIN]
+    x-locks: [organization]
     x-transition: { entity: organization, action: approve, to: ACTIVE }
     parameters:
       - $ref: '../components/parameters.yaml#/IdPath'
@@ -175,7 +193,9 @@
       '404':
         $ref: '../components/responses.yaml#/NotFound'
       '409':
-        description: Организация не ожидает одобрения (INVALID_TRANSITION).
+        description: >-
+          Организация не ожидает одобрения (INVALID_TRANSITION) либо повторная взаимоблокировка (VERSION_CONFLICT без
+          `params`, R47).
         headers:
           X-Request-Id:
             $ref: '../components/headers.yaml#/XRequestId'
@@ -185,13 +205,23 @@
           application/problem+json:
             schema:
               $ref: '../schemas/common.yaml#/Problem'
-            example:
-              type: /problems/invalid-transition
-              title: Invalid status transition
-              status: 409
-              code: INVALID_TRANSITION
-              params:
-                from: ACTIVE
-                to: ACTIVE
+            examples:
+              invalidTransition:
+                summary: Организация уже активна
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: ACTIVE
+                    to: ACTIVE
+              lockRetryFailed:
+                summary: Повторная взаимоблокировка
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
       '429':
         $ref: '../components/responses.yaml#/TooManyRequests'

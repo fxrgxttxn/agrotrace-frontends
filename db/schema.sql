@@ -339,9 +339,11 @@ CREATE TABLE public.lab_tests (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by uuid,
     deleted_at timestamp with time zone,
+    recall_id uuid,
     CONSTRAINT lab_tests_check CHECK ((((status)::text = 'DONE'::text) = (conclusion IS NOT NULL))),
     CONSTRAINT lab_tests_conclusion_check CHECK (((conclusion)::text = ANY ((ARRAY['PASS'::character varying, 'FAIL'::character varying])::text[]))),
     CONSTRAINT lab_tests_reason_check CHECK (((reason)::text = ANY ((ARRAY['PLANNED'::character varying, 'RISK'::character varying, 'COMPLAINT'::character varying, 'INSPECTOR'::character varying])::text[]))),
+    CONSTRAINT lab_tests_recall_fail CHECK (((recall_id IS NULL) OR (NOT ((conclusion)::text IS DISTINCT FROM 'FAIL'::text)))),
     CONSTRAINT lab_tests_status_check CHECK (((status)::text = ANY ((ARRAY['QUEUED'::character varying, 'SAMPLED'::character varying, 'DONE'::character varying, 'ESCALATED'::character varying, 'CANCELLED'::character varying])::text[])))
 );
 
@@ -439,6 +441,18 @@ CREATE TABLE public.outbox_events (
     published_at timestamp with time zone,
     attempts integer DEFAULT 0 NOT NULL,
     CONSTRAINT outbox_events_backend_check CHECK (((backend)::text = ANY ((ARRAY['express'::character varying, 'django'::character varying, 'laravel'::character varying])::text[])))
+);
+
+
+--
+-- Name: processed_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.processed_events (
+    event_id uuid NOT NULL,
+    backend character varying(8) NOT NULL,
+    processed_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT processed_events_backend_check CHECK (((backend)::text = ANY ((ARRAY['express'::character varying, 'django'::character varying, 'laravel'::character varying])::text[])))
 );
 
 
@@ -915,6 +929,14 @@ ALTER TABLE ONLY public.outbox_events
 
 
 --
+-- Name: processed_events processed_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.processed_events
+    ADD CONSTRAINT processed_events_pkey PRIMARY KEY (event_id);
+
+
+--
 -- Name: products products_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1191,10 +1213,24 @@ CREATE INDEX ix_notifications_user ON public.notifications USING btree (user_id,
 
 
 --
+-- Name: ix_outbox_published; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_outbox_published ON public.outbox_events USING btree (published_at) WHERE (published_at IS NOT NULL);
+
+
+--
 -- Name: ix_outbox_unpublished; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX ix_outbox_unpublished ON public.outbox_events USING btree (backend, created_at) WHERE (published_at IS NULL);
+
+
+--
+-- Name: ix_processed_events_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ix_processed_events_at ON public.processed_events USING btree (processed_at);
 
 
 --
@@ -1599,6 +1635,14 @@ ALTER TABLE ONLY public.lab_tests
 
 ALTER TABLE ONLY public.lab_tests
     ADD CONSTRAINT lab_tests_protocol_file_id_fkey FOREIGN KEY (protocol_file_id) REFERENCES public.files(id);
+
+
+--
+-- Name: lab_tests lab_tests_recall_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lab_tests
+    ADD CONSTRAINT lab_tests_recall_id_fkey FOREIGN KEY (recall_id) REFERENCES public.recalls(id);
 
 
 --
@@ -2329,6 +2373,13 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.organizations TO agrotrace_app
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.outbox_events TO agrotrace_app;
+
+
+--
+-- Name: TABLE processed_events; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.processed_events TO agrotrace_app;
 
 
 --

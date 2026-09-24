@@ -267,6 +267,10 @@ LabTest:
     recallId:
       type: [string, 'null']
       format: uuid
+      description: >-
+        Колонка `lab_tests.recall_id` (R57): отзыв, созданный этим анализом при FAIL, или уже открытый отзыв по партии,
+        к которому он присоединился; не null только при `conclusion` = FAIL (CHECK в БД). Одинаков в ответе
+        `submitLabResults` и при последующих чтениях.
     version:
       type: integer
       minimum: 1

@@ -244,10 +244,12 @@ const EXPECTED_LOCKS: Record<string, string[]> = {
   confirmRecallTask: ['recall', 'batches', 'recallTasks'],
   startComplaintReview: ['complaint'],
   decideComplaint: ['complaint', 'batches'],
+  updateAdminOrganization: ['organization'], // R59
+  approveOrganization: ['organization'], // R59
 };
 
 // R52: total lock order for every operation.
-const LOCK_ORDER = ['waybill', 'recall', 'labTest', 'complaint', 'batches', 'recallTasks'];
+const LOCK_ORDER = ['waybill', 'recall', 'labTest', 'complaint', 'organization', 'batches', 'recallTasks'];
 
 const ENTITY_SM = JSON.parse(
   readFileSync(new URL('../rules/entity-state-machines.json', import.meta.url), 'utf8'),
@@ -847,6 +849,41 @@ describe('openapi contract: operations', () => {
     expect(consts.sort()).toEqual([...doc.components.schemas.DashboardScope.enum].sort());
     for (const [k, ref] of Object.entries<string>(d.discriminator.mapping))
       expect(deref({ $ref: ref }).properties.scope.const).toBe(k);
+  });
+
+  it('fix round 1 texts: R57 lab recall link, R58 import codes, R59 minors', () => {
+    const s = doc.components.schemas;
+    const opDesc = (id: string) => ops.find(({ op }) => op.operationId === id)!.op.description as string;
+    const bad: string[] = [];
+    const must = (name: string, text: string, re: RegExp) => {
+      if (!re.test(text)) bad.push(`${name}: ${re}`);
+    };
+    must('LabTest.recallId', s.LabTest.properties.recallId.description ?? '', /lab_tests\.recall_id/);
+    must('submitLabResults', opDesc('submitLabResults'), /lab_tests\.recall_id/);
+    must('ImportUpload', s.ImportUpload.description, /NUL/);
+    must('ImportUpload', s.ImportUpload.description, /validation\.import\.format/);
+    must('importDictionary', opDesc('importDictionary'), /численно/);
+    must('importDictionary', opDesc('importDictionary'), /первая по порядку файла/);
+    must('info', doc.info.description, /`complaint` → `organization` → `batches`/);
+    must(
+      'Recalls tag',
+      doc.tags.find((t: Json) => t.name === 'Recalls').description,
+      /мягко удалённые[^.]*проходит/i,
+    );
+    must(
+      'Recalls tag',
+      doc.tags.find((t: Json) => t.name === 'Recalls').description,
+      /RECALL `\{event: CLOSED\}`/,
+    );
+    must('downloadReport', opDesc('downloadReport'), /усекаются до минут/);
+    if (/\| Контакт \|/.test(opDesc('downloadReport')))
+      bad.push('downloadReport: complaints report must not have a contact column');
+    if (/eventId/.test(JSON.stringify(s.Notification))) bad.push('Notification: eventId removed by R56');
+    const rules = JSON.parse(readFileSync(new URL('../rules/notifications.json', import.meta.url), 'utf8'));
+    if (!rules.types.RECALL.producedBy.some((p: string) => /vacuous/.test(p)))
+      bad.push('notifications.json: RECALL CLOSED on vacuous close');
+    if (/eventId/.test(JSON.stringify(rules))) bad.push('notifications.json: eventId removed by R56');
+    expect(bad).toEqual([]);
   });
 
   it('IdempotencyKey text states the R53 storage precision', () => {

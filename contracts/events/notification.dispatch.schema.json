@@ -2,11 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agrotrace.local/contracts/events/notification.dispatch.schema.json",
   "title": "notification.dispatch",
-  "description": "Creates and delivers one notification to a set of recipients (matrix: contracts/rules/notifications.json). The publisher resolves logical recipient groups to ids; the handler expands them to users: `userIds` as is, all users of `orgIds`, users with is_org_admin = true of `orgHeadIds`, all users having a role from `roles`; only users with status ACTIVE and deleted_at IS NULL; union deduplicated by user id. In ONE transaction the handler first checks `EXISTS (SELECT 1 FROM notifications WHERE payload->>'eventId' = :id)`; if true the event was already handled and is acknowledged without changes; otherwise it inserts per user an IN_APP row (delivery_status DELIVERED; the trigger emits pg_notify for SSE) and per external channel a row with delivery_status PENDING: EMAIL when channels.email is true or the type is forced (RECALL, RECALL_TASK, OVERDUE); TELEGRAM when Telegram is linked and (channels.telegram is true or the type is forced). Payload of every row = `payload` + {eventId: id}. After commit each PENDING row is sent with 3 attempts (delays 1 s, 2 s, 4 s): success → DELIVERED, all attempts failed → FAILED; channel not configured on the server (no SMTP host or bot token) → NOT_CONFIGURED without attempts; `attempts` counts send attempts.",
+  "description": "Creates and delivers one notification to a set of recipients (matrix: contracts/rules/notifications.json). The publisher resolves logical recipient groups to ids; the handler expands them to users: `userIds` as is, all users of `orgIds`, users with is_org_admin = true of `orgHeadIds`, all users having a role from `roles`; only users with status ACTIVE and deleted_at IS NULL; union deduplicated by user id. In ONE transaction that starts with the processed_events claim (envelope, R56) the handler inserts per user an IN_APP row (delivery_status DELIVERED; the trigger emits pg_notify for SSE) and per external channel a row with delivery_status PENDING: EMAIL when channels.email is true or the type is forced (RECALL, RECALL_TASK, OVERDUE); TELEGRAM when Telegram is linked and (channels.telegram is true or the type is forced). Payload of every row = `payload`. After commit each PENDING row is sent with 3 attempts (delays 1 s, 2 s, 4 s): success → DELIVERED, all attempts failed → FAILED; channel not configured on the server (no SMTP host or bot token) → NOT_CONFIGURED without attempts; `attempts` counts send attempts.",
   "type": "object",
-  "allOf": [{ "$ref": "envelope.schema.json" }],
+  "allOf": [
+    {
+      "$ref": "envelope.schema.json"
+    }
+  ],
   "properties": {
-    "type": { "const": "notification.dispatch" },
+    "type": {
+      "const": "notification.dispatch"
+    },
     "data": {
       "type": "object",
       "required": ["notificationType", "recipients", "payload"],
@@ -33,17 +39,26 @@
             "userIds": {
               "type": "array",
               "uniqueItems": true,
-              "items": { "type": "string", "format": "uuid" }
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
             },
             "orgIds": {
               "type": "array",
               "uniqueItems": true,
-              "items": { "type": "string", "format": "uuid" }
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
             },
             "orgHeadIds": {
               "type": "array",
               "uniqueItems": true,
-              "items": { "type": "string", "format": "uuid" }
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
             },
             "roles": {
               "type": "array",
@@ -55,18 +70,271 @@
             }
           },
           "anyOf": [
-            { "properties": { "userIds": { "type": "array", "minItems": 1 } } },
-            { "properties": { "orgIds": { "type": "array", "minItems": 1 } } },
-            { "properties": { "orgHeadIds": { "type": "array", "minItems": 1 } } },
-            { "properties": { "roles": { "type": "array", "minItems": 1 } } }
+            {
+              "properties": {
+                "userIds": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            },
+            {
+              "properties": {
+                "orgIds": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            },
+            {
+              "properties": {
+                "orgHeadIds": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            },
+            {
+              "properties": {
+                "roles": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            }
           ]
         },
         "payload": {
           "type": "object",
-          "description": "Exactly the keys listed for the type in contracts/rules/notifications.json, without `eventId` (added by the handler).",
-          "propertyNames": { "not": { "const": "eventId" } }
+          "description": "Exactly the keys listed for `notificationType` in contracts/rules/notifications.json (`types.<TYPE>.payload`), enforced by `allOf` below."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "LAB_ASSIGNED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "labTestId",
+                  "batchId",
+                  "publicCode",
+                  "productName",
+                  "labOrgId",
+                  "labName",
+                  "reason",
+                  "dueAt"
+                ],
+                "properties": {
+                  "labTestId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "productName": {},
+                  "labOrgId": {},
+                  "labName": {},
+                  "reason": {},
+                  "dueAt": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "LAB_RESULT"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["labTestId", "batchId", "publicCode", "productName", "conclusion", "recallId"],
+                "properties": {
+                  "labTestId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "productName": {},
+                  "conclusion": {},
+                  "recallId": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "WAYBILL_INCOMING"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["waybillId", "number", "senderOrgId", "senderName", "itemsCount"],
+                "properties": {
+                  "waybillId": {},
+                  "number": {},
+                  "senderOrgId": {},
+                  "senderName": {},
+                  "itemsCount": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "RECALL"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["recallId", "event", "sourceBatchId", "publicCode", "trigger"],
+                "properties": {
+                  "recallId": {},
+                  "event": {},
+                  "sourceBatchId": {},
+                  "publicCode": {},
+                  "trigger": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "RECALL_TASK"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["recallId", "taskId", "batchId", "publicCode", "dueAt", "event"],
+                "properties": {
+                  "recallId": {},
+                  "taskId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "dueAt": {},
+                  "event": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "OVERDUE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "recallId",
+                  "taskId",
+                  "batchId",
+                  "publicCode",
+                  "dueAt",
+                  "holderOrgId",
+                  "holderName"
+                ],
+                "properties": {
+                  "recallId": {},
+                  "taskId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "dueAt": {},
+                  "holderOrgId": {},
+                  "holderName": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "COMPLAINT"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["complaintId", "batchId", "publicCode", "productName"],
+                "properties": {
+                  "complaintId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "productName": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "LAB_OVERDUE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["labTestId", "batchId", "publicCode", "labOrgId", "labName", "dueAt"],
+                "properties": {
+                  "labTestId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "labOrgId": {},
+                  "labName": {},
+                  "dueAt": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "examples": [

@@ -92,6 +92,43 @@ describe('quality schema', () => {
       await ins('DECIDED', 'RECALL', true, recall);
       await ins('DECIDED', 'REJECT', true);
       await ins('NEW', null, false);
+      // Positive LAB_TEST case (R59): DECIDED + LAB_TEST + lab_test_id + decided_at is accepted.
+      const lab = await insertOrg(c, 'LAB');
+      const test = (
+        await c.query(
+          `INSERT INTO lab_tests(batch_id, lab_org_id, reason, due_at) VALUES ($1,$2,'COMPLAINT', now()) RETURNING id`,
+          [b, lab],
+        )
+      ).rows[0].id;
+      await c.query(
+        `INSERT INTO complaints(batch_id, text, status, decision, decided_at, lab_test_id)
+         VALUES ($1, 'Горечь во рту после употребления', 'DECIDED', 'LAB_TEST', now(), $2)`,
+        [b, test],
+      );
+    }));
+
+  it('lab_tests.recall_id links only FAIL conclusions to a recall (R57)', () =>
+    withTx(async (c) => {
+      const b = await rawBatch(c);
+      const lab = await insertOrg(c, 'LAB');
+      const recall = (
+        await c.query(
+          `INSERT INTO recalls(source_batch_id, trigger, reason) VALUES ($1,'LAB','x') RETURNING id`,
+          [b],
+        )
+      ).rows[0].id;
+      const ins = (status: string, conclusion: string | null) =>
+        c.query(
+          `INSERT INTO lab_tests(batch_id, lab_org_id, reason, status, conclusion, due_at, recall_id)
+           VALUES ($1, $2, 'RISK', $3, $4, now(), $5)`,
+          [b, lab, status, conclusion, recall],
+        );
+      await c.query('SAVEPOINT s');
+      await expectPgError(ins('DONE', 'PASS'), '23514');
+      await c.query('ROLLBACK TO SAVEPOINT s');
+      await expectPgError(ins('QUEUED', null), '23514');
+      await c.query('ROLLBACK TO SAVEPOINT s');
+      await ins('DONE', 'FAIL');
     }));
 
   it('recalls.block_upstream defaults to false', () =>

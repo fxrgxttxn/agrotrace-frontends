@@ -51,7 +51,16 @@ CREATE TABLE outbox_events (
   attempts integer NOT NULL DEFAULT 0
 );
 CREATE INDEX ix_outbox_unpublished ON outbox_events(backend, created_at) WHERE published_at IS NULL;
+CREATE INDEX ix_outbox_published ON outbox_events(published_at) WHERE published_at IS NOT NULL;
+-- Consumer idempotency (R56): every consumer transaction first claims the event id.
+CREATE TABLE processed_events (
+  event_id uuid PRIMARY KEY,
+  backend varchar(8) NOT NULL CHECK (backend IN ('express','django','laravel')),
+  processed_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_processed_events_at ON processed_events(processed_at);
 -- migrate:down
+DROP TABLE IF EXISTS processed_events;
 DROP TABLE IF EXISTS outbox_events;
 DROP TABLE audit_log;
 DROP TRIGGER t_notifications_notify ON notifications; DROP FUNCTION notify_notification();

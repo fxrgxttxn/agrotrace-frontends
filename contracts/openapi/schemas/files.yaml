@@ -43,8 +43,9 @@ ImportUpload:
   type: object
   description: >-
     Файл импорта справочника в поле `file`: CSV (UTF-8) или XLSX; формат — в описании `importDictionary`.
-    Тип определяется по содержимому: ZIP-контейнер OOXML с `xl/workbook.xml` — XLSX; иначе корректный UTF-8 текст без
-    нулевых байтов — CSV; прочее — 415.
+    Тип определяется по содержимому (R58): ZIP-контейнер (сигнатура `50 4B 03 04`) с `xl/workbook.xml` — XLSX; ZIP без
+    него (не OOXML-книга) — 415; содержимое с байтом NUL (0x00) — 415 (двоичный файл); всё остальное считается CSV,
+    и некорректный UTF-8 в нём — 400 `errors.file: [validation.import.format]`, а не 415.
   required: [file]
   additionalProperties: false
   properties:

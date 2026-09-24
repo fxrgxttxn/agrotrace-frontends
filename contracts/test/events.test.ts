@@ -65,6 +65,47 @@ describe('queue events', () => {
     expect(d).not.toMatch(/\.worker`|\.dead`|direct exchange|still succeeds/);
   });
 
+  it('consumer idempotency uses processed_events, never a payload lookup (R56); retention and occurredAt (R59)', () => {
+    const env: string = read('envelope.schema.json').description;
+    expect(env).toMatch(/INSERT INTO processed_events[^.]*ON CONFLICT DO NOTHING/);
+    expect(env).toMatch(/0 rows/);
+    expect(env).toMatch(
+      /publish[^.]*then[^.]*UPDATE outbox_events SET published_at[^.]*WHERE[^.]*published_at IS NULL/,
+    );
+    expect(env).toMatch(/7 days/);
+    expect(env).toMatch(/30 days/);
+    expect(env).toMatch(/stopped/);
+    expect(read('envelope.schema.json').properties.occurredAt.description).toMatch(/outbox_events/);
+    for (const f of [...EVENT_FILES, 'envelope.schema.json'])
+      expect(JSON.stringify(read(f)), f).not.toMatch(/payload->>'eventId'|eventId/);
+  });
+
+  it('notification.dispatch enforces the payload keys of each type (R59)', () => {
+    const s = read('notification.dispatch.schema.json');
+    const rules = (s.properties.data.allOf as Json[]).map((r) => [
+      r.if.properties.notificationType.const,
+      [...r.then.properties.payload.required].sort(),
+      Object.keys(r.then.properties.payload.properties).sort(),
+    ]);
+    for (const r of s.properties.data.allOf as Json[])
+      expect(r.then.properties.payload.additionalProperties).toBe(false);
+    expect(rules.map((r) => r[0])).toEqual(Object.keys(NOTIFICATIONS.types));
+    for (const [type, required, names] of rules) {
+      const keys = [...NOTIFICATIONS.types[type].payload].sort();
+      expect(required, type).toEqual(keys);
+      expect(names, type).toEqual(keys);
+    }
+    const v = validator('notification.dispatch.schema.json');
+    const ok = structuredClone(s.examples[0]);
+    const extra = structuredClone(ok);
+    extra.data.payload.foo = 1;
+    const missing = structuredClone(ok);
+    delete missing.data.payload.number;
+    expect(v(ok)).toBe(true);
+    expect(v(extra)).toBe(false);
+    expect(v(missing)).toBe(false);
+  });
+
   it('every schema example is valid', () => {
     const bad: string[] = [];
     for (const f of EVENT_FILES) {

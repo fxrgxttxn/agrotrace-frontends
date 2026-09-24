@@ -101,10 +101,14 @@ CREATE TABLE complaints (
 );
 CREATE INDEX ix_complaints_batch ON complaints(batch_id);
 ALTER TABLE recalls ADD CONSTRAINT fk_recalls_complaint FOREIGN KEY (complaint_id) REFERENCES complaints(id);
+-- R57: the recall a FAIL result started or joined (new or already OPEN one).
+ALTER TABLE lab_tests ADD COLUMN recall_id uuid REFERENCES recalls(id),
+  ADD CONSTRAINT lab_tests_recall_fail CHECK (recall_id IS NULL OR conclusion IS NOT DISTINCT FROM 'FAIL');
 CREATE TRIGGER t_lab_tests_touch BEFORE UPDATE ON lab_tests FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER t_recalls_touch BEFORE UPDATE ON recalls FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER t_recall_tasks_touch BEFORE UPDATE ON recall_tasks FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER t_complaints_touch BEFORE UPDATE ON complaints FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 -- migrate:down
+ALTER TABLE lab_tests DROP COLUMN IF EXISTS recall_id;
 ALTER TABLE recalls DROP CONSTRAINT fk_recalls_complaint;
 DROP TABLE complaints, recall_tasks, recall_batches, recalls, lab_results, lab_tests;

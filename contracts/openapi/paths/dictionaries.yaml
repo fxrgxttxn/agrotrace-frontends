@@ -280,10 +280,11 @@
       Обработка — строки по порядку, в одной транзакции: строка с неверным числом ячеек — ошибка
       `{column: null, message: validation.import.columns}`; ошибки значений — по колонкам; повтор ключа в файле
       (products/substances/indicators — `name`, regions — `code`, norms — пара `product` + `indicator`) — ошибка
-      `validation.duplicate` у колонки ключа (`name`, `code`, `indicator`), применяется первая строка. Строка с
+      `validation.duplicate` у колонки ключа (`name`, `code`, `indicator`): ключ занимает первая по порядку файла строка с этим ключом (даже если
+      в ней есть ошибки значений), все последующие строки с тем же ключом — ошибки (R59). Строка с
       ошибками пропускается, остальные применяются. Ключ не найден — строка создаётся (`created`); найден (в том числе
       мягко удалённая строка — восстанавливается) — изменяется (`updated`) или остаётся как есть, если все значения
-      совпадают (`unchanged`). Аудит — по записи на каждую созданную или изменённую строку.
+      совпадают (`unchanged`; десятичные значения сравниваются численно — `5` и `5.00` равны, R59). Аудит — по записи на каждую созданную или изменённую строку.
     tags: [Dictionaries]
     x-roles: [ADMIN]
     parameters:
@@ -334,7 +335,7 @@
               params:
                 maxBytes: 5242880
       '415':
-        description: Файл не CSV и не XLSX (UNSUPPORTED_MEDIA_TYPE).
+        description: ZIP, не являющийся книгой XLSX, или файл с байтом NUL (UNSUPPORTED_MEDIA_TYPE, R58).
         headers:
           X-Request-Id:
             $ref: '../components/headers.yaml#/XRequestId'
