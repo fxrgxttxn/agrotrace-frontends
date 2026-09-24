@@ -17,8 +17,10 @@ http {
   tcp_nopush   on;
   keepalive_timeout 65;
 
+  # No query string in the access log (R88 M1): signed file URLs (`exp`, `sig`), the SSE `access_token` and
+  # `lastEventId` travel in the query, so the line has the method, the path ($uri) and the protocol only.
   log_format main
-    '$remote_addr - $remote_user [$time_local] "$request" '
+    '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
     '$status $body_bytes_sent "$http_referer" "$http_user_agent" rid=$req_id';
   access_log /dev/stdout main;
   error_log  /dev/stderr warn;

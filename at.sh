@@ -99,6 +99,21 @@ gw_test() (
   echo "$sse" | grep -q 'proxy_cache off;'           || { echo "gw:test: proxy_cache off missing on /api/v1/events/"; exit 1; }
   echo "gw:test: SSE location config OK; proxy_intercept_errors correctly absent"
 
+  # R88 M1: the access log never records the query string (signed-URL `sig`/`exp`, SSE access_token).
+  logfmt="$(echo "$full" | awk '/log_format main/,/;/')"
+  echo "$logfmt" | grep -q '"$request_method $uri $server_protocol"' \
+    || { echo "gw:test: log_format main must log \$request_method \$uri \$server_protocol"; exit 1; }
+  echo "$logfmt" | grep -qE '\$request"|\$request_uri|\$args|\$query_string' \
+    && { echo "gw:test: log_format main must not log the query string"; exit 1; }
+  probe="at-log-probe-$RANDOM$RANDOM"
+  $T sh -c "curl -s -o /dev/null 'http://gateway/_ds/?sig=${probe}&access_token=${probe}'"
+  sleep 1
+  $DC logs --since 2m gateway 2>&1 | grep -q "GET /_ds/ HTTP" \
+    || { echo "gw:test: access log line for the probe request not found"; exit 1; }
+  $DC logs --since 2m gateway 2>&1 | grep -q "$probe" \
+    && { echo "gw:test: the query string of a request leaked into the gateway log"; exit 1; }
+  echo "gw:test: access log has no query strings"
+
   $T pnpm --filter @agrotrace/tests-gateway test
 )
 
