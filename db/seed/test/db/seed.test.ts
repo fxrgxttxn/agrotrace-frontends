@@ -327,6 +327,59 @@ describe('batches', () => {
   });
 });
 
+describe('VSD import (R81)', () => {
+  it('every DAIRY/MEAT raw batch has one VSD row replayed against mercury-mock; others have none', async () => {
+    const vsd = JSON.parse(
+      readFileSync(new URL('../../../../mercury-mock/data/vsd.json', import.meta.url), 'utf8'),
+    );
+    const rows = await q(
+      `SELECT b.id, b.kind, b.harvested_at, p.category, p.mercury_code, o.inn, d.id AS doc_id, d.import_status,
+              d.number, d.issue_date::text AS issue_date, d.vsd_status, d.external_uuid, d.attempts, d.payload,
+              d.created_at, b.created_at AS batch_created_at
+         FROM batches b JOIN products p ON p.id = b.product_id JOIN organizations o ON o.id = b.origin_org_id
+         LEFT JOIN batch_documents d ON d.batch_id = b.id`,
+    );
+    expect(rows.filter((r) => r.doc_id).length).toBeGreaterThanOrEqual(8);
+    for (const r of rows) {
+      const animal = r.kind === 'RAW' && ['DAIRY', 'MEAT'].includes(r.category);
+      expect(Boolean(r.doc_id), r.id).toBe(animal);
+      if (!animal) continue;
+      expect(iso(r.created_at)).toBe(iso(r.batch_created_at));
+      const h = Date.parse(r.harvested_at);
+      const day = (t: number): string => new Date(t).toISOString().slice(0, 10);
+      const [from, to] = [day(h - 3 * 86_400_000), day(h + 3 * 86_400_000)];
+      const match = vsd
+        .filter(
+          (v: R) =>
+            v.product.code === r.mercury_code &&
+            v.consignor.inn === r.inn &&
+            v.issueDate >= from &&
+            v.issueDate <= to &&
+            v.status === 'CONFIRMED',
+        )
+        .sort((a: R, b: R) =>
+          a.issueDate === b.issueDate ? (a.number < b.number ? 1 : -1) : a.issueDate < b.issueDate ? 1 : -1,
+        )[0];
+      if (match) {
+        expect(r).toMatchObject({
+          import_status: 'IMPORTED',
+          number: match.number,
+          issue_date: match.issueDate,
+          vsd_status: 'CONFIRMED',
+          external_uuid: match.uuid,
+          payload: match,
+        });
+      } else {
+        expect(r).toMatchObject({ import_status: 'NOT_FOUND', number: null, payload: null });
+      }
+      expect(r.attempts).toBe(r.mercury_code ? 1 : 0);
+    }
+    expect(
+      (await q(`SELECT name FROM products WHERE mercury_code IS NOT NULL ORDER BY name`)).map((p) => p.name),
+    ).toEqual(['Говядина охлаждённая', 'Молоко сырое коровье']);
+  });
+});
+
 describe('waybills', () => {
   it('statuses match their items: SENT → InTransit, ACCEPTED → actual masses and acts (BR-07)', async () => {
     const items = await q(

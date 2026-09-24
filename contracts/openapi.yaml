@@ -35,7 +35,8 @@ info:
     Протокол блокировок (R47, R52) для операций с `x-locks` (перечислены блокируемые строки в порядке блокировки):
     транзакция READ COMMITTED (операции, запускающие движок отзыва, — REPEATABLE READ, описание тега Recalls). Единый
     порядок для всех операций (R52): `waybill` → `recall` → `labTest` → `complaint` → `organization` → `batches` (все затрагиваемые
-    партии одним запросом `SELECT … FOR UPDATE … ORDER BY id`) → `recallTasks` (`ORDER BY id`) → прочие строки;
+    партии одним запросом `SELECT … FOR UPDATE … ORDER BY id`) → `recallTasks` (`ORDER BY id`) → прочие строки
+    (например, `batchDocument` — строка `batch_documents`, R81);
     элемент, не нужный операции, пропускается, но порядок остальных не меняется (операции над задачей отзыва
     блокируют её партию раньше самой задачи). Все проверки из порядка
     проверок, начиная с 404, выполняются над заблокированными строками; `If-Match` сравнивается с `version`
@@ -251,6 +252,10 @@ paths:
     $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1path'
   /batches/{id}/qr:
     $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1qr'
+  /batches/{id}/documents:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1documents'
+  /batches/{id}/documents/vsd/retry:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1documents~1vsd~1retry'
   /batches/{id}/on-sale:
     $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1on-sale'
   /batches/{id}/sold:
@@ -661,6 +666,20 @@ components:
       $ref: './openapi/schemas/batches.yaml#/QrRequest'
     QrLinks:
       $ref: './openapi/schemas/batches.yaml#/QrLinks'
+    VsdStatus:
+      $ref: './openapi/schemas/batches.yaml#/VsdStatus'
+    VsdImportStatus:
+      $ref: './openapi/schemas/batches.yaml#/VsdImportStatus'
+    VsdParty:
+      $ref: './openapi/schemas/batches.yaml#/VsdParty'
+    VsdDocument:
+      $ref: './openapi/schemas/batches.yaml#/VsdDocument'
+    BatchVsd:
+      $ref: './openapi/schemas/batches.yaml#/BatchVsd'
+    LabProtocolDocument:
+      $ref: './openapi/schemas/batches.yaml#/LabProtocolDocument'
+    BatchDocuments:
+      $ref: './openapi/schemas/batches.yaml#/BatchDocuments'
     MassBalance:
       $ref: './openapi/schemas/processing.yaml#/MassBalance'
     ProcessingRequest:
@@ -807,6 +826,8 @@ components:
       $ref: './openapi/schemas/dictionaries.yaml#/Product'
     ProductInput:
       $ref: './openapi/schemas/dictionaries.yaml#/ProductInput'
+    NullableMercuryCode:
+      $ref: './openapi/schemas/dictionaries.yaml#/NullableMercuryCode'
     Substance:
       $ref: './openapi/schemas/dictionaries.yaml#/Substance'
     SubstanceInput:

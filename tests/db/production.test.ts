@@ -166,6 +166,53 @@ describe('production schema', () => {
       await expectPgErrorIn(c, ins, [a.id, 'Партия допущена'], '23514');
     }));
 
+  it('batch_documents: one VSD per batch, PENDING by default, IMPORTED ⇔ document fields (R81)', () =>
+    withTx(async (c) => {
+      const org = await insertOrg(c);
+      const p = await product(c);
+      const a = await batch(c, org, p);
+      const d = (
+        await c.query(`INSERT INTO batch_documents(batch_id, kind) VALUES ($1,'VSD') RETURNING *`, [a.id])
+      ).rows[0];
+      expect(d).toMatchObject({ import_status: 'PENDING', attempts: 0, external_uuid: null, payload: null });
+      await expectPgErrorIn(
+        c,
+        `INSERT INTO batch_documents(batch_id, kind) VALUES ($1,'VSD')`,
+        [a.id],
+        '23505',
+      );
+      await expectPgErrorIn(
+        c,
+        `INSERT INTO batch_documents(batch_id, kind) VALUES ($1,'CMR')`,
+        [a.id],
+        '23514',
+      );
+      const upd = 'UPDATE batch_documents SET import_status = $2 WHERE id = $1';
+      await expectPgErrorIn(c, upd, [d.id, 'DONE'], '23514');
+      await expectPgErrorIn(c, upd, [d.id, 'IMPORTED'], '23514', 'batch_documents_imported');
+      await expectPgErrorIn(
+        c,
+        `UPDATE batch_documents SET external_uuid = gen_random_uuid(), import_status = 'IMPORTED' WHERE id = $1`,
+        [d.id],
+        '23514',
+        'batch_documents_fields',
+      );
+      await c.query(
+        `UPDATE batch_documents SET import_status = 'IMPORTED', external_uuid = gen_random_uuid(), number = 'VSD-1',
+                issue_date = '2026-07-19', vsd_status = 'CONFIRMED', payload = '{}', attempts = 1 WHERE id = $1`,
+        [d.id],
+      );
+      await expectPgErrorIn(
+        c,
+        `UPDATE batch_documents SET vsd_status = 'LOST' WHERE id = $1`,
+        [d.id],
+        '23514',
+      );
+      await expectPgErrorIn(c, `UPDATE batch_documents SET attempts = -1 WHERE id = $1`, [d.id], '23514');
+      await expectPgErrorIn(c, `UPDATE products SET mercury_code = '10-51-11' WHERE id = $1`, [p], '23514');
+      await c.query(`UPDATE products SET mercury_code = '10.51.11' WHERE id = $1`, [p]);
+    }));
+
   it('rejects unknown status in batch_status_history', () =>
     withTx(async (c) => {
       const org = await insertOrg(c);

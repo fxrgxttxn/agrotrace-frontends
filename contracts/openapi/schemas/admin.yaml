@@ -148,6 +148,7 @@ AuditEntityType:
     - norm
     - region
     - file
+    - batchDocument
   example: batch
 AuditEntry:
   type: object

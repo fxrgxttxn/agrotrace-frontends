@@ -184,3 +184,12 @@ pnpm --filter @agrotrace/mercury-mock test
 
 Environment variables: `PORT` (default `8080`), `MOCK_FAIL_RATE` (default `0`),
 `MOCK_TIMEOUT_MS` (default `30000`).
+
+## Consumer: the `vsd.import` worker (R81)
+
+Every backend's worker imports the VSD of a DAIRY/MEAT raw batch with one list query:
+`GET /api/v1/vsd?productCode={products.mercury_code}&senderInn={origin organization INN}&dateFrom={harvestedAt − 3 d}&dateTo={harvestedAt + 3 d}`
+and keeps the latest `CONFIRMED` item (greatest `issueDate`, then `number`, then `uuid`). Failures (the
+fail-injection modes above) are retried 5 times after 2, 4, 8, 16 and 32 s, then the import ends `FAILED`.
+The full contract is `contracts/events/vsd.import.schema.json`; the demo seed (`db/seed`) replays the same
+query against `data/vsd.json`.

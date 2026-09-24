@@ -1,5 +1,5 @@
 {
-  "description": "Lifecycles of quality, recall, complaint and organization entities (Task 10). Statuses equal the DB CHECK lists. `by` names the operationId that performs the transition, or `system` for scheduler/engine transitions. Operations with `x-transition` in the OpenAPI contract must match a transition here.",
+  "description": "Lifecycles of quality, recall, complaint and organization entities (Task 10) and of the VSD import (R81). Statuses equal the DB CHECK lists. `by` names the operationId that performs the transition, or `system` for scheduler/engine transitions. Operations with `x-transition` in the OpenAPI contract must match a transition here.",
   "labTest": {
     "description": "lab_tests.status. CANCELLED is reserved: no API v1 operation sets it (a batch recalled while on test keeps its open test; see Lab tag).",
     "statuses": ["QUEUED", "SAMPLED", "DONE", "ESCALATED", "CANCELLED"],
@@ -45,6 +45,17 @@
       { "from": "MANUAL_CHECK", "to": "REJECTED", "action": "reject", "by": "updateAdminOrganization" },
       { "from": "ACTIVE", "to": "SUSPENDED", "action": "suspend", "by": "updateAdminOrganization" },
       { "from": "SUSPENDED", "to": "ACTIVE", "action": "resume", "by": "updateAdminOrganization" }
+    ]
+  },
+  "vsdImport": {
+    "description": "batch_documents.import_status of a VSD row (R81). Created PENDING by createBatch (DAIRY/MEAT product); the vsd.import worker ends every PENDING cycle in IMPORTED, NOT_FOUND or FAILED; retryBatchVsdImport restarts a NOT_FOUND or FAILED import.",
+    "statuses": ["PENDING", "IMPORTED", "NOT_FOUND", "FAILED"],
+    "transitions": [
+      { "from": "PENDING", "to": "IMPORTED", "action": "import", "by": "system" },
+      { "from": "PENDING", "to": "NOT_FOUND", "action": "notFound", "by": "system" },
+      { "from": "PENDING", "to": "FAILED", "action": "fail", "by": "system" },
+      { "from": "NOT_FOUND", "to": "PENDING", "action": "retry", "by": "retryBatchVsdImport" },
+      { "from": "FAILED", "to": "PENDING", "action": "retry", "by": "retryBatchVsdImport" }
     ]
   }
 }

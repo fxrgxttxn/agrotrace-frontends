@@ -593,3 +593,20 @@ describe('FieldInput geometry', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('ProductInput.mercuryCode (R81)', () => {
+  const base = { name: 'Молоко сырое коровье', category: 'DAIRY', lossNormPercent: '1.00' };
+  it('is optional and nullable, accepts OKPD2-style codes', () => {
+    for (const mercuryCode of [undefined, null, '10.51.11', '01.47', '10.11.11.110'])
+      expect(V.ProductInputSchema.safeParse({ ...base, mercuryCode }).success, String(mercuryCode)).toBe(
+        true,
+      );
+  });
+  it('rejects other shapes with validation.mercuryCode.format', () => {
+    for (const mercuryCode of ['10-51-11', '1.51.11', '10.5111', '', '10.51.11 ']) {
+      const r = V.ProductInputSchema.safeParse({ ...base, mercuryCode });
+      expect(r.success, mercuryCode).toBe(false);
+      if (!r.success) expect(V.toFieldErrors(r.error).mercuryCode).toContain('validation.mercuryCode.format');
+    }
+  });
+});

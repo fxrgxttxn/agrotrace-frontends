@@ -113,7 +113,7 @@ CREATE TABLE public.audit_log (
     request_id character varying(64),
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT audit_log_backend_check CHECK (((backend)::text = ANY ((ARRAY['express'::character varying, 'django'::character varying, 'laravel'::character varying, 'seed'::character varying, 'system'::character varying])::text[]))),
-    CONSTRAINT audit_log_entity_type_check CHECK (((entity_type)::text = ANY ((ARRAY['organization'::character varying, 'user'::character varying, 'field'::character varying, 'treatment'::character varying, 'batch'::character varying, 'waybill'::character varying, 'labTest'::character varying, 'recall'::character varying, 'recallTask'::character varying, 'complaint'::character varying, 'product'::character varying, 'substance'::character varying, 'indicator'::character varying, 'norm'::character varying, 'region'::character varying, 'file'::character varying])::text[])))
+    CONSTRAINT audit_log_entity_type_check CHECK (((entity_type)::text = ANY ((ARRAY['organization'::character varying, 'user'::character varying, 'field'::character varying, 'treatment'::character varying, 'batch'::character varying, 'waybill'::character varying, 'labTest'::character varying, 'recall'::character varying, 'recallTask'::character varying, 'complaint'::character varying, 'product'::character varying, 'substance'::character varying, 'indicator'::character varying, 'norm'::character varying, 'region'::character varying, 'file'::character varying, 'batchDocument'::character varying])::text[])))
 );
 
 
@@ -146,6 +146,33 @@ CREATE SEQUENCE public.batch_code_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+
+--
+-- Name: batch_documents; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.batch_documents (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    batch_id uuid NOT NULL,
+    kind character varying(8) NOT NULL,
+    external_uuid uuid,
+    number character varying(64),
+    issue_date date,
+    vsd_status character varying(16),
+    import_status character varying(16) DEFAULT 'PENDING'::character varying NOT NULL,
+    payload jsonb,
+    attempts integer DEFAULT 0 NOT NULL,
+    last_error character varying(500),
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT batch_documents_attempts_check CHECK ((attempts >= 0)),
+    CONSTRAINT batch_documents_fields CHECK ((((external_uuid IS NULL) = (number IS NULL)) AND ((number IS NULL) = (issue_date IS NULL)) AND ((issue_date IS NULL) = (vsd_status IS NULL)) AND ((vsd_status IS NULL) = (payload IS NULL)))),
+    CONSTRAINT batch_documents_import_status_check CHECK (((import_status)::text = ANY ((ARRAY['PENDING'::character varying, 'IMPORTED'::character varying, 'NOT_FOUND'::character varying, 'FAILED'::character varying])::text[]))),
+    CONSTRAINT batch_documents_imported CHECK ((((import_status)::text = 'IMPORTED'::text) = (external_uuid IS NOT NULL))),
+    CONSTRAINT batch_documents_kind_check CHECK (((kind)::text = 'VSD'::text)),
+    CONSTRAINT batch_documents_vsd_status_check CHECK (((vsd_status)::text = ANY ((ARRAY['CONFIRMED'::character varying, 'WITHDRAWN'::character varying, 'UTILIZED'::character varying])::text[])))
+);
 
 
 --
@@ -484,11 +511,13 @@ CREATE TABLE public.products (
     category character varying(24) NOT NULL,
     loss_norm_percent numeric(5,2) NOT NULL,
     image_file_id uuid,
+    mercury_code character varying(16),
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
     CONSTRAINT products_category_check CHECK (((category)::text = ANY ((ARRAY['GRAIN'::character varying, 'VEGETABLE'::character varying, 'FRUIT'::character varying, 'DAIRY'::character varying, 'MEAT'::character varying, 'OILSEED'::character varying, 'PROCESSED'::character varying])::text[]))),
-    CONSTRAINT products_loss_norm_percent_check CHECK (((loss_norm_percent >= (0)::numeric) AND (loss_norm_percent <= (100)::numeric)))
+    CONSTRAINT products_loss_norm_percent_check CHECK (((loss_norm_percent >= (0)::numeric) AND (loss_norm_percent <= (100)::numeric))),
+    CONSTRAINT products_mercury_code_check CHECK (((mercury_code)::text ~ '^[0-9]{2}(\.[0-9]{1,3}){1,3}$'::text))
 );
 
 
@@ -785,6 +814,22 @@ ALTER TABLE ONLY public.roles ALTER COLUMN id SET DEFAULT nextval('public.roles_
 
 ALTER TABLE ONLY public.audit_log
     ADD CONSTRAINT audit_log_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: batch_documents batch_documents_batch_id_kind_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batch_documents
+    ADD CONSTRAINT batch_documents_batch_id_kind_key UNIQUE (batch_id, kind);
+
+
+--
+-- Name: batch_documents batch_documents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batch_documents
+    ADD CONSTRAINT batch_documents_pkey PRIMARY KEY (id);
 
 
 --
@@ -1344,6 +1389,13 @@ CREATE UNIQUE INDEX ux_recalls_open_source ON public.recalls USING btree (source
 
 
 --
+-- Name: batch_documents t_batch_documents_touch; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER t_batch_documents_touch BEFORE UPDATE ON public.batch_documents FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+--
 -- Name: batches t_batches_touch; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -1453,6 +1505,14 @@ CREATE TRIGGER t_users_touch BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE 
 --
 
 CREATE TRIGGER t_waybills_touch BEFORE UPDATE ON public.waybills FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+
+--
+-- Name: batch_documents batch_documents_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.batch_documents
+    ADD CONSTRAINT batch_documents_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.batches(id);
 
 
 --
@@ -2301,6 +2361,13 @@ GRANT SELECT,USAGE ON SEQUENCE public.audit_log_id_seq TO agrotrace_app;
 --
 
 GRANT SELECT,USAGE ON SEQUENCE public.batch_code_seq TO agrotrace_app;
+
+
+--
+-- Name: TABLE batch_documents; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.batch_documents TO agrotrace_app;
 
 
 --

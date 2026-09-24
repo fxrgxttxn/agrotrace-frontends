@@ -107,6 +107,13 @@
                 name: Ячмень яровой
                 category: GRAIN
                 lossNormPercent: '3.50'
+            dairyProduct:
+              summary: products (с кодом Меркурия для импорта ВСД, R81)
+              value:
+                name: Молоко сырое козье
+                category: DAIRY
+                lossNormPercent: '1.00'
+                mercuryCode: '10.51.12'
             norm:
               summary: norms
               value:
@@ -130,6 +137,7 @@
               name: Ячмень яровой
               category: GRAIN
               lossNormPercent: '3.50'
+              mercuryCode: null
               imageUrl: null
               createdAt: '2026-09-24T12:00:00Z'
               updatedAt: '2026-09-24T12:00:00Z'
@@ -285,6 +293,8 @@
       ошибками пропускается, остальные применяются. Ключ не найден — строка создаётся (`created`); найден (в том числе
       мягко удалённая строка — восстанавливается) — изменяется (`updated`) или остаётся как есть, если все значения
       совпадают (`unchanged`; десятичные значения сравниваются численно — `5` и `5.00` равны, R59). Аудит — по записи на каждую созданную или изменённую строку.
+      Код Меркурия продукта (`mercuryCode`, R81) импортом не задаётся и не меняется: у созданных продуктов — null,
+      у существующих — прежний.
     tags: [Dictionaries]
     x-roles: [ADMIN]
     parameters:

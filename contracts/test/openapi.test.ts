@@ -44,6 +44,8 @@ const REQUIRED: [string, string][] = [
   ['get', '/batches/{id}/path'],
   ['post', '/batches/{id}/qr'],
   ['get', '/batches/{id}/qr'],
+  ['get', '/batches/{id}/documents'], // R81: VSD, lab protocols, QR
+  ['post', '/batches/{id}/documents/vsd/retry'], // R81
   ['post', '/batches/{id}/on-sale'],
   ['post', '/batches/{id}/sold'],
   ['post', '/processing'],

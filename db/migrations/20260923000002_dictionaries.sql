@@ -24,6 +24,8 @@ CREATE TABLE products (
   category varchar(24) NOT NULL CHECK (category IN ('GRAIN','VEGETABLE','FRUIT','DAIRY','MEAT','OILSEED','PROCESSED')),
   loss_norm_percent numeric(5,2) NOT NULL CHECK (loss_norm_percent BETWEEN 0 AND 100),
   image_file_id uuid REFERENCES files(id),
+  -- R81: product code of ФГИС «Меркурий» (OKPD2-style, e.g. 10.51.11) used by the VSD import; NULL — no code.
+  mercury_code varchar(16) CHECK (mercury_code ~ '^[0-9]{2}(\.[0-9]{1,3}){1,3}$'),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz

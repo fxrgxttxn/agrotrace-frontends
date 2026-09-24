@@ -26,6 +26,8 @@ export interface ProductData {
   name: string;
   category: 'GRAIN' | 'VEGETABLE' | 'FRUIT' | 'DAIRY' | 'MEAT' | 'OILSEED' | 'PROCESSED';
   lossNormPercent: string;
+  /** ФГИС «Меркурий» product code (R81), only for animal-origin raw products. */
+  mercuryCode?: string;
   image: string;
 }
 export interface SubstanceData {

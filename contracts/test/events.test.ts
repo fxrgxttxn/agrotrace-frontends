@@ -106,6 +106,21 @@ describe('queue events', () => {
     expect(v(missing)).toBe(false);
   });
 
+  it('vsd.import (R81): Mercury query, CONFIRMED pick, 5 retries 2…32 s then FAILED, never blocks the batch', () => {
+    const d: string = read('vsd.import.schema.json').description;
+    expect(d).toMatch(/createBatch[^.]*DAIRY or MEAT/);
+    expect(d).toMatch(/retryBatchVsdImport/);
+    expect(d).toMatch(/productCode = products\.mercury_code/);
+    expect(d).toMatch(/senderInn = organizations\.inn of the batch origin/);
+    expect(d).toMatch(/harvested_at − 3 days and harvested_at \+ 3 days/);
+    expect(d).toMatch(/status CONFIRMED it picks the latest/);
+    expect(d).toMatch(/2, 4, 8, 16 and 32 s \(5 retries/);
+    expect(d).toMatch(/FAILED/);
+    expect(d).toMatch(/NOT_FOUND/);
+    expect(d).toMatch(/never changed or blocked/);
+    expect(d).toMatch(/processed_events claim/);
+  });
+
   it('every schema example is valid', () => {
     const bad: string[] = [];
     for (const f of EVENT_FILES) {
@@ -197,6 +212,30 @@ describe('queue events', () => {
             publicCode: 'AT-2026-000123',
             dueAt: '2026-08-01T09:00:00Z',
             escalatedAt: '2026-08-01T09:05:00Z',
+          },
+        },
+      ],
+      [
+        'vsd.import.schema.json',
+        {
+          ...base,
+          type: 'vsd.import',
+          data: {
+            documentId: '4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e',
+            batchId: '1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c',
+            publicCode: 'AT-2026-000123',
+            productCode: '10.51.11',
+          },
+        },
+      ],
+      [
+        'vsd.import.schema.json',
+        {
+          ...base,
+          type: 'vsd.import',
+          data: {
+            documentId: '4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e',
+            batchId: '1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c',
           },
         },
       ],

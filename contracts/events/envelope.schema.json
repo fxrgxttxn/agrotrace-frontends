@@ -14,7 +14,13 @@
     },
     "type": {
       "type": "string",
-      "enum": ["recall.requested", "notification.dispatch", "lab.escalate", "rating.recalculate"]
+      "enum": [
+        "recall.requested",
+        "notification.dispatch",
+        "lab.escalate",
+        "rating.recalculate",
+        "vsd.import"
+      ]
     },
     "occurredAt": {
       "type": "string",

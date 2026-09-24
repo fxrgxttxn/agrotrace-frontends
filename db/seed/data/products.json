@@ -53,6 +53,7 @@
     "name": "Молоко сырое коровье",
     "category": "DAIRY",
     "lossNormPercent": "1.00",
+    "mercuryCode": "10.51.11",
     "image": "raw-milk.jpg"
   },
   {
@@ -60,6 +61,7 @@
     "name": "Говядина охлаждённая",
     "category": "MEAT",
     "lossNormPercent": "2.50",
+    "mercuryCode": "10.11.11",
     "image": "beef.jpg"
   },
   {

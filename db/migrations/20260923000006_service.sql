@@ -28,7 +28,7 @@ CREATE TABLE audit_log (
   action varchar(64) NOT NULL,
   entity_type varchar(64) NOT NULL CHECK (entity_type IN
     ('organization','user','field','treatment','batch','waybill','labTest','recall','recallTask','complaint',
-     'product','substance','indicator','norm','region','file')),
+     'product','substance','indicator','norm','region','file','batchDocument')),
   entity_id uuid,
   diff jsonb NOT NULL DEFAULT '{}'::jsonb,
   ip inet,

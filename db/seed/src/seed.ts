@@ -272,6 +272,7 @@ export async function runSeed(
     await insert(db, 'fields', t.fields);
     await insert(db, 'treatments', t.treatments);
     await insert(db, 'batches', t.batches);
+    await insert(db, 'batch_documents', t.batch_documents);
     await insert(db, 'batch_links', t.batch_links);
     await insert(
       db,

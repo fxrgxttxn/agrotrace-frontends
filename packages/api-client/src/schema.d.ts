@@ -574,6 +574,11 @@ export interface paths {
          *     откатывается целиком (партия не создаётся, номер последовательности `batch_code_seq` расходуется) —
          *     409 NO_LAB_AVAILABLE без `params` (R42).
          *
+         *     5. ВСД (R81, п. 11 — ФГИС «Меркурий»): если категория продукта DAIRY или MEAT — строка `batch_documents`
+         *     (`kind` VSD, `import_status` PENDING, `attempts` 0) и в outbox событие `vsd.import`
+         *     (`contracts/events/vsd.import.schema.json`); импорт выполняет воркер после коммита, его исход (IMPORTED,
+         *     NOT_FOUND, FAILED) на статус партии не влияет и в ответе не отражается (`getBatchDocuments`).
+         *
          *     Каждый переход увеличивает `version` на 1. Ответ — карточка с итоговым статусом (OnTest или Approved).
          */
         post: operations["createBatch"];
@@ -697,6 +702,65 @@ export interface paths {
          *     `version` партии не меняется. Ссылки в ответе подписаны (R28), действуют 3600 с.
          */
         post: operations["createBatchQr"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/batches/{id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Документы партии
+         * @description Сопроводительные документы партии (R81): ВСД из ФГИС «Меркурий» (`vsd`, null — у партии нет ВСД: продукт не DAIRY/MEAT или партия производная), протоколы испытаний неудалённых анализов партии с загруженным протоколом и ссылки на сохранённые QR-файлы (null — QR не генерировался). Видимость — как у `getBatch` (невидимая партия — 404); ссылки на протоколы и QR подписаны (R28, 3600 с).
+         */
+        get: operations["getBatchDocuments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/batches/{id}/documents/vsd/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Повторный импорт ВСД
+         * @description Запускает импорт ВСД из ФГИС «Меркурий» заново (R81), если прошлый завершился NOT_FOUND или FAILED. Первая
+         *     сработавшая проверка возвращается:
+         *
+         *     1. Формат `Idempotency-Key` и повтор по нему (описание параметра).
+         *
+         *     Блокировки (R47, R52): партия `FOR UPDATE`, затем строка `batch_documents` (VSD) `FOR UPDATE`; шаги 2–5 — над
+         *     заблокированными строками.
+         *
+         *     2. Партия не видна — 404.
+         *
+         *     3. Организация пользователя не держатель — 403 `{reason: NOT_HOLDER}`.
+         *
+         *     4. У партии нет ВСД (продукт не DAIRY/MEAT или партия производная) — 404 NOT_FOUND.
+         *
+         *     5. Импорт не в NOT_FOUND и не в FAILED — 409 INVALID_TRANSITION `{from: <importStatus>, to: PENDING}`.
+         *
+         *     Результат (одна транзакция): `import_status` = PENDING, `attempts` = 0, `last_error` = null, найденные ранее поля
+         *     документа не меняются (у NOT_FOUND/FAILED их нет); аудит `retryBatchVsdImport` (entityType batchDocument); в
+         *     outbox — событие `vsd.import` (`contracts/events/vsd.import.schema.json`). Ответ 202 — ВСД в состоянии PENDING;
+         *     результат импорта приходит асинхронно (`getBatchDocuments`). Статус и версия партии не меняются.
+         */
+        post: operations["retryBatchVsdImport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2022,6 +2086,8 @@ export interface paths {
          *     ошибками пропускается, остальные применяются. Ключ не найден — строка создаётся (`created`); найден (в том числе
          *     мягко удалённая строка — восстанавливается) — изменяется (`updated`) или остаётся как есть, если все значения
          *     совпадают (`unchanged`; десятичные значения сравниваются численно — `5` и `5.00` равны, R59). Аудит — по записи на каждую созданную или изменённую строку.
+         *     Код Меркурия продукта (`mercuryCode`, R81) импортом не задаётся и не меняется: у созданных продуктов — null,
+         *     у существующих — прежний.
          */
         post: operations["importDictionary"];
         delete?: never;
@@ -3781,6 +3847,149 @@ export interface components {
             pngUrl: components["schemas"]["SignedFileUrl"];
             /** @description Подписанный URL PDF-этикетки для печати (R28, действует 3600 с). */
             pdfUrl: components["schemas"]["SignedFileUrl"];
+        };
+        /**
+         * @description Статус ветеринарного сопроводительного документа в ФГИС «Меркурий» (`batch_documents.vsd_status`): CONFIRMED — оформлен, WITHDRAWN — аннулирован, UTILIZED — погашен. Импортируется только CONFIRMED.
+         * @example CONFIRMED
+         * @enum {string}
+         */
+        VsdStatus: "CONFIRMED" | "WITHDRAWN" | "UTILIZED";
+        /**
+         * @description Состояние импорта ВСД (`batch_documents.import_status`, R81): PENDING — ожидает обработки воркером `vsd.import`; IMPORTED — документ найден и сохранён; NOT_FOUND — подходящего оформленного документа нет (или у продукта нет кода Меркурия); FAILED — Меркурий недоступен после всех повторов. Переходы — `contracts/rules/entity-state-machines.json` (`vsdImport`); повторный импорт — `retryBatchVsdImport`.
+         * @example IMPORTED
+         * @enum {string}
+         */
+        VsdImportStatus: "PENDING" | "IMPORTED" | "NOT_FOUND" | "FAILED";
+        /** @description Отправитель или получатель по ВСД (как в Меркурии). */
+        VsdParty: {
+            inn: string;
+            name: string;
+        };
+        /**
+         * @description Импортированный ВСД (колонки `external_uuid`, `number`, `issue_date`, `vsd_status` и поля документа Меркурия из `payload`).
+         * @example {
+         *       "externalUuid": "8b6f2c1e-4d3a-4f5b-9c7e-1a2b3c4d5e6f",
+         *       "number": "VSD-2026-000012",
+         *       "issueDate": "2026-07-19",
+         *       "status": "CONFIRMED",
+         *       "productName": "Молоко сырое коровье",
+         *       "volume": {
+         *         "value": 5230,
+         *         "unit": "л"
+         *       },
+         *       "consignor": {
+         *         "inn": "7806540043",
+         *         "name": "ООО «Молочная ферма Луговая»"
+         *       },
+         *       "consignee": {
+         *         "inn": "7705120028",
+         *         "name": "ООО «Молкомбинат Ставропольский»"
+         *       }
+         *     }
+         */
+        VsdDocument: {
+            externalUuid: components["schemas"]["Uuid"];
+            number: string;
+            issueDate: components["schemas"]["Date"];
+            status: components["schemas"]["VsdStatus"];
+            productName: string;
+            volume: {
+                value: number;
+                unit: string;
+            };
+            consignor: components["schemas"]["VsdParty"];
+            consignee: components["schemas"]["VsdParty"];
+        };
+        /**
+         * @description ВСД партии (строка `batch_documents` вида VSD). Создаётся в состоянии PENDING транзакцией `createBatch` для сырьевой партии продукта категории DAIRY или MEAT; у других партий ВСД нет (`BatchDocuments.vsd` = null). Состояние импорта на статус партии не влияет — партия никогда не блокируется из-за ВСД.
+         * @example {
+         *       "id": "4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e",
+         *       "importStatus": "IMPORTED",
+         *       "document": {
+         *         "externalUuid": "8b6f2c1e-4d3a-4f5b-9c7e-1a2b3c4d5e6f",
+         *         "number": "VSD-2026-000012",
+         *         "issueDate": "2026-07-19",
+         *         "status": "CONFIRMED",
+         *         "productName": "Молоко сырое коровье",
+         *         "volume": {
+         *           "value": 5230,
+         *           "unit": "л"
+         *         },
+         *         "consignor": {
+         *           "inn": "7806540043",
+         *           "name": "ООО «Молочная ферма Луговая»"
+         *         },
+         *         "consignee": {
+         *           "inn": "7705120028",
+         *           "name": "ООО «Молкомбинат Ставропольский»"
+         *         }
+         *       },
+         *       "attempts": 1,
+         *       "requestedAt": "2026-07-19T07:30:00Z",
+         *       "updatedAt": "2026-07-19T07:30:04Z"
+         *     }
+         */
+        BatchVsd: {
+            id: components["schemas"]["Uuid"];
+            importStatus: components["schemas"]["VsdImportStatus"];
+            /** @description Импортированный документ; не null только при `importStatus` = IMPORTED. */
+            document: components["schemas"]["VsdDocument"] | null;
+            /** @description Число обращений к Меркурию в текущем цикле импорта (сбрасывается повторным импортом). */
+            attempts: number;
+            requestedAt: components["schemas"]["DateTime"];
+            updatedAt: components["schemas"]["DateTime"];
+        };
+        /** @description Протокол испытаний анализа партии (неудалённый анализ с загруженным протоколом). */
+        LabProtocolDocument: {
+            labTestId: components["schemas"]["Uuid"];
+            lab: components["schemas"]["OrganizationRef"];
+            reason: components["schemas"]["LabTestReason"];
+            conclusion: components["schemas"]["LabConclusion"] | null;
+            completedAt: components["schemas"]["NullableDateTime"];
+            /** @description PDF-протокол (`url` подписан, R28, 3600 с). */
+            file: components["schemas"]["FileRef"];
+        };
+        /**
+         * @description Документы партии (R81): ВСД из Меркурия, протоколы анализов (по `createdAt` анализа, затем `id`) и QR-файлы (null — QR не генерировался). Видимость — как у партии (`getBatch`).
+         * @example {
+         *       "batchId": "1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c",
+         *       "vsd": {
+         *         "id": "4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e",
+         *         "importStatus": "NOT_FOUND",
+         *         "document": null,
+         *         "attempts": 1,
+         *         "requestedAt": "2026-07-19T07:30:00Z",
+         *         "updatedAt": "2026-07-19T07:30:03Z"
+         *       },
+         *       "labProtocols": [
+         *         {
+         *           "labTestId": "8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e",
+         *           "lab": {
+         *             "id": "5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b",
+         *             "name": "АНО «Ветеринарный испытательный центр Клязьма»",
+         *             "type": "LAB",
+         *             "logoUrl": null
+         *           },
+         *           "reason": "RISK",
+         *           "conclusion": "PASS",
+         *           "completedAt": "2026-07-20T09:00:00Z",
+         *           "file": {
+         *             "id": "3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f",
+         *             "url": "/api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e",
+         *             "mime": "application/pdf",
+         *             "sizeBytes": 48211,
+         *             "originalName": "protocol-AT-2026-000123.pdf"
+         *           }
+         *         }
+         *       ],
+         *       "qr": null
+         *     }
+         */
+        BatchDocuments: {
+            batchId: components["schemas"]["Uuid"];
+            vsd: components["schemas"]["BatchVsd"] | null;
+            labProtocols: components["schemas"]["LabProtocolDocument"][];
+            qr: components["schemas"]["QrLinks"] | null;
         };
         /**
          * @description Баланс масс BR-04 (функция `checkMassBalance`, расчёт в граммах): `inputKg` — сумма `massUsedKg`, `allowedKg` — сумма по входам `massUsedKg × (1 − lossNormPercent/100)` с отбрасыванием долей грамма отдельно для каждого входа (`lossNormPercent` — норма потерь продукта входной партии), `outputKg` — сумма масс выходов. Условие: `outputKg` ≤ `allowedKg`.
@@ -5562,7 +5771,7 @@ export interface components {
          * @example batch
          * @enum {string}
          */
-        AuditEntityType: "organization" | "user" | "field" | "treatment" | "batch" | "waybill" | "labTest" | "recall" | "recallTask" | "complaint" | "product" | "substance" | "indicator" | "norm" | "region" | "file";
+        AuditEntityType: "organization" | "user" | "field" | "treatment" | "batch" | "waybill" | "labTest" | "recall" | "recallTask" | "complaint" | "product" | "substance" | "indicator" | "norm" | "region" | "file" | "batchDocument";
         /**
          * @description Запись журнала аудита (`audit_log`, только INSERT). Каждая успешная изменяющая операция API пишет по одной записи
          *     на каждую изменённую строку сущностей из `AuditEntityType` в той же транзакции, что и изменение:
@@ -5665,6 +5874,7 @@ export interface components {
          *       "name": "Пшеница озимая",
          *       "category": "GRAIN",
          *       "lossNormPercent": "2.00",
+         *       "mercuryCode": null,
          *       "imageUrl": "/api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e",
          *       "createdAt": "2026-06-01T00:00:00Z",
          *       "updatedAt": "2026-06-01T00:00:00Z",
@@ -5676,6 +5886,7 @@ export interface components {
             name: string;
             category: components["schemas"]["ProductCategory"];
             lossNormPercent: components["schemas"]["LossNormPercent"];
+            mercuryCode: components["schemas"]["NullableMercuryCode"];
             imageUrl: components["schemas"]["NullablePublicFileUrl"];
             createdAt: components["schemas"]["DateTime"];
             updatedAt: components["schemas"]["DateTime"];
@@ -5692,7 +5903,13 @@ export interface components {
             name: string;
             category: components["schemas"]["ProductCategory"];
             lossNormPercent: components["schemas"]["LossNormPercent"];
+            mercuryCode?: components["schemas"]["NullableMercuryCode"];
         };
+        /**
+         * @description Код продукта в ФГИС «Меркурий» (ОКПД2, например `10.51.11`) для импорта ВСД (R81, колонка `products.mercury_code`); null — кода нет, импорт ВСД для партий продукта завершается NOT_FOUND. В `ProductInput` необязателен (не передан — null: `PUT` заменяет запись целиком); импорт справочника его не затрагивает (новые продукты — null, у существующих код сохраняется).
+         * @example 10.51.11
+         */
+        NullableMercuryCode: string | null;
         /**
          * @example {
          *       "id": "9e1f3a5b-7c9d-4e0f-a2b4-c6d8e0f2a4b6",
@@ -5835,6 +6052,7 @@ export interface components {
          *           "name": "Пшеница озимая",
          *           "category": "GRAIN",
          *           "lossNormPercent": "2.00",
+         *           "mercuryCode": null,
          *           "imageUrl": "/api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e",
          *           "createdAt": "2026-06-01T00:00:00Z",
          *           "updatedAt": "2026-06-01T00:00:00Z",
@@ -8013,6 +8231,145 @@ export interface operations {
                      *       "code": "VERSION_CONFLICT"
                      *     }
                      */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getBatchDocuments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Идентификатор сущности. */
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Документы партии. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "X-Backend": components["headers"]["XBackend"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchDocuments"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    retryBatchVsdImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Ключ идемпотентности (BR-11, функция `idempotencyDecision`). Повтор с тем же ключом и тем же запросом
+                 *     возвращает сохранённый ответ с заголовком `Idempotent-Replayed: true`; с другим запросом — 409
+                 *     IDEMPOTENCY_KEY_REUSED; пока первый запрос ещё выполняется — 409 IDEMPOTENCY_KEY_IN_PROGRESS с `Retry-After: 1`;
+                 *     ключ не по шаблону или отсутствует — 400 INVALID_IDEMPOTENCY_KEY.
+                 *
+                 *     Общий алгоритм для всех реализаций (R48; ключи в общем Redis действуют сквозь backend):
+                 *
+                 *     - проверка выполняется после аутентификации и `x-roles` и до валидации тела, `If-Match` и бизнес-проверок;
+                 *     - ключ Redis `idem:{userId}:{Idempotency-Key}`;
+                 *     - отпечаток запроса — sha256 (hex, нижний регистр) от байтов UTF-8 строки `{METHOD} {path}\n` и следующих за ней
+                 *       сырых байтов тела запроса (`path` — путь без строки запроса, например `/api/v1/waybills/{id}/send`;
+                 *       пустое тело — пустая строка);
+                 *     - запрос атомарно пытается записать `{"fingerprint": "<hex>", "state": "pending"}` командой `SET NX EX 60`.
+                 *       Если ключ уже есть: отпечаток другой — 409 IDEMPOTENCY_KEY_REUSED; отпечаток тот же и `state` = `pending` —
+                 *       409 IDEMPOTENCY_KEY_IN_PROGRESS, заголовок `Retry-After: 1`; отпечаток тот же и `state` = `done` —
+                 *       воспроизведение сохранённого ответа (тот же код и тело, текущие `X-Request-Id`/`X-Backend`,
+                 *       `Idempotent-Replayed: true`);
+                 *     - значение ключа — JSON-объект (UTF-8). Ответ 2xx владелец записи сохраняет как
+                 *       `{"fingerprint": "<hex>", "state": "done", "status": <код>, "body": <тело>}` с TTL 86400 с, где `body` —
+                 *       вложенное JSON-значение тела ответа (объект, не строка с JSON); воспроизведение отдаёт `body`, сериализованное
+                 *       заново (порядок ключей и пробелы могут отличаться от первого ответа), с `Content-Type: application/json` (R53);
+                 *     - оба Lua-скрипта (сохранение и удаление) читают ключ, разбирают его `cjson.decode` и сравнивают `fingerprint`
+                 *       и `state` = `pending` с ожидаемыми; сохранение выполняет `SET … EX 86400` только при совпадении, удаление
+                 *       (compare-and-delete при ответе 4xx/5xx) — `DEL` только при совпадении; чужую, завершённую или отсутствующую
+                 *       запись скрипты не трогают. После удаления повтор выполняется заново;
+                 *     - если запрос длится дольше 60 с, запись `pending` истекает раньше, чем владелец получит ответ: результат такого
+                 *       запроса просто не сохраняется (скрипт сохранения не находит своей записи) и повтор с тем же ключом выполняется
+                 *       заново. Операции с `If-Match` и переходом статуса (`sendWaybill`, `acceptWaybill`, `confirmRecallTask`) при этом
+                 *       остаются защищены блокировками и `If-Match` (повтор получит 409), а `createWaybill` в этом случае может создать
+                 *       второй черновик накладной (R53) — черновик безвреден и удаляется `deleteWaybill`.
+                 * @example 7f3a9c1e-waybill-2026
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Идентификатор сущности. */
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Импорт поставлен в очередь. */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "X-Backend": components["headers"]["XBackend"];
+                    "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e",
+                     *       "importStatus": "PENDING",
+                     *       "document": null,
+                     *       "attempts": 0,
+                     *       "requestedAt": "2026-07-19T07:30:00Z",
+                     *       "updatedAt": "2026-07-21T10:15:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["BatchVsd"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description Роль не FARMER/PROCESSOR (FORBIDDEN без `params`) или организация не держатель партии (NOT_HOLDER). */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "X-Backend": components["headers"]["XBackend"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "type": "/problems/forbidden",
+                     *       "title": "Not the batch holder",
+                     *       "status": 403,
+                     *       "code": "FORBIDDEN",
+                     *       "params": {
+                     *         "reason": "NOT_HOLDER"
+                     *       }
+                     *     }
+                     */
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description INVALID_TRANSITION (импорт не в NOT_FOUND/FAILED), VERSION_CONFLICT без `params` (повторная взаимоблокировка, R47), IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_KEY_IN_PROGRESS (`Retry-After: 1`). */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterInProgress"];
+                    "X-Request-Id": components["headers"]["XRequestId"];
+                    "X-Backend": components["headers"]["XBackend"];
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
@@ -10355,6 +10712,7 @@ export interface operations {
                      *       "name": "Ячмень яровой",
                      *       "category": "GRAIN",
                      *       "lossNormPercent": "3.50",
+                     *       "mercuryCode": null,
                      *       "imageUrl": null,
                      *       "createdAt": "2026-09-24T12:00:00Z",
                      *       "updatedAt": "2026-09-24T12:00:00Z",

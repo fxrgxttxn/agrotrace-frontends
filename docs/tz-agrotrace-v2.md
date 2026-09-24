@@ -310,6 +310,7 @@ flowchart LR
 - **FR-PROD-06.** Переработка: выбор входных партий и масс, создание выходных партий, проверка BR-04 и BR-05.
 - **FR-PROD-07.** Просмотр карточки партии: история статусов, держатели, связанные партии (граф на 2 уровня в обе стороны).
 - **FR-PROD-08.** Генерация QR-кода (PNG/PDF для печати) для партии в статусе «Принята» или «В продаже» у RETAILER или PROCESSOR, а также для собственной производной партии переработчика в статусе «Допущена». Сгенерированные файлы сохраняются и отдаются повторно без перегенерации.
+- **FR-PROD-09.** Ветеринарный сопроводительный документ (ВСД): при регистрации сырьевой партии молочной или мясной продукции (категории DAIRY, MEAT) в той же транзакции создаётся запрос импорта ВСД (таблица `batch_documents`, состояние PENDING) и событие очереди `vsd.import`; воркер ищет в ФГИС «Меркурий» (эмулятор `mercury-mock`) документы по коду продукта (`products.mercury_code`), ИНН хозяйства-создателя и дате уборки ± 3 дня и сохраняет последний оформленный (CONFIRMED) — IMPORTED; нет такого — NOT_FOUND; Меркурий недоступен — 5 повторов (2…32 с), затем FAILED. Партия из-за ВСД никогда не блокируется. Документы партии (ВСД, протоколы анализов, QR) — на вкладке «Документы» карточки; держатель (FARMER, PROCESSOR) может повторить импорт из NOT_FOUND или FAILED.
 
 ### 6.3. Подсистема «Качество и отзыв» (QA)
 
@@ -371,7 +372,7 @@ flowchart LR
 ### 7.1. Общие соглашения
 
 - Первичные ключи — `uuid` (генерируются в БД, `gen_random_uuid()`); публичный код партии — отдельное уникальное поле.
-- У каждой основной (сущностной) таблицы есть `created_at`, `updated_at`, `created_by`, `deleted_at` (soft delete). Таблицы-связи и дочерние строки (`batch_links`, `waybill_items`, `lab_results`, `recall_batches`, `user_roles`, `refresh_tokens`) живут и удаляются вместе с родителем и этих полей не требуют; `recall_tasks` и `complaints` создаются системой или покупателем без `created_by`, задачи отзыва не удаляются.
+- У каждой основной (сущностной) таблицы есть `created_at`, `updated_at`, `created_by`, `deleted_at` (soft delete). Таблицы-связи и дочерние строки (`batch_links`, `waybill_items`, `lab_results`, `recall_batches`, `user_roles`, `refresh_tokens`, `batch_documents`) живут и удаляются вместе с родителем и этих полей не требуют; `recall_tasks` и `complaints` создаются системой или покупателем без `created_by`, задачи отзыва не удаляются.
 - У каждой таблицы — одиночный первичный ключ `id` (в том числе у таблиц-связей, где пара колонок защищена `UNIQUE`): так таблицы одинаково отображаются в Kysely, Django ORM и Eloquent.
 - Все даты хранятся в `timestamptz` (UTC); API отдаёт ISO 8601 с `Z`.
 - Масса хранится в `numeric(12,3)`, килограммы; в JSON передаётся строкой (`"12480.000"`), чтобы исключить расхождения округления между реализациями.
@@ -383,7 +384,7 @@ flowchart LR
 
 | Таблица | Основные поля |
 |---|---|
-| products | id, name, category, loss_norm_percent, image_file_id → files |
+| products | id, name, category, loss_norm_percent, mercury_code (код продукта в «Меркурии», nullable), image_file_id → files |
 | substances (препараты) | id, name, type (pesticide/fertilizer), waiting_period_days |
 | indicators (показатели) | id, name, unit (мг/кг и т.п.) |
 | norms | id, product_id → products, indicator_id → indicators, max_value; уникально (product_id, indicator_id) |
@@ -399,6 +400,7 @@ flowchart LR
 | fields | id, organization_id, name, area_ha, geometry (GeoJSON, jsonb), region_id |
 | treatments | id, field_id → fields, substance_id → substances, dose, applied_at |
 | batches | id, public_code (unique), product_id, origin_org_id, holder_org_id, field_id (для сырьевых), kind (RAW/DERIVED), mass_kg, harvested_at / produced_at, status, test_required, version |
+| batch_documents | id, batch_id → batches, kind (VSD), external_uuid, number, issue_date, vsd_status (CONFIRMED/WITHDRAWN/UTILIZED), import_status (PENDING/IMPORTED/NOT_FOUND/FAILED), payload (jsonb), attempts, last_error; уникально (batch_id, kind) — документы партии из внешних систем (FR-PROD-09) |
 | batch_links | parent_batch_id → batches, child_batch_id → batches, mass_used_kg; PK (parent, child) — рёбра графа, N:M |
 | waybills (накладные) | id, number, sender_org_id, receiver_org_id, status (DRAFT/SENT/ACCEPTED/REJECTED), sent_at, accepted_at |
 | waybill_items | waybill_id, batch_id, mass_declared_kg, mass_actual_kg, discrepancy_act |
@@ -543,7 +545,8 @@ flowchart LR
 | Batches | `GET/POST /batches`, `GET /batches/{id}` | Список, создание сырьевой партии, карточка |
 | Batches | `GET /batches/{id}/graph?depth=2` | Связанные партии |
 | Batches | `GET /batches/{id}/history`, `GET /batches/{id}/path` | История статусов, путь по держателям |
-| Batches | `POST /batches/{id}/qr`, `GET /batches/{id}/qr?format=png\|pdf` | Генерация и скачивание QR |
+| Batches | `POST /batches/{id}/qr`, `GET /batches/{id}/qr?format=png\| Batches | `GET /batches/{id}/documents`, `POST /batches/{id}/documents/vsd/retry` | Документы партии (ВСД из «Меркурия», протоколы, QR), повторный импорт ВСД |
+|pdf` | Генерация и скачивание QR |
 | Batches | `POST /batches/{id}/on-sale`, `POST /batches/{id}/sold` | Выставление в продажу, реализация |
 | Processing | `POST /processing` | Переработка: входы → выходы |
 | Waybills | `GET/POST /waybills`, `GET /waybills/{id}`, `POST /waybills/{id}/send`, `/accept`, `/reject` | Накладные и приёмка |
@@ -844,7 +847,7 @@ UI-библиотеки компонентов (Ant Design, MUI, Angular Materia
 | DaData | Проверка организации по ИНН при регистрации, автозаполнение названия и адреса | REST API | Регистрация сохраняется со статусом «Требует ручной проверки» |
 | API Яндекс.Карт | Отображение полей, карта нарушений по регионам, путь партии | JS API на frontend | Карта скрывается, данные показываются таблицей |
 | Telegram Bot API + SMTP | Уведомления о задачах, отзывах, анализах | REST API / SMTP через очередь; в dev — Mailpit | Повторы, затем пометка «не доставлено», внутреннее уведомление остаётся; без токена бота канал «не настроен» |
-| ФГИС «Меркурий» (эмулятор) | Импорт ветеринарных сопроводительных документов для партий животного происхождения | Мок-сервис с REST API в отдельном контейнере | Импорт откладывается, партия создаётся без документа |
+| ФГИС «Меркурий» (эмулятор) | Импорт ветеринарных сопроводительных документов для сырьевых партий категорий DAIRY и MEAT (FR-PROD-09) | Мок-сервис с REST API в отдельном контейнере; событие очереди `vsd.import` через транзакционный outbox | Импорт откладывается: 5 повторов (2…32 с), затем FAILED и ручной повтор держателем; партия создаётся и работает без документа |
 
 Реальное подключение к ФГИС «Меркурий» требует регистрации организации, поэтому в проекте используется эмулятор с тем же форматом обмена. Архитектура адаптера позволяет заменить эмулятор на реальную интеграцию без изменения бизнес-логики. Ключи внешних сервисов задаются в `.env`; при отсутствии ключа адаптер работает в режиме отказа.
 

@@ -65,6 +65,30 @@ CREATE INDEX ix_batches_status ON batches(status) WHERE deleted_at IS NULL;
 CREATE INDEX ix_batches_holder ON batches(holder_org_id) WHERE deleted_at IS NULL;
 CREATE INDEX ix_batches_origin ON batches(origin_org_id);
 
+-- R81: accompanying documents imported from external systems; kind VSD — ветеринарный сопроводительный
+-- документ from ФГИС «Меркурий» (mercury-mock in dev), one per batch of a DAIRY/MEAT product, created PENDING by
+-- createBatch and filled by the `vsd.import` worker. Child row of the batch (spec 7.1: no created_by/deleted_at).
+CREATE TABLE batch_documents (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_id uuid NOT NULL REFERENCES batches(id),
+  kind varchar(8) NOT NULL CHECK (kind IN ('VSD')),
+  external_uuid uuid,
+  number varchar(64),
+  issue_date date,
+  vsd_status varchar(16) CHECK (vsd_status IN ('CONFIRMED','WITHDRAWN','UTILIZED')),
+  import_status varchar(16) NOT NULL DEFAULT 'PENDING' CHECK (import_status IN ('PENDING','IMPORTED','NOT_FOUND','FAILED')),
+  payload jsonb,
+  attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  last_error varchar(500),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (batch_id, kind),
+  CONSTRAINT batch_documents_imported CHECK ((import_status = 'IMPORTED') = (external_uuid IS NOT NULL)),
+  CONSTRAINT batch_documents_fields CHECK (
+    (external_uuid IS NULL) = (number IS NULL) AND (number IS NULL) = (issue_date IS NULL)
+    AND (issue_date IS NULL) = (vsd_status IS NULL) AND (vsd_status IS NULL) = (payload IS NULL))
+);
+
 CREATE TABLE batch_links (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   parent_batch_id uuid NOT NULL REFERENCES batches(id),
@@ -122,8 +146,10 @@ CREATE INDEX ix_waybill_items_batch ON waybill_items(batch_id);
 CREATE TRIGGER t_fields_touch BEFORE UPDATE ON fields FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER t_treatments_touch BEFORE UPDATE ON treatments FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER t_batches_touch BEFORE UPDATE ON batches FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+CREATE TRIGGER t_batch_documents_touch BEFORE UPDATE ON batch_documents FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER t_waybills_touch BEFORE UPDATE ON waybills FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 -- migrate:down
+DROP TABLE IF EXISTS batch_documents;
 DROP TABLE waybill_items, waybills, batch_status_history, batch_links, batches, treatments, fields;
 DROP FUNCTION next_waybill_number(); DROP SEQUENCE waybill_number_seq;
 DROP FUNCTION next_batch_code(); DROP SEQUENCE batch_code_seq;

@@ -41,6 +41,13 @@ export const ProductInputSchema = z
       lossNormPercent: z
         .string({ errorMap })
         .regex(/^(100\.00|\d{1,2}\.\d{2})$/, 'validation.percent.format'),
+      // R81: ФГИС «Меркурий» product code (OKPD2-style) used by the VSD import; optional, null — no code.
+      mercuryCode: z
+        .string({ errorMap })
+        .max(16, 'validation.maxLength')
+        .regex(/^\d{2}(\.\d{1,3}){1,3}$/, 'validation.mercuryCode.format')
+        .nullable()
+        .optional(),
     },
     { errorMap },
   )

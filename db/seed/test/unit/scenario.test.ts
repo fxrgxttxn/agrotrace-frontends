@@ -8,7 +8,7 @@ import { buildWorld } from '../../src/seed';
 import { addDaysToDate } from '@agrotrace/domain';
 import { renderDemoAccounts } from '../../src/docs';
 import { at, iso, REFERENCE_NOW, seedNowFrom } from '../../src/time';
-import { World } from '../../src/world';
+import { World, type Row } from '../../src/world';
 
 const regions = ['33', '50', '37', '52', '76', '62'].map((code, i) => ({
   id: `00000000-0000-4000-8000-00000000000${i}`,
@@ -110,6 +110,35 @@ describe('scenario', () => {
         iso(Date.parse(w.recall('recall-cream').opened_at as string) + shift),
       );
     }
+  });
+
+  it('VSD import (R81): one VSD row per DAIRY/MEAT raw batch, replayed against the mercury-mock data', () => {
+    const animal = (v: World): Row[] =>
+      v.t.batches.filter(
+        (b) => b.kind === 'RAW' && ['DAIRY', 'MEAT'].includes(v.productById(b.product_id).category as string),
+      );
+    expect(animal(w).map((b) => b._key)).toEqual(['M1', 'M2', 'M3', 'beef1', 'M4', 'M5', 'M6', 'M7']);
+    expect(w.t.batch_documents.map((d) => d.batch_id).sort()).toEqual(
+      animal(w)
+        .map((b) => b.id)
+        .sort(),
+    );
+    // At REFERENCE_NOW no harvest date is within ±3 days of a CONFIRMED document of the same farm and product.
+    expect(new Set(w.t.batch_documents.map((d) => `${d.import_status}/${d.attempts}`))).toEqual(
+      new Set(['NOT_FOUND/1']),
+    );
+    // Ten days later M3 (harvested 2026-07-18) matches Луговая's CONFIRMED VSD-2026-000012 of 2026-07-19.
+    const later = world('2026-09-30T09:00:00Z');
+    const m3 = later.t.batch_documents.find((d) => d.batch_id === later.batch('M3').id)!;
+    expect(m3).toMatchObject({
+      import_status: 'IMPORTED',
+      number: 'VSD-2026-000012',
+      issue_date: '2026-07-19',
+      vsd_status: 'CONFIRMED',
+      external_uuid: '3304dbab-b7aa-485d-a945-ec4036f08727',
+      attempts: 1,
+    });
+    expect(later.audit.filter((a) => a.action === 'system.vsdImport')).toHaveLength(8);
   });
 
   it('SEED_NOW parsing: explicit ISO minute, or the real clock truncated to the minute', () => {

@@ -158,6 +158,17 @@
       "NEW": "New",
       "IN_REVIEW": "In Review",
       "DECIDED": "Decided"
+    },
+    "vsd": {
+      "CONFIRMED": "Confirmed",
+      "WITHDRAWN": "Withdrawn",
+      "UTILIZED": "Utilized"
+    },
+    "vsdImport": {
+      "PENDING": "Requested from Mercury",
+      "IMPORTED": "Imported from Mercury",
+      "NOT_FOUND": "Not found in Mercury",
+      "FAILED": "Mercury unavailable"
     }
   },
   "role": {
@@ -293,6 +304,7 @@
     "telegram.notLinked": "Telegram isn't linked",
     "mass.exceedsBatch": "The mass exceeds the batch's current mass",
     "mass.format": "Mass must be a number with up to 3 decimal places",
+    "mercuryCode.format": "Mercury code must be OKPD2-style, e.g. 10.51.11",
     "results.mismatch": "The indicators don't match the test's norms",
     "items.mismatch": "The items don't match the waybill's batches",
     "holderOrgId.notAllowed": "The holderOrgId parameter isn't allowed for this role",

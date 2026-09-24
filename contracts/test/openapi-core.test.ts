@@ -117,6 +117,8 @@ const EXPECTED_ACCESS: Record<string, Json> = {
   getBatchGraph: ANY,
   getBatchHistory: ANY,
   getBatchPath: ANY,
+  getBatchDocuments: ANY, // R81: visibility = batch
+  retryBatchVsdImport: { roles: ['FARMER', 'PROCESSOR'] }, // R81: holder only
   createBatchQr: { roles: ['PROCESSOR', 'RETAILER'] },
   downloadBatchQr: { roles: ['PROCESSOR', 'RETAILER'] },
   putBatchOnSale: { roles: ['RETAILER'] },
@@ -175,7 +177,13 @@ const EXPECTED_ACCESS: Record<string, Json> = {
 };
 
 // Operations that require `Idempotency-Key` (spec 8.3 + R4).
-const EXPECTED_IDEMPOTENT = ['createWaybill', 'sendWaybill', 'acceptWaybill', 'confirmRecallTask'];
+const EXPECTED_IDEMPOTENT = [
+  'createWaybill',
+  'sendWaybill',
+  'acceptWaybill',
+  'confirmRecallTask',
+  'retryBatchVsdImport', // R81
+];
 
 // Report access per type (Task 10): roles with system-wide access, headRoles = org heads only, own organization.
 const EXPECTED_REPORT_ACCESS = {
@@ -246,10 +254,21 @@ const EXPECTED_LOCKS: Record<string, string[]> = {
   decideComplaint: ['complaint', 'batches'],
   updateAdminOrganization: ['organization'], // R59
   approveOrganization: ['organization'], // R59
+  retryBatchVsdImport: ['batches', 'batchDocument'], // R81
 };
 
 // R52: total lock order for every operation.
-const LOCK_ORDER = ['waybill', 'recall', 'labTest', 'complaint', 'organization', 'batches', 'recallTasks'];
+// `batchDocument` (R81) is one of the "other rows" locked last.
+const LOCK_ORDER = [
+  'waybill',
+  'recall',
+  'labTest',
+  'complaint',
+  'organization',
+  'batches',
+  'recallTasks',
+  'batchDocument',
+];
 
 const ENTITY_SM = JSON.parse(
   readFileSync(new URL('../rules/entity-state-machines.json', import.meta.url), 'utf8'),
@@ -292,6 +311,11 @@ const CLOSED_SCHEMAS = [
   'WaybillAccept',
   'WaybillReject',
   'OrganizationDirectoryPage',
+  // R81
+  'BatchDocuments',
+  'BatchVsd',
+  'VsdDocument',
+  'LabProtocolDocument',
   // Task 10
   'LabTestPage',
   'LabTest',
@@ -886,6 +910,28 @@ describe('openapi contract: operations', () => {
     expect(bad).toEqual([]);
   });
 
+  it('R81: Mercury VSD import — createBatch step, documents operations, product code', () => {
+    const s = doc.components.schemas;
+    const op = (id: string) => ops.find(({ op }) => op.operationId === id)!.op;
+    expect(op('createBatch').description).toMatch(/DAIRY или MEAT[^.]*batch_documents[^.]*PENDING/);
+    expect(op('createBatch').description).toMatch(/vsd\.import/);
+    expect(op('createBatch').description).toMatch(/на статус партии не влияет/);
+    const retry = op('retryBatchVsdImport');
+    expect(retry.description).toMatch(/NOT_FOUND или FAILED/);
+    expect(retry.description).toMatch(/NOT_HOLDER/);
+    expect(retry.description).toMatch(/`vsd\.import`/);
+    expect(Object.keys(retry.responses)).toContain('202');
+    expect(retry.requestBody).toBeUndefined();
+    const docs = op('getBatchDocuments');
+    expect(deref(docs.responses['200']).content['application/json'].schema.$ref).toBe(
+      '#/components/schemas/BatchDocuments',
+    );
+    expect(s.BatchDocuments.required).toEqual(['batchId', 'vsd', 'labProtocols', 'qr']);
+    expect(s.Product.required).toContain('mercuryCode');
+    expect(s.ProductInput.required).not.toContain('mercuryCode');
+    expect(doc.info.description).toMatch(/`batchDocument`/);
+  });
+
   it('IdempotencyKey text states the R53 storage precision', () => {
     const d: string = doc.components.parameters.IdempotencyKey.description;
     expect(d).toMatch(/cjson\.decode/);
@@ -941,6 +987,15 @@ describe('openapi contract: operations', () => {
       ['treatments.dose_unit', check('treatments', 'dose_unit'), s.DoseUnit.enum],
       ['audit_log.entity_type', check('audit_log', 'entity_type'), s.AuditEntityType.enum],
       ['batch_status_history.reason', check('batch_status_history', 'reason'), s.BatchStatusReason.enum],
+      // R81: VSD import
+      ['batch_documents.kind', check('batch_documents', 'kind'), ['VSD']],
+      ['batch_documents.vsd_status', check('batch_documents', 'vsd_status'), s.VsdStatus.enum],
+      ['batch_documents.import_status', check('batch_documents', 'import_status'), s.VsdImportStatus.enum],
+      [
+        'batch_documents.import_status (rules)',
+        check('batch_documents', 'import_status'),
+        ENTITY_SM.vsdImport.statuses,
+      ],
     ];
     const bad = pairs
       .filter(([, db, api]) => JSON.stringify(db) !== JSON.stringify(api))

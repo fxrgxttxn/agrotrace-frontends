@@ -22,6 +22,7 @@ import {
   type BatchStatus,
 } from '@agrotrace/domain';
 import notificationRules from '../../../contracts/rules/notifications.json' with { type: 'json' };
+import mercuryVsd from '../../../mercury-mock/data/vsd.json' with { type: 'json' };
 import type { OrgType, RoleCode, SeedData } from './data.js';
 import { hashInt, uuid } from './ids.js';
 import { cmp, iso, plusSeconds, REFERENCE_NOW } from './time.js';
@@ -135,6 +136,7 @@ export class World {
     fields: [] as Row[],
     treatments: [] as Row[],
     batches: [] as Row[],
+    batch_documents: [] as Row[],
     batch_links: [] as Row[],
     batch_status_history: [] as Row[],
     waybills: [] as Row[],
@@ -426,6 +428,7 @@ export class World {
         category: p.category,
         loss_norm_percent: p.lossNormPercent,
         image_file_id: fileId,
+        mercury_code: p.mercuryCode ?? null,
         created_at: at,
         updated_at: at,
         deleted_at: null,
@@ -901,8 +904,82 @@ export class World {
       );
       this.transition(b, 'OnTest', 'TEST_REQUIRED', null);
     }
+    // R81: a DAIRY/MEAT raw batch gets a PENDING VSD row and a vsd.import event in the same transaction.
+    let vsd: Row | null = null;
+    if (product.category === 'DAIRY' || product.category === 'MEAT') {
+      vsd = {
+        id: uuid('batch_document', `${key}:VSD`),
+        batch_id: b.id,
+        kind: 'VSD',
+        external_uuid: null,
+        number: null,
+        issue_date: null,
+        vsd_status: null,
+        import_status: 'PENDING',
+        payload: null,
+        attempts: 0,
+        last_error: null,
+        created_at: this.clock,
+        updated_at: this.clock,
+      };
+      this.t.batch_documents.push(vsd);
+      this.created('batchDocument', vsd);
+    }
     this.end();
+    if (vsd) this.importVsd(vsd, b, this.async(this.clock, 4));
     return b;
+  }
+
+  /**
+   * The vsd.import handler (contracts/events/vsd.import.schema.json) replayed against the mercury-mock
+   * dataset: productCode + senderInn + harvestedAt ± 3 days, latest CONFIRMED document wins (R81).
+   */
+  private importVsd(doc: Row, b: Row, at: string): void {
+    const code = this.productById(b.product_id).mercury_code as string | null;
+    const inn = this.orgById(b.origin_org_id).inn as string;
+    const before = auditView(doc);
+    let found: (typeof mercuryVsd)[number] | undefined;
+    if (code) {
+      const h = Date.parse(b.harvested_at as string);
+      const from = iso(h - 3 * 86_400_000).slice(0, 10);
+      const to = iso(h + 3 * 86_400_000).slice(0, 10);
+      const desc = (x: string, y: string): number => (x < y ? 1 : x > y ? -1 : 0);
+      found = mercuryVsd
+        .filter(
+          (v) =>
+            v.product.code === code &&
+            v.consignor.inn === inn &&
+            v.issueDate >= from &&
+            v.issueDate <= to &&
+            v.status === 'CONFIRMED',
+        )
+        .sort(
+          (x, y) => desc(x.issueDate, y.issueDate) || desc(x.number, y.number) || desc(x.uuid, y.uuid),
+        )[0];
+      doc.attempts = 1;
+    }
+    if (found) {
+      Object.assign(doc, {
+        import_status: 'IMPORTED',
+        external_uuid: found.uuid,
+        number: found.number,
+        issue_date: found.issueDate,
+        vsd_status: found.status,
+        payload: found,
+      });
+    } else {
+      doc.import_status = 'NOT_FOUND';
+    }
+    doc.updated_at = at;
+    this.audit.push({
+      action: 'system.vsdImport',
+      actorId: null,
+      entityType: 'batchDocument',
+      entityId: doc.id as string,
+      before,
+      after: auditView(doc),
+      at,
+    });
   }
 
   /** processBatches (PROCESSOR): inputs → Processed, outputs are new DERIVED batches (BR-04, BR-05, BR-06). */

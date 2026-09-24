@@ -531,3 +531,182 @@ QrLinks:
     publicUrl: http://react-express.localhost/p/AT-2026-000123
     pngUrl: /api/v1/files/6a8c0e2a-4c6e-4a8c-9e0a-2c4e6a8c0e2a?exp=1790247600&sig=1d3f5b7d9f1b3d5f7b9d1f3b5d7f9b1d3f5b7d9f1b3d5f7b9d1f3b5d7f9b1d3f
     pdfUrl: /api/v1/files/7b9d1f3b-5d7f-4b9d-8f1b-3d5f7b9d1f3b?exp=1790247600&sig=2e4a6c8e0a2c4e6a8c0e2a4c6e8a0c2e4a6c8e0a2c4e6a8c0e2a4c6e8a0c2e4a
+# ── Сопроводительные документы партии (R81): ВСД из ФГИС «Меркурий», протоколы анализов, QR ──
+VsdStatus:
+  type: string
+  description: >-
+    Статус ветеринарного сопроводительного документа в ФГИС «Меркурий» (`batch_documents.vsd_status`): CONFIRMED —
+    оформлен, WITHDRAWN — аннулирован, UTILIZED — погашен. Импортируется только CONFIRMED.
+  enum: [CONFIRMED, WITHDRAWN, UTILIZED]
+  example: CONFIRMED
+VsdImportStatus:
+  type: string
+  description: >-
+    Состояние импорта ВСД (`batch_documents.import_status`, R81): PENDING — ожидает обработки воркером `vsd.import`;
+    IMPORTED — документ найден и сохранён; NOT_FOUND — подходящего оформленного документа нет (или у продукта нет
+    кода Меркурия); FAILED — Меркурий недоступен после всех повторов. Переходы —
+    `contracts/rules/entity-state-machines.json` (`vsdImport`); повторный импорт — `retryBatchVsdImport`.
+  enum: [PENDING, IMPORTED, NOT_FOUND, FAILED]
+  example: IMPORTED
+VsdDocument:
+  type: object
+  description: >-
+    Импортированный ВСД (колонки `external_uuid`, `number`, `issue_date`, `vsd_status` и поля документа Меркурия из
+    `payload`).
+  required: [externalUuid, number, issueDate, status, productName, volume, consignor, consignee]
+  additionalProperties: false
+  properties:
+    externalUuid:
+      $ref: './common.yaml#/Uuid'
+    number:
+      type: string
+    issueDate:
+      $ref: './common.yaml#/Date'
+    status:
+      $ref: '#/VsdStatus'
+    productName:
+      type: string
+    volume:
+      type: object
+      required: [value, unit]
+      additionalProperties: false
+      properties:
+        value:
+          type: number
+          minimum: 0
+        unit:
+          type: string
+    consignor:
+      $ref: '#/VsdParty'
+    consignee:
+      $ref: '#/VsdParty'
+  example:
+    externalUuid: 8b6f2c1e-4d3a-4f5b-9c7e-1a2b3c4d5e6f
+    number: VSD-2026-000012
+    issueDate: '2026-07-19'
+    status: CONFIRMED
+    productName: Молоко сырое коровье
+    volume: { value: 5230, unit: л }
+    consignor: { inn: '7806540043', name: ООО «Молочная ферма Луговая» }
+    consignee: { inn: '7705120028', name: ООО «Молкомбинат Ставропольский» }
+VsdParty:
+  type: object
+  description: Отправитель или получатель по ВСД (как в Меркурии).
+  required: [inn, name]
+  additionalProperties: false
+  properties:
+    inn:
+      type: string
+      pattern: '^\d{10}(\d{2})?$'
+    name:
+      type: string
+BatchVsd:
+  type: object
+  description: >-
+    ВСД партии (строка `batch_documents` вида VSD). Создаётся в состоянии PENDING транзакцией `createBatch` для сырьевой
+    партии продукта категории DAIRY или MEAT; у других партий ВСД нет (`BatchDocuments.vsd` = null). Состояние импорта
+    на статус партии не влияет — партия никогда не блокируется из-за ВСД.
+  required: [id, importStatus, document, attempts, requestedAt, updatedAt]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    importStatus:
+      $ref: '#/VsdImportStatus'
+    document:
+      description: Импортированный документ; не null только при `importStatus` = IMPORTED.
+      oneOf:
+        - $ref: '#/VsdDocument'
+        - type: 'null'
+    attempts:
+      type: integer
+      minimum: 0
+      description: Число обращений к Меркурию в текущем цикле импорта (сбрасывается повторным импортом).
+    requestedAt:
+      $ref: './common.yaml#/DateTime'
+    updatedAt:
+      $ref: './common.yaml#/DateTime'
+  example:
+    id: 4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e
+    importStatus: IMPORTED
+    document:
+      externalUuid: 8b6f2c1e-4d3a-4f5b-9c7e-1a2b3c4d5e6f
+      number: VSD-2026-000012
+      issueDate: '2026-07-19'
+      status: CONFIRMED
+      productName: Молоко сырое коровье
+      volume: { value: 5230, unit: л }
+      consignor: { inn: '7806540043', name: ООО «Молочная ферма Луговая» }
+      consignee: { inn: '7705120028', name: ООО «Молкомбинат Ставропольский» }
+    attempts: 1
+    requestedAt: '2026-07-19T07:30:00Z'
+    updatedAt: '2026-07-19T07:30:04Z'
+LabProtocolDocument:
+  type: object
+  description: Протокол испытаний анализа партии (неудалённый анализ с загруженным протоколом).
+  required: [labTestId, lab, reason, conclusion, completedAt, file]
+  additionalProperties: false
+  properties:
+    labTestId:
+      $ref: './common.yaml#/Uuid'
+    lab:
+      $ref: './common.yaml#/OrganizationRef'
+    reason:
+      $ref: './lab.yaml#/LabTestReason'
+    conclusion:
+      oneOf:
+        - $ref: './lab.yaml#/LabConclusion'
+        - type: 'null'
+    completedAt:
+      $ref: './common.yaml#/NullableDateTime'
+    file:
+      description: PDF-протокол (`url` подписан, R28, 3600 с).
+      $ref: './common.yaml#/FileRef'
+BatchDocuments:
+  type: object
+  description: >-
+    Документы партии (R81): ВСД из Меркурия, протоколы анализов (по `createdAt` анализа, затем `id`) и QR-файлы (null —
+    QR не генерировался). Видимость — как у партии (`getBatch`).
+  required: [batchId, vsd, labProtocols, qr]
+  additionalProperties: false
+  properties:
+    batchId:
+      $ref: './common.yaml#/Uuid'
+    vsd:
+      oneOf:
+        - $ref: '#/BatchVsd'
+        - type: 'null'
+    labProtocols:
+      type: array
+      items:
+        $ref: '#/LabProtocolDocument'
+    qr:
+      oneOf:
+        - $ref: '#/QrLinks'
+        - type: 'null'
+  example:
+    batchId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+    vsd:
+      id: 4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e
+      importStatus: NOT_FOUND
+      document: null
+      attempts: 1
+      requestedAt: '2026-07-19T07:30:00Z'
+      updatedAt: '2026-07-19T07:30:03Z'
+    labProtocols:
+      - labTestId: 8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e
+        lab:
+          id: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+          name: АНО «Ветеринарный испытательный центр Клязьма»
+          type: LAB
+          logoUrl: null
+        reason: RISK
+        conclusion: PASS
+        completedAt: '2026-07-20T09:00:00Z'
+        file:
+          id: 3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f
+          url: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+          mime: application/pdf
+          sizeBytes: 48211
+          originalName: protocol-AT-2026-000123.pdf
+    qr: null
