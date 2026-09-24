@@ -37,18 +37,18 @@ agrotrace/
   gateway/             nginx routing, start page, gwtest stub upstream
   mercury-mock/        emulator of the external «Меркурий» veterinary system
   tests/
-    db/  ds/  gateway/     shared test suites (more added by later plans)
+    at/  db/  ds/  gateway/  shared test suites (more added by later plans)
   infra/               postgres/rabbitmq/minio init and config
   docs/                spec, deploy guide, demo accounts, plans (docs/superpowers/plans/)
   .github/             CI (ci.yml) and its local composite actions
-  docker-compose.yml  at.sh  at.ps1  .env.example
+  docker-compose.yml  at  at.sh  at.cmd  at.ps1  .env.example
 ```
 
 ## Quick start
 
 Requires only **Docker Desktop** and **Git** — no Node, pnpm, Python, PHP or make on the host.
-Every command below runs inside Docker Compose via `./at.sh` (or `./at.ps1` on Windows
-PowerShell, which just forwards to `at.sh`).
+Every command below runs inside Docker Compose via `./at.sh` (`./at` is the same script; on Windows —
+`at.cmd` or `./at.ps1`, which run `at.sh` with Git Bash resolved from `git`, never WSL).
 
 ```bash
 git clone <repo-url> && cd agrotrace

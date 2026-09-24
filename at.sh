@@ -117,6 +117,45 @@ gw_test() (
   $T pnpm --filter @agrotrace/tests-gateway test
 )
 
+INFRA_SERVICES="postgres redis rabbitmq minio mailpit mercury-mock"
+
+# AT_DRY_RUN=1 prints the docker commands of `up` instead of running them (tests/at).
+run() {
+  if [ "${AT_DRY_RUN:-}" = "1" ]; then echo "+ $*"; else "$@"; fi
+}
+
+# Services of one backend implementation (spec §14.4).
+backend_services() {
+  case "$1" in
+    express) echo "api-express worker-express" ;;
+    django)  echo "api-django worker-django beat-django" ;;
+    laravel) echo "api-laravel worker-laravel scheduler-laravel" ;;
+    *) return 1 ;;
+  esac
+}
+
+# `./at up <front> <back>`: one frontend×backend combination (spec §14.4).
+up_combo() (
+  set -euo pipefail
+  front="$1"; back="${2:-}"
+  services="$(backend_services "$back")" || {
+    echo "usage: ./at up <react|angular|svelte> <express|django|laravel>" >&2; exit 2; }
+  if [ "${AT_DRY_RUN:-}" != "1" ]; then
+    defined="$($DC config --services)"
+    missing=""
+    for s in $services; do echo "$defined" | grep -qx "$s" || missing="$missing $s"; done
+    if [ -n "$missing" ]; then
+      echo "up $front $back: service(s)$missing are not in docker-compose.yml yet — the $back backend plan adds them." >&2
+      exit 1
+    fi
+  fi
+  run $DC up -d --build --wait $INFRA_SERVICES
+  run $DC up --build minio-init
+  run $DC up -d --build --wait $services gateway
+  port="$( (set -a; . ./.env; echo "${GATEWAY_PORT:-80}") )"
+  echo "$front + $back: http://${front}-${back}.localhost:${port}/"
+)
+
 # Number of migrations applied to the dev DB (0 when schema_migrations does not exist).
 applied_migrations() {
   local q="$DC exec -T postgres psql -tA -v ON_ERROR_STOP=1 -U agrotrace_owner -d agrotrace -c"
@@ -135,10 +174,13 @@ case "$cmd" in
   # tests/* packages need live services and run only through their own commands (R83): db:test,
   # gw:test, ds:test — `test:all` runs everything in order.
   test)      $T pnpm -r --workspace-concurrency=1 --filter '!./tests/**' test "$@" ;;
-  # Everything, in dependency order: unit → tests/db (throwaway agrotrace_test) → dev DB migrated and
+  # The command wrappers (at, at.sh, at.cmd, at.ps1; `up` in AT_DRY_RUN mode) — tests/at.
+  at:test)   $T pnpm --filter @agrotrace/tests-at test "$@" ;;
+  # Everything, in dependency order: unit → wrappers → tests/db (throwaway agrotrace_test) → dev DB migrated and
   # seed checked → gateway up + gw:test → design-system showcase (Playwright).
   test:all)
     "$0" test
+    "$0" at:test
     "$0" up infra
     "$0" db:test
     "$0" db:migrate
@@ -155,14 +197,18 @@ case "$cmd" in
   # --build on every `up` (R80): a stale gateway/mercury-mock image is never silently reused —
   # docker compose skips the build step on its own for any service without a `build:` key, so this
   # is a no-op for postgres/redis/rabbitmq/minio/mailpit.
+  # `up <front> <back>` (R88 M6, spec §14.4): infra + the backend's services + the gateway; the
+  # frontend is static and served by the gateway at http://<front>-<back>.localhost:<GATEWAY_PORT>/.
   up)
     case "${1:-all}" in
-      infra)   $DC up -d --build --wait postgres redis rabbitmq minio mailpit mercury-mock && $DC up --build minio-init ;;
+      infra)   run $DC up -d --build --wait $INFRA_SERVICES && run $DC up --build minio-init ;;
       gateway)
-        $DC up -d --build --wait gateway
+        run $DC up -d --build --wait gateway
         set -a; . ./.env; set +a
         echo "Gateway up: http://localhost:${GATEWAY_PORT:-80}/  (design system: http://localhost:${GATEWAY_PORT:-80}/_ds/)" ;;
-      *) $DC up -d --build --wait ;;
+      react|angular|svelte) up_combo "$@" ;;
+      all) run $DC up -d --build --wait ;;
+      *) echo "usage: ./at up [all|infra|gateway|<react|angular|svelte> <express|django|laravel>]" >&2; exit 2 ;;
     esac ;;
   down)        $DC down "$@" ;;
   db:migrate)  $DC run --rm dbmate --no-dump-schema --wait up && dump_schema ;;
@@ -208,5 +254,6 @@ case "$cmd" in
     done
     $DC run --rm dbmate --no-dump-schema --wait up
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
-  help|*)  grep -E '^\s+[a-z:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
+  # Top-level commands only (two-space indented case labels).
+  help|*)  grep -E '^  [a-z:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
 esac

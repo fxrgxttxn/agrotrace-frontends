@@ -1,0 +1,14 @@
+{
+  "name": "@agrotrace/tests-at",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

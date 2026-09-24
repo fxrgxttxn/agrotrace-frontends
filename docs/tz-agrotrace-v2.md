@@ -1041,7 +1041,7 @@ Pipeline на GitHub Actions; unit, API и e2e запускаются матри
   | Svelte | `svelte-express.localhost` | `svelte-django.localhost` | `svelte-laravel.localhost` |
 
   Хост `*.localhost` разрешается браузерами в 127.0.0.1 без правки hosts. Стартовая страница `localhost` — таблица 3×3 со ссылками и индикатором здоровья каждой реализации.
-- **Одна комбинация** — `./at up react django` (поднимает только нужные сервисы, доступ по `localhost`).
+- **Одна комбинация** — `./at up react django` (поднимает инфраструктуру, сервисы выбранного backend и шлюз; адрес — `react-django.localhost`). На Windows — `at.cmd` или `./at.ps1` (Git Bash из установки Git, не WSL).
 - **Окружения:** локальное (dev), демо-стенд (staging) на облачной VPS с доменами вида `react-express.<домен>`.
 - **Dev-режим полностью в Docker** (на машине разработчика не требуются Node, Python, PHP): профиль `dev` монтирует исходники и включает hot reload; на Windows — polling-наблюдение файлов (`CHOKIDAR_USEPOLLING`, `server.watch.usePolling` у Vite, `--poll` у Angular CLI, `WATCHFILES_FORCE_POLLING` у uvicorn). Локальная установка тулчейнов — по желанию, для IDE.
 - Конфигурация через переменные окружения, файл `.env.example` в репозитории.

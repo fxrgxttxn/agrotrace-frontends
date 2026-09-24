@@ -43,6 +43,7 @@ jobs:
       - run: ./at.sh pnpm --filter @agrotrace/contracts run lint:openapi
       # Every workspace package outside tests/* (R83); tests/* run in the db, gateway and ds jobs.
       - run: ./at.sh test
+      - run: ./at.sh at:test
       - uses: ./.github/actions/pnpm-store-save
         if: always()
 

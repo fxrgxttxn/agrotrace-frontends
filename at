@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# `./at <command>` (spec §14.4) — the same as ./at.sh; on Windows use at.cmd or at.ps1 (R88 M6).
+exec "$(dirname "$0")/at.sh" "$@"
