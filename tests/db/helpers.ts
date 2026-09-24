@@ -41,3 +41,29 @@ export async function insertOrg(c: pg.PoolClient, type = 'FARM', inn = defaultIn
   );
   return r.rows[0].id as string;
 }
+
+/**
+ * Runs `sql` inside a savepoint and expects it to fail with `code` (and, when given, on `constraint`);
+ * the savepoint is rolled back so the surrounding transaction stays usable.
+ */
+export async function expectPgErrorIn(
+  c: pg.PoolClient,
+  sql: string,
+  params: unknown[],
+  code: string,
+  constraint?: string,
+) {
+  await c.query('SAVEPOINT expect_error');
+  try {
+    await c.query(sql, params);
+  } catch (e) {
+    await c.query('ROLLBACK TO SAVEPOINT expect_error');
+    const err = e as { code?: string; constraint?: string };
+    if (err.code !== code) throw e;
+    if (constraint !== undefined && err.constraint !== constraint)
+      throw new Error(`expected constraint ${constraint}, got ${String(err.constraint)}`);
+    return;
+  }
+  await c.query('RELEASE SAVEPOINT expect_error');
+  throw new Error(`expected pg error ${code}: ${sql}`);
+}

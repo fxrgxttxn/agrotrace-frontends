@@ -499,7 +499,7 @@ describe('recalls', () => {
 });
 
 describe('trust rating (BR-09)', () => {
-  it('each FARM rating equals the contract fold over its tests and recalls; others keep 80', async () => {
+  it('each FARM rating equals the contract fold over its tests and recalls; others have none (R84)', async () => {
     const orgs = await q('SELECT id, type, trust_rating FROM organizations');
     for (const o of orgs) {
       const events = await q(
@@ -515,7 +515,7 @@ describe('trust rating (BR-09)', () => {
         [o.id],
       );
       const fold = events.reduce((current, e) => nextTrustRating({ current, event: e.event }).rating, 80);
-      expect(o.trust_rating).toBe(o.type === 'FARM' ? fold : 80);
+      expect(o.trust_rating).toBe(o.type === 'FARM' ? fold : null); // R84
     }
     expect(
       (await q(`SELECT trust_rating FROM organizations WHERE type = 'FARM' AND trust_rating < 70`)).length,

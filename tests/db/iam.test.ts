@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { withTx, expectPgError, insertOrg } from './helpers';
+import { withTx, expectPgError, expectPgErrorIn, insertOrg } from './helpers';
 
 describe('iam schema', () => {
   it('generates uuid and timestamps for organizations', () =>
@@ -63,6 +63,23 @@ describe('iam schema', () => {
         c.query('INSERT INTO norms(product_id, indicator_id, max_value) VALUES ($1,$2,0.1)', [p, i]),
         '23505',
       );
+    }));
+
+  it('trust_rating: 80 by default for FARM only, NULL for other types; FARM ⇔ rating (R84)', () =>
+    withTx(async (c) => {
+      const farm = await insertOrg(c, 'FARM');
+      const lab = await insertOrg(c, 'LAB');
+      const r = await c.query('SELECT id, trust_rating FROM organizations WHERE id = ANY($1)', [[farm, lab]]);
+      const byId = Object.fromEntries(r.rows.map((x) => [x.id, x.trust_rating]));
+      expect(byId[farm]).toBe(80);
+      expect(byId[lab]).toBeNull();
+      const ins = `INSERT INTO organizations(type, name, inn, region_id, trust_rating)
+                   VALUES ($1, 'Тест', $2, (SELECT id FROM regions LIMIT 1), $3) RETURNING trust_rating`;
+      const C = 'organizations_trust_rating_farm';
+      await expectPgErrorIn(c, ins, ['PROCESSOR', '3301000002', 80], '23514', C);
+      await expectPgErrorIn(c, 'UPDATE organizations SET trust_rating = NULL WHERE id = $1', [farm], '23514', C);
+      await expectPgErrorIn(c, 'UPDATE organizations SET trust_rating = 70 WHERE id = $1', [lab], '23514', C);
+      expect((await c.query(ins, ['FARM', '3301000001', 55])).rows[0].trust_rating).toBe(55);
     }));
 
   it('rejects loss norm outside 0..100', () =>

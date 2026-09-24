@@ -393,7 +393,7 @@ flowchart LR
 
 | Таблица | Основные поля и связи |
 |---|---|
-| organizations | id, type (FARM/PROCESSOR/LAB/RETAILER/AUTHORITY), name, inn (unique), region_id, trust_rating, status, logo_file_id → files |
+| organizations | id, type (FARM/PROCESSOR/LAB/RETAILER/AUTHORITY), name, inn (unique), region_id, trust_rating (только у FARM, у остальных NULL — CHECK), status, logo_file_id → files |
 | users | id, organization_id → organizations, email (unique), password_hash, full_name, phone, is_org_admin, totp_secret, telegram_chat_id, avatar_file_id → files, failed_logins, locked_until, status |
 | roles, user_roles | Роли и связь N:M пользователей с ролями |
 | fields | id, organization_id, name, area_ha, geometry (GeoJSON, jsonb), region_id |
@@ -413,7 +413,7 @@ flowchart LR
 
 | Таблица | Назначение |
 |---|---|
-| batch_status_history | batch_id, from_status, to_status, changed_by, reason, changed_at — история изменений |
+| batch_status_history | batch_id, from_status, to_status, changed_by, reason (код причины из перечня BatchStatusReason — CHECK), changed_at — история изменений |
 | notifications | user_id, type, payload (jsonb), channel, is_read, delivery_status, created_at |
 | audit_log | actor_id, action, entity_type, entity_id, diff (jsonb), ip, backend (express/django/laravel), created_at — только INSERT |
 | refresh_tokens | user_id, token_hash, expires_at, revoked_at, replaced_by |

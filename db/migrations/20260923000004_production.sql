@@ -17,7 +17,7 @@ CREATE TABLE treatments (
   field_id uuid NOT NULL REFERENCES fields(id),
   substance_id uuid NOT NULL REFERENCES substances(id),
   dose numeric(10,3) NOT NULL CHECK (dose > 0),
-  dose_unit varchar(16) NOT NULL DEFAULT 'л/га',
+  dose_unit varchar(16) NOT NULL DEFAULT 'л/га' CHECK (dose_unit IN ('л/га','мл/га','кг/га','г/га')),
   applied_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -49,7 +49,7 @@ CREATE TABLE batches (
   status varchar(16) NOT NULL DEFAULT 'Created' CHECK (status IN
     ('Created','OnTest','Approved','InTransit','Accepted','Processed','OnSale','Sold','Blocked','Recalled','WrittenOff')),
   test_required boolean NOT NULL DEFAULT false,
-  test_reason varchar(24) CHECK (test_reason IN ('NEW_FARM','LOW_RATING','RECENT_PESTICIDE','SAMPLED','NONE')),
+  test_reason varchar(24) NOT NULL DEFAULT 'NONE' CHECK (test_reason IN ('NEW_FARM','LOW_RATING','RECENT_PESTICIDE','SAMPLED','NONE')),
   qr_generated_at timestamptz,
   qr_png_file_id uuid REFERENCES files(id),
   qr_pdf_file_id uuid REFERENCES files(id),
@@ -84,7 +84,9 @@ CREATE TABLE batch_status_history (
   to_status varchar(16) NOT NULL CHECK (to_status IN
     ('Created','OnTest','Approved','InTransit','Accepted','Processed','OnSale','Sold','Blocked','Recalled','WrittenOff')),
   changed_by uuid REFERENCES users(id),
-  reason varchar(500),
+  reason varchar(32) NOT NULL CHECK (reason IN
+    ('CREATED','TEST_REQUIRED','TEST_NOT_REQUIRED','LAB_PASS','LAB_FAIL','WAYBILL_SENT','WAYBILL_ACCEPTED',
+     'WAYBILL_REJECTED','PROCESSED','ON_SALE','SOLD','RECALLED','WRITTEN_OFF')),
   changed_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX ix_bsh_batch ON batch_status_history(batch_id, changed_at);

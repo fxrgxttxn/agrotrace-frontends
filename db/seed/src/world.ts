@@ -500,7 +500,7 @@ export class World {
         inn: o.inn,
         address: o.address,
         region_id: this.region(o.regionCode),
-        trust_rating: 80,
+        trust_rating: o.type === 'FARM' ? 80 : null, // BR-09: only farms carry a rating (R84)
         status: 'ACTIVE',
         logo_file_id: null,
         created_at: at,
@@ -702,7 +702,7 @@ export class World {
       produced_at: null,
       status: 'Created',
       test_required: false,
-      test_reason: null,
+      test_reason: 'NONE',
       qr_generated_at: null,
       qr_png_file_id: null,
       qr_pdf_file_id: null,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import pg from 'pg';
-import { appPool, withTx, expectPgError, insertOrg, ownerPool } from './helpers';
+import { appPool, withTx, expectPgError, expectPgErrorIn, insertOrg, ownerPool } from './helpers';
 
 async function user(c: pg.PoolClient) {
   const org = await insertOrg(c);
@@ -78,10 +78,18 @@ describe('service schema', () => {
     withTx(async (c) => {
       await expectPgError(
         c.query(
-          `INSERT INTO audit_log(action, entity_type, entity_id, diff, backend) VALUES ('a','b',gen_random_uuid(),'{}','rails')`,
+          `INSERT INTO audit_log(action, entity_type, entity_id, diff, backend) VALUES ('a','batch',gen_random_uuid(),'{}','rails')`,
         ),
         '23514',
       );
+    }));
+
+  it('audit_log.entity_type is one of AuditEntityType (R84)', () =>
+    withTx(async (c) => {
+      const ins = `INSERT INTO audit_log(action, entity_type, entity_id, diff, backend) VALUES ('a',$1,gen_random_uuid(),'{}','express')`;
+      await c.query(ins, ['labTest']);
+      await expectPgErrorIn(c, ins, ['lab_test'], '23514');
+      await expectPgErrorIn(c, ins, ['Batch'], '23514');
     }));
 
   it('emits pg_notify on committed notification only', async () => {

@@ -927,6 +927,20 @@ describe('openapi contract: operations', () => {
       ['audit_log.backend', check('audit_log', 'backend'), s.AuditEntry.properties.backend.enum],
       ['products.category', check('products', 'category'), s.ProductCategory.enum],
       ['substances.type', check('substances', 'type'), s.SubstanceType.enum],
+      // Final review R84: every other enum ↔ CHECK pair.
+      ['batches.status', check('batches', 'status'), s.BatchStatus.enum],
+      ['batch_status_history.from_status', check('batch_status_history', 'from_status'), s.BatchStatus.enum],
+      ['batch_status_history.to_status', check('batch_status_history', 'to_status'), s.BatchStatus.enum],
+      ['recall_batches.status_before', check('recall_batches', 'status_before'), s.BatchStatus.enum],
+      ['batches.kind', check('batches', 'kind'), s.BatchKind.enum],
+      ['batches.test_reason', check('batches', 'test_reason'), s.TestReason.enum],
+      ['waybills.status', check('waybills', 'status'), s.WaybillStatus.enum],
+      ['users.status', check('users', 'status'), s.UserStatus.enum],
+      ['organizations.type', check('organizations', 'type'), s.OrganizationType.enum],
+      ['roles.code', check('roles', 'code'), s.RoleCode.enum],
+      ['treatments.dose_unit', check('treatments', 'dose_unit'), s.DoseUnit.enum],
+      ['audit_log.entity_type', check('audit_log', 'entity_type'), s.AuditEntityType.enum],
+      ['batch_status_history.reason', check('batch_status_history', 'reason'), s.BatchStatusReason.enum],
     ];
     const bad = pairs
       .filter(([, db, api]) => JSON.stringify(db) !== JSON.stringify(api))

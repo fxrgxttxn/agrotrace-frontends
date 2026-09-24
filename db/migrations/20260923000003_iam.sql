@@ -6,14 +6,27 @@ CREATE TABLE organizations (
   inn varchar(12) NOT NULL UNIQUE CHECK (inn ~ '^[0-9]{10}([0-9]{2})?$'),
   address varchar(500),
   region_id uuid NOT NULL REFERENCES regions(id),
-  trust_rating integer NOT NULL DEFAULT 80 CHECK (trust_rating BETWEEN 0 AND 100),
+  trust_rating integer CHECK (trust_rating BETWEEN 0 AND 100),
   status varchar(16) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','MANUAL_CHECK','ACTIVE','REJECTED','SUSPENDED')),
   logo_file_id uuid REFERENCES files(id),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   created_by uuid,
-  deleted_at timestamptz
+  deleted_at timestamptz,
+  -- BR-09: only farms carry a trust rating (API trustRating is null for every other type).
+  CONSTRAINT organizations_trust_rating_farm CHECK ((type = 'FARM') = (trust_rating IS NOT NULL))
 );
+-- Default rating of a new farm (80, contracts/rules/trust-rating.json `initial`) is set by the DB, not by
+-- the backends (spec 7.1: defaults live in the DB); other types keep NULL.
+CREATE FUNCTION organizations_default_rating() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.type = 'FARM' AND NEW.trust_rating IS NULL THEN
+    NEW.trust_rating := 80;
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER t_organizations_default_rating BEFORE INSERT ON organizations
+  FOR EACH ROW EXECUTE FUNCTION organizations_default_rating();
 CREATE TABLE users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL REFERENCES organizations(id),
@@ -66,3 +79,4 @@ INSERT INTO roles(code, name) VALUES
  ('RETAILER','Сотрудник магазина'),('INSPECTOR','Инспектор'),('ADMIN','Администратор');
 -- migrate:down
 DROP TABLE refresh_tokens, user_roles, roles, users, organizations;
+DROP FUNCTION IF EXISTS organizations_default_rating();

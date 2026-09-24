@@ -69,6 +69,21 @@ END $$;
 
 
 --
+-- Name: organizations_default_rating(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.organizations_default_rating() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NEW.type = 'FARM' AND NEW.trust_rating IS NULL THEN
+    NEW.trust_rating := 80;
+  END IF;
+  RETURN NEW;
+END $$;
+
+
+--
 -- Name: touch_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -97,7 +112,8 @@ CREATE TABLE public.audit_log (
     backend character varying(8) NOT NULL,
     request_id character varying(64),
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT audit_log_backend_check CHECK (((backend)::text = ANY ((ARRAY['express'::character varying, 'django'::character varying, 'laravel'::character varying, 'seed'::character varying, 'system'::character varying])::text[])))
+    CONSTRAINT audit_log_backend_check CHECK (((backend)::text = ANY ((ARRAY['express'::character varying, 'django'::character varying, 'laravel'::character varying, 'seed'::character varying, 'system'::character varying])::text[]))),
+    CONSTRAINT audit_log_entity_type_check CHECK (((entity_type)::text = ANY ((ARRAY['organization'::character varying, 'user'::character varying, 'field'::character varying, 'treatment'::character varying, 'batch'::character varying, 'waybill'::character varying, 'labTest'::character varying, 'recall'::character varying, 'recallTask'::character varying, 'complaint'::character varying, 'product'::character varying, 'substance'::character varying, 'indicator'::character varying, 'norm'::character varying, 'region'::character varying, 'file'::character varying])::text[])))
 );
 
 
@@ -157,9 +173,10 @@ CREATE TABLE public.batch_status_history (
     from_status character varying(16),
     to_status character varying(16) NOT NULL,
     changed_by uuid,
-    reason character varying(500),
+    reason character varying(32) NOT NULL,
     changed_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT batch_status_history_from_status_check CHECK (((from_status)::text = ANY ((ARRAY['Created'::character varying, 'OnTest'::character varying, 'Approved'::character varying, 'InTransit'::character varying, 'Accepted'::character varying, 'Processed'::character varying, 'OnSale'::character varying, 'Sold'::character varying, 'Blocked'::character varying, 'Recalled'::character varying, 'WrittenOff'::character varying])::text[]))),
+    CONSTRAINT batch_status_history_reason_check CHECK (((reason)::text = ANY ((ARRAY['CREATED'::character varying, 'TEST_REQUIRED'::character varying, 'TEST_NOT_REQUIRED'::character varying, 'LAB_PASS'::character varying, 'LAB_FAIL'::character varying, 'WAYBILL_SENT'::character varying, 'WAYBILL_ACCEPTED'::character varying, 'WAYBILL_REJECTED'::character varying, 'PROCESSED'::character varying, 'ON_SALE'::character varying, 'SOLD'::character varying, 'RECALLED'::character varying, 'WRITTEN_OFF'::character varying])::text[]))),
     CONSTRAINT batch_status_history_to_status_check CHECK (((to_status)::text = ANY ((ARRAY['Created'::character varying, 'OnTest'::character varying, 'Approved'::character varying, 'InTransit'::character varying, 'Accepted'::character varying, 'Processed'::character varying, 'OnSale'::character varying, 'Sold'::character varying, 'Blocked'::character varying, 'Recalled'::character varying, 'WrittenOff'::character varying])::text[])))
 );
 
@@ -200,7 +217,7 @@ CREATE TABLE public.batches (
     produced_at timestamp with time zone,
     status character varying(16) DEFAULT 'Created'::character varying NOT NULL,
     test_required boolean DEFAULT false NOT NULL,
-    test_reason character varying(24),
+    test_reason character varying(24) DEFAULT 'NONE'::character varying NOT NULL,
     qr_generated_at timestamp with time zone,
     qr_png_file_id uuid,
     qr_pdf_file_id uuid,
@@ -414,7 +431,7 @@ CREATE TABLE public.organizations (
     inn character varying(12) NOT NULL,
     address character varying(500),
     region_id uuid NOT NULL,
-    trust_rating integer DEFAULT 80 NOT NULL,
+    trust_rating integer,
     status character varying(16) DEFAULT 'PENDING'::character varying NOT NULL,
     logo_file_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -424,6 +441,7 @@ CREATE TABLE public.organizations (
     CONSTRAINT organizations_inn_check CHECK (((inn)::text ~ '^[0-9]{10}([0-9]{2})?$'::text)),
     CONSTRAINT organizations_status_check CHECK (((status)::text = ANY ((ARRAY['PENDING'::character varying, 'MANUAL_CHECK'::character varying, 'ACTIVE'::character varying, 'REJECTED'::character varying, 'SUSPENDED'::character varying])::text[]))),
     CONSTRAINT organizations_trust_rating_check CHECK (((trust_rating >= 0) AND (trust_rating <= 100))),
+    CONSTRAINT organizations_trust_rating_farm CHECK ((((type)::text = 'FARM'::text) = (trust_rating IS NOT NULL))),
     CONSTRAINT organizations_type_check CHECK (((type)::text = ANY ((ARRAY['FARM'::character varying, 'PROCESSOR'::character varying, 'LAB'::character varying, 'RETAILER'::character varying, 'AUTHORITY'::character varying, 'PLATFORM'::character varying])::text[])))
 );
 
@@ -638,7 +656,8 @@ CREATE TABLE public.treatments (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by uuid,
     deleted_at timestamp with time zone,
-    CONSTRAINT treatments_dose_check CHECK ((dose > (0)::numeric))
+    CONSTRAINT treatments_dose_check CHECK ((dose > (0)::numeric)),
+    CONSTRAINT treatments_dose_unit_check CHECK (((dose_unit)::text = ANY ((ARRAY['л/га'::character varying, 'мл/га'::character varying, 'кг/га'::character varying, 'г/га'::character varying])::text[])))
 );
 
 
@@ -1374,6 +1393,13 @@ CREATE TRIGGER t_notifications_notify AFTER INSERT ON public.notifications FOR E
 
 
 --
+-- Name: organizations t_organizations_default_rating; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER t_organizations_default_rating BEFORE INSERT ON public.organizations FOR EACH ROW EXECUTE FUNCTION public.organizations_default_rating();
+
+
+--
 -- Name: organizations t_organizations_touch; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2072,6 +2098,13 @@ GRANT ALL ON FUNCTION public.next_waybill_number() TO agrotrace_app;
 --
 
 GRANT ALL ON FUNCTION public.notify_notification() TO agrotrace_app;
+
+
+--
+-- Name: FUNCTION organizations_default_rating(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.organizations_default_rating() TO agrotrace_app;
 
 
 --

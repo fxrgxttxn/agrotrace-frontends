@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type pg from 'pg';
-import { withTx, expectPgError, insertOrg } from './helpers';
+import { withTx, expectPgError, expectPgErrorIn, insertOrg } from './helpers';
 
 async function product(c: pg.PoolClient) {
   return (
@@ -123,6 +123,49 @@ describe('production schema', () => {
       );
     }));
 
+  it('batches.test_reason defaults to NONE, is NOT NULL and checked (R84)', () =>
+    withTx(async (c) => {
+      const org = await insertOrg(c);
+      const p = await product(c);
+      const a = await batch(c, org, p);
+      expect((await c.query('SELECT test_reason FROM batches WHERE id=$1', [a.id])).rows[0].test_reason).toBe(
+        'NONE',
+      );
+      await expectPgErrorIn(c, 'UPDATE batches SET test_reason = NULL WHERE id=$1', [a.id], '23502');
+      await expectPgErrorIn(c, `UPDATE batches SET test_reason = 'MAYBE' WHERE id=$1`, [a.id], '23514');
+    }));
+
+  it('treatments.dose_unit is one of DoseUnit (R84)', () =>
+    withTx(async (c) => {
+      const org = await insertOrg(c);
+      const field = (
+        await c.query(
+          `INSERT INTO fields(organization_id, name, area_ha, region_id)
+           VALUES ($1, 'Поле', 10, (SELECT id FROM regions LIMIT 1)) RETURNING id`,
+          [org],
+        )
+      ).rows[0].id;
+      const substance = (
+        await c.query(
+          `INSERT INTO substances(name, type, waiting_period_days) VALUES ('Тест-R84','PESTICIDE',30) RETURNING id`,
+        )
+      ).rows[0].id;
+      const ins = `INSERT INTO treatments(field_id, substance_id, dose, dose_unit, applied_at) VALUES ($1,$2,1,$3,now())`;
+      for (const unit of ['л/га', 'мл/га', 'кг/га', 'г/га']) await c.query(ins, [field, substance, unit]);
+      await expectPgErrorIn(c, ins, [field, substance, 'т/га'], '23514');
+    }));
+
+  it('batch_status_history.reason is a NOT NULL BatchStatusReason (R84)', () =>
+    withTx(async (c) => {
+      const org = await insertOrg(c);
+      const p = await product(c);
+      const a = await batch(c, org, p);
+      const ins = `INSERT INTO batch_status_history(batch_id, from_status, to_status, reason) VALUES ($1,'Created','Approved',$2)`;
+      await c.query(ins, [a.id, 'TEST_NOT_REQUIRED']);
+      await expectPgErrorIn(c, ins, [a.id, null], '23502');
+      await expectPgErrorIn(c, ins, [a.id, 'Партия допущена'], '23514');
+    }));
+
   it('rejects unknown status in batch_status_history', () =>
     withTx(async (c) => {
       const org = await insertOrg(c);
@@ -130,7 +173,7 @@ describe('production schema', () => {
       const a = await batch(c, org, p);
       await expectPgError(
         c.query(
-          `INSERT INTO batch_status_history(batch_id, from_status, to_status) VALUES ($1,'Created','Lost')`,
+          `INSERT INTO batch_status_history(batch_id, from_status, to_status, reason) VALUES ($1,'Created','Lost','CREATED')`,
           [a.id],
         ),
         '23514',
