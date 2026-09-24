@@ -6,11 +6,12 @@ RUN apk add --no-cache curl
 
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# R6: the placeholder is baked into the image at /srv/{react,angular,svelte}. Later frontend plans
-# bind-mount their built dist/ over each of these directories, replacing the placeholder.
-COPY placeholder/index.html /srv/react/index.html
-COPY placeholder/index.html /srv/angular/index.html
-COPY placeholder/index.html /srv/svelte/index.html
+# R6: the placeholder (including a sample /assets/ file, so /assets/* has something real to serve
+# in tests) is baked into the image at /srv/{react,angular,svelte}. Later frontend plans bind-mount
+# their built dist/ over each of these directories, replacing the placeholder wholesale.
+COPY placeholder/ /srv/react/
+COPY placeholder/ /srv/angular/
+COPY placeholder/ /srv/svelte/
 
 COPY start/ /srv/start/
 

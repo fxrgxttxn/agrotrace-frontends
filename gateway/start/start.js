@@ -1,5 +1,5 @@
 // Start page: polls /_health/<backend> (gateway-proxied api-<backend>:8000/api/v1/health/live)
-// every 10 s and updates the status chip in the matching table header. `role="status"` +
+// every 10 s and updates the status chip in the table's "Статус" row. `role="status"` +
 // `aria-live="polite"` on each chip means only the changed chip is announced, not the whole table.
 (() => {
   const BACKENDS = ['express', 'django', 'laravel'];
@@ -19,7 +19,7 @@
   function render(backend, ok) {
     const chip = document.querySelector(`[data-backend="${backend}"]`);
     if (!chip) return;
-    const text = ok ? 'ok' : 'недоступен';
+    const text = ok ? 'доступен' : 'недоступен';
     if (chip.textContent !== text) chip.textContent = text;
     chip.dataset.tone = ok ? 'ok' : 'danger';
   }

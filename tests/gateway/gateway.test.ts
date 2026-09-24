@@ -1,82 +1,23 @@
 // Fetches the gateway (service name `gateway` on the compose `at` network) with a spoofed Host
 // header, exactly the way a browser resolving *.localhost DNS to 127.0.0.1 would see it. Run via
-// `./at.sh up gateway && ./at.sh gw:test` — no api-<back> container is ever started here: every
-// 502 case below proves the gateway starts and keeps working with zero backends running (R6).
+// `./at.sh up gateway && ./at.sh gw:test` — `gw:test` always brings up the gwtest-profile stub,
+// network-aliased `api-express` (gateway-upstream.test.ts), so react-express.localhost /
+// angular-express.localhost / svelte-express.localhost actually have a live backend to reach; the
+// "no backend running" (502 BACKEND_UNAVAILABLE) cases below are therefore only true for
+// django/laravel. See gateway-upstream.test.ts for what a live backend's own responses look like.
 //
-// The one case NOT covered here is proxy_buffering/proxy_read_timeout on /api/v1/events/ (SSE):
-// the `tools` container this suite runs in has no docker socket, so it cannot `exec` into the
-// gateway container to run `nginx -T`, and standing up a real upstream just to observe streaming
-// behaviour would mean adding a permanent extra compose service whose name (api-express, ...)
-// later plans need for the real backends. `./at.sh gw:test` therefore greps `nginx -T` from the
-// host (in at.sh, which already runs other `docker compose exec` assertions) before it runs this
-// suite — see the `gw:test)` case in at.sh.
-import http from 'node:http';
+// Two things NOT covered here: (1) proxy_buffering/proxy_read_timeout on /api/v1/events/ and the
+// absence of proxy_intercept_errors — the `tools` container this suite runs in has no docker
+// socket, so it cannot `exec` into the gateway container to run `nginx -T`; `./at.sh gw:test`
+// greps that from the host instead (see gw_test() in at.sh). (2) SSE actually streaming
+// unbuffered — see gateway-upstream.test.ts, which has a real upstream to stream from.
 import { describe, expect, it } from 'vitest';
 import problem502 from '../../gateway/problem-502.json';
+import { fetchAs } from './lib/fetch-as';
 
 const FRONTS = ['react', 'angular', 'svelte'] as const;
 const BACKS = ['express', 'django', 'laravel'] as const;
-
-interface SimpleResponse {
-  status: number;
-  headers: { get(name: string): string | null };
-  text(): Promise<string>;
-  json(): Promise<unknown>;
-}
-
-// fetch() silently drops a caller-set `Host` header (it's on the WHATWG forbidden-header list),
-// which makes it useless for virtual-host testing: every request would land on default_server
-// regardless of the Host we asked for. node:http has no such restriction, so it's used directly
-// to actually reach {front}-{back}.localhost / localhost / foo.localhost on the gateway service.
-function fetchAs(
-  host: string,
-  path: string,
-  opts: { method?: string; headers?: Record<string, string>; body?: Buffer } = {},
-): Promise<SimpleResponse> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const req = http.request(
-      {
-        host: 'gateway',
-        port: 80,
-        path,
-        method: opts.method ?? 'GET',
-        headers: {
-          Host: host,
-          ...(opts.body ? { 'Content-Length': String(opts.body.length) } : {}),
-          ...opts.headers,
-        },
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (c: Buffer) => chunks.push(c));
-        res.on('end', () => {
-          settled = true;
-          const buf = Buffer.concat(chunks);
-          resolve({
-            status: res.statusCode ?? 0,
-            headers: {
-              get: (name: string) => {
-                const v = res.headers[name.toLowerCase()];
-                return Array.isArray(v) ? v.join(', ') : (v ?? null);
-              },
-            },
-            text: async () => buf.toString('utf8'),
-            json: async () => JSON.parse(buf.toString('utf8')),
-          });
-        });
-      },
-    );
-    // A large-body request can have nginx answer 413 and close the connection before the write
-    // finishes; once we already have a full response, a late write-side ECONNRESET is expected
-    // and harmless, not a test failure.
-    req.on('error', (err) => {
-      if (!settled) reject(err);
-    });
-    if (opts.body) req.write(opts.body);
-    req.end();
-  });
-}
+const BACKS_WITHOUT_BACKEND = ['django', 'laravel'] as const;
 
 describe('gateway: 9 frontend x backend combinations', () => {
   for (const front of FRONTS) {
@@ -96,6 +37,12 @@ describe('gateway: 9 frontend x backend combinations', () => {
         expect(res.headers.get('x-frontend')).toBe(front);
         expect(await res.text()).toContain('<div id="app">');
       });
+    }
+  }
+
+  for (const front of FRONTS) {
+    for (const back of BACKS_WITHOUT_BACKEND) {
+      const host = `${front}-${back}.localhost`;
 
       it(`GET /api/v1/health/live on ${host} is 502 BACKEND_UNAVAILABLE (no backend running)`, async () => {
         const res = await fetchAs(host, '/api/v1/health/live');
@@ -129,7 +76,10 @@ describe('gateway: security headers', () => {
     expect(start.headers.get('x-content-type-options')).toBe('nosniff');
     expect(start.headers.get('content-security-policy')).toContain("default-src 'self'");
 
-    const down = await fetchAs('react-express.localhost', '/api/v1/health/live');
+    // react-django (not react-express): during gw:test, express has the stub upstream running,
+    // so only django/laravel are guaranteed to actually be a 502 here.
+    const down = await fetchAs('react-django.localhost', '/api/v1/health/live');
+    expect(down.status).toBe(502);
     expect(down.headers.get('x-content-type-options')).toBe('nosniff');
     expect(down.headers.get('referrer-policy')).toBe('same-origin');
   });
@@ -153,9 +103,17 @@ describe('gateway: cache headers', () => {
     expect(res.headers.get('cache-control')).toBe('no-cache');
   });
 
-  it('serves /assets/* with a long, immutable cache lifetime', async () => {
-    // The path need not exist for the header to prove the policy: /assets/ has no SPA fallback
-    // (unlike /), so a missing hashed asset is a plain 404, still carrying the cache header.
+  it('serves an existing /assets/ file with a long, immutable cache lifetime', async () => {
+    // placeholder/assets/placeholder.js is baked into every /srv/<front> (Dockerfile) precisely
+    // so there is a real file to assert this against, not just the 404 case below.
+    const res = await fetchAs('react-express.localhost', '/assets/placeholder.js');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-frontend')).toBe('react');
+    expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(await res.text()).toContain('export {}');
+  });
+
+  it('404s (not the SPA fallback) for a missing /assets/ file, still carrying the cache header', async () => {
     const res = await fetchAs('react-express.localhost', '/assets/does-not-exist.js');
     expect(res.status).toBe(404);
     expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
@@ -174,16 +132,29 @@ describe('gateway: 413 body too large', () => {
     const body = await res.json();
     expect(body.status).toBe(413);
     expect(body.code).toBe('FILE_TOO_LARGE');
+    expect(body.title).toBe('File too large');
+    // 12m = 12 * 1024 * 1024 — the gateway's own limit, distinct from any backend-imposed one
+    // (see gateway-upstream.test.ts, which asserts a *different* maxBytes survives pass-through).
+    expect(body.params).toEqual({ maxBytes: 12582912 });
   });
 });
 
 describe('gateway: /_health/<back> (polled by the start page)', () => {
-  it('reports status:fail while no backend is running, for all three backends', async () => {
-    for (const back of BACKS) {
+  it('reports status:fail while no backend is running (django, laravel — express has the stub, see gateway-upstream.test.ts)', async () => {
+    for (const back of BACKS_WITHOUT_BACKEND) {
       const res = await fetchAs('localhost', `/_health/${back}`);
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({ status: 'fail' });
     }
+  });
+
+  it('falls back to the start page for a backend name outside {express,django,laravel}', async () => {
+    // No location matches /_health/nope, so it falls through to default_server's own SPA-style
+    // catch-all (try_files ... /index.html) — documented here as the actual, accepted behaviour,
+    // not a dedicated 404.
+    const res = await fetchAs('localhost', '/_health/nope');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('Реализации');
   });
 });
 
@@ -224,5 +195,39 @@ describe('gateway: design-system showcase at /_ds/', () => {
 
     const font = await fetchAs('localhost', '/_ds/fonts/onest-latin-400-normal.woff2');
     expect(font.status).toBe(200);
+
+    const sprite = await fetchAs('localhost', '/_ds/sprite.svg');
+    expect(sprite.status).toBe(200);
+
+    const illustration = await fetchAs('localhost', '/_ds/illustrations/not-found.svg');
+    expect(illustration.status).toBe(200);
+
+    const component = await fetchAs('localhost', '/_ds/components/button.css');
+    expect(component.status).toBe(200);
+
+    const manifest = await fetchAs('localhost', '/_ds/icons/manifest.json');
+    expect(manifest.status).toBe(200);
+  });
+
+  it('does not expose anything outside the narrowed allowlist (node_modules, scripts, package.json, raw icons)', async () => {
+    for (const path of [
+      '/_ds/package.json',
+      '/_ds/README.md',
+      '/_ds/scripts/build-sprite.ts',
+      '/_ds/test/contrast.test.ts',
+      '/_ds/node_modules/.bin/vitest',
+      '/_ds/icons/alert.svg',
+    ]) {
+      const res = await fetchAs('localhost', path);
+      expect(res.status, path).toBe(404);
+    }
+  });
+
+  it('is not reachable from an SPA host — /_ds/ only exists on the default_server', async () => {
+    const res = await fetchAs('react-express.localhost', '/_ds/showcase/index.html');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-frontend')).toBe('react');
+    // Falls through to that host's own location / (SPA fallback), not the design-system alias.
+    expect(await res.text()).toContain('<div id="app">');
   });
 });

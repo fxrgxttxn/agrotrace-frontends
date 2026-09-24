@@ -23,18 +23,26 @@
         letter-spacing: var(--tracking-display);
       }
 
-      .start th span.at-chip {
-        margin-top: 6px;
+      .start .at-table td {
+        vertical-align: middle;
       }
 
-      .start th {
-        vertical-align: top;
+      .start-noscript {
+        margin: 0 0 var(--sp-4);
+        color: var(--c-ink-muted);
+        font-size: var(--fs-13);
+        line-height: var(--lh-13);
       }
     </style>
   </head>
   <body>
     <main class="start">
       <h1>Реализации</h1>
+      <noscript>
+        <p class="start-noscript">
+          Без JavaScript статус backend не обновляется — переходите по ссылкам, чтобы проверить вручную.
+        </p>
+      </noscript>
       <div class="at-table-wrap">
         <table class="at-table">
           <caption class="at-visually-hidden">
@@ -43,8 +51,15 @@
           <thead>
             <tr>
               <th scope="col">Фронтенд</th>
-              <th scope="col">
-                Express<br />
+              <th scope="col">Express</th>
+              <th scope="col">Django</th>
+              <th scope="col">Laravel</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Статус</th>
+              <td>
                 <span
                   class="at-chip"
                   data-tone="neutral"
@@ -53,9 +68,8 @@
                   aria-live="polite"
                   >проверка…</span
                 >
-              </th>
-              <th scope="col">
-                Django<br />
+              </td>
+              <td>
                 <span
                   class="at-chip"
                   data-tone="neutral"
@@ -64,9 +78,8 @@
                   aria-live="polite"
                   >проверка…</span
                 >
-              </th>
-              <th scope="col">
-                Laravel<br />
+              </td>
+              <td>
                 <span
                   class="at-chip"
                   data-tone="neutral"
@@ -75,10 +88,8 @@
                   aria-live="polite"
                   >проверка…</span
                 >
-              </th>
+              </td>
             </tr>
-          </thead>
-          <tbody>
             <tr>
               <th scope="row">React</th>
               <td><a href="http://react-express.localhost/">react-express.localhost</a></td>

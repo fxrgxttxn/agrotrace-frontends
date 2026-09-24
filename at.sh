@@ -76,6 +76,32 @@ dump_schema() (
   mv "$tmp" db/schema.sql
 )
 
+# Brings up the gwtest-profile stub upstream (network alias api-express; zero real backends
+# otherwise), greps the gateway's actual loaded config (`nginx -T`) for the SSE location's
+# directives and for the absence of `proxy_intercept_errors` (fix round 1: that directive rewrote
+# real backend error responses into the gateway's own problem+json instead of passing them
+# through), then runs the full tests/gateway suite. The stub is always torn down afterwards, pass
+# or fail, so it never lingers or collides with a later plan's real api-express service.
+gw_test() (
+  set -euo pipefail
+  cleanup() { $DC --profile gwtest rm -sf gateway-test-upstream >/dev/null 2>&1 || true; }
+  trap cleanup EXIT
+
+  $DC --profile gwtest up -d --wait gateway-test-upstream
+
+  full="$($DC exec -T gateway nginx -T 2>/dev/null)"
+  echo "$full" | grep -q 'proxy_intercept_errors on;' \
+    && { echo "gw:test: proxy_intercept_errors must not appear anywhere in the gateway config (it rewrites real backend error responses)"; exit 1; }
+
+  sse="$(echo "$full" | awk '/location \/api\/v1\/events\//,/^    \}/')"
+  echo "$sse" | grep -q 'proxy_buffering off;'      || { echo "gw:test: proxy_buffering off missing on /api/v1/events/"; exit 1; }
+  echo "$sse" | grep -q 'proxy_read_timeout 1h;'     || { echo "gw:test: proxy_read_timeout 1h missing on /api/v1/events/"; exit 1; }
+  echo "$sse" | grep -q 'proxy_cache off;'           || { echo "gw:test: proxy_cache off missing on /api/v1/events/"; exit 1; }
+  echo "gw:test: SSE location config OK; proxy_intercept_errors correctly absent"
+
+  $T pnpm --filter @agrotrace/tests-gateway test
+)
+
 # Number of migrations applied to the dev DB (0 when schema_migrations does not exist).
 applied_migrations() {
   local q="$DC exec -T postgres psql -tA -v ON_ERROR_STOP=1 -U agrotrace_owner -d agrotrace -c"
@@ -96,7 +122,10 @@ case "$cmd" in
   up)
     case "${1:-all}" in
       infra)   $DC up -d --wait postgres redis rabbitmq minio mailpit && $DC up minio-init ;;
-      gateway) $DC up -d --wait gateway ;;
+      gateway)
+        $DC up -d --wait gateway
+        set -a; . ./.env; set +a
+        echo "Gateway up: http://localhost:${GATEWAY_PORT:-80}/  (design system: http://localhost:${GATEWAY_PORT:-80}/_ds/)" ;;
       *) $DC up -d --wait ;;
     esac ;;
   down)        $DC down "$@" ;;
@@ -119,19 +148,8 @@ case "$cmd" in
     $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" -e APP_DATABASE_URL="$TEST_APP_DATABASE_URL" tools \
       pnpm --filter @agrotrace/tests-db test ;;
   ds:test)     $DC run --rm playwright npx --no-install playwright test "$@" ;;
-  # Gateway must already be up (./at.sh up gateway). The `tools` container has no docker socket,
-  # so it cannot `exec` into the gateway container itself; the one thing that needs that (SSE
-  # proxy_buffering/proxy_read_timeout on /api/v1/events/, which has no visible effect on a
-  # single small response and would otherwise need a throwaway upstream container occupying an
-  # api-<back> name a later plan needs for real) is asserted here, from the host, against the
-  # config nginx actually loaded (`nginx -T`) before the HTTP-behaviour suite runs.
-  gw:test)
-    sse="$($DC exec -T gateway nginx -T 2>/dev/null | awk '/location \/api\/v1\/events\//,/^    \}/')"
-    echo "$sse" | grep -q 'proxy_buffering off;'      || { echo "gw:test: proxy_buffering off missing on /api/v1/events/"; exit 1; }
-    echo "$sse" | grep -q 'proxy_read_timeout 1h;'     || { echo "gw:test: proxy_read_timeout 1h missing on /api/v1/events/"; exit 1; }
-    echo "$sse" | grep -q 'proxy_cache off;'           || { echo "gw:test: proxy_cache off missing on /api/v1/events/"; exit 1; }
-    echo "gw:test: SSE location config OK (proxy_buffering off, proxy_cache off, proxy_read_timeout 1h)"
-    $T pnpm --filter @agrotrace/tests-gateway test ;;
+  # Gateway must already be up (./at.sh up gateway). See gw_test() above for what this checks.
+  gw:test)     gw_test ;;
   psql)        $DC exec postgres psql -U agrotrace_owner agrotrace ;;
   check)
     $DC exec -T postgres pg_isready -U agrotrace_owner && \

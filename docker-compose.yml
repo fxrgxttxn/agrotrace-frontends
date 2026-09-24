@@ -79,8 +79,25 @@ services:
     # R6) are added by the plans that create those directories.
     volumes:
       - ./packages/design-system:/srv/ds:ro
-    ports: ["80:80"]
+    # GATEWAY_PORT (.env.example default: 80) is the host port; override it in a local,
+    # uncommitted .env when 80 is already taken on the machine.
+    ports: ["${GATEWAY_PORT:-80}:80"]
     networks: [at]
+  # Test-only stub of a real backend (./at.sh gw:test): a tiny node:http server, network-aliased
+  # as api-express so the gateway's variable proxy_pass resolves it exactly like a real api-express
+  # container would. Behind the gwtest profile so it never starts with a normal `docker compose up`
+  # and never collides with the real api-express service a later plan adds.
+  gateway-test-upstream:
+    image: node:22-alpine
+    profiles: [gwtest]
+    working_dir: /app
+    volumes:
+      - ./gateway/test/stub-upstream.mjs:/app/server.mjs:ro
+    command: ["node", "/app/server.mjs"]
+    healthcheck: { test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/"], interval: 1s, timeout: 2s, retries: 15 }
+    networks:
+      at:
+        aliases: [api-express]
 networks:
   at: {}
 volumes:
