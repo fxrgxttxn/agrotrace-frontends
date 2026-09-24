@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="ООО «Испытательный центр АгроТест»">
+  <rect width="96" height="96" rx="20" fill="#34535C"/>
+  <g fill="none" stroke="#D9B650" stroke-width="3" stroke-linecap="round" opacity="0.55">
+    <path d="M10 78 Q48 64 86 78"/>
+    <path d="M10 87 Q48 73 86 87"/>
+  </g>
+  <text x="48" y="56" text-anchor="middle" font-family="Geologica, Onest, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700" letter-spacing="-0.5" fill="#F9F8F2">ИА</text>
+</svg>

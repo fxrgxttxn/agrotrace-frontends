@@ -76,6 +76,16 @@ dump_schema() (
   mv "$tmp" db/schema.sql
 )
 
+# Number of migrations applied to the dev DB (0 when schema_migrations does not exist).
+applied_migrations() {
+  local q="$DC exec -T postgres psql -tA -v ON_ERROR_STOP=1 -U agrotrace_owner -d agrotrace -c"
+  if [ "$($q "SELECT to_regclass('public.schema_migrations') IS NOT NULL" | tr -d '\r')" = "t" ]; then
+    $q "SELECT count(*) FROM schema_migrations" | tr -d '\r'
+  else
+    echo 0
+  fi
+}
+
 case "$cmd" in
   install) $T pnpm install "$@" ;;
   sh)      $T bash ;;
@@ -114,5 +124,18 @@ case "$cmd" in
     $DC exec -T redis redis-cli ping && \
     $DC exec -T rabbitmq rabbitmq-diagnostics -q check_running && \
     $T sh -c 'curl -fsS http://minio:9000/minio/health/live && curl -fsS http://mailpit:8025/livez' && echo "infra ok" ;;
+  # Demo data (db/seed): replaces all data of the dev DB (except roles, regions, schema_migrations)
+  # and its MinIO objects, flushes Redis. Idempotent.
+  seed)        $T pnpm --filter @agrotrace/seed seed ;;
+  # Checks the seeded dev DB + MinIO (run after `seed`; re-seeds once to prove idempotency).
+  seed:test)   $T pnpm --filter @agrotrace/seed test:db "$@" ;;
+  # Rolls the dev DB back to zero migrations, migrates up again and seeds.
+  reset)
+    $DC up -d --wait postgres
+    while [ "$(applied_migrations)" != "0" ]; do
+      $DC run --rm dbmate --no-dump-schema rollback
+    done
+    $DC run --rm dbmate --no-dump-schema --wait up
+    $T pnpm --filter @agrotrace/seed seed ;;
   help|*)  grep -E '^\s+[a-z:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
 esac
