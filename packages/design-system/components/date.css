@@ -49,8 +49,9 @@
   height: 20px;
 }
 
-.at-date__button:disabled {
-  color: var(--c-ink-muted);
+.at-date__button:disabled,
+.at-date__button:disabled:hover {
+  color: var(--c-line-strong);
   cursor: not-allowed;
 }
 

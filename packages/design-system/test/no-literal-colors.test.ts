@@ -39,7 +39,7 @@ const NAMED = new Set(
 
 // Declarations whose values can never hold a color (names, counters, content, areas, fonts…).
 const NON_COLOR_PROPS =
-  /^(content|grid-template-areas|grid-area|font|font-family|animation|animation-name|counter-reset|counter-increment|list-style|transition|transition-property|will-change|appearance|cursor|display|position|overflow.*|text-.*|white-space|user-select|pointer-events|scrollbar-width|resize|object-fit)$/i;
+  /^(content|grid-template-areas|grid-area|font|font-family|animation|animation-name|counter-reset|counter-increment|list-style|transition|transition-property|will-change|appearance|cursor|display|position|overflow.*|text-align|text-overflow|text-transform|text-wrap|text-indent|text-rendering|text-size-adjust|-webkit-text-size-adjust|text-underline-offset|text-decoration-thickness|text-decoration-line|white-space|user-select|pointer-events|scrollbar-width|resize|object-fit)$/i;
 
 export function literalColors(css: string): string[] {
   let s = css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(["'])(?:\\.|(?!\1).)*\1/g, '""');
@@ -78,6 +78,11 @@ describe('no literal colors outside tokens.css', () => {
       ),
     ).toEqual(['oklch(', 'lab(', 'hwb(', 'color-mix(', 'white']);
     expect(literalColors('.x { border: 1px solid red; outline-color: Tomato }')).toEqual(['red', 'tomato']);
+    expect(
+      literalColors(
+        '.x { text-decoration: underline wavy red; text-shadow: 0 1px 0 black; text-emphasis-color: #abc }',
+      ),
+    ).toEqual(['#abc', 'red', 'black']);
   });
 
   it('keeps keywords, selectors, custom property names and non-color values', () => {

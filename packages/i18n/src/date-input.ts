@@ -38,3 +38,15 @@ export function maskRuDateInput(raw: string): string {
   const parts = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4)].filter(Boolean);
   return parts.join('.');
 }
+
+/**
+ * Range check for the `at-date` field (`min`/`max` as ISO `YYYY-MM-DD`, inclusive; `null`/`''`
+ * means no bound). Run after `parseRuDate` succeeds; `false` → field error `validation.range`.
+ * Bounds are enforced here, not by the hidden native picker, so typed dates are checked too.
+ */
+export function isWithinRuDateBounds(iso: string, min?: string | null, max?: string | null): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  if (min && iso < min) return false;
+  if (max && iso > max) return false;
+  return true;
+}

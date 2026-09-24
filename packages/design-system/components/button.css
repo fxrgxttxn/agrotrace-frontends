@@ -1,5 +1,5 @@
 /* at-button — spec §10.7. Variants: primary | secondary (default) | ghost | danger; sizes: m (default) | s.
-   Busy state (aria-busy="true") hides the label and draws the three-furrow spinner in its place. */
+   Busy state (aria-busy="true") hides the label and shows the ploughing-furrow loader in its place. */
 
 .at-button {
   --btn-bg: var(--c-surface);

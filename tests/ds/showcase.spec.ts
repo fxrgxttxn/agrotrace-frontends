@@ -142,3 +142,19 @@ test('.at-mono wins over component font shorthands', async ({ page }) => {
   expect(families).toHaveLength(4);
   for (const f of families) expect(f.split(',')[0]!.replace(/['"]/g, '').trim()).toBe('JetBrains Mono');
 });
+
+test('empty toast live regions stay in the accessibility tree', async ({ page }) => {
+  await open(page, '/showcase/data.html?theme=light');
+  const states = await page.evaluate(() => {
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<div class="at-toasts" id="toast-probe"><div class="at-toast-region" role="alert"></div>' +
+        '<div class="at-toast-region" aria-live="polite"></div></div>',
+    );
+    return [...document.querySelectorAll('#toast-probe .at-toast-region')].map((el) => {
+      const s = getComputedStyle(el);
+      return `${s.display}/${s.visibility}`;
+    });
+  });
+  expect(states).toEqual(['grid/visible', 'grid/visible']);
+});

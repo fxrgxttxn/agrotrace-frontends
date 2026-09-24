@@ -14,7 +14,7 @@
   right: var(--gutter);
   bottom: var(--gutter);
   display: grid;
-  gap: var(--sp-2);
+  gap: 0;
   width: min(400px, calc(100vw - 2 * var(--gutter)));
   pointer-events: none;
 }
@@ -24,8 +24,10 @@
   gap: var(--sp-2);
 }
 
-.at-toast-region:empty {
-  display: none;
+/* Both regions stay rendered even when empty: a live region must exist in the accessibility
+   tree before its first toast arrives, or the announcement is lost. */
+.at-toast-region:not(:empty) ~ .at-toast-region:not(:empty) {
+  margin-top: var(--sp-2);
 }
 
 .at-toast {

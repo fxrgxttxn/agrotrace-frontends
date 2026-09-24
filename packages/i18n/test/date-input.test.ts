@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatRuDate, maskRuDateInput, parseRuDate } from '../src/index.js';
+import { formatRuDate, isWithinRuDateBounds, maskRuDateInput, parseRuDate } from '../src/index.js';
 
 describe('formatRuDate', () => {
   it('formats an ISO date as ДД.ММ.ГГГГ', () => {
@@ -60,5 +60,23 @@ describe('maskRuDateInput', () => {
 
   it('converts a pasted ISO date', () => {
     expect(maskRuDateInput('2026-08-14')).toBe('14.08.2026');
+  });
+});
+
+describe('isWithinRuDateBounds', () => {
+  it('accepts dates inside inclusive min/max bounds', () => {
+    expect(isWithinRuDateBounds('2026-08-14', '2026-08-14', '2026-08-14')).toBe(true);
+    expect(isWithinRuDateBounds('2026-08-14', '2026-01-01', '2026-12-31')).toBe(true);
+  });
+  it('rejects dates outside the bounds', () => {
+    expect(isWithinRuDateBounds('2025-12-31', '2026-01-01', null)).toBe(false);
+    expect(isWithinRuDateBounds('2026-09-25', null, '2026-09-24')).toBe(false);
+  });
+  it('treats missing or empty bounds as open', () => {
+    expect(isWithinRuDateBounds('1900-01-01', undefined, '')).toBe(true);
+    expect(isWithinRuDateBounds('2999-01-01')).toBe(true);
+  });
+  it('rejects a malformed ISO value', () => {
+    expect(isWithinRuDateBounds('14.08.2026', '2026-01-01')).toBe(false);
   });
 });

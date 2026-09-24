@@ -65,10 +65,15 @@
   box-shadow: inset 3px 0 0 var(--c-straw);
 }
 
-@media (max-width: 1023px) {
+/* Compact widths (content column under ~1000 px): tighter cells, headers may wrap. */
+@media (max-width: 1279px) {
   .at-table th,
   .at-table td {
-    padding-inline: var(--sp-3);
+    padding-inline: 10px;
+  }
+
+  .at-table thead th {
+    white-space: normal;
   }
 }
 
@@ -145,7 +150,12 @@
   background: none;
   color: inherit;
   font: inherit;
+  text-align: start;
   cursor: pointer;
+}
+
+[data-numeric] > .at-table__sort {
+  text-align: end;
 }
 
 .at-table__sort:hover {
