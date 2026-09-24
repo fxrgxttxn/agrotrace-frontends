@@ -1,0 +1,24 @@
+/* at-empty — illustration, one line, one action (spec §10.1 p.3).
+   <div class="at-empty"><svg class="at-empty__art" …/><p class="at-empty__text">Партий пока нет.</p><button class="at-button" data-variant="primary">…</button></div> */
+
+.at-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-12) var(--sp-4);
+  text-align: center;
+}
+
+.at-empty__art {
+  width: 240px;
+  max-width: 100%;
+  height: auto;
+  margin-bottom: var(--sp-2);
+}
+
+.at-empty__text {
+  margin: 0;
+  color: var(--c-ink);
+  font: 600 var(--fs-18) / var(--lh-18) var(--font-display);
+  text-wrap: balance;
+}

@@ -15,3 +15,20 @@
 @import url('./components/radio.css');
 @import url('./components/switch.css');
 @import url('./components/file.css');
+
+/* Data display and feedback */
+@import url('./components/card.css');
+@import url('./components/chip.css');
+@import url('./components/table.css');
+@import url('./components/pagination.css');
+@import url('./components/tabs.css');
+@import url('./components/dialog.css');
+@import url('./components/toast.css');
+@import url('./components/stepper.css');
+@import url('./components/timeline.css');
+@import url('./components/empty.css');
+@import url('./components/skeleton.css');
+@import url('./components/avatar.css');
+@import url('./components/metric.css');
+@import url('./components/progress.css');
+@import url('./components/graph.css');

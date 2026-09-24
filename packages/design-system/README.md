@@ -215,3 +215,302 @@ import '@agrotrace/design-system/index.css'; // шрифты + токены + б
 
 `<span class="at-spinner" aria-hidden="true"></span>` — три борозды, прорисовываются слева направо (без вращения).
 Цвет — `currentColor`. Состояние загрузки области сообщается `aria-busy="true"` на ней.
+
+---
+
+## Данные и обратная связь
+
+### Статус `at-chip`
+
+```html
+<span class="at-chip" data-status="Approved">Допущена</span>
+<!-- статусы партии -->
+<span class="at-chip" data-tone="move">Отправлена</span>
+<!-- прочие сущности -->
+```
+
+- `data-status` — значение `BatchStatus` из контракта; группа цвета — по ТЗ п. 10.3. Текст — из `@agrotrace/i18n`
+  (`status.batch.*`), цвет никогда не единственный носитель смысла.
+- `Recalled` — сплошная глиняная плашка; `WrittenOff` — перечёркнутое кольцо вместо точки.
+- `data-tone`: `neutral | attention | ok | move | danger | danger-solid` (накладные, анализы, отзывы, задачи).
+- `data-size="l"` — крупная плашка (шапка карточки партии, QR-страница).
+
+### Карточка `at-card`
+
+```html
+<article class="at-card">
+  <header class="at-card__header">
+    <h2 class="at-card__title">…</h2>
+    …
+  </header>
+  <div class="at-card__body">
+    <dl class="at-card__facts">
+      <div>
+        <dt>Масса</dt>
+        <dd>12 480,000 кг</dd>
+      </div>
+      …
+    </dl>
+  </div>
+  <footer class="at-card__footer">…кнопки…</footer>
+</article>
+```
+
+`data-furrow` — полоса борозд 36 px сверху; **только** публичная QR-страница и экран входа.
+
+### Таблица `at-table`
+
+```html
+<div class="at-table-wrap">
+  <table class="at-table" data-cards>
+    <thead>
+      <tr>
+        <th class="at-table__select" scope="col">
+          <label class="at-check"><input type="checkbox" aria-label="Выбрать все партии" /></label>
+        </th>
+        <th scope="col" aria-sort="none"><button class="at-table__sort" type="button">Партия</button></th>
+        <th scope="col">Статус</th>
+        <th scope="col" data-numeric aria-sort="descending">
+          <button class="at-table__sort" type="button">Масса, кг</button>
+        </th>
+        <th scope="col"><span class="at-visually-hidden">Действия</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr aria-selected="true">
+        <td class="at-table__select">
+          <label class="at-check"
+            ><input type="checkbox" checked aria-label="Выбрать AT-2026-000123"
+          /></label>
+        </td>
+        <td data-label="Партия" data-primary>
+          <span class="at-table__primary"
+            ><a class="at-mono" href="/batches/…">AT-2026-000123</a
+            ><span class="at-table__sub">Пшеница озимая</span></span
+          >
+        </td>
+        <td data-label="Статус" data-status-cell>
+          <span class="at-chip" data-status="Approved">Допущена</span>
+        </td>
+        <td data-label="Масса, кг" data-numeric>12 480,000</td>
+        <td class="at-table__actions">
+          <button class="at-button" data-variant="secondary" data-size="s" type="button">Отгрузить</button>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+```
+
+- Сортировка: `aria-sort` (`ascending | descending | none`) на `th`, кнопка `.at-table__sort` внутри; Enter/Space — сменить порядок.
+  Сортируемые столбцы отражаются в URL (ТЗ п. 9.3).
+- `data-numeric` — числа вправо; `aria-selected="true"` на `tr` — выбранная строка (солома).
+- `data-cards` — на < 768 px строка становится карточкой: `td[data-label]` показывает подпись из атрибута,
+  `td[data-primary]` и `td[data-status-cell]` — первая строка карточки, `.at-table__actions` — кнопки во всю ширину.
+  Пустая ячейка действий скрывается. `data-label` = текст заголовка столбца.
+- `.at-table-wrap` прокручивается по горизонтали на ≥ 768 px.
+
+### Пагинация `at-pagination`
+
+```html
+<nav class="at-pagination" aria-label="Страницы">
+  <p class="at-pagination__summary">1–20 из 248</p>
+  <ul class="at-pagination__pages">
+    <li>
+      <button class="at-pagination__item" type="button" aria-label="Предыдущая страница" disabled>
+        …#i-chevron-left…
+      </button>
+    </li>
+    <li><a class="at-pagination__item" href="?page=1" aria-current="page">1</a></li>
+    <li><a class="at-pagination__item" href="?page=2">2</a></li>
+    <li><span class="at-pagination__gap" aria-hidden="true">…</span></li>
+    <li>
+      <a class="at-pagination__item" href="?page=2" aria-label="Следующая страница">…#i-chevron-right…</a>
+    </li>
+  </ul>
+</nav>
+```
+
+### Вкладки `at-tabs`
+
+```html
+<div class="at-tabs" role="tablist" aria-label="Партия AT-2026-000123">
+  <button
+    class="at-tabs__tab"
+    role="tab"
+    id="tab-history"
+    aria-selected="true"
+    aria-controls="panel-history"
+    type="button"
+  >
+    История
+  </button>
+  <button
+    class="at-tabs__tab"
+    role="tab"
+    id="tab-tests"
+    aria-selected="false"
+    aria-controls="panel-tests"
+    tabindex="-1"
+    type="button"
+  >
+    Анализы <span class="at-tabs__count">3</span>
+  </button>
+</div>
+<div class="at-tabs__panel" role="tabpanel" id="panel-history" aria-labelledby="tab-history" tabindex="0">
+  …
+</div>
+```
+
+Роуминг-табиндекс: у выбранной вкладки `tabindex="0"`, у остальных `-1`. ← / → — соседняя вкладка (по кругу),
+Home / End — первая / последняя; выбор при перемещении фокуса. Вкладка карточки партии отражается в `?tab=`.
+
+### Диалог `at-dialog`
+
+```html
+<dialog class="at-dialog" aria-labelledby="recall-title">
+  <!-- data-size="l" — широкий -->
+  <div class="at-dialog__header">
+    <h2 class="at-dialog__title" id="recall-title">Запустить отзыв</h2>
+    <button class="at-button" data-variant="ghost" data-icon-only type="button" aria-label="Закрыть">
+      …#i-close…
+    </button>
+  </div>
+  <div class="at-dialog__body">…повтор ключевого параметра (кода партии)…</div>
+  <div class="at-dialog__actions">
+    <button class="at-button" data-variant="ghost" type="button">Отмена</button>
+    <button class="at-button" data-variant="danger" type="button">Запустить отзыв</button>
+  </div>
+</dialog>
+```
+
+Открытие — `showModal()` (фокус-ловушка и Esc — нативные), закрытие — `close()`; фокус возвращается на кнопку,
+открывшую диалог. Подложка — `--c-backdrop`. На < 768 px диалог прижат к нижнему краю, кнопки растянуты.
+
+### Уведомления `at-toast`
+
+```html
+<div class="at-toast-region" aria-live="polite">
+  <!-- один на приложение -->
+  <div class="at-toast" data-tone="ok">
+    <!-- ok | attention | move | danger | neutral -->
+    <p class="at-toast__text">
+      Партия AT-2026-000123 отгружена<small>…вторая строка при необходимости…</small>
+    </p>
+    <button
+      class="at-button"
+      data-variant="ghost"
+      data-size="s"
+      data-icon-only
+      type="button"
+      aria-label="Закрыть"
+    >
+      …#i-close…
+    </button>
+  </div>
+</div>
+```
+
+Автоскрытие через 5 с (ошибки — не скрываются сами). На < 768 px область — над нижней навигацией.
+
+### Шаги `at-stepper`
+
+```html
+<ol class="at-stepper" aria-label="Переработка">
+  <li class="at-stepper__step" data-done>
+    <span class="at-stepper__marker">1</span><span class="at-stepper__label">Входы</span>
+  </li>
+  <li class="at-stepper__step" aria-current="step">
+    <span class="at-stepper__marker">2</span><span class="at-stepper__label">Выходы</span>
+  </li>
+  <li class="at-stepper__step">
+    <span class="at-stepper__marker">3</span><span class="at-stepper__label">Проверка баланса</span>
+  </li>
+</ol>
+```
+
+Соединитель — «борозда» из двух линий, пройденные — зелёные. На < 768 px подпись видна только у текущего шага.
+
+### История `at-timeline`
+
+```html
+<ol class="at-timeline">
+  <li class="at-timeline__item" data-tone="ok" data-current>
+    <time class="at-timeline__time" datetime="2026-08-19T11:05">19.08.2026, 11:05</time>
+    <p class="at-timeline__title">Допущена</p>
+    <p class="at-timeline__meta">
+      <span class="at-avatar" data-size="s">…</span>Мария Соколова, ФГБУ «Липецкая МВЛ»
+    </p>
+  </li>
+</ol>
+```
+
+`data-tone` — группа статуса; `data-current` — последний шаг (заполненный маркер).
+
+### Пустое состояние `at-empty`
+
+```html
+<div class="at-empty">
+  <svg class="at-empty__art" aria-hidden="true">…иллюстрация…</svg>
+  <p class="at-empty__text">Партий пока нет.</p>
+  <button class="at-button" data-variant="primary" type="button">Зарегистрировать партию</button>
+</div>
+```
+
+Одна строка (из `@agrotrace/i18n`, `empty.*`) и одна кнопка.
+
+### Загрузка `at-skeleton`
+
+`<span class="at-skeleton" data-shape="text|block|circle" style="width: 40%"></span>`; контейнер области — `aria-busy="true"`.
+
+### Аватар `at-avatar`
+
+```html
+<span class="at-avatar" data-size="m"><img src="…" alt="Иван Петров" /></span>
+<span class="at-avatar" data-size="m" role="img" aria-label="Иван Петров">ИП</span>
+<span class="at-avatar" data-size="l" data-shape="square"><img src="…" alt="КФХ Петров" /></span>
+<!-- логотип -->
+```
+
+Размеры `s` 24, `m` 32 (по умолчанию), `l` 56 px. Рядом с именем картинка декоративная: `alt=""`, без `role`.
+
+### Показатель `at-metric`
+
+```html
+<div class="at-metric">
+  <!-- data-tone="danger" — спарклайн глиной -->
+  <p class="at-metric__label">Масса на складе</p>
+  <p class="at-metric__value">212,4<span class="at-metric__unit">т</span></p>
+  <div class="at-metric__spark" aria-hidden="true">
+    <svg viewBox="0 0 96 32">…stroke="currentColor"…</svg>
+  </div>
+</div>
+```
+
+### Прогресс `at-progress`
+
+```html
+<div class="at-progress">
+  <!-- data-tone="danger" -->
+  <span class="at-progress__label" id="recall-progress">Подтверждено</span>
+  <span class="at-progress__value">7 из 12</span>
+  <progress class="at-progress__bar" max="12" value="7" aria-labelledby="recall-progress"></progress>
+</div>
+```
+
+### Граф `at-graph`
+
+```html
+<div class="at-graph">
+  <!-- data-fullscreen — на весь экран -->
+  <div class="at-graph__canvas" role="img" aria-label="Граф партии AT-2026-000097: …"></div>
+  <!-- сюда монтируется Cytoscape -->
+  <div class="at-graph__toolbar">…кнопки s, icon-only…</div>
+  <ul class="at-graph__legend" aria-label="Обозначения">
+    <li><span class="at-chip" data-status="Recalled">Отозвана</span></li>
+  </ul>
+</div>
+```
+
+Цвета узлов — `--status-<статус>-bg|fg` (читаются через `getComputedStyle`). На < 768 px граф открывается
+кнопкой в режиме `data-fullscreen`; Esc и кнопка «Закрыть» выходят из него.
