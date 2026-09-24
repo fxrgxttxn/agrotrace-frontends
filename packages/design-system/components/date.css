@@ -1,0 +1,18 @@
+/* at-date — native <input type="date" class="at-input">; the picker follows color-scheme. */
+
+input[type='date'].at-input {
+  font-variant-numeric: tabular-nums;
+}
+
+input[type='date'].at-input::-webkit-datetime-edit {
+  padding: 0;
+}
+
+input[type='date'].at-input::-webkit-calendar-picker-indicator {
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+input[type='date'].at-input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}

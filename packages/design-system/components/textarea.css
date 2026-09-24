@@ -1,0 +1,7 @@
+/* at-textarea — shares the box with at-input (input.css). */
+
+.at-textarea {
+  min-height: 96px;
+  padding: 10px var(--sp-3);
+  resize: vertical;
+}
