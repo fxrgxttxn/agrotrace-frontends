@@ -53,7 +53,7 @@ PowerShell, which just forwards to `at.sh`).
 ```bash
 git clone <repo-url> && cd agrotrace
 ./at.sh install       # pnpm install (creates .env from .env.example on first run)
-./at.sh up infra      # postgres, redis, rabbitmq, minio, mailpit
+./at.sh up infra      # postgres, redis, rabbitmq, minio, mailpit, mercury-mock
 ./at.sh db:migrate    # applies db/migrations
 ./at.sh seed          # loads the demo world (accounts: docs/demo-accounts.md)
 ./at.sh up gateway    # builds and starts the nginx gateway

@@ -157,7 +157,7 @@ case "$cmd" in
   # is a no-op for postgres/redis/rabbitmq/minio/mailpit.
   up)
     case "${1:-all}" in
-      infra)   $DC up -d --build --wait postgres redis rabbitmq minio mailpit && $DC up --build minio-init ;;
+      infra)   $DC up -d --build --wait postgres redis rabbitmq minio mailpit mercury-mock && $DC up --build minio-init ;;
       gateway)
         $DC up -d --build --wait gateway
         set -a; . ./.env; set +a
@@ -191,7 +191,7 @@ case "$cmd" in
     $DC exec -T postgres pg_isready -U agrotrace_owner && \
     $DC exec -T redis redis-cli ping && \
     $DC exec -T rabbitmq rabbitmq-diagnostics -q check_running && \
-    $T sh -c 'curl -fsS http://minio:9000/minio/health/live && curl -fsS http://mailpit:8025/livez' && echo "infra ok" ;;
+    $T sh -c 'curl -fsS http://minio:9000/minio/health/live && curl -fsS http://mailpit:8025/livez && curl -fsS http://mercury-mock:8080/health' && echo "infra ok" ;;
   # Demo data (db/seed): replaces all data of the dev DB (except roles, regions, schema_migrations),
   # its MinIO objects and Redis. Timestamps end at SEED_NOW (env, ISO minute; default: now).
   # Idempotent for the same SEED_NOW. Never writes tracked files (R86).
