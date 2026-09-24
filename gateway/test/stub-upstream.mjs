@@ -81,6 +81,5 @@ http
     );
   })
   .listen(PORT, () => {
-    // eslint-disable-next-line no-console
     console.log(`stub upstream listening on ${PORT}`);
   });

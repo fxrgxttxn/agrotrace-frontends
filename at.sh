@@ -113,20 +113,27 @@ applied_migrations() {
 }
 
 case "$cmd" in
-  install) $T pnpm install "$@" ;;
-  sh)      $T bash ;;
-  pnpm)    $T pnpm "$@" ;;
-  test)    $T pnpm -r --workspace-concurrency=1 test "$@" ;;
-  lint)    $T pnpm -r lint ;;
-  fmt)     $T pnpm exec prettier --write . ;;
+  install)   $T pnpm install "$@" ;;
+  sh)        $T bash ;;
+  pnpm)      $T pnpm "$@" ;;
+  test)      $T pnpm -r --workspace-concurrency=1 test "$@" ;;
+  # ESLint's flat config (eslint.config.js) already covers the whole repo tree in one pass — `-r`
+  # would instead run per-workspace-package `lint` scripts, none of which exist (only the root
+  # package.json has one), so recursing here silently lints nothing.
+  lint)      $T pnpm lint ;;
+  typecheck) $T pnpm -r typecheck ;;
+  fmt)       $T pnpm exec prettier --write . ;;
+  # --build on every `up` (R80): a stale gateway/mercury-mock image is never silently reused —
+  # docker compose skips the build step on its own for any service without a `build:` key, so this
+  # is a no-op for postgres/redis/rabbitmq/minio/mailpit.
   up)
     case "${1:-all}" in
-      infra)   $DC up -d --wait postgres redis rabbitmq minio mailpit && $DC up minio-init ;;
+      infra)   $DC up -d --build --wait postgres redis rabbitmq minio mailpit && $DC up --build minio-init ;;
       gateway)
-        $DC up -d --wait gateway
+        $DC up -d --build --wait gateway
         set -a; . ./.env; set +a
         echo "Gateway up: http://localhost:${GATEWAY_PORT:-80}/  (design system: http://localhost:${GATEWAY_PORT:-80}/_ds/)" ;;
-      *) $DC up -d --wait ;;
+      *) $DC up -d --build --wait ;;
     esac ;;
   down)        $DC down "$@" ;;
   db:migrate)  $DC run --rm dbmate --no-dump-schema --wait up && dump_schema ;;
