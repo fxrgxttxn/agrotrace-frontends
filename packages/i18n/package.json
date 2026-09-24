@@ -1,0 +1,22 @@
+{
+  "name": "@agrotrace/i18n",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared ru/en dictionaries, formatters and the problem-message resolver, used by the React, Angular and Svelte frontends.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./locales/*": "./locales/*"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
