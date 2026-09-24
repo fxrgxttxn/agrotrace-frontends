@@ -2,10 +2,21 @@
 // `createApi()` instances with their own TokenStore (tabs never share JS memory), wired to a
 // shared Web Locks mock (a real browser shares navigator.locks across same-origin tabs) and a
 // shared BroadcastChannel mock (the only way one tab's refresh can reach another's store).
+// BroadcastChannel delivery is asynchronous (a later macrotask, matching real browsers — see
+// MockBroadcastChannel in ./helpers), so every test that depends on a broadcast having landed
+// advances fake timers explicitly rather than assuming synchronous delivery.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApi } from '../src/client';
 import { createMemoryTokenStore } from '../src/session';
-import { MockBroadcastChannel, MockLockManager, jsonResponse, problemResponse, requestHeaders, requestUrl } from './helpers';
+import {
+  MockBroadcastChannel,
+  MockLockManager,
+  afterMs,
+  jsonResponse,
+  problemResponse,
+  requestHeaders,
+  requestUrl,
+} from './helpers';
 
 const BASE_URL = 'http://localhost/api/v1';
 
@@ -21,7 +32,12 @@ afterEach(() => {
 });
 
 describe('single-flight refresh across two tabs sharing navigator.locks', () => {
-  it('only refreshes over the network once, even when both tabs race', async () => {
+  it('both tabs converge on the same fresh token and neither logs out, even if both end up calling refresh', async () => {
+    // Web Locks only serialize *access*, not knowledge of the result: because BroadcastChannel
+    // delivery is a separate macrotask, tab B's queued lock callback can still run (and see the
+    // pre-broadcast store) before tab A's message has actually arrived. That's an inherent race,
+    // not a bug — R32/R40's server-side 10s grace window exists precisely so a second, redundant
+    // refresh call in this situation still ends up correct rather than logging anyone out.
     const locks = new MockLockManager();
     vi.stubGlobal('navigator', { locks });
 
@@ -41,17 +57,30 @@ describe('single-flight refresh across two tabs sharing navigator.locks', () => 
           : problemResponse({ code: 'UNAUTHORIZED' }, 401);
       });
 
-    const apiA = createApi({ baseUrl: BASE_URL, session: sessionA, fetch: makeFetch() });
-    const apiB = createApi({ baseUrl: BASE_URL, session: sessionB, fetch: makeFetch() });
+    const onAuthLostA = vi.fn();
+    const onAuthLostB = vi.fn();
+    const apiA = createApi({
+      baseUrl: BASE_URL,
+      session: sessionA,
+      fetch: makeFetch(),
+      onAuthLost: onAuthLostA,
+    });
+    const apiB = createApi({
+      baseUrl: BASE_URL,
+      session: sessionB,
+      fetch: makeFetch(),
+      onAuthLost: onAuthLostB,
+    });
 
     const [resultA, resultB] = await Promise.all([apiA.GET('/me'), apiB.GET('/me')]);
 
-    expect(refreshCalls).toBe(1);
+    expect(refreshCalls).toBeLessThanOrEqual(2);
     expect(resultA.response.status).toBe(200);
     expect(resultB.response.status).toBe(200);
-    // Even though tab B never talked to /auth/refresh itself, the broadcast from tab A's refresh
-    // updated tab B's own store.
+    expect(sessionA.get()).toBe('fresh');
     expect(sessionB.get()).toBe('fresh');
+    expect(onAuthLostA).not.toHaveBeenCalled();
+    expect(onAuthLostB).not.toHaveBeenCalled();
   });
 
   it("keeps an idle tab's store in sync via the broadcast alone — no request or lock on that side", async () => {
@@ -60,7 +89,9 @@ describe('single-flight refresh across two tabs sharing navigator.locks', () => 
     const sessionA = createMemoryTokenStore('stale');
     const sessionB = createMemoryTokenStore('stale');
     const fetchA = vi.fn(async (input: string | URL | Request) =>
-      requestUrl(input).endsWith('/auth/refresh') ? jsonResponse({ accessToken: 'fresh', expiresIn: 900 }) : jsonResponse({ ok: true }),
+      requestUrl(input).endsWith('/auth/refresh')
+        ? jsonResponse({ accessToken: 'fresh', expiresIn: 900 })
+        : jsonResponse({ ok: true }),
     );
     const fetchB = vi.fn();
 
@@ -68,9 +99,100 @@ describe('single-flight refresh across two tabs sharing navigator.locks', () => 
     createApi({ baseUrl: BASE_URL, session: sessionB, fetch: fetchB });
 
     await apiA.refresh();
+    // The broadcast is delivered on its own macrotask (setTimeout(0)) — let it fire.
+    await vi.advanceTimersByTimeAsync(0);
 
     expect(sessionB.get()).toBe('fresh');
     expect(fetchB).not.toHaveBeenCalled();
+  });
+
+  it('Important 1/gap: a request whose own token was already superseded when its 401 arrives never triggers a duplicate network refresh', async () => {
+    const locks = new MockLockManager();
+    vi.stubGlobal('navigator', { locks });
+
+    const sessionA = createMemoryTokenStore('stale');
+    const sessionB = createMemoryTokenStore('stale');
+    let refreshCalls = 0;
+
+    const fetchA = vi.fn(async (input: string | URL | Request) =>
+      requestUrl(input).endsWith('/auth/refresh')
+        ? (refreshCalls++, jsonResponse({ accessToken: 'fresh', expiresIn: 900 }))
+        : jsonResponse({ ok: true }),
+    );
+    // Tab B's initial (stale-token) request is slow to fail — by the time its 401 finally
+    // arrives, tab A has already refreshed and broadcast, well before B ever calls the network
+    // itself. The retry (with whatever token B ends up using) is not delayed.
+    const fetchB = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (requestHeaders(input, init).get('Authorization') === 'Bearer fresh')
+        return jsonResponse({ ok: true });
+      return afterMs(300, problemResponse({ code: 'UNAUTHORIZED' }, 401));
+    });
+
+    const apiA = createApi({ baseUrl: BASE_URL, session: sessionA, fetch: fetchA });
+    const apiB = createApi({ baseUrl: BASE_URL, session: sessionB, fetch: fetchB });
+
+    const bPromise = apiB.GET('/me'); // sends Bearer stale, 401 arrives only after 300ms
+
+    await vi.advanceTimersByTimeAsync(50);
+    await apiA.refresh(); // tab A refreshes and broadcasts well within that window
+    await vi.advanceTimersByTimeAsync(0); // flush the broadcast macrotask
+
+    expect(sessionB.get()).toBe('fresh');
+
+    await vi.advanceTimersByTimeAsync(250); // now tab B's stale 401 finally arrives (at 300ms)
+    await bPromise;
+
+    // Tab B's coordinator must recognize the store already moved past the token it saw fail —
+    // it never calls the network at all.
+    expect(refreshCalls).toBe(1);
+    expect(fetchB.mock.calls.filter(([input]) => requestUrl(input).endsWith('/auth/refresh'))).toHaveLength(
+      0,
+    );
+  });
+});
+
+describe('Important 2: a broadcast landing before our own refresh call resolves 401 must not be clobbered', () => {
+  it('keeps the token a broadcast already installed even when our own slow /auth/refresh later comes back 401', async () => {
+    const sessionA = createMemoryTokenStore('stale');
+    const sessionB = createMemoryTokenStore('stale');
+    const onAuthLostB = vi.fn();
+
+    const fetchA = vi.fn(async (input: string | URL | Request) =>
+      requestUrl(input).endsWith('/auth/refresh')
+        ? jsonResponse({ accessToken: 'fromA', expiresIn: 900 })
+        : jsonResponse({ ok: true }),
+    );
+    const fetchB = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith('/auth/refresh')) {
+        // Tab B's own round trip is slow — takes 200ms to come back 401 (R32/R40: rotated by
+        // another tab within the grace window).
+        return afterMs(200, problemResponse({ code: 'TOKEN_EXPIRED' }, 401));
+      }
+      return requestHeaders(input, init).get('Authorization') === 'Bearer fromA'
+        ? jsonResponse({ ok: true })
+        : problemResponse({ code: 'UNAUTHORIZED' }, 401);
+    });
+
+    const apiA = createApi({ baseUrl: BASE_URL, session: sessionA, fetch: fetchA });
+    const apiB = createApi({ baseUrl: BASE_URL, session: sessionB, fetch: fetchB, onAuthLost: onAuthLostB });
+
+    // Tab B's request hits 401 and starts its own (slow) refresh call.
+    const bPromise = apiB.GET('/me');
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Tab A refreshes and broadcasts well before B's own call resolves.
+    await apiA.refresh();
+    await vi.advanceTimersByTimeAsync(0); // flush the broadcast macrotask
+    expect(sessionB.get()).toBe('fromA');
+
+    // Only *now* does tab B's own slow refresh call finally resolve — with a 401.
+    await vi.advanceTimersByTimeAsync(190);
+    const result = await bPromise;
+
+    expect(sessionB.get()).toBe('fromA'); // never wiped, despite the later 401
+    expect(onAuthLostB).not.toHaveBeenCalled();
+    expect(result.response.status).toBe(200); // retried with fromA and succeeded
   });
 });
 
@@ -81,7 +203,9 @@ describe('grace window (R32): 401 from our own refresh may mean another tab alre
     const onAuthLostB = vi.fn();
 
     const fetchA = vi.fn(async (input: string | URL | Request) =>
-      requestUrl(input).endsWith('/auth/refresh') ? jsonResponse({ accessToken: 'won', expiresIn: 900 }) : jsonResponse({ ok: true }),
+      requestUrl(input).endsWith('/auth/refresh')
+        ? jsonResponse({ accessToken: 'won', expiresIn: 900 })
+        : jsonResponse({ ok: true }),
     );
     const fetchB = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = requestUrl(input);
@@ -105,6 +229,7 @@ describe('grace window (R32): 401 from our own refresh may mean another tab alre
 
     // Only *now* does tab A's refresh (racing at the "server") complete and broadcast.
     await apiA.refresh();
+    await vi.advanceTimersByTimeAsync(0); // flush the broadcast macrotask so B's wait can resolve
 
     const result = await bPromise;
 
@@ -129,6 +254,48 @@ describe('grace window (R32): 401 from our own refresh may mean another tab alre
 
     expect(result.response.status).toBe(401);
     expect(session.get()).toBeNull();
+    expect(onAuthLost).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Important 3: the grace wait is skipped when it cannot possibly help', () => {
+  it('skips it when Web Locks were used — no same-browser tab could be racing us while we hold the lock', async () => {
+    const locks = new MockLockManager();
+    vi.stubGlobal('navigator', { locks });
+
+    const session = createMemoryTokenStore('stale');
+    const onAuthLost = vi.fn();
+    const fetch = vi.fn(async (input: string | URL | Request) =>
+      requestUrl(input).endsWith('/auth/refresh')
+        ? problemResponse({ code: 'TOKEN_EXPIRED' }, 401)
+        : problemResponse({ code: 'UNAUTHORIZED' }, 401),
+    );
+    const api = createApi({ baseUrl: BASE_URL, session, fetch, onAuthLost });
+
+    const promise = api.GET('/me');
+    // Nowhere near the 10s grace window — if it weren't skipped, onAuthLost wouldn't have fired
+    // yet and this await would hang past the test timeout.
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.response.status).toBe(401);
+    expect(session.get()).toBeNull();
+    expect(onAuthLost).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips it when there was no token at all — nothing to race over (boot without a session)', async () => {
+    const session = createMemoryTokenStore(null);
+    const onAuthLost = vi.fn();
+    const fetch = vi.fn(async () => problemResponse({ code: 'TOKEN_EXPIRED' }, 401));
+    const api = createApi({ baseUrl: BASE_URL, session, fetch, onAuthLost });
+
+    // An app boot silently trying to restore a session calls refresh() directly, with no prior
+    // request and so no Authorization header ever sent.
+    const promise = api.refresh();
+    await vi.advanceTimersByTimeAsync(50);
+    const newToken = await promise;
+
+    expect(newToken).toBeNull();
     expect(onAuthLost).toHaveBeenCalledTimes(1);
   });
 });

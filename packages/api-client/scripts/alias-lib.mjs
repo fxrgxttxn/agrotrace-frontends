@@ -46,9 +46,23 @@ export function extractSchemaNames(schemaSource) {
   return names;
 }
 
-/** Renders the marker-delimited block of `export type X = Schemas['X'];` aliases. */
+// R61 (minor): a handful of contract schema names collide with well-known JS/DOM globals — Date
+// and Notification are real global identifiers (`Date`, `window.Notification`); Health is included
+// per the controller's ruling even though it isn't. Aliasing these as `Api<Name>` means a consumer
+// who does `import type { Date } from '@agrotrace/api-client'` never silently shadows the global
+// `Date` in that file. Kept as an explicit, reviewable list rather than a runtime `typeof
+// globalThis[name]` check, which would vary between Node (codegen time) and the browser (usage
+// time) and so could not be deterministic.
+const GLOBAL_SHADOW_NAMES = new Set(['Date', 'Notification', 'Health']);
+
+function aliasName(schemaName) {
+  return GLOBAL_SHADOW_NAMES.has(schemaName) ? `Api${schemaName}` : schemaName;
+}
+
+/** Renders the marker-delimited block of `export type X = Schemas['X'];` aliases (prefixed with
+ * `Api` for names in {@link GLOBAL_SHADOW_NAMES}). */
 export function renderAliasBlock(names) {
-  const lines = names.map((name) => `export type ${name} = Schemas['${name}'];`);
+  const lines = names.map((name) => `export type ${aliasName(name)} = Schemas['${name}'];`);
   return [START_MARKER, ...lines, END_MARKER].join('\n');
 }
 

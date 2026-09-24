@@ -29,7 +29,11 @@ describe('unwrap', () => {
     expect(problem.status).toBe(422);
     expect(problem.code).toBe('BUSINESS_RULE');
     expect(problem.rule).toBe('BR-01');
-    expect(problem.params).toEqual({ publicCode: 'AT-2026-000123', until: '2026-09-25', substance: 'Хлорпирифос' });
+    expect(problem.params).toEqual({
+      publicCode: 'AT-2026-000123',
+      until: '2026-09-25',
+      substance: 'Хлорпирифос',
+    });
   });
 
   it('carries errors, detail and title through for VALIDATION problems', () => {
@@ -42,7 +46,9 @@ describe('unwrap', () => {
       errors: { email: ['validation.email'] },
     };
 
-    expect(() => unwrap({ error: body, response: new Response(null, { status: 400 }) })).toThrowError(ApiProblem);
+    expect(() => unwrap({ error: body, response: new Response(null, { status: 400 }) })).toThrowError(
+      ApiProblem,
+    );
     try {
       unwrap({ error: body, response: new Response(null, { status: 400 }) });
     } catch (error) {

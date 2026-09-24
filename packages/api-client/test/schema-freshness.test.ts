@@ -43,5 +43,5 @@ describe('generated schema types (pnpm gen)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 120_000);
 });

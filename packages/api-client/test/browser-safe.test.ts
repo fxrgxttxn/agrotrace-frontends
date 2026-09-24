@@ -22,5 +22,21 @@ describe('browser safety: no node: imports under src/', () => {
       expect(content).not.toMatch(/require\(\s*['"]node:/);
       expect(content).not.toMatch(/import\(\s*['"]node:/);
     });
+
+    // R61 (minor): also catch the un-prefixed core-module names, and actual use of the Node
+    // globals `process`/`Buffer` a browser has neither of. Generated src/schema.d.ts legitimately
+    // contains the *word* "process" as a contract action-name literal (BatchActionName), so this
+    // matches specific Node API usage (`process.env`, `Buffer.from`, …), not the bare word.
+    it(`${f} does not import 'fs' or 'path', or use the process/Buffer Node APIs`, () => {
+      const content = readFileSync(join(srcDir, f), 'utf8');
+      expect(content).not.toMatch(/from\s+['"]fs['"]/);
+      expect(content).not.toMatch(/from\s+['"]path['"]/);
+      expect(content).not.toMatch(/require\(\s*['"](fs|path|process|buffer)['"]/);
+      expect(content).not.toMatch(
+        /\bprocess\.(env|argv|cwd|exit|platform|version|versions|stdout|stderr|stdin)\b/,
+      );
+      expect(content).not.toMatch(/\bBuffer\.(from|alloc|allocUnsafe|isBuffer|concat)\s*\(/);
+      expect(content).not.toMatch(/\bnew\s+Buffer\s*\(/);
+    });
   }
 });

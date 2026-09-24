@@ -1,0 +1,4 @@
+# Generated files: formatting them would fight the tool that produced them (and, for
+# api-client's schema.d.ts, break the staleness test that byte-compares it against a fresh
+# openapi-typescript run).
+packages/api-client/src/schema.d.ts

@@ -1,7 +1,15 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { createApi, newIdempotencyKey, withVariant } from '../src/client';
 import { createMemoryTokenStore } from '../src/session';
-import { jsonResponse, noContentResponse, problemResponse, requestCredentials, requestHeaders, requestUrl } from './helpers';
+import {
+  afterMs,
+  jsonResponse,
+  noContentResponse,
+  problemResponse,
+  requestCredentials,
+  requestHeaders,
+  requestUrl,
+} from './helpers';
 
 const BASE_URL = 'http://localhost/api/v1';
 
@@ -126,7 +134,9 @@ describe('createApi — 401 handling with single-flight refresh', () => {
     expect(session.get()).toBeNull();
     expect(onAuthLost).toHaveBeenCalledTimes(1);
     // Only one refresh attempt for the one request, and no infinite retry loop.
-    const refreshCalls = fetchMock.mock.calls.filter(([input]) => requestUrl(input).endsWith('/auth/refresh'));
+    const refreshCalls = fetchMock.mock.calls.filter(([input]) =>
+      requestUrl(input).endsWith('/auth/refresh'),
+    );
     expect(refreshCalls).toHaveLength(1);
   });
 
@@ -149,7 +159,8 @@ describe('createApi — idempotency-key retry (R48/R53)', () => {
     let calls = 0;
     const fetchMock = vi.fn(async () => {
       calls += 1;
-      if (calls === 1) return problemResponse({ code: 'IDEMPOTENCY_KEY_IN_PROGRESS' }, 409, { 'Retry-After': '1' });
+      if (calls === 1)
+        return problemResponse({ code: 'IDEMPOTENCY_KEY_IN_PROGRESS' }, 409, { 'Retry-After': '1' });
       return jsonResponse(ME_BODY);
     });
     const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock });
@@ -201,14 +212,16 @@ describe('newIdempotencyKey', () => {
 
 describe('withVariant', () => {
   it('adds ?variant= to a public URL with no existing query', () => {
-    expect(withVariant('/api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a', '96')).toBe(
+    // R61: the variant argument's type is the contract's own ImageVariant parameter — 96 | 480 as
+    // numbers, not strings (contracts/openapi/components/parameters.yaml#/ImageVariant).
+    expect(withVariant('/api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a', 96)).toBe(
       '/api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a?variant=96',
     );
   });
 
   it('sets variant without touching exp/sig on a signed URL', () => {
     const signed = '/api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a';
-    const result = withVariant(signed, '480');
+    const result = withVariant(signed, 480);
     const [, query] = result.split('?');
     const params = new URLSearchParams(query);
     expect(params.get('exp')).toBe('1790247600');
@@ -218,8 +231,285 @@ describe('withVariant', () => {
 
   it('replaces an existing variant instead of duplicating it', () => {
     const url = '/api/v1/files/id?exp=1&sig=abc&variant=96';
-    const result = withVariant(url, '480');
+    const result = withVariant(url, 480);
     const params = new URLSearchParams(result.split('?')[1]);
     expect(params.getAll('variant')).toEqual(['480']);
+  });
+});
+
+describe('Critical: /auth/* 401s never trigger refresh-and-retry (or onAuthLost)', () => {
+  it('a 401 from /auth/login (wrong password) is returned as-is', async () => {
+    const session = createMemoryTokenStore(null);
+    const fetchMock = vi.fn(async () => problemResponse({ code: 'INVALID_CREDENTIALS' }, 401));
+    const onAuthLost = vi.fn();
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    const result = await api.POST('/auth/login', {
+      body: { email: 'petrov@kfh-petrov.ru', password: 'Wr0ngPassword!' },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onAuthLost).not.toHaveBeenCalled();
+    expect(result.response.status).toBe(401);
+  });
+
+  it('a 401 ACCOUNT_LOCKED from a re-sent /auth/login is also returned as-is, not retried', async () => {
+    const session = createMemoryTokenStore(null);
+    const fetchMock = vi.fn(async () =>
+      problemResponse({ code: 'ACCOUNT_LOCKED', params: { lockedUntil: '2026-09-24T08:45:00Z' } }, 401),
+    );
+    const onAuthLost = vi.fn();
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    const result = await api.POST('/auth/login', {
+      body: { email: 'petrov@kfh-petrov.ru', password: 'Wr0ngPassword!' },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onAuthLost).not.toHaveBeenCalled();
+    expect(result.response.status).toBe(401);
+  });
+
+  it('a 401 from /auth/2fa/verify (wrong or re-sent code) is returned as-is', async () => {
+    const session = createMemoryTokenStore(null);
+    const fetchMock = vi.fn(async () =>
+      problemResponse({ code: 'INVALID_TWO_FACTOR_CODE', params: { attemptsLeft: 3 } }, 401),
+    );
+    const onAuthLost = vi.fn();
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    const result = await api.POST('/auth/2fa/verify', {
+      body: { challengeId: 'c4d5e6f7-a8b9-4c0d-9e1f-2a3b4c5d6e7f', code: '000000' },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onAuthLost).not.toHaveBeenCalled();
+    expect(result.response.status).toBe(401);
+  });
+
+  it('holds for an *authenticated* /auth/* call too, not just anonymous ones', async () => {
+    const session = createMemoryTokenStore('abc123');
+    const fetchMock = vi.fn(async () => problemResponse({ code: 'UNAUTHORIZED' }, 401));
+    const onAuthLost = vi.fn();
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    const result = await api.POST('/auth/2fa/setup', { body: {} });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onAuthLost).not.toHaveBeenCalled();
+    expect(result.response.status).toBe(401);
+  });
+});
+
+describe('brief gap: a second 401 after a successful refresh means that token is no good either', () => {
+  it('calls onAuthLost and clears the store when the retry with the freshly-refreshed token still gets 401', async () => {
+    const session = createMemoryTokenStore('stale');
+    const onAuthLost = vi.fn();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = requestUrl(input);
+      if (url.endsWith('/auth/refresh')) return jsonResponse({ accessToken: 'also-bad', expiresIn: 900 });
+      return problemResponse({ code: 'UNAUTHORIZED' }, 401); // 401 every time, even with the new token
+    });
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    const result = await api.GET('/me');
+
+    expect(result.response.status).toBe(401);
+    expect(session.get()).toBeNull();
+    expect(onAuthLost).toHaveBeenCalledTimes(1);
+    // Exactly one refresh attempt — no infinite loop chasing a token that keeps failing.
+    const refreshCalls = fetchMock.mock.calls.filter(([input]) =>
+      requestUrl(input).endsWith('/auth/refresh'),
+    );
+    expect(refreshCalls).toHaveLength(1);
+    // Exactly two attempts at /me: the original, and the one retry with the new token.
+    const meCalls = fetchMock.mock.calls.filter(([input]) => requestUrl(input).endsWith('/me'));
+    expect(meCalls).toHaveLength(2);
+  });
+});
+
+describe('Important: a 401 for a token already superseded in the store never triggers a redundant refresh', () => {
+  it('a slow request that used the old token retries with whatever a concurrent request already refreshed to', async () => {
+    const session = createMemoryTokenStore('T1');
+    let refreshCalls = 0;
+    let meCallsWithOldToken = 0;
+
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith('/auth/refresh')) {
+        refreshCalls += 1;
+        return jsonResponse({ accessToken: 'T2', expiresIn: 900 });
+      }
+      const token = requestHeaders(input, init).get('Authorization');
+      if (token === 'Bearer T2') return jsonResponse(ME_BODY);
+      // Bearer T1 (or none): the *first* such request is the slow one — its 401 doesn't arrive
+      // until well after a second, faster request has already refreshed the store to T2.
+      meCallsWithOldToken += 1;
+      if (meCallsWithOldToken === 1) return afterMs(200, problemResponse({ code: 'UNAUTHORIZED' }, 401));
+      return problemResponse({ code: 'UNAUTHORIZED' }, 401);
+    });
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock });
+
+    const slow = api.GET('/me'); // sends Bearer T1, won't 401 for 200ms
+    await vi.advanceTimersByTimeAsync(1);
+    const fast = api.GET('/me'); // also sends Bearer T1, 401s immediately, refreshes to T2, retries, succeeds
+    await fast;
+
+    expect(session.get()).toBe('T2');
+    expect(refreshCalls).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(199); // now the slow request's stale 401 finally arrives
+    const slowResult = await slow;
+
+    // The slow request's 401 was for T1, which the store had already moved past — it must retry
+    // with T2 directly, never triggering a second, redundant network refresh.
+    expect(refreshCalls).toBe(1);
+    expect(slowResult.response.status).toBe(200);
+  });
+});
+
+describe('Important: request body and Idempotency-Key survive a retry', () => {
+  const WAYBILL_BODY = {
+    receiverOrgId: '4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d',
+    items: [{ batchId: '1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c', massDeclaredKg: '12480.000' }],
+  };
+
+  async function bodyOf(input: string | URL | Request): Promise<string> {
+    return input instanceof Request ? input.clone().text() : '';
+  }
+
+  it('preserves the same Idempotency-Key and body through a 401 refresh-retry', async () => {
+    const session = createMemoryTokenStore('stale');
+    const key = newIdempotencyKey();
+    const seenKeys: Array<string | null> = [];
+    const seenBodies: string[] = [];
+
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.endsWith('/auth/refresh')) return jsonResponse({ accessToken: 'fresh', expiresIn: 900 });
+      seenKeys.push(requestHeaders(input, init).get('Idempotency-Key'));
+      seenBodies.push(await bodyOf(input));
+      const token = requestHeaders(input, init).get('Authorization');
+      if (token === 'Bearer fresh') return jsonResponse({ id: 'w1' }, { status: 201 });
+      return problemResponse({ code: 'UNAUTHORIZED' }, 401);
+    });
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock });
+
+    const result = await api.POST('/waybills', { headers: { 'Idempotency-Key': key }, body: WAYBILL_BODY });
+
+    expect(result.response.status).toBe(201);
+    expect(seenKeys).toEqual([key, key]);
+    expect(seenBodies[1]).toBe(seenBodies[0]);
+    expect(JSON.parse(seenBodies[0]!)).toEqual(WAYBILL_BODY);
+  });
+
+  it('preserves the same Idempotency-Key and body through a 409 IN_PROGRESS retry', async () => {
+    const session = createMemoryTokenStore('abc');
+    const key = newIdempotencyKey();
+    const seenKeys: Array<string | null> = [];
+    const seenBodies: string[] = [];
+    let attempt = 0;
+
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      seenKeys.push(requestHeaders(input, init).get('Idempotency-Key'));
+      seenBodies.push(await bodyOf(input));
+      attempt += 1;
+      if (attempt === 1)
+        return problemResponse({ code: 'IDEMPOTENCY_KEY_IN_PROGRESS' }, 409, { 'Retry-After': '1' });
+      return jsonResponse({ id: 'w1' }, { status: 201 });
+    });
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock });
+
+    const promise = api.POST('/waybills', { headers: { 'Idempotency-Key': key }, body: WAYBILL_BODY });
+    await vi.advanceTimersByTimeAsync(1000);
+    const result = await promise;
+
+    expect(result.response.status).toBe(201);
+    expect(seenKeys).toEqual([key, key]);
+    expect(seenBodies[1]).toBe(seenBodies[0]);
+    expect(JSON.parse(seenBodies[0]!)).toEqual(WAYBILL_BODY);
+  });
+});
+
+describe('Important: Retry-After is honored precisely, not just "eventually"', () => {
+  it('does not resend at 2s but does resend at 3s for Retry-After: 3', async () => {
+    const session = createMemoryTokenStore('abc');
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1)
+        return problemResponse({ code: 'IDEMPOTENCY_KEY_IN_PROGRESS' }, 409, { 'Retry-After': '3' });
+      return jsonResponse(ME_BODY);
+    });
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock });
+
+    const promise = api.GET('/me');
+
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(calls).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const result = await promise;
+
+    expect(calls).toBe(2);
+    expect(result.response.status).toBe(200);
+  });
+});
+
+describe('R61: transient refresh failures (network error, 5xx, malformed body) never log out', () => {
+  it('a 5xx from /auth/refresh rejects the original request without touching the session', async () => {
+    const session = createMemoryTokenStore('stale');
+    const onAuthLost = vi.fn();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (requestUrl(input).endsWith('/auth/refresh')) return new Response('', { status: 503 });
+      return problemResponse({ code: 'UNAUTHORIZED' }, 401);
+    });
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    await expect(api.GET('/me')).rejects.toMatchObject({ code: 'BACKEND_UNAVAILABLE' });
+
+    expect(session.get()).toBe('stale');
+    expect(onAuthLost).not.toHaveBeenCalled();
+  });
+
+  it('a network error while refreshing rejects the original request without touching the session', async () => {
+    const session = createMemoryTokenStore('stale');
+    const onAuthLost = vi.fn();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (requestUrl(input).endsWith('/auth/refresh')) throw new TypeError('network error');
+      return problemResponse({ code: 'UNAUTHORIZED' }, 401);
+    });
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    await expect(api.GET('/me')).rejects.toMatchObject({ code: 'BACKEND_UNAVAILABLE' });
+
+    expect(session.get()).toBe('stale');
+    expect(onAuthLost).not.toHaveBeenCalled();
+  });
+
+  it('a malformed (non-JSON) 200 body from /auth/refresh is also transient, not a logout', async () => {
+    const session = createMemoryTokenStore('stale');
+    const onAuthLost = vi.fn();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (requestUrl(input).endsWith('/auth/refresh')) return new Response('not json', { status: 200 });
+      return problemResponse({ code: 'UNAUTHORIZED' }, 401);
+    });
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: fetchMock, onAuthLost });
+
+    await expect(api.GET('/me')).rejects.toMatchObject({ code: 'BACKEND_UNAVAILABLE' });
+
+    expect(session.get()).toBe('stale');
+    expect(onAuthLost).not.toHaveBeenCalled();
+  });
+});
+
+describe('Api.dispose()', () => {
+  it('closes the BroadcastChannel this client opened, without throwing', () => {
+    const session = createMemoryTokenStore('abc');
+    const api = createApi({ baseUrl: BASE_URL, session, fetch: vi.fn() });
+
+    expect(() => api.dispose()).not.toThrow();
+    // Idempotent: a real BroadcastChannel tolerates a second close() too.
+    expect(() => api.dispose()).not.toThrow();
   });
 });

@@ -8,7 +8,10 @@ export function requestHeaders(input: string | URL | Request, init?: RequestInit
   return input instanceof Request ? input.headers : new Headers(init?.headers);
 }
 
-export function requestCredentials(input: string | URL | Request, init?: RequestInit): RequestCredentials | undefined {
+export function requestCredentials(
+  input: string | URL | Request,
+  init?: RequestInit,
+): RequestCredentials | undefined {
   return input instanceof Request ? input.credentials : init?.credentials;
 }
 
@@ -16,7 +19,10 @@ export function requestUrl(input: string | URL | Request): string {
   return input instanceof Request ? input.url : String(input);
 }
 
-export function jsonResponse(body: unknown, init: { status?: number; headers?: Record<string, string> } = {}): Response {
+export function jsonResponse(
+  body: unknown,
+  init: { status?: number; headers?: Record<string, string> } = {},
+): Response {
   return new Response(JSON.stringify(body), {
     status: init.status ?? 200,
     headers: { 'Content-Type': 'application/json', ...init.headers },
@@ -37,6 +43,13 @@ export function problemResponse(
 
 export function noContentResponse(headers: Record<string, string> = {}): Response {
   return new Response(null, { status: 204, headers });
+}
+
+/** Resolves with `value` after `ms` — for building fetch mocks where different requests (e.g. two
+ * tabs' concurrent /auth/refresh calls) resolve at different, explicit times. Pairs with fake
+ * timers (`vi.advanceTimersByTimeAsync`). */
+export function afterMs<T>(ms: number, value: T): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }
 
 /** Real Web Locks serialize callbacks requested under the same name, one at a time, in request
@@ -89,7 +102,14 @@ export class MockBroadcastChannel {
     const peers = MockBroadcastChannel.registry.get(this.name) ?? new Set();
     for (const peer of peers) {
       if (peer === this || peer.closed) continue;
-      for (const listener of peer.listeners) listener({ data } as MessageEvent);
+      // Real BroadcastChannel delivery is a separate task (macrotask), never synchronous or even
+      // a same-microtask-turn callback — scheduling via setTimeout(0) instead of calling straight
+      // through catches bugs that only show up once other same-tick code (like our own pending
+      // fetch) has had a chance to run first. Plays nicely with `vi.advanceTimersByTimeAsync`.
+      setTimeout(() => {
+        if (peer.closed) return;
+        for (const listener of peer.listeners) listener({ data } as MessageEvent);
+      }, 0);
     }
   }
 
@@ -103,19 +123,29 @@ export class MockBroadcastChannel {
   }
 }
 
-/** Minimal EventSource stand-in: exposes the same `addEventListener`/`onerror`/`close` surface
- * `openEventStream` uses, plus test-only `emit`/`fail` helpers to drive it from a test. */
+/** Minimal EventSource stand-in: exposes the same `addEventListener`/`onerror`/`onopen`/`close`/
+ * `readyState` surface `openEventStream` uses, plus test-only `emit`/`fail`/`transientError`/`open`
+ * helpers to drive it from a test. Mirrors the real readyState machine (CONNECTING/OPEN/CLOSED) —
+ * that distinction is exactly what Important 4 (dead SSE after CLOSED) hinges on. */
 export class MockEventSource {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
   static instances: MockEventSource[] = [];
 
   readonly url: string;
   onerror: ((event: Event) => void) | null = null;
-  closed = false;
+  onopen: (() => void) | null = null;
+  readyState = MockEventSource.CONNECTING;
   private listeners = new Map<string, Set<(event: MessageEvent) => void>>();
 
   constructor(url: string) {
     this.url = url;
     MockEventSource.instances.push(this);
+  }
+
+  get closed(): boolean {
+    return this.readyState === MockEventSource.CLOSED;
   }
 
   addEventListener(type: string, listener: (event: MessageEvent) => void): void {
@@ -128,8 +158,15 @@ export class MockEventSource {
     this.listeners.get(type)?.delete(listener);
   }
 
+  /** Matches the real API: closing never itself fires `onerror`. */
   close(): void {
-    this.closed = true;
+    this.readyState = MockEventSource.CLOSED;
+  }
+
+  /** Simulates the server accepting the connection. */
+  open(): void {
+    this.readyState = MockEventSource.OPEN;
+    this.onopen?.();
   }
 
   emit(type: string, data: unknown, lastEventId?: string): void {
@@ -137,7 +174,18 @@ export class MockEventSource {
     for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 
+  /** Simulates a fatal failure: the server rejected the (re)connection outright (typically an
+   * expired/invalid token on connect) and the browser gives up — readyState becomes CLOSED and
+   * stays there, so nothing will happen again without intervention. */
   fail(event: Event = new Event('error')): void {
+    this.readyState = MockEventSource.CLOSED;
+    this.onerror?.(event);
+  }
+
+  /** Simulates a transient network blip the browser is still auto-retrying on its own —
+   * readyState goes back to CONNECTING, not CLOSED. */
+  transientError(event: Event = new Event('error')): void {
+    this.readyState = MockEventSource.CONNECTING;
     this.onerror?.(event);
   }
 
