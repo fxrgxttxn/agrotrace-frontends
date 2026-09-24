@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160">
+  <path d="M0 128L20 123.1L40 119.1L60 116L80 113.8L100 112.4L120 112L140 112.4L160 113.8L180 116L200 119.1L220 123.1L240 128L240 160L0 160Z" style="fill: var(--c-furrow-a)" />
+  <path d="M0 128L20 123.1L22.4 122.6L0 131.5ZM59.1 116.1L0 147.3L0 138.3L43.6 118.5ZM82.6 113.6L24 160L0 160L71.5 114.7L80 113.8ZM92.6 112.9L100 112.4L102.1 112.4L72 160L48 160ZM111.1 112.2L120 112L120 160L96 160ZM137.9 112.4L168 160L144 160L128.9 112.2ZM147.4 112.9L157.4 113.6L216 160L192 160ZM180.9 116.1L240 147.3L240 160L168.5 114.7L180 116ZM200 119.1L217.6 122.6L240 131.5L240 138.3L196.4 118.5Z" style="fill: var(--c-furrow-b)" />
+  <path d="M96 56L116 96L104 128M108 56L118 96L112 128M120 56L120 96L120 128M132 56L122 96L128 128M144 56L124 96L136 128" style="fill: none; stroke: var(--c-straw)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M96 38c5 5 5 14 0 19-5-5-5-14 0-19zM108 38c5 5 5 14 0 19-5-5-5-14 0-19zM120 38c5 5 5 14 0 19-5-5-5-14 0-19zM132 38c5 5 5 14 0 19-5-5-5-14 0-19zM144 38c5 5 5 14 0 19-5-5-5-14 0-19z" style="fill: var(--c-straw)" />
+  <path d="M108 96h24" style="fill: none; stroke: var(--c-ink)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

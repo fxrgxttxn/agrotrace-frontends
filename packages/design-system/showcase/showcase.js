@@ -1,56 +1,44 @@
 // Showcase helpers (not part of the design system; frameworks implement their own behaviour).
 // - ?theme=light|dark puts data-theme on <html>; without it, pages marked data-ds-split render
 //   the specimen twice: light and dark columns side by side.
-// - injects a placeholder icon sprite (the real sprite arrives with Task 18, same symbol ids);
+// - loads the icon sprite (../sprite.svg), the icon grid and the illustrations ([data-ds-art]);
 // - wires the small demos: combobox, switch, tabs, dialog, sort buttons, drop zone, filters.
 (() => {
   const params = new URLSearchParams(location.search);
   const theme = params.get('theme');
   if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
 
-  const ICONS = {
-    plus: '<path d="M12 5v14M5 12h14"/>',
-    minus: '<path d="M5 12h14"/>',
-    search: '<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>',
-    filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
-    download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
-    upload: '<path d="M12 16V5M7 10l5-5 5 5M5 20h14"/>',
-    'chevron-left': '<path d="m15 6-6 6 6 6"/>',
-    'chevron-right': '<path d="m9 6 6 6-6 6"/>',
-    'chevron-down': '<path d="m6 9 6 6 6-6"/>',
-    close: '<path d="M6 6l12 12M18 6 6 18"/>',
-    check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
-    bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0"/>',
-    batch: '<rect x="4" y="7" width="16" height="13" rx="2"/><path d="M4 11.5h16M9.5 7V4h5v3"/>',
-    field:
-      '<path d="M3 19c5-4 13-4 18 0M5 14.5c4-3 10-3 14 0M8 10c2.5-1.6 5.5-1.6 8 0"/><circle cx="17.5" cy="5" r="1.5"/>',
-    waybill: '<path d="M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5"/>',
-    flask: '<path d="M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3M9 3h6M7.5 15h9"/>',
-    recall: '<path d="M12 4 2.8 19.5h18.4zM12 10v4M12 16.8v.2"/>',
-    qr: '<rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><path d="M14 14h2v2M18 18h2v2M14 20h2M20 14v2"/>',
-    graph:
-      '<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="9" r="2.5"/><circle cx="9" cy="18" r="2.5"/><path d="m8.4 7 7.2 1.2M7 8.4l1.4 7.2M16.3 10.8l-5.6 5.4"/>',
-    more: '<path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3"/>',
-    user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>',
-    users:
-      '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M15.5 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/>',
-    truck:
-      '<path d="M3 6h11v10H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
-    calendar: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/>',
-    trash: '<path d="M5 7h14M9.5 7V4h5v3M7 7l1 13h8l1-13"/>',
-    scale: '<path d="M12 4v16M7 20h10M5 8h14M5 8l-2.5 6h5zM19 8l-2.5 6h5z"/>',
-    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
-    building: '<path d="M5 21V4h10v17M15 9h4v12M3 21h18M8.5 8h3M8.5 12h3M8.5 16h3"/>',
-  };
-  const sprite =
-    '<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">' +
-    Object.entries(ICONS)
-      .map(
-        ([id, body]) =>
-          `<symbol id="i-${id}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${body}</symbol>`,
-      )
-      .join('') +
-    '</svg>';
+  // The real sprite, the icon grid (icons.html) and inlined illustrations, fetched before the theme
+  // split so the dark column clones them too. <html data-ds-ready> tells the tests the page is done.
+  const text = (url) => fetch(url).then((r) => (r.ok ? r.text() : Promise.reject(new Error(url))));
+
+  async function loadGraphics() {
+    const [sprite, names] = await Promise.all([
+      text('../sprite.svg'),
+      document.querySelector('[data-ds-icons]') ? text('../icons/manifest.json').then(JSON.parse) : [],
+    ]);
+    document.body.insertAdjacentHTML('afterbegin', sprite);
+    for (const list of document.querySelectorAll('[data-ds-icons]')) {
+      list.innerHTML = names
+        .map(
+          (n) =>
+            `<li class="ds-icon"><span class="ds-icon__art">` +
+            `<svg width="24" height="24" aria-hidden="true"><use href="#i-${n}"/></svg>` +
+            `<svg width="16" height="16" aria-hidden="true"><use href="#i-${n}"/></svg>` +
+            `</span><code class="ds-name">${n}</code></li>`,
+        )
+        .join('');
+    }
+    const slots = [...document.querySelectorAll('[data-ds-art]')];
+    const arts = await Promise.all(slots.map((s) => text(`../illustrations/${s.dataset.dsArt}.svg`)));
+    slots.forEach((slot, i) => {
+      const tpl = document.createElement('template');
+      tpl.innerHTML = arts[i].trim();
+      const art = tpl.content.firstElementChild;
+      for (const a of slot.attributes) if (a.name !== 'data-ds-art') art.setAttribute(a.name, a.value);
+      slot.replaceWith(art);
+    });
+  }
 
   function splitThemes() {
     const col = document.querySelector('[data-ds-split] .ds-col');
@@ -243,9 +231,13 @@
     }
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    document.body.insertAdjacentHTML('afterbegin', sprite);
-    splitThemes();
-    wire();
+  document.addEventListener('DOMContentLoaded', async () => {
+    try {
+      await loadGraphics();
+    } finally {
+      splitThemes();
+      wire();
+      document.documentElement.dataset.dsReady = '';
+    }
   });
 })();

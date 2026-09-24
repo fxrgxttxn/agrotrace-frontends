@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160">
+  <path d="M0 136L20 131.1L40 127.1L60 124L80 121.8L100 120.4L120 120L140 120.4L160 121.8L180 124L200 127.1L220 131.1L240 136L240 160L0 160Z" style="fill: var(--c-furrow-a)" />
+  <path d="M0 136.3L1.4 135.7L20 131.1L26.7 129.8L0 145.7ZM58.8 124.2L24 160L0 160L44.4 126.4ZM82.2 121.6L72 160L48 160L71 122.8L80 121.8ZM92.6 120.9L100 120.4L102.5 120.4L120 160L96 160ZM168 160L144 160L112.4 120.2L120 120L122.2 120ZM192 160L132.4 120.3L140 120.4L143.1 120.7L216 160ZM240 150.6L240 160L154.9 121.4L160 121.8L168.7 122.7ZM200 127.1L213.3 129.8L240 137.9L240 143.5L185.8 124.9Z" style="fill: var(--c-furrow-b)" />
+  <path d="M78 34h84a10 10 0 0 1 10 10v40a10 10 0 0 1-10 10h-50l-18 16v-16H78a10 10 0 0 1-10-10V44a10 10 0 0 1 10-10z" style="fill: var(--c-surface); stroke: var(--c-ink)" stroke-width="3" stroke-linejoin="round" />
+  <path d="M92 56h56M92 72h36" style="fill: none; stroke: var(--c-straw)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

@@ -1,11 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-const pages = ['index.html', 'forms.html', 'data.html', 'shell.html'];
+const pages = ['index.html', 'forms.html', 'data.html', 'shell.html', 'icons.html'];
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
 async function open(page: Page, url: string) {
   await page.goto(url);
+  // showcase.js loads the sprite and the illustrations, then marks <html data-ds-ready>.
+  await page.locator('html[data-ds-ready]').waitFor({ state: 'attached' });
   await page.evaluate(() => document.fonts.ready);
 }
 
@@ -157,4 +159,29 @@ test('empty toast live regions stay in the accessibility tree', async ({ page })
     });
   });
   expect(states).toEqual(['grid/visible', 'grid/visible']);
+});
+
+test('every icon reference resolves to a sprite symbol and every illustration is inlined', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'viewport-independent: run once');
+  for (const p of pages) {
+    await open(page, `/showcase/${p}`);
+    const state = await page.evaluate(() => ({
+      missing: [...document.querySelectorAll('use')]
+        .map((u) => u.getAttribute('href') ?? '')
+        .filter((h) => !h.startsWith('#i-') || !document.querySelector(`symbol${h}`)),
+      symbols: document.querySelectorAll('symbol[id^="i-"]').length,
+      slots: document.querySelectorAll('[data-ds-art]').length,
+    }));
+    expect(state, p).toEqual({ missing: [], symbols: 40, slots: 0 });
+  }
+  await open(page, '/showcase/icons.html?theme=light');
+  await expect(page.locator('.ds-icon')).toHaveCount(40);
+  await expect(page.locator('.ds-art > svg[viewBox="0 0 240 160"]')).toHaveCount(12);
+  // Icons are painted: each 24 px glyph has a non-empty box.
+  const empty = await page
+    .locator('.ds-icon svg[width="24"] use')
+    .evaluateAll((uses) => uses.filter((u) => (u as SVGGraphicsElement).getBBox().width === 0).length);
+  expect(empty).toBe(0);
 });

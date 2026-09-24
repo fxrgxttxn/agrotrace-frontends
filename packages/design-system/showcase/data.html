@@ -29,6 +29,7 @@
           <li><a href="forms.html" data-ds-keep-theme>Формы</a></li>
           <li><a href="data.html" aria-current="page" data-ds-keep-theme>Данные</a></li>
           <li><a href="shell.html" data-ds-keep-theme>Каркас</a></li>
+          <li><a href="icons.html" data-ds-keep-theme>Графика</a></li>
         </ul>
       </nav>
     </header>
@@ -587,32 +588,7 @@
           <div class="ds-grid ds-grid--wide">
             <div class="ds-frame">
               <div class="at-empty">
-                <svg class="at-empty__art" viewBox="0 0 240 160" aria-hidden="true">
-                  <defs>
-                    <clipPath id="empty-hill"><path d="M0 104c52-26 150-30 240-8v64H0z" /></clipPath>
-                  </defs>
-                  <circle cx="178" cy="44" r="18" style="fill: var(--c-straw)" />
-                  <path d="M0 104c52-26 150-30 240-8v64H0z" style="fill: var(--c-furrow-a)" />
-                  <g clip-path="url(#empty-hill)" style="stroke: var(--c-furrow-b)" stroke-width="7">
-                    <path
-                      d="M-20 170 60 80M10 170l74-90M40 170l68-90M70 170l62-90M100 170l56-90M130 170l50-90M160 170l44-90M190 170l38-90M220 170l32-90M250 170l26-90"
-                    />
-                  </g>
-                  <rect
-                    x="96"
-                    y="70"
-                    width="44"
-                    height="30"
-                    rx="4"
-                    style="fill: var(--c-surface); stroke: var(--c-ink)"
-                    stroke-width="2"
-                  />
-                  <path
-                    d="M96 80h44M110 70v-8h16v8"
-                    style="fill: none; stroke: var(--c-ink)"
-                    stroke-width="2"
-                  />
-                </svg>
+                <svg class="at-empty__art" aria-hidden="true" data-ds-art="empty-batches"></svg>
                 <p class="at-empty__text">Партий пока нет.</p>
                 <button class="at-button" data-variant="primary" type="button">
                   Зарегистрировать партию

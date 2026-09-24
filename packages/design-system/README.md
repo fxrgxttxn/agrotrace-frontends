@@ -40,6 +40,34 @@ import '@agrotrace/design-system/index.css'; // шрифты + токены + б
 
 ---
 
+## Иконки и иллюстрации
+
+**Иконки** — собственный набор из 40 штук: `icons/<имя>.svg`, список и порядок — `icons/manifest.json`.
+Сетка 24, штрих 1.75, скруглённые концы и стыки, `currentColor`, без заливки; геометрия в пределах 2…22
+(поле 2 px), радиусы контейнеров 1.5 или 2. Спрайт `sprite.svg` собирается скриптом
+(`pnpm --filter @agrotrace/design-system build:sprite`) и коммитится; тест падает, если он устарел.
+
+Спрайт вставляется в документ один раз (первым потомком `<body>`), иконка ссылается на символ `#i-<имя>`:
+
+```html
+<svg class="at-button__icon" aria-hidden="true"><use href="#i-truck" /></svg>
+```
+
+Размер и цвет задаёт компонент (`width/height`, `color`); иконка без подписи — только внутри элемента с
+`aria-label`.
+
+**Иллюстрации** — `illustrations/<имя>.svg`, 240 × 160, плоские, цвета только `style="fill: var(--c-…)"`
+(3–4 токена палитры + `--c-surface` для вырезов), мотив борозд. Фреймворки **инлайнят** их как компоненты
+(через `<img>` токены не работают и тёмная тема теряется), добавляя `class="at-empty__art" aria-hidden="true"`.
+Идентификаторов внутри нет, поэтому несколько иллюстраций на странице не конфликтуют.
+
+| Имя                                                                                                                                        | Где                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| `empty-fields`, `empty-batches`, `empty-waybills`, `empty-lab`, `empty-recalls`, `empty-complaints`, `empty-notifications`, `empty-search` | пустые состояния                        |
+| `not-found`, `forbidden`                                                                                                                   | страницы 404 / 403                      |
+| `login`                                                                                                                                    | экран входа                             |
+| `recall-warning`                                                                                                                           | предупреждение об отзыве на QR-странице |
+
 ## Формы
 
 ### Кнопка `at-button`
@@ -526,13 +554,13 @@ Home / End — первая / последняя; выбор при переме
 
 ```html
 <div class="at-empty">
-  <svg class="at-empty__art" aria-hidden="true">…иллюстрация…</svg>
+  <svg class="at-empty__art" aria-hidden="true" viewBox="0 0 240 160">…illustrations/empty-batches.svg…</svg>
   <p class="at-empty__text">Партий пока нет.</p>
   <button class="at-button" data-variant="primary" type="button">Зарегистрировать партию</button>
 </div>
 ```
 
-Одна строка (из `@agrotrace/i18n`, `empty.*`) и одна кнопка.
+Иллюстрация (инлайн, см. «Иконки и иллюстрации»), одна строка (из `@agrotrace/i18n`, `empty.*`) и одна кнопка.
 
 ### Загрузка `at-skeleton`
 

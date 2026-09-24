@@ -12,11 +12,15 @@
     "./fonts.css": "./fonts.css",
     "./base.css": "./base.css",
     "./components/*": "./components/*",
-    "./fonts/*": "./fonts/*"
+    "./fonts/*": "./fonts/*",
+    "./sprite.svg": "./sprite.svg",
+    "./icons/*": "./icons/*",
+    "./illustrations/*": "./illustrations/*"
   },
   "scripts": {
     "test": "vitest run",
-    "fonts": "node scripts/copy-fonts.ts"
+    "fonts": "node scripts/copy-fonts.ts",
+    "build:sprite": "node scripts/build-sprite.ts"
   },
   "devDependencies": {
     "@fontsource/geologica": "5.3.0",

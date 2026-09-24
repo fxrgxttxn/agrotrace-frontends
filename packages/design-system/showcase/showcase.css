@@ -292,3 +292,58 @@
   border: 1px solid var(--c-line);
   border-radius: var(--r-l);
 }
+
+/* icons.html: every sprite icon at 24 and 16 px, every illustration. */
+.ds-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-icon {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-m);
+  background: var(--c-surface);
+  color: var(--c-ink);
+}
+
+.ds-icon__art {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.ds-icon .ds-name,
+.ds-art .ds-name {
+  margin: 0;
+}
+
+.ds-arts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 272px), 1fr));
+  gap: var(--sp-4);
+}
+
+.ds-art {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: var(--sp-5) var(--sp-4) var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-l);
+  background: var(--c-surface);
+}
+
+.ds-art svg {
+  width: 240px;
+  max-width: 100%;
+  height: auto;
+}
