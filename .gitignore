@@ -11,6 +11,7 @@ test-results/
 playwright-report/
 benchmark/results/*.csv
 !benchmark/results/.gitkeep
+db/.schema.sql.*
 __pycache__/
 .venv/
 vendor/
