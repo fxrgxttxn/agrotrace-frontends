@@ -35,6 +35,7 @@ CREATE TABLE recalls (
   trigger varchar(16) NOT NULL CHECK (trigger IN ('LAB','INSPECTOR','COMPLAINT')),
   reason varchar(1000) NOT NULL,
   status varchar(8) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','CLOSED')),
+  block_upstream boolean NOT NULL DEFAULT false,
   lab_test_id uuid REFERENCES lab_tests(id),
   complaint_id uuid,
   opened_at timestamptz NOT NULL DEFAULT now(),
@@ -86,11 +87,17 @@ CREATE TABLE complaints (
   decision varchar(16) CHECK (decision IN ('REJECT','LAB_TEST','RECALL')),
   decision_comment varchar(1000),
   inspector_id uuid REFERENCES users(id),
+  lab_test_id uuid REFERENCES lab_tests(id),
+  recall_id uuid REFERENCES recalls(id),
+  decided_at timestamptz,
   ip inet,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,
-  CHECK ((status = 'DECIDED') = (decision IS NOT NULL))
+  CHECK ((status = 'DECIDED') = (decision IS NOT NULL)),
+  CHECK ((status = 'DECIDED') = (decided_at IS NOT NULL)),
+  CHECK ((decision IS NOT DISTINCT FROM 'LAB_TEST') = (lab_test_id IS NOT NULL)),
+  CHECK ((decision IS NOT DISTINCT FROM 'RECALL') = (recall_id IS NOT NULL))
 );
 CREATE INDEX ix_complaints_batch ON complaints(batch_id);
 ALTER TABLE recalls ADD CONSTRAINT fk_recalls_complaint FOREIGN KEY (complaint_id) REFERENCES complaints(id);

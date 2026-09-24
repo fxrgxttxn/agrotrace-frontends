@@ -54,6 +54,7 @@ CREATE TABLE norms (
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (product_id, indicator_id)
 );
+CREATE UNIQUE INDEX ux_products_name ON products(name);
 CREATE TRIGGER t_products_touch BEFORE UPDATE ON products FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER t_substances_touch BEFORE UPDATE ON substances FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER t_indicators_touch BEFORE UPDATE ON indicators FOR EACH ROW EXECUTE FUNCTION touch_updated_at();

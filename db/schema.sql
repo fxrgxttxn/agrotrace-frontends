@@ -231,11 +231,17 @@ CREATE TABLE public.complaints (
     decision character varying(16),
     decision_comment character varying(1000),
     inspector_id uuid,
+    lab_test_id uuid,
+    recall_id uuid,
+    decided_at timestamp with time zone,
     ip inet,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
     CONSTRAINT complaints_check CHECK ((((status)::text = 'DECIDED'::text) = (decision IS NOT NULL))),
+    CONSTRAINT complaints_check1 CHECK ((((status)::text = 'DECIDED'::text) = (decided_at IS NOT NULL))),
+    CONSTRAINT complaints_check2 CHECK (((NOT ((decision)::text IS DISTINCT FROM 'LAB_TEST'::text)) = (lab_test_id IS NOT NULL))),
+    CONSTRAINT complaints_check3 CHECK (((NOT ((decision)::text IS DISTINCT FROM 'RECALL'::text)) = (recall_id IS NOT NULL))),
     CONSTRAINT complaints_decision_check CHECK (((decision)::text = ANY ((ARRAY['REJECT'::character varying, 'LAB_TEST'::character varying, 'RECALL'::character varying])::text[]))),
     CONSTRAINT complaints_status_check CHECK (((status)::text = ANY ((ARRAY['NEW'::character varying, 'IN_REVIEW'::character varying, 'DECIDED'::character varying])::text[]))),
     CONSTRAINT complaints_text_check CHECK ((length((text)::text) >= 10))
@@ -487,6 +493,7 @@ CREATE TABLE public.recalls (
     trigger character varying(16) NOT NULL,
     reason character varying(1000) NOT NULL,
     status character varying(8) DEFAULT 'OPEN'::character varying NOT NULL,
+    block_upstream boolean DEFAULT false NOT NULL,
     lab_test_id uuid,
     complaint_id uuid,
     opened_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -1237,6 +1244,13 @@ CREATE INDEX ix_waybills_sender ON public.waybills USING btree (sender_org_id, s
 
 
 --
+-- Name: ux_products_name; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX ux_products_name ON public.products USING btree (name);
+
+
+--
 -- Name: ux_recalls_open_source; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1450,6 +1464,22 @@ ALTER TABLE ONLY public.complaints
 
 ALTER TABLE ONLY public.complaints
     ADD CONSTRAINT complaints_inspector_id_fkey FOREIGN KEY (inspector_id) REFERENCES public.users(id);
+
+
+--
+-- Name: complaints complaints_lab_test_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.complaints
+    ADD CONSTRAINT complaints_lab_test_id_fkey FOREIGN KEY (lab_test_id) REFERENCES public.lab_tests(id);
+
+
+--
+-- Name: complaints complaints_recall_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.complaints
+    ADD CONSTRAINT complaints_recall_id_fkey FOREIGN KEY (recall_id) REFERENCES public.recalls(id);
 
 
 --
