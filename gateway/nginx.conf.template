@@ -1,3 +1,8 @@
+# Templated at container start by the base image's own docker-entrypoint.d/20-envsubst-on-
+# templates.sh (R80): ${GATEWAY_PORT} below is substituted from the container's environment
+# (docker-compose.yml sets it from the host's GATEWAY_PORT, default 80) into
+# /etc/nginx/nginx.conf — see gateway/Dockerfile. Every other `$name` here is an nginx variable,
+# left untouched because no environment variable of that exact (lowercase) name exists.
 worker_processes auto;
 
 events {
@@ -80,7 +85,7 @@ http {
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
       proxy_set_header X-Forwarded-Host $http_host;
-      proxy_set_header X-Forwarded-Port $server_port;
+      proxy_set_header X-Forwarded-Port ${GATEWAY_PORT};
       proxy_set_header X-Request-Id $req_id;
       # A real backend response already carries its own X-Request-Id / security headers (per
       # contract); hide those so the gateway's own add_header lines above are the single source
@@ -101,7 +106,7 @@ http {
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
       proxy_set_header X-Forwarded-Host $http_host;
-      proxy_set_header X-Forwarded-Port $server_port;
+      proxy_set_header X-Forwarded-Port ${GATEWAY_PORT};
       proxy_set_header X-Request-Id $req_id;
       proxy_hide_header X-Request-Id;
       proxy_hide_header X-Content-Type-Options;

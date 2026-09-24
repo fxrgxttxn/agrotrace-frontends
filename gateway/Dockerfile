@@ -4,7 +4,17 @@ FROM nginx:1.27-alpine
 # curl: used only by the HEALTHCHECK below (nginx:alpine has no shell HTTP client otherwise).
 RUN apk add --no-cache curl
 
-COPY nginx.conf /etc/nginx/nginx.conf
+# nginx.conf is a template (R80: X-Forwarded-Port needs the published host port, which
+# $server_port can never be — that's always 80, the port nginx listens on *inside* the container).
+# The base image's own docker-entrypoint.d/20-envsubst-on-templates.sh runs before nginx starts
+# (its ENTRYPOINT is inherited unchanged, only CMD is overridden below) and envsubst's every
+# *.template file under NGINX_ENVSUBST_TEMPLATE_DIR into NGINX_ENVSUBST_OUTPUT_DIR, stripping the
+# suffix — pointed at /etc/nginx so the output lands at /etc/nginx/nginx.conf itself. GATEWAY_PORT
+# defaults to 80 (matching .env.example) so the image still works standalone (`docker run`,
+# no compose env); docker-compose.yml overrides it with the host's actual GATEWAY_PORT.
+ENV NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx
+ENV GATEWAY_PORT=80
+COPY nginx.conf.template /etc/nginx/templates/nginx.conf.template
 
 # R6: the placeholder (including a sample /assets/ file, so /assets/* has something real to serve
 # in tests) is baked into the image at /srv/{react,angular,svelte}. Later frontend plans bind-mount
@@ -19,7 +29,13 @@ COPY start/ /srv/start/
 # the empty directory just needs to exist so nginx has somewhere to alias to before the mount lands.
 RUN mkdir -p /srv/ds
 
-RUN nginx -t
+# Build-time config sanity check: envsubst the template exactly like the real entrypoint would
+# (default GATEWAY_PORT), then let nginx validate the result — into a scratch path, never
+# /etc/nginx/nginx.conf itself, which must stay absent from the image so the entrypoint always
+# generates it fresh from the template at container start.
+RUN GATEWAY_PORT=80 envsubst '${GATEWAY_PORT}' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf.check \
+  && nginx -t -c /etc/nginx/nginx.conf.check \
+  && rm /etc/nginx/nginx.conf.check
 
 EXPOSE 80
 

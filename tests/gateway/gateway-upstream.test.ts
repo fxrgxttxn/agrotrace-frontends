@@ -97,8 +97,12 @@ describe('gateway-upstream: X-Forwarded-*', () => {
     // round) — only X-Forwarded-Host ($http_host) is new and carries the port.
     expect(body.host).toBe('react-express.localhost');
     expect(body.forwardedHost).toBe('react-express.localhost:8088');
-    // The container always listens on 80 internally, regardless of the published host port.
-    expect(body.forwardedPort).toBe('80');
+    // R80: X-Forwarded-Port reports the *published* host port (GATEWAY_PORT, templated into the
+    // gateway container's nginx.conf at start — see gateway/nginx.conf.template), never the
+    // container-internal listen port (always 80). Read from the environment rather than
+    // hardcoded, so this test passes both locally (.env: GATEWAY_PORT=8088) and in CI
+    // (GATEWAY_PORT=80).
+    expect(body.forwardedPort).toBe(process.env.GATEWAY_PORT ?? '80');
     expect(body.forwardedProto).toBe('http');
     expect(body.forwardedFor).toBeTruthy();
   });

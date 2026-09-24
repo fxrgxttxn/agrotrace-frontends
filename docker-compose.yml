@@ -80,7 +80,11 @@ services:
     volumes:
       - ./packages/design-system:/srv/ds:ro
     # GATEWAY_PORT (.env.example default: 80) is the host port; override it in a local,
-    # uncommitted .env when 80 is already taken on the machine.
+    # uncommitted .env when 80 is already taken on the machine. Also passed into the container
+    # itself (R80): nginx's own $server_port is always 80 (the port it listens on *inside* the
+    # container), so X-Forwarded-Port is templated from this env var at container start instead —
+    # see gateway/nginx.conf.template and gateway/Dockerfile.
+    environment: { GATEWAY_PORT: "${GATEWAY_PORT:-80}" }
     ports: ["${GATEWAY_PORT:-80}:80"]
     networks: [at]
   # Test-only stub of a real backend (./at.sh gw:test): a tiny node:http server, network-aliased
