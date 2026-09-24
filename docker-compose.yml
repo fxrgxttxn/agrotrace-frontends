@@ -71,6 +71,16 @@ services:
     # Healthcheck is defined once, in mercury-mock/Dockerfile (HEALTHCHECK),
     # so it also applies when the image is run outside this compose file.
     networks: [at]
+  gateway:
+    build: { context: ./gateway }
+    # No `depends_on`: the gateway must start with no backend containers running at all (nginx
+    # resolves api-<back> at request time via the Docker resolver, not at startup). Frontend dist
+    # bind mounts (./frontend-<front>/dist -> /srv/<front>, overriding the baked-in placeholder,
+    # R6) are added by the plans that create those directories.
+    volumes:
+      - ./packages/design-system:/srv/ds:ro
+    ports: ["80:80"]
+    networks: [at]
 networks:
   at: {}
 volumes:

@@ -232,6 +232,12 @@ importers:
         specifier: 14.1.1
         version: 14.1.1
 
+  tests/gateway:
+    devDependencies:
+      vitest:
+        specifier: ^2.1.4
+        version: 2.1.9(@types/node@22.20.4)
+
 packages:
 
   '@ampproject/remapping@2.3.0':
