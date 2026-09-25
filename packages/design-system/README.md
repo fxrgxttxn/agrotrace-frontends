@@ -834,7 +834,7 @@ Home / End — первая / последняя; выбор при переме
     </li>
     <li>
       <a class="at-sidebar__link" href="/recall-tasks" title="Задачи отзыва">
-        <svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-recall" /></svg>
+        <svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-check" /></svg>
         <span class="at-sidebar__label">Задачи отзыва</span>
         <span class="at-visually-hidden">, открытых:</span><span class="at-sidebar__count">1</span>
       </a>
@@ -845,6 +845,22 @@ Home / End — первая / последняя; выбор при переме
 ```
 
 `aria-current="page"` — текущий раздел (и для вложенных маршрутов раздела).
+
+Иконки разделов — одни и те же во всех трёх фреймворках (в боковом меню, нижней навигации и «Ещё»); иконки пунктов
+одного меню не повторяются:
+
+| Раздел       | Иконка    | Раздел        | Иконка     |
+| ------------ | --------- | ------------- | ---------- |
+| Панель       | `graph`   | Задачи отзыва | `check`    |
+| Поля         | `field`   | Отзывы        | `recall`   |
+| Партии       | `batch`   | Жалобы        | `alert`    |
+| Накладные    | `waybill` | Отчёты        | `download` |
+| Склад        | `store`   | Сотрудники    | `users`    |
+| Переработка  | `factory` | Организации   | `building` |
+| Печать QR    | `qr`      | Пользователи  | `shield`   |
+| Очередь проб | `flask`   | Справочники   | `settings` |
+| Уведомления  | `bell`    | Журнал аудита | `eye`      |
+| Профиль      | `user`    |               |            |
 
 ### Нижняя навигация `at-bottom-nav`
 
@@ -876,7 +892,7 @@ Home / End — первая / последняя; выбор при переме
       <ul class="at-sidebar__list">
         <li>
           <a class="at-sidebar__link" href="/recall-tasks"
-            ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-recall" /></svg
+            ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-check" /></svg
             ><span class="at-sidebar__label">Задачи отзыва</span></a
           >
         </li>

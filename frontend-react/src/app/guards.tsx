@@ -31,6 +31,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (state.status === 'loading') return <PageLoading />;
   if (state.status === 'unavailable') return <Unavailable />;
   if (state.status === 'anonymous') {
+    if (state.loggedOut) return <Navigate to="/login" replace />;
     const next = safeNext(`${location.pathname}${location.search}`);
     return <Navigate to={next === '/' ? '/login' : `/login?next=${encodeURIComponent(next)}`} replace />;
   }

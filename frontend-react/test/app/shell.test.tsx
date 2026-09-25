@@ -3,7 +3,10 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { server } from '../setup';
 import { contractExample, contractResponse } from '../msw/fromContract';
-import { canonical, canonicalHtml, readmeBlock } from '../ui/readme';
+import { canonical, canonicalHtml, readmeBlock, readmeMenuIcons } from '../ui/readme';
+import { navFor, NOTIFICATIONS_ITEM, PROFILE_ITEM } from '../../src/app/nav';
+import { ALL_ROLES } from '../../src/app/access';
+import { t } from '../../src/app/i18n';
 import { bellCount } from '../../src/shell/Topbar';
 import { FakeEventSource, renderApp } from './renderApp';
 
@@ -103,10 +106,7 @@ describe('shell markup (README «Каркас»)', () => {
     const clone = dialog.cloneNode(true) as HTMLElement;
     clone.removeAttribute('open');
     for (const a of clone.querySelectorAll('li')) if (!/recall-tasks|profile/.test(a.innerHTML)) a.remove();
-    expect(canonical([clone])).toBe(
-      // The README example draws «Задачи отзыва» with #i-recall; the app gives it #i-check (distinct from «Отзывы»).
-      canonicalHtml(readmeBlock('Нижняя навигация', 1).replace('#i-recall', '#i-check')),
-    );
+    expect(canonical([clone])).toBe(canonicalHtml(readmeBlock('Нижняя навигация', 1)));
     await userEvent.click(within(dialog).getByRole('link', { name: 'Уведомления' }));
     expect(router.state.location.pathname).toBe('/notifications');
     expect(dialog).not.toHaveAttribute('open');
@@ -211,5 +211,27 @@ describe('/_ds showcase (dev build only)', () => {
       expect(screen.getByRole('heading', { level: 2, name })).toBeInTheDocument();
     expect(document.querySelectorAll('svg.at-empty__art').length).toBeGreaterThanOrEqual(12);
     expect(document.querySelectorAll('.at-chip[data-status]').length).toBeGreaterThanOrEqual(11);
+  });
+});
+
+describe('menu icons (README table, ruling F6)', () => {
+  it('every menu item of every role uses the icon the README table gives its section', () => {
+    const table = readmeMenuIcons();
+    const items = [
+      ...ALL_ROLES.flatMap((r) => [
+        ...navFor({ roles: [r], isOrgAdmin: false }),
+        ...navFor({ roles: [r], isOrgAdmin: true }),
+      ]),
+      NOTIFICATIONS_ITEM,
+      PROFILE_ITEM,
+    ];
+    const wrong = items
+      .map((i) => [t(i.label), i.icon] as const)
+      .filter(([label, icon]) => table.get(label) !== icon)
+      .map(([label, icon]) => `${label}: app ${icon}, README ${table.get(label) ?? '—'}`);
+    expect(wrong).toEqual([]);
+    expect(table.get('Задачи отзыва')).toBe('check');
+    expect(table.get('Пользователи')).toBe('shield');
+    expect(table.get('Журнал аудита')).toBe('eye');
   });
 });

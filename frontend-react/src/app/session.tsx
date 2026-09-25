@@ -58,17 +58,21 @@ export function createSessionCore(fetchImpl?: typeof fetch): SessionCore {
 
 export type SessionState =
   | { status: 'loading' }
-  | { status: 'anonymous' }
+  | { status: 'anonymous'; loggedOut?: boolean }
   | { status: 'unavailable' }
   | { status: 'authenticated'; me: Me };
 
 type Action =
-  { type: 'loading' } | { type: 'anonymous' } | { type: 'unavailable' } | { type: 'authenticated'; me: Me };
+  | { type: 'loading' }
+  | { type: 'anonymous'; loggedOut?: boolean }
+  | { type: 'unavailable' }
+  | { type: 'authenticated'; me: Me };
 
 function reducer(_: SessionState, action: Action): SessionState {
-  return action.type === 'authenticated'
-    ? { status: 'authenticated', me: action.me }
-    : { status: action.type };
+  if (action.type === 'authenticated') return { status: 'authenticated', me: action.me };
+  if (action.type === 'anonymous')
+    return action.loggedOut ? { status: 'anonymous', loggedOut: true } : { status: 'anonymous' };
+  return { status: action.type };
 }
 
 export interface Session {
@@ -81,6 +85,8 @@ export interface Session {
   signOut: () => Promise<void>;
   /** Reloads `/me` (after a profile change). */
   reloadMe: () => Promise<void>;
+  /** Installs a profile the API just returned (`PATCH /me`). */
+  setMe: (me: Me) => void;
   /** Retries the start-up restore after a transient failure. */
   restore: () => Promise<void>;
 }
@@ -150,11 +156,15 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
 
   const channel = useRef<BroadcastChannel | null>(null);
 
-  const endLocally = useCallback(() => {
-    store.set(null);
-    queryClient.clear();
-    dispatch({ type: 'anonymous' });
-  }, [store, queryClient]);
+  // `loggedOut`: an explicit logout (here or in another tab) goes to a plain /login — no `next` back into the cabinet.
+  const endLocally = useCallback(
+    (loggedOut = false) => {
+      store.set(null);
+      queryClient.clear();
+      dispatch({ type: 'anonymous', loggedOut });
+    },
+    [store, queryClient],
+  );
 
   useEffect(() => {
     core.onAuthLost.current = () => {
@@ -174,7 +184,7 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     channel.current = ch;
     ch.onmessage = (e: MessageEvent) => {
       if ((e.data as { type?: string } | null)?.type === 'logout') {
-        endLocally();
+        endLocally(true);
         navigate('/login', { replace: true });
       }
     };
@@ -202,7 +212,7 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     } catch {
       // Even when the server is unreachable the local session ends; the cookie expires on its own.
     }
-    endLocally();
+    endLocally(true);
     channel.current?.postMessage({ type: 'logout' });
     navigate('/login', { replace: true });
   }, [api, endLocally, navigate]);
@@ -211,9 +221,11 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     dispatch({ type: 'authenticated', me: await loadMe() });
   }, [loadMe]);
 
+  const setMe = useCallback((me: Me) => dispatch({ type: 'authenticated', me }), []);
+
   const value = useMemo<Session>(
-    () => ({ state, api, store, signIn, signOut, reloadMe, restore }),
-    [state, api, store, signIn, signOut, reloadMe, restore],
+    () => ({ state, api, store, signIn, signOut, reloadMe, setMe, restore }),
+    [state, api, store, signIn, signOut, reloadMe, setMe, restore],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

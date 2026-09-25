@@ -116,6 +116,15 @@ describe('login', () => {
 });
 
 describe('session loss and logout', () => {
+  it('an explicit logout lands on a plain /login (no `next` back into the cabinet)', async () => {
+    const { router } = renderApp('/profile');
+    await screen.findByRole('heading', { level: 1, name: 'Профиль' });
+    await userEvent.click(screen.getByRole('button', { name: 'Выйти' }));
+    await screen.findByRole('heading', { level: 1, name: 'Вход' });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+    expect(router.state.location.search).toBe('');
+  });
+
   it('an access token rejected and a failed refresh send the user to /login?next= with a message', async () => {
     const { router, core } = renderApp('/fields?page=2');
     await screen.findByRole('heading', { level: 1, name: 'Поля' });

@@ -36,6 +36,8 @@ const page =
 
 const auth = () => import('../pages/auth');
 const home = () => import('../pages/home');
+const profile = () => import('../pages/profile');
+const notifications = () => import('../pages/notifications');
 const fields = () => import('../pages/fields');
 const batches = () => import('../pages/batches');
 const waybills = () => import('../pages/waybills');
@@ -68,15 +70,15 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/profile',
     title: 'page.profile',
     access: 'auth',
-    ops: ['getMe'],
-    load: page(home, 'ProfilePage'),
+    ops: ['getMe', 'getMyChannels'],
+    load: page(profile, 'ProfilePage'),
   },
   {
     path: '/notifications',
     title: 'page.notifications',
     access: 'auth',
     ops: ['listNotifications'],
-    load: page(home, 'NotificationsPage'),
+    load: page(notifications, 'NotificationsPage'),
   },
   {
     path: '/fields',

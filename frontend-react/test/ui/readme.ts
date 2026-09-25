@@ -81,3 +81,25 @@ function normStyle(v: string): string {
     .map((d) => d.replace(/\s*:\s*/, ': '))
     .join('; ');
 }
+
+/** Pairs «label → `icon`» of the menu icon table under «Боковое меню» (README: one icon per section). */
+export function readmeMenuIcons(): Map<string, string> {
+  const start = README.indexOf('Иконки разделов');
+  if (start < 0) throw new Error('README menu icon table not found');
+  const out = new Map<string, string>();
+  for (const line of README.slice(start).split('\n').slice(1)) {
+    if (line.trim() === '') {
+      if (out.size) break;
+      continue;
+    }
+    const cells = line
+      .split('|')
+      .map((c) => c.trim())
+      .filter((c, i, all) => i > 0 && i < all.length - 1);
+    for (let i = 0; i + 1 < cells.length; i += 2) {
+      const icon = /^`([a-z-]+)`$/.exec(cells[i + 1]!)?.[1];
+      if (cells[i] && icon) out.set(cells[i]!, icon);
+    }
+  }
+  return out;
+}

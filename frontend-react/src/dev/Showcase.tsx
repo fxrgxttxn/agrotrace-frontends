@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { BATCH_STATUSES } from '@agrotrace/domain';
-import { ThemeSwitch } from '../pages/home';
+import { ThemeSwitch } from '../shell/ThemeSwitch';
 import {
   Avatar,
   Button,

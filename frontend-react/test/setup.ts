@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, inject } from 'vitest';
 import { contractHandlers, loadContract } from './msw/fromContract';
@@ -30,6 +30,10 @@ if (!window.matchMedia) {
 }
 Element.prototype.scrollIntoView ??= function scrollIntoView() {};
 window.scrollTo = () => {};
+// Object URLs (image previews): jsdom has none.
+let objectUrls = 0;
+URL.createObjectURL ??= () => `blob:http://localhost/${++objectUrls}`;
+URL.revokeObjectURL ??= () => {};
 // Web Locks (every supported browser has them; jsdom not): an exclusive in-memory lock per name, so api-client runs
 // the same refresh path as in a browser (no 10 s cross-tab grace wait, R32).
 if (!('locks' in navigator)) {
@@ -47,6 +51,9 @@ if (!('locks' in navigator)) {
     },
   });
 }
+
+// Lazy page chunks are transformed on first use: the first screen of a file may need more than the default 1 s.
+configure({ asyncUtilTimeout: 4000 });
 
 loadContract(inject('contract'));
 

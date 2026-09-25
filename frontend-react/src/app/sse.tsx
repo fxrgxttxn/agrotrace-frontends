@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { openEventStream, type ApiNotification, type StreamEvent } from '@agrotrace/api-client';
 import { notificationMessage } from '@agrotrace/i18n';
@@ -10,10 +10,19 @@ import { useToast } from '../ui/Toasts';
 // api-client's openEventStream — `reauth` and dead connections refresh through the same single-flight refresh as
 // REST calls. `unread` sets the bell counter; `notification` shows a toast and refreshes the notification lists.
 
-const UnreadContext = createContext<number>(0);
+const UnreadContext = createContext<{ count: number; set: (count: number) => void }>({
+  count: 0,
+  set: () => {},
+});
 
+/** Unread notifications (bell counter): from SSE `unread`, or from a `markNotificationsRead` answer. */
 export function useUnread(): number {
-  return useContext(UnreadContext);
+  return useContext(UnreadContext).count;
+}
+
+/** Sets the counter from an answer that carries it (`UnreadCount` of `POST /notifications/read`). */
+export function useSetUnread(): (count: number) => void {
+  return useContext(UnreadContext).set;
 }
 
 export interface EventSourceOptions {
@@ -78,5 +87,6 @@ export function LiveEventsProvider({
     { EventSourceImpl },
   );
 
-  return <UnreadContext.Provider value={unread}>{children}</UnreadContext.Provider>;
+  const value = useMemo(() => ({ count: unread, set: setUnread }), [unread]);
+  return <UnreadContext.Provider value={value}>{children}</UnreadContext.Provider>;
 }

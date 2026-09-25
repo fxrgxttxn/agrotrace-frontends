@@ -16,6 +16,7 @@ export default defineConfig({
     ...devices['Desktop Chrome'],
     baseURL: 'http://react-express.localhost',
     locale: 'ru-RU',
+    screenshot: 'only-on-failure',
     timezoneId: 'Europe/Moscow',
     launchOptions: { args: [`--host-resolver-rules=MAP *.localhost ${gateway}`] },
   },
