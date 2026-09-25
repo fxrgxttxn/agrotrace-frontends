@@ -1076,7 +1076,9 @@ describe('openapi contract: operations', () => {
 
   it('P14: task-3 behaviour is codified (visibility, uploads, roles, sorting, Telegram bot name)', () => {
     const d: string = doc.info.description;
-    expect(d).toMatch(/сортировка по строковым полям `x-sort`[^]*побайтово в UTF-8[^]*\(P14\)[^]*`COLLATE "C"`/);
+    expect(d).toMatch(
+      /сортировка по строковым полям `x-sort`[^]*побайтово в UTF-8[^]*\(P14\)[^]*`COLLATE "C"`/,
+    );
     expect(d).toMatch(/Загрузка файлов \(P14\)/);
     expect(d).toMatch(/`errors\._root: \[validation\.invalid\]`/);
     expect(d).toMatch(/не декодируется как тип, указанный сигнатурой[^]*415 UNSUPPORTED_MEDIA_TYPE/);
@@ -1096,6 +1098,23 @@ describe('openapi contract: operations', () => {
     expect(doc.components.responses.UnsupportedMediaType.description).toMatch(/не декодируется/);
     const env = readFileSync(new URL('../../.env.example', import.meta.url), 'utf8');
     expect(env).toMatch(/^TELEGRAM_BOT_USERNAME=agrotrace_bot$/m);
+  });
+
+  it('P15–P17: SVG limits, style allowlist, base-name filenames, exp format, _root minProperties', () => {
+    const d: string = doc.info.description;
+    expect(d).toMatch(/не больше 64\s+уровней и элементов не больше 5 000/);
+    expect(d).toMatch(/`<!DOCTYPE>` и иных объявлений/);
+    expect(d).toMatch(/санитизация укладывается в 2 с — иначе 415/);
+    expect(d).toMatch(/корень с префиксом, например `s:svg`, не принимается/);
+    expect(d).toMatch(
+      /атрибут `style` сохраняет только свойства fill[^]*без `url\(`, `\\`, `image-set` и `@`/,
+    );
+    expect(d).toMatch(/все сегменты пути до\s+последнего `\/` или `\\` отбрасываются \(P17\)/);
+    expect(d).toMatch(/`minProperties: 1`, — `errors\._root: \[validation\.minProperties\]` \(P16\)/);
+    expect(doc.components.schemas.FileRef.properties.originalName.description).toMatch(/Базовое имя/);
+    const dl: string = ops.find(({ op }) => op.operationId === 'downloadFile')!.op.description;
+    expect(dl).toContain('`^[1-9]\\d{0,11}$`');
+    expect(doc.components.schemas.LogoUpload.description).toMatch(/5 000 элементов/);
   });
 
   it('P10: RATE_LIMIT_OVERRIDES is documented as deployment configuration', () => {

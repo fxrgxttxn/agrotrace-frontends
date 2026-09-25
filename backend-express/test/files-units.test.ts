@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
 import type { Container } from '../src/container.js';
 import { AppProblem } from '../src/http/problem.js';
 import { rasterVariants, sniff } from '../src/infra/images.js';
-import { sanitizeSvg } from '../src/infra/svg.js';
+import { cleanStyle, sanitizeSvgText } from '../src/infra/svg-sanitize.js';
+import { sanitizeSvg, scanSvg } from '../src/infra/svg.js';
 import { contentDisposition, ifNoneMatch } from '../src/modules/files/download.js';
 import { meService } from '../src/modules/me/service.js';
 import { testConfig } from './helpers.js';
@@ -55,20 +56,64 @@ describe('rasterVariants', () => {
   });
 });
 
-describe('sanitizeSvg', () => {
-  const clean = (s: string) => sanitizeSvg(Buffer.from(s, 'utf8'))?.toString('utf8') ?? null;
+describe('scanSvg — streaming pre-scan before any DOM (P15)', () => {
+  const nested = (n: number) =>
+    `<svg xmlns="http://www.w3.org/2000/svg">${'<g>'.repeat(n - 1)}${'</g>'.repeat(n - 1)}</svg>`;
+  const flat = (n: number) =>
+    `<svg xmlns="http://www.w3.org/2000/svg">${'<rect width="1" height="1"/>'.repeat(n - 1)}</svg>`;
 
-  it('removes scripts, handlers, foreignObject, style elements, animation, external references', () => {
+  it('depth ≤ 64 and ≤ 5 000 elements pass; one more is refused; no DOCTYPE; terminated constructs only', () => {
+    expect(scanSvg(nested(64))).toBeNull();
+    expect(scanSvg(nested(65))).toMatch(/deep/);
+    expect(scanSvg(flat(5000))).toBeNull();
+    expect(scanSvg(flat(5001))).toMatch(/too many/);
+    expect(scanSvg('<!DOCTYPE svg><svg xmlns="http://www.w3.org/2000/svg"/>')).toMatch(/declaration/);
+    expect(scanSvg('<?xml version="1.0"?><!-- a > b --><svg a=">" b=\'<g>\'/>')).toBeNull();
+    expect(scanSvg('<svg><![CDATA[<g><g>]]></svg>')).toBeNull();
+    expect(scanSvg('<svg><!-- never closed')).toMatch(/comment/);
+    expect(scanSvg('<svg a="unterminated>')).toMatch(/start tag/);
+    expect(scanSvg('</g><svg/>')).toMatch(/unbalanced/);
+    expect(scanSvg('text only')).toMatch(/no element/);
+  });
+
+  it('a 10 000-deep document is refused in milliseconds, without touching a DOM', async () => {
+    const started = Date.now();
+    expect(await sanitizeSvg(Buffer.from(nested(10000)))).toBeNull();
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+});
+
+describe('cleanStyle — style attribute allowlist (P17)', () => {
+  it('keeps allowlisted presentation properties with plain values only', () => {
+    expect(cleanStyle('fill: #fff; stroke:red;font-family: Onest, sans-serif ;opacity:.5')).toBe(
+      'fill: #fff; stroke: red; font-family: Onest, sans-serif; opacity: .5',
+    );
+    expect(cleanStyle('fill:url(#g)')).toBe('');
+    expect(cleanStyle('background:url(http://e/x); fill:red')).toBe('fill: red');
+    expect(cleanStyle('fill: \\75 rl(x); stroke: image-set("a.png" 1x); font-family: @x; display:none')).toBe(
+      'display: none',
+    );
+    expect(cleanStyle('behavior: url(x.htc); position: fixed')).toBe('');
+  });
+});
+
+describe('SVG sanitizing (pre-scan + the DOM stage the worker runs)', () => {
+  // The worker thread itself runs in tests/api (built image); from sources it would load jsdom through tsx, far too
+  // slow for a unit test, so the DOM stage is called directly here.
+  const clean = async (s: string) => (scanSvg(s) === null ? sanitizeSvgText(s) : null);
+
+  it('removes scripts, handlers, foreignObject, style elements, animation, external references', async () => {
     const out =
-      clean(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" onload="x()">
+      (await clean(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" onload="x()">
       <script>alert(1)</script><style>@import url(http://e/x.css)</style>
       <foreignObject><body xmlns="http://www.w3.org/1999/xhtml" onload="y()"/></foreignObject>
       <a href="javascript:alert(1)"><circle r="1" onclick="z()"/></a>
       <a xlink:href="https://evil.example/"><rect width="1" height="1"/></a>
       <image href="https://evil.example/t.png"/><image href="data:image/png;base64,iVBORw0KGgo="/>
       <use href="https://evil.example/s.svg#i"/><rect style="fill:url(https://e/x)" filter="url(#f)" mask="url(http://e/m)"/>
+      <rect style="fill: #D9B650; background-image: url(https://e/y)"/>
       <set attributeName="onclick" to="alert(1)"/><animate attributeName="href" to="javascript:alert(1)"/>
-    </svg>`)!;
+    </svg>`))!;
     expect(out).not.toBeNull();
     for (const bad of [
       'script',
@@ -83,17 +128,19 @@ describe('sanitizeSvg', () => {
       'https://e',
       '<set',
       '<animate',
+      'background',
     ])
       expect(out, bad).not.toContain(bad);
     expect(out).toContain('filter="url(#f)"');
+    expect(out).toContain('style="fill: #D9B650"');
     expect(out).toContain('href="data:image/png;base64,iVBORw0KGgo="');
     expect(out.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
   });
 
-  it('keeps an ordinary logo intact (case-sensitive SVG names, text)', () => {
-    const out = clean(
+  it('keeps an ordinary logo intact (case-sensitive SVG names, text)', async () => {
+    const out = (await clean(
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><defs><linearGradient id="g"><stop offset="0" stop-color="#fff"/></linearGradient><clipPath id="c"><rect width="9" height="9"/></clipPath></defs><rect fill="url(#g)" clip-path="url(#c)" width="96" height="96"/><text x="1" y="2">Лого &amp; Ко</text></svg>',
-    )!;
+    ))!;
     for (const kept of [
       'viewBox="0 0 96 96"',
       '<linearGradient id="g">',
@@ -104,18 +151,19 @@ describe('sanitizeSvg', () => {
       expect(out).toContain(kept);
   });
 
-  it('refuses what is not a safe, well-formed SVG document', () => {
-    expect(clean('<svg xmlns="http://www.w3.org/2000/svg"><g></svg>')).toBeNull(); // not well-formed
-    expect(clean('<svg><rect/></svg>')).toBeNull(); // not in the SVG namespace
-    expect(clean('<html xmlns="http://www.w3.org/1999/xhtml"/>')).toBeNull();
+  it('refuses what is not a safe, well-formed SVG document', async () => {
+    expect(await clean('<svg xmlns="http://www.w3.org/2000/svg"><g></svg>')).toBeNull(); // not well-formed
+    expect(await clean('<svg><rect/></svg>')).toBeNull(); // not in the SVG namespace
+    expect(await clean('<s:svg xmlns:s="http://www.w3.org/2000/svg"/>')).toBeNull(); // namespaced root
+    expect(await clean('<html xmlns="http://www.w3.org/1999/xhtml"/>')).toBeNull();
     expect(
-      clean(
+      await clean(
         '<!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg"><text>&a;</text></svg>',
       ),
     ).toBeNull();
-    expect(sanitizeSvg(Buffer.from([0x3c, 0x73, 0x76, 0x67, 0xff, 0x3e]))).toBeNull(); // not UTF-8
+    expect(await sanitizeSvg(Buffer.from([0x3c, 0x73, 0x76, 0x67, 0xff, 0x3e]))).toBeNull(); // not UTF-8
     expect(
-      clean('<svg xmlns="http://www.w3.org/2000/svg"/><svg xmlns="http://www.w3.org/2000/svg"/>'),
+      await clean('<svg xmlns="http://www.w3.org/2000/svg"/><svg xmlns="http://www.w3.org/2000/svg"/>'),
     ).toBeNull();
   });
 });

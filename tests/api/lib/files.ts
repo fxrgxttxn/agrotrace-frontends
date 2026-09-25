@@ -23,6 +23,8 @@ export interface Part {
   name: string;
   /** Present → a file part (Content-Disposition filename). */
   filename?: string;
+  /** The `filename` parameter exactly as written into the header (quoted-string escapes and all), instead of `filename`. */
+  rawFilename?: string;
   contentType?: string;
   data: Buffer | string;
 }
@@ -33,7 +35,8 @@ export function multipart(parts: Part[]): { body: Buffer; contentType: string } 
   const chunks: Buffer[] = [];
   for (const p of parts) {
     let head = `--${boundary}\r\nContent-Disposition: form-data; name="${p.name}"`;
-    if (p.filename !== undefined) head += `; filename="${p.filename.replace(/"/g, '%22')}"`;
+    if (p.rawFilename !== undefined) head += `; filename=${p.rawFilename}`;
+    else if (p.filename !== undefined) head += `; filename="${p.filename.replace(/"/g, '%22')}"`;
     head += '\r\n';
     if (p.contentType) head += `Content-Type: ${p.contentType}\r\n`;
     chunks.push(Buffer.from(`${head}\r\n`, 'utf8'), Buffer.from(p.data), Buffer.from('\r\n'));
@@ -46,13 +49,14 @@ export function multipart(parts: Part[]): { body: Buffer; contentType: string } 
 export function upload(
   client: ApiClient,
   path: string,
-  file: { data: Buffer | string; filename?: string; contentType?: string },
+  file: { data: Buffer | string; filename?: string; rawFilename?: string; contentType?: string },
   extra: Part[] = [],
 ): Promise<ApiResponse> {
   const { body, contentType } = multipart([
     {
       name: 'file',
       filename: file.filename ?? 'upload.bin',
+      rawFilename: file.rawFilename,
       contentType: file.contentType ?? 'application/octet-stream',
       data: file.data,
     },

@@ -152,6 +152,8 @@ describe('downloadFile — signed URL (R28, R39, R88 M2)', () => {
       `/files/${fileId}?exp=${future}`,
       `/files/${fileId}?sig=${good}`,
       `/files/${fileId}?exp=soon&sig=${good}`,
+      // P17: exp exactly as issued — a leading zero is another string even with the same numeric value
+      `/files/${fileId}?exp=0${future}&sig=${good}`,
       `/files/${fileId}?exp=${future}&sig=${good.toUpperCase()}`,
       `/files/${UUID0}?exp=${future}&sig=${good}`,
     ];
@@ -204,6 +206,33 @@ describe('Content-Disposition (R34)', () => {
     expect(res.headers.get('content-disposition')).toBe(
       contentDisposition(originalName.replace(/"/g, '%22'), ext),
     );
+  });
+
+  it('a raw `"` (quoted-string escape) reaches originalName and becomes `_` in the ASCII form', async () => {
+    const { client } = await freshHead('FARM');
+    const res = await upload(client, '/me/avatar', {
+      data: fixture('tiny-40x20.png'),
+      rawFilename: '"say \\"cheese\\".png"',
+    });
+    await expectContract(res, 'uploadMyAvatar');
+    expect(res.status, res.text).toBe(200);
+    expect(res.body.originalName).toBe('say "cheese".png');
+    const file = await download(api(), apiPath(res.body.url));
+    expect(file.headers.get('content-disposition')).toBe(
+      `inline; filename="say _cheese_.webp"; filename*=UTF-8''say%20%22cheese%22.webp`,
+    );
+  });
+
+  it('P17: the stored name is the base name — `/` and `\\` path segments are dropped', async () => {
+    const { client } = await freshHead('FARM');
+    for (const [raw, expected] of [
+      ['"reports/2026/photo.png"', 'photo.png'],
+      ['"C:\\\\fakepath\\\\Фото.png"', 'Фото.png'],
+    ]) {
+      const res = await upload(client, '/me/avatar', { data: fixture('tiny-40x20.png'), rawFilename: raw });
+      await expectContract(res, 'uploadMyAvatar');
+      expect(res.body.originalName, raw).toBe(expected);
+    }
   });
 });
 

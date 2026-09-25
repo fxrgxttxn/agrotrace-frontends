@@ -125,7 +125,7 @@ export async function prepareUpload(
       objects.push({ key: key(size), body: v.body, contentType: 'image/webp' });
     }
   } else if (mime === 'image/svg+xml') {
-    const clean = sanitizeSvg(upload.bytes);
+    const clean = await sanitizeSvg(upload.bytes);
     if (!clean) throw unsupported();
     original = clean;
   }

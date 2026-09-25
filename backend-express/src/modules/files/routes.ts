@@ -43,7 +43,8 @@ export function filesRouter(c: Container): Router {
       const { exp, sig } = req.query;
       const signed = exp !== undefined || sig !== undefined;
       if (signed) {
-        if (typeof exp !== 'string' || typeof sig !== 'string' || !/^\d{1,12}$/.test(exp))
+        // P17: `exp` exactly as the server issues it — a decimal without leading zeros.
+        if (typeof exp !== 'string' || typeof sig !== 'string' || !/^[1-9]\d{0,11}$/.test(exp))
           throw badSignature();
         if (!c.fileUrls.verify(String(req.params.id ?? ''), Number(exp), sig)) throw badSignature();
       } else if (!principal) {

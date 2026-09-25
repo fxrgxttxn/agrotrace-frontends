@@ -1122,7 +1122,7 @@ export interface paths {
          *     `9de1ced479cc0f1c78c9d8deff00f42955b37d6a7cb19f9635a07a6300c29ee0`. Параметр
          *     `variant` не подписывается: клиент свободно добавляет или заменяет `variant=96|480` в выданном URL.
          *     Сравнение подписи — за постоянное время. Неверная подпись, `exp` в прошлом или только один из `exp`/`sig` — 403 FORBIDDEN (в том числе `exp`, не являющийся
-         *     десятичным целым, и `sig` не по шаблону — 403, не 400; параметры `id` и `variant` проверяются после подписи, P14);
+         *     десятичным целым без ведущих нулей (`^[1-9]\d{0,11}$`, P17), и `sig` не по шаблону — 403, не 400; параметры `id` и `variant` проверяются после подписи, P14);
          *     права пользователя при этом не проверяются. Если переданы `exp`/`sig`, проверяется только подпись
          *     (заголовок Authorization игнорируется).
          *
@@ -2460,7 +2460,7 @@ export interface components {
             mime: string;
             /** @description Размер исходного загруженного файла в байтах. */
             sizeBytes: number;
-            /** @description Имя файла из запроса (только для отображения и Content-Disposition, не используется в ключе хранилища). */
+            /** @description Базовое имя файла из запроса — без сегментов пути до последнего `/` или `\` (P17); только для отображения и Content-Disposition, не используется в ключе хранилища. */
             originalName: string;
         };
         /**
@@ -3026,7 +3026,7 @@ export interface components {
             /** Format: binary */
             file: string;
         };
-        /** @description Логотип в поле `file`: JPEG, PNG, WebP (конвертируются в WebP 96 и 480 px) или SVG (санитизируется от скриптов и хранится как есть). MIME проверяется по сигнатуре содержимого; растровые варианты — без увеличения, SVG — корректный XML в пространстве имён SVG в UTF-8 без `<!ENTITY>`, иначе 415 (P14). */
+        /** @description Логотип в поле `file`: JPEG, PNG, WebP (конвертируются в WebP 96 и 480 px) или SVG (санитизируется от скриптов и хранится как есть). MIME проверяется по сигнатуре содержимого; растровые варианты — без увеличения, SVG — корректный XML в UTF-8 с корнем `svg` без префикса в пространстве имён SVG, без `<!DOCTYPE>` и иных объявлений, не глубже 64 уровней и не больше 5 000 элементов, санитизация не дольше 2 с, иначе 415 (P14, P15, P17; подробно — «Загрузка файлов» в описании API). */
         LogoUpload: {
             /** Format: binary */
             file: string;
@@ -6641,7 +6641,7 @@ export interface components {
          */
         CacheControl: "private, max-age=0, must-revalidate" | "public, max-age=86400" | "no-store" | "no-cache";
         /**
-         * @description Всегда `inline; filename="<ascii>"; filename*=UTF-8''<pct>`, где имя = `originalName` без последнего расширения (часть от последней точки, если точка не первый символ; каталоги и иные части имени не отбрасываются, P14) + `.` + расширение отдаваемого MIME (image/webp → webp, image/svg+xml → svg, image/png → png, application/pdf → pdf, xlsx → xlsx). `<ascii>` — то же имя, в котором символы вне печатного ASCII, `"` и `\` заменены на `_`; `<pct>` — имя в UTF-8, закодированное по RFC 5987.
+         * @description Всегда `inline; filename="<ascii>"; filename*=UTF-8''<pct>`, где имя = `originalName` без последнего расширения (часть от последней точки, если точка не первый символ, P14; сам `originalName` — уже базовое имя без сегментов пути, P17) + `.` + расширение отдаваемого MIME (image/webp → webp, image/svg+xml → svg, image/png → png, application/pdf → pdf, xlsx → xlsx). `<ascii>` — то же имя, в котором символы вне печатного ASCII, `"` и `\` заменены на `_`; `<pct>` — имя в UTF-8, закодированное по RFC 5987.
          * @example inline; filename="______.webp"; filename*=UTF-8''%D0%BF%D0%B5%D1%82%D1%80%D0%BE%D0%B2.webp
          */
         ContentDisposition: string;

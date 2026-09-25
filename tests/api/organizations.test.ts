@@ -8,11 +8,11 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { loginAs, type Role } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
-import { closeDb, query } from './lib/db.js';
+import { closeDb, fixtureWrite, query } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
 import { fixture, MAX_IMAGE_BYTES, pngOfSize, RASTER, sha256hex, upload, webpSize } from './lib/files.js';
 import { activateOrg, freshEmployee, freshHead, registerOrg } from './lib/fixtures.js';
-import { closeRedis } from './lib/redis.js';
+import { closeRedis, redis } from './lib/redis.js';
 
 afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
@@ -346,6 +346,85 @@ describe('uploadOrganizationLogo', () => {
     const byAdmin = await uploadLogo(admin, org.organizationId, png);
     await expectContract(byAdmin, 'uploadOrganizationLogo');
     expect(byAdmin.status, byAdmin.text).toBe(200);
+  });
+});
+
+describe('SVG upload limits (P15): the API never blocks on a hostile document', () => {
+  const nested = (n: number) =>
+    `<svg xmlns="http://www.w3.org/2000/svg">${'<g>'.repeat(n - 1)}${'</g>'.repeat(n - 1)}</svg>`;
+  const flat = (n: number) =>
+    `<svg xmlns="http://www.w3.org/2000/svg">${'<rect width="1" height="1"/>'.repeat(n - 1)}</svg>`;
+
+  it('5 000 nested elements → 415 within 1 s while /health/live keeps answering', async () => {
+    const { client, org } = await freshHead('FARM');
+    const started = Date.now();
+    const pending = uploadLogo(client, org.organizationId, { data: nested(5000), filename: 'deep.svg' });
+    const probes: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const t = Date.now();
+      const live = await api().get('/health/live');
+      expect(live.status).toBe(200);
+      probes.push(Date.now() - t);
+    }
+    const res = await pending;
+    expectProblem(res, 415, 'UNSUPPORTED_MEDIA_TYPE', { allowed: LOGO_TYPES });
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(Math.max(...probes)).toBeLessThan(500);
+  });
+
+  it('6 000 flat elements → 415; 64 levels and 4 000 elements are still accepted', async () => {
+    const { client, org } = await freshHead('FARM');
+    const many = await uploadLogo(client, org.organizationId, { data: flat(6000), filename: 'flat.svg' });
+    expectProblem(many, 415, 'UNSUPPORTED_MEDIA_TYPE', { allowed: LOGO_TYPES });
+    const deepOk = await uploadLogo(client, org.organizationId, { data: nested(64), filename: 'ok.svg' });
+    expect(deepOk.status, deepOk.text).toBe(200);
+    const flatOk = await uploadLogo(client, org.organizationId, { data: flat(4000), filename: 'ok2.svg' });
+    expect(flatOk.status, flatOk.text).toBe(200);
+  });
+});
+
+describe('logo upload and the public batch cache (R82 `pub:batch:*`)', () => {
+  it('drops the cached pages of batches the organization originates or received; others stay', async () => {
+    const admin = await loginAs('ADMIN', { head: true });
+    // TODO(Task 6/11): the organization's batches and a public page through the API once they exist.
+    const [petrov] = await query<{ id: string }>(`SELECT id FROM organizations WHERE inn = '502701234075'`);
+    const related = await query<{ code: string }>(
+      `SELECT b.public_code AS code FROM batches b WHERE b.origin_org_id = $1
+       UNION SELECT b.public_code FROM waybills w JOIN waybill_items wi ON wi.waybill_id = w.id
+         JOIN batches b ON b.id = wi.batch_id WHERE w.receiver_org_id = $1 AND w.status = 'ACCEPTED'`,
+      [petrov!.id],
+    );
+    const [other] = await query<{ code: string }>(
+      `SELECT b.public_code AS code FROM batches b WHERE b.origin_org_id <> $1
+          AND NOT EXISTS (SELECT 1 FROM waybills w JOIN waybill_items wi ON wi.waybill_id = w.id
+                           WHERE wi.batch_id = b.id AND w.receiver_org_id = $1) LIMIT 1`,
+      [petrov!.id],
+    );
+    expect(related.length).toBeGreaterThan(0);
+    const r = redis();
+    for (const { code } of [...related, other!]) await r.set(`pub:batch:${code}`, '{}', 'EX', 300);
+    const res = await uploadLogo(admin, petrov!.id, {
+      data: fixture('logo-clean.svg'),
+      filename: 'petrov.svg',
+    });
+    expect(res.status, res.text).toBe(200);
+    for (const { code } of related) expect(await r.exists(`pub:batch:${code}`), code).toBe(0);
+    expect(await r.exists(`pub:batch:${other!.code}`)).toBe(1);
+    await r.del(`pub:batch:${other!.code}`);
+  });
+});
+
+describe('deleted organizations', () => {
+  it('are absent from the directory and invisible even to INSPECTOR', async () => {
+    const name = `Удаляемая ${Date.now()}`;
+    const org = await registerOrg('RETAILER', { name });
+    await activateOrg(org.organizationId);
+    const client = await loginAs('INSPECTOR');
+    expect((await directory(client, { q: name })).body.total).toBe(1);
+    // No API deletes an organization: the soft delete is a fixture write.
+    await fixtureWrite(`UPDATE organizations SET deleted_at = now() WHERE id = $1`, [org.organizationId]);
+    expect((await directory(client, { q: name })).body.total).toBe(0);
+    expectProblem(await getOrg(client, org.organizationId), 404, 'NOT_FOUND');
   });
 });
 

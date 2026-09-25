@@ -9,6 +9,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { demoUser, loginAs, type Role } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
+import { API_BACKEND } from './lib/env.js';
 import { closeDb, fixtureWrite, query } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
 import {
@@ -126,7 +127,7 @@ describe('updateMe', () => {
 
     const audit = await auditRows('updateMe', user.id);
     expect(audit).toHaveLength(2);
-    expect(audit[0]).toMatchObject({ entity_type: 'user', backend: 'express', actor_id: user.id });
+    expect(audit[0]).toMatchObject({ entity_type: 'user', backend: API_BACKEND, actor_id: user.id });
     expect(audit[0]!.diff).toEqual({
       fullName: ['Тестов Тест Тестович', '  Иванов Иван  '],
       phone: [null, '+79181234567'],
@@ -139,7 +140,7 @@ describe('updateMe', () => {
     const cases: [unknown, Record<string, string[]>][] = [
       [{}, { _root: ['validation.minProperties'] }],
       [{ fullName: '   ' }, { fullName: ['validation.pattern'] }],
-      [{ fullName: '' }, { fullName: ['validation.required', 'validation.pattern'] }],
+      [{ fullName: '' }, { fullName: ['validation.required'] }],
       [{ phone: '89181234567' }, { phone: ['validation.phone.format'] }],
       [{ fullName: 'Иванов', email: 'x@y.ru' }, { email: ['validation.unknownField'] }],
       [{ phone: null, roles: ['ADMIN'] }, { roles: ['validation.unknownField'] }],

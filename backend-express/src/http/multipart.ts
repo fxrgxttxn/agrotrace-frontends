@@ -1,14 +1,16 @@
 /**
  * `multipart/form-data` uploads with exactly one file part `file` (contract ImageUpload / LogoUpload / ProtocolUpload /
  * ImportUpload: `required: [file]`, `additionalProperties: false`). The body is streamed through busboy; the file's
- * bytes are counted while they arrive and the limit is inclusive (spec 8.6: size ≤ maxBytes is accepted) — past it
- * the rest is read and discarded, so the client always gets the answer, and the whole request is capped at the
- * gateway's body limit.
+ * bytes are counted while they arrive and the limit is inclusive (spec 8.6: size ≤ maxBytes is accepted); only the
+ * first maxBytes are kept in memory. Past the limit the rest of the request is still read (and discarded) so the
+ * client receives the 413 instead of a reset connection — up to the gateway's 12 MiB body limit; a longer body
+ * (a direct call) is answered 413 at once with `Connection: close`.
  *
  * Problems, in this order: 400 VALIDATION for the form (`errors.file: [validation.required]` — no file part, an
  * empty one or not a multipart body at all; `validation.duplicate` — a second `file`; `validation.unknownField` —
  * any other part; `_root: [validation.invalid]` — a malformed multipart body), then 413 FILE_TOO_LARGE
- * `{maxBytes}`. The file name is kept only as `originalName` (never used for the type or the storage key).
+ * `{maxBytes}`. The file name — its base name, without any `/` or `\` path segments (P17) — is kept only as
+ * `originalName` (never used for the type or the storage key).
  */
 import type { Request } from 'express';
 import busboy from 'busboy';
@@ -81,14 +83,16 @@ export async function readFileUpload(req: Request, maxBytes: number): Promise<Up
         stream.resume();
         return;
       }
-      file = { filename: info.filename ?? '', bytes: Buffer.alloc(0) };
+      // P17: only the base name is kept — every `/` or `\` path segment a client may send is dropped.
+      file = { filename: (info.filename ?? '').split(/[\\/]/).pop() ?? '', bytes: Buffer.alloc(0) };
       let size = 0;
       stream.on('data', (c: Buffer) => {
         size += c.length;
         if (size > maxBytes) tooLarge = true;
         else chunks.push(c);
       });
-      // busboy stops at maxBytes + 1 and discards the rest of the part.
+      // busboy is given maxBytes + 1: it emits 'limit' once the part exceeds it and drops the part's remaining bytes
+      // itself (the request is still read to its end, so the client gets the 413).
       stream.on('limit', () => {
         tooLarge = true;
       });
