@@ -30,7 +30,7 @@ usage() {
   echo "usage: ./at.sh bench [all|help|up|down|env|test|lint|gen|profile|load|run|plot|report|publish] [args]" >&2
   echo "       no command = all: the full benchmark from clean volumes (about 90 minutes), CSV, plots, report tables" >&2
   echo "       ./at.sh bench up [pg_profile:default|tuned] [redis_profile:default|tuned] [durability:strict|relaxed]" >&2
-  exit 2
+  exit "${1:-2}"
 }
 
 check_profile()    { case "$1" in default|tuned) ;; *) echo "bench: profile must be default or tuned, got '$1'" >&2; usage ;; esac; }
@@ -215,5 +215,6 @@ case "$cmd" in
   report)  load_state_offline; $DC run --rm --no-deps bench-runner python -m agrobench.report_tables "$@" ;;
   publish) do_publish ;;
   all)     do_all "$@" ;;
-  help|*) usage ;;
+  help) usage 0 ;;
+  *) usage ;;
 esac

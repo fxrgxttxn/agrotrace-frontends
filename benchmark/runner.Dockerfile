@@ -1,4 +1,7 @@
-FROM python:3.12-slim
+# Base pinned by digest (python:3.12-slim, Python 3.12.14 — the version recorded in env.json for the
+# published run; the digest the run itself pulled was not recorded, this is the tag's digest on
+# 2026-09-25 with the same Python). Update deliberately, together with constraints.txt.
+FROM python:3.12-slim@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9
 
 WORKDIR /bench
 

@@ -568,7 +568,7 @@ def _stand(d: Data) -> str:
     rows = [
         ["Процессор", host["cpu_model"]],
         ["Логических CPU, видимых контейнеру", str(host["cpu_count_visible_to_runner"])],
-        ["ОЗУ, видимая контейнеру, МБ", fmt_num(host["mem_total_mb_visible_to_runner"], 1)],
+        ["ОЗУ, видимая контейнеру, МиБ", fmt_num(host["mem_total_mb_visible_to_runner"], 1)],
         ["ОС контейнеров (ядро WSL2)", host["os"]],
         ["Docker", env["docker"]["docker_version"]],
         ["Docker Compose", env["docker"]["compose_version"]],
@@ -577,7 +577,7 @@ def _stand(d: Data) -> str:
          if lim["postgres"] == lim["redis"] else
          f"PostgreSQL: CPU {fmt_num(lim['postgres']['cpus'], 1)}, {fmt_num(lim['postgres']['mem_mb'], 0)} МиБ; "
          f"Redis: CPU {fmt_num(lim['redis']['cpus'], 1)}, {fmt_num(lim['redis']['mem_mb'], 0)} МиБ"],
-        ["Диск с данными СУБД", f"{disk['device']}, {disk['fstype']}, {fmt_num(disk['total_gb'], 2)} ГБ"],
+        ["Диск с данными СУБД", f"{disk['device']}, {disk['fstype']}, {fmt_num(disk['total_gb'], 2)} ГиБ"],
         ["PostgreSQL", ver["postgres"]],
         ["Redis", ver["redis"]],
         ["Python", ver["python"]],
@@ -649,11 +649,13 @@ def _redis_c16_runs(d: Data) -> str:
                     if (r["dbms"], r["profile"], r["durability"], r["query"], r["distribution"], r["concurrency"])
                     == ("redis", p, "strict", q, "prepared", "16")]
             for r in sorted(runs, key=lambda r: r["run"]):
+                diff = d.derive(float(r["mean_us"]) - float(r["p50_us"]))
                 rows.append([f"{PROFILE_RU[p]} · {q} · прогон {r['run']}", us(r["p50_us"]), us(r["mean_us"]),
-                             fmt_num(d.derive(float(r["mean_us"]) - float(r["p50_us"])), 1),
-                             us(r["p95_us"]), us(r["p99_us"])])
+                             fmt_num(diff, 1).replace("-", "−"),  # typographic minus
+                             us(r["p95_us"]), fmt_num(d.derive(float(r["p95_us"]) / float(r["p50_us"])), 2) + "×",
+                             us(r["p99_us"])])
     return md_table(["Redis, строгий, 16 клиентов", "p50, мкс", "среднее, мкс", "среднее − p50, мкс",
-                     "p95, мкс", "p99, мкс"], rows)
+                     "p95, мкс", "p95 / p50", "p99, мкс"], rows)
 
 
 PLAN_BLOCKS = [("R3", "default"), ("R3", "tuned"), ("R4", "default"), ("R4", "tuned"),

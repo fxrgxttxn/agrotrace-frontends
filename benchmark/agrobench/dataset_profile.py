@@ -14,6 +14,7 @@ import argparse
 import csv
 import json
 import os
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -89,6 +90,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--results-dir", type=Path,
                         default=Path(os.environ.get("RESULTS_DIR", str(config.BENCH_DIR / "results"))))
     args = parser.parse_args(argv)
+    missing = [n for n in ("organizations.csv", "batches.csv", "batch_links.csv", "lab_tests.csv", "generate.json")
+               if not (args.data_dir / n).exists()]
+    if missing:
+        print(f"dataset_profile: {args.data_dir} has no {', '.join(missing)} — run ./at bench gen first",
+              file=sys.stderr)
+        raise SystemExit(1)
     args.results_dir.mkdir(parents=True, exist_ok=True)
     path = args.results_dir / "dataset.csv"
     with path.open("w", newline="", encoding="utf-8") as f:
