@@ -1,0 +1,62 @@
+<script lang="ts">
+  import { page } from '$app/state';
+  import { t } from '../app/i18n';
+  import { BOTTOM_NAV_ITEMS, isCurrent, NOTIFICATIONS_ITEM, PROFILE_ITEM, type NavItem } from '../app/nav';
+  import { skipRouteFocus } from '../app/routeFocus';
+  import Dialog from '../ui/Dialog.svelte';
+  import Icon from '../ui/Icon.svelte';
+
+  /** `at-bottom-nav` (README «Нижняя навигация»): the first four items of the role and «Ещё», which opens the rest of
+   * the menu, notifications and the profile in an `at-dialog` (a bottom sheet below 768 px). */
+  let { items }: { items: NavItem[] } = $props();
+
+  let open = $state(false);
+  const main = $derived(items.slice(0, BOTTOM_NAV_ITEMS));
+  const more = $derived([...items.slice(BOTTOM_NAV_ITEMS), NOTIFICATIONS_ITEM, PROFILE_ITEM]);
+</script>
+
+<nav class="at-bottom-nav" aria-label={t('shell.mainMenu')}>
+  {#each main as item (item.key)}
+    <a
+      class="at-bottom-nav__link"
+      href={item.href}
+      aria-current={isCurrent(item, page.url.pathname) ? 'page' : undefined}
+      ><Icon name={item.icon} class="at-bottom-nav__icon" />{t(item.label)}</a
+    >
+  {/each}
+  <button
+    class="at-bottom-nav__link"
+    type="button"
+    aria-expanded={open ? 'true' : 'false'}
+    aria-controls="more-menu"
+    onclick={() => (open = true)}><Icon name="more" class="at-bottom-nav__icon" />{t('nav.more')}</button
+  >
+</nav>
+<Dialog
+  {open}
+  onclose={() => (open = false)}
+  id="more-menu"
+  titleId="more-title"
+  title={t('nav.more')}
+  lightDismiss
+  initialFocus="title"
+>
+  <nav aria-label={t('shell.otherSections')}>
+    <ul class="at-sidebar__list">
+      {#each more as item (item.key)}
+        <li>
+          <a
+            class="at-sidebar__link"
+            href={item.href}
+            aria-current={isCurrent(item, page.url.pathname) ? 'page' : undefined}
+            onclick={() => {
+              // README: a pick returns focus to «Ещё» (the page title does not take it).
+              skipRouteFocus(item.href);
+              open = false;
+            }}><Icon name={item.icon} class="at-sidebar__icon" /><span class="at-sidebar__label">{t(item.label)}</span></a
+          >
+        </li>
+      {/each}
+    </ul>
+  </nav>
+</Dialog>

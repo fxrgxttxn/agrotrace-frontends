@@ -154,7 +154,9 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
 
   it('help lists the fe commands', () => {
     const cmds = sh(['./at', 'help']).out.trim().split('\n');
-    expect(cmds).toEqual(expect.arrayContaining(['fe:build', 'fe:test', 'fe:dev', 'fe:gateway', 'fe:e2e-smoke']));
+    expect(cmds).toEqual(
+      expect.arrayContaining(['fe:build', 'fe:test', 'fe:dev', 'fe:gateway', 'fe:e2e-smoke']),
+    );
   });
 
   it('fe:build / fe:test react run in the tools container', () => {
@@ -186,10 +188,36 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
     );
   });
 
+  it('fe:gateway svelte starts and stops only gateway-svelte of project agrotrace-svelte (own network, port 8091)', () => {
+    expect(plus(sh(['./at', 'fe:gateway', 'svelte'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose -f docker-compose.svelte-mock.yml up -d --build --wait gateway-svelte',
+    ]);
+    expect(plus(sh(['./at', 'fe:gateway', 'svelte', 'down'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose -f docker-compose.svelte-mock.yml down',
+    ]);
+    const compose = readFileSync(`${REPO}docker-compose.svelte-mock.yml`, 'utf8');
+    expect(compose).toMatch(/^name: agrotrace-svelte$/m);
+    expect(compose).not.toMatch(/agrotrace_at/);
+    expect(compose).toMatch(/- \.\/frontend-svelte\/build:\/srv\/svelte:ro/);
+    expect(compose).toMatch(/'8091:80'/);
+  });
+
+  it('fe:build / fe:test / fe:e2e-smoke svelte', () => {
+    expect(plus(sh(['./at', 'fe:build', 'svelte'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte build',
+    ]);
+    expect(plus(sh(['./at', 'fe:test', 'svelte'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte test',
+    ]);
+    expect(plus(sh(['./at', 'fe:e2e-smoke', 'svelte'], { AT_DRY_RUN: '1' }).out).at(-1)).toBe(
+      '+ docker compose -f docker-compose.svelte-mock.yml run --rm -w //repo/frontend-svelte playwright-svelte npx --no-install playwright test -c e2e/playwright.config.ts',
+    );
+  });
+
   it('rejects frontends that do not exist yet', () => {
-    const r = sh(['./at', 'fe:build', 'svelte'], { AT_DRY_RUN: '1' });
+    const r = sh(['./at', 'fe:build', 'angular'], { AT_DRY_RUN: '1' });
     expect(r.code).toBe(1);
-    expect(r.err).toMatch(/frontend-svelte does not exist yet/);
+    expect(r.err).toMatch(/frontend-angular does not exist yet/);
     expect(sh(['./at', 'fe:test'], { AT_DRY_RUN: '1' }).code).toBe(2);
   });
 });

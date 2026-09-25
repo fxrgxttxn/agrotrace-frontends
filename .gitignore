@@ -16,3 +16,6 @@ __pycache__/
 .venv/
 vendor/
 storage/*.key
+
+# SvelteKit static build
+frontend-svelte/build/

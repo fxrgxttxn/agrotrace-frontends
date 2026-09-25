@@ -1,0 +1,31 @@
+# Separate stand for the Svelte build on the mock backend (plan «three frontends on mocks», task S1): compose project
+# `agrotrace-svelte`, the same gateway image/template as the main stack, serving frontend-svelte/build at
+# svelte-mock.localhost (the `mock` back: no API server — in mock mode the browser's MSW worker answers /api/v1; the
+# gateway's own /api/ proxy has no `api-mock` and answers 502 BACKEND_UNAVAILABLE) and the design system at /_ds/, on
+# host port 8091. Its own network: it never needs or touches the shared `agrotrace` stack. The Playwright one-off of
+# `./at.sh fe:e2e-smoke svelte` runs in this project too.
+#   ./at.sh fe:gateway svelte [up|down]   ·   ./at.sh fe:e2e-smoke svelte
+name: agrotrace-svelte
+services:
+  gateway-svelte:
+    build: { context: ./gateway }
+    image: agrotrace/gateway-svelte:dev
+    volumes:
+      - ./frontend-svelte/build:/srv/svelte:ro
+      - ./packages/design-system:/srv/ds:ro
+    environment: { GATEWAY_PORT: '8091' }
+    ports: ['8091:80']
+    networks: [svelte]
+  playwright-svelte:
+    image: mcr.microsoft.com/playwright:v1.48.2-jammy
+    profiles: [tools]
+    working_dir: /repo/frontend-svelte
+    volumes: [.:/repo]
+    ipc: host
+    environment: { CI: '1' }
+    # Read-only visual comparison with the React stand on the host (e2e/compare.spec.ts; skipped when it is down).
+    extra_hosts: ['host.docker.internal:host-gateway']
+    networks: [svelte]
+networks:
+  svelte:
+    name: agrotrace_svelte

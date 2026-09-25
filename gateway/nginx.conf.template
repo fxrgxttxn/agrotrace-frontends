@@ -40,18 +40,19 @@ http {
   # $front / $back: parsed once from Host, reused by every location below. Unmatched hosts (the
   # default_server, e.g. unknown *.localhost or bare "localhost") get "" for both.
   map $host $front {
-    ~^(?<f>react|angular|svelte)-(express|django|laravel)\.localhost$ $f;
+    ~^(?<f>react|angular|svelte)-(express|django|laravel|mock)\.localhost$ $f;
     default '';
   }
   map $host $back {
-    ~^(react|angular|svelte)-(?<b>express|django|laravel)\.localhost$ $b;
+    ~^(react|angular|svelte)-(?<b>express|django|laravel|mock)\.localhost$ $b;
     default '';
   }
 
-  # --- SPA hosts: {react|angular|svelte}-{express|django|laravel}.localhost -----------------
+  # --- SPA hosts: {react|angular|svelte}-{express|django|laravel|mock}.localhost (`mock`: the frontend on the
+  #     in-browser mock backend; no api-mock container exists, so /api/ answers 502 BACKEND_UNAVAILABLE) ----------
   server {
     listen 80;
-    server_name ~^(react|angular|svelte)-(express|django|laravel)\.localhost$;
+    server_name ~^(react|angular|svelte)-(express|django|laravel|mock)\.localhost$;
 
     # No backend containers exist when the gateway itself starts (R6/brief): resolve at request
     # time via Docker's embedded DNS instead of nginx resolving api-$back once at startup.

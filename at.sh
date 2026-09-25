@@ -228,49 +228,72 @@ applied_migrations() {
     echo 0
   fi
 }
-
 # ── Frontends (Plan 2+) ─────────────────────────────────────────────────────────────────────────────────────────────
-# `fe:<cmd> <front>`; only react exists so far. The React stand is a separate gateway (`gateway-react`, compose project
-# agrotrace-react, docker-compose.react-dev.yml, host port 8089) on the main stack's network: it never touches the
-# shared `agrotrace` services.
+# `fe:<cmd> <front>` for react and svelte (angular: its plan adds it). Each front has its own stand, never touching the
+# shared `agrotrace` services:
+#   react  — `gateway-react` (compose project agrotrace-react, docker-compose.react-dev.yml, host port 8089) on the main
+#            stack's network, react-express.localhost against the live API;
+#   svelte — `gateway-svelte` (compose project agrotrace-svelte, docker-compose.svelte-mock.yml, host port 8091) on its
+#            own network, svelte-mock.localhost (mock backend in the browser, no API server), with its own Playwright.
 DCR="docker compose -f docker-compose.react-dev.yml"
+DCS="docker compose -f docker-compose.svelte-mock.yml"
 
 fe_front() {
   case "${1:-}" in
-    react) ;;
-    angular|svelte) echo "fe: frontend-$1 does not exist yet (its plan adds it)" >&2; exit 1 ;;
-    *) echo "usage: ./at fe:<build|test|dev|gateway|e2e-smoke> react" >&2; exit 2 ;;
+    react|svelte) ;;
+    angular) echo "fe: frontend-$1 does not exist yet (its plan adds it)" >&2; exit 1 ;;
+    *) echo "usage: ./at fe:<build|test|dev|gateway|e2e-smoke> react|svelte" >&2; exit 2 ;;
   esac
 }
 
-# `fe:gateway react [up|down]`: the built dist (./at fe:build react) behind the gateway nginx at
-# http://react-express.localhost:8089/ (the backend itself comes from the shared stack: ./at up express).
+# Build output of a front: Vite's dist for react, adapter-static's build for svelte.
+fe_out() { if [ "$1" = svelte ]; then echo "frontend-svelte/build"; else echo "frontend-$1/dist"; fi; }
+
+# `fe:gateway <front> [up|down]`: the built app (./at fe:build <front>) behind the gateway nginx —
+# http://react-express.localhost:8089/ (backend from the shared stack: ./at up express) or
+# http://svelte-mock.localhost:8091/ (no backend needed); the design system at /_ds/ of the same port.
 fe_gateway() (
   set -euo pipefail
   fe_front "${1:-}"
+  local front="$1" out; out="$(fe_out "$1")"
   case "${2:-up}" in
     up)
       if [ "${AT_DRY_RUN:-}" != "1" ]; then
-        [ -f frontend-react/dist/index.html ] || { echo "fe:gateway: no frontend-react/dist — run ./at fe:build react first" >&2; exit 1; }
-        docker network inspect agrotrace_at >/dev/null 2>&1 \
-          || { echo "fe:gateway: network agrotrace_at does not exist — start the stack first (./at up express)" >&2; exit 1; }
+        [ -f "$out/index.html" ] || { echo "fe:gateway: no $out — run ./at fe:build $front first" >&2; exit 1; }
+        if [ "$front" = react ]; then
+          docker network inspect agrotrace_at >/dev/null 2>&1 \
+            || { echo "fe:gateway: network agrotrace_at does not exist — start the stack first (./at up express)" >&2; exit 1; }
+        fi
       fi
-      run $DCR up -d --build --wait gateway-react
-      echo "React: http://react-express.localhost:8089/  (design system: http://localhost:8089/_ds/)" ;;
-    down) run $DCR down ;;
-    *) echo "usage: ./at fe:gateway react [up|down]" >&2; exit 2 ;;
+      if [ "$front" = react ]; then
+        run $DCR up -d --build --wait gateway-react
+        echo "React: http://react-express.localhost:8089/  (design system: http://localhost:8089/_ds/)"
+      else
+        run $DCS up -d --build --wait gateway-svelte
+        echo "Svelte: http://svelte-mock.localhost:8091/  (design system: http://localhost:8091/_ds/)"
+      fi ;;
+    down) if [ "$front" = react ]; then run $DCR down; else run $DCS down; fi ;;
+    *) echo "usage: ./at fe:gateway react|svelte [up|down]" >&2; exit 2 ;;
   esac
 )
 
-# `fe:e2e-smoke react [playwright args…]`: the build through gateway-react (started if needed), Playwright one-off in
-# the `playwright` service on network agrotrace_at — frontend-react/e2e (`//repo`: no Git Bash path conversion).
+# `fe:e2e-smoke <front> [playwright args…]`: the build through its gateway (started if needed), Playwright one-off —
+# react: the `playwright` service on network agrotrace_at; svelte: `playwright-svelte` of its own project
+# (`//repo`: no Git Bash path conversion).
 fe_e2e_smoke() (
   set -euo pipefail
-  fe_front "${1:-}"; shift
-  if [ "${AT_DRY_RUN:-}" = "1" ] || [ -z "$($DCR ps -q --status running gateway-react 2>/dev/null)" ]; then
-    fe_gateway react up
+  fe_front "${1:-}"; local front="$1"; shift
+  if [ "$front" = react ]; then
+    if [ "${AT_DRY_RUN:-}" = "1" ] || [ -z "$($DCR ps -q --status running gateway-react 2>/dev/null)" ]; then
+      fe_gateway react up
+    fi
+    run $DC run --rm -w //repo/frontend-react playwright npx --no-install playwright test -c e2e/playwright.config.ts "$@"
+  else
+    if [ "${AT_DRY_RUN:-}" = "1" ] || [ -z "$($DCS ps -q --status running gateway-svelte 2>/dev/null)" ]; then
+      fe_gateway svelte up
+    fi
+    run $DCS run --rm -w //repo/frontend-svelte playwright-svelte npx --no-install playwright test -c e2e/playwright.config.ts "$@"
   fi
-  run $DC run --rm -w //repo/frontend-react playwright npx --no-install playwright test -c e2e/playwright.config.ts "$@"
 )
 
 case "$cmd" in
