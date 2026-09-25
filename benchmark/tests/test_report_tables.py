@@ -245,3 +245,20 @@ def test_client_cpu_table_divides_client_cores_by_ops():
     r1 = next(line for line in table.splitlines() if line.startswith("| R1 "))
     # tuned/strict/uniform R1 c=1: pg 0.665 cores / 5149.84 ops/s = 129.1 µs; redis 0.753 / 6468.11 = 116.4.
     assert "129,1" in r1 and "116,4" in r1
+
+
+# ---------------------------------------------------------------------------------------------
+# fix round 2: dot decimals, Latin-x factors, stray backticks
+# ---------------------------------------------------------------------------------------------
+
+def test_prose_dot_decimals_and_latin_x_factors_are_rejected(tiny):
+    assert _prose_problems(tiny, "Задержка 143.4 мкс.")
+    assert _prose_problems(tiny, "Redis быстрее в 2x.")
+    assert _prose_problems(tiny, "Redis быстрее в 1,5x.")
+    # versions in code, section numbers and headings are not results
+    assert _prose_problems(tiny, "Python `3.12`, см. п. 9.2 и §13.6.\n\n### 9.1. Чтение") == []
+
+
+def test_odd_backticks_in_a_paragraph_are_rejected(tiny):
+    problems = _prose_problems(tiny, "Команда `GET без закрывающей кавычки, а дальше 141,0 мкс.")
+    assert any("backtick" in p for p in problems)

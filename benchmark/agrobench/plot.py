@@ -33,6 +33,7 @@ PG = "#2a78d6"
 PG_LIGHT = "#86b6ef"
 REDIS = "#eb6834"
 REDIS_LIGHT = "#f4a784"
+CATALOG = "#1baf7a"  # categorical slot 3: PG database incl. catalog, distinct from the like-for-like bar
 BASELINE_GREY = "#b8b6ae"
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
@@ -334,7 +335,7 @@ def memory(d: rt.Data, out_dir: Path) -> Path:
     ax.set_title("PostgreSQL: таблицы на диске", loc="left")
     ax.set_xlabel("МБ")
     ax.xaxis.set_major_formatter(_num(1))
-    ax.legend(handles=[Patch(color=PG, label="данные"), Patch(color=PG_LIGHT, label="индексы")],
+    ax.legend(handles=[Patch(color=PG, label="данные (pg_relation_size)"), Patch(color=PG_LIGHT, label="индексы (pg_indexes_size)")],
               loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=2, fontsize=8)
     _style(ax)
 
@@ -353,7 +354,7 @@ def memory(d: rt.Data, out_dir: Path) -> Path:
     tables = sum(float(d.memory("pg", p, dur, t, "total_relation_size_bytes")) for t in rt.PG_TABLES)
     totals = [
         ("PG: 4 таблицы с индексами", tables, PG),
-        ("PG: база целиком (с каталогом)", float(d.memory("pg", p, dur, "__database__", "total_bytes")), PG_LIGHT),
+        ("PG: база целиком (с каталогом)", float(d.memory("pg", p, dur, "__database__", "total_bytes")), CATALOG),
         ("Redis: used_memory_dataset", float(d.memory("redis", p, dur, "__instance__", "used_memory_dataset")), REDIS),
         ("Redis: used_memory", float(d.memory("redis", p, dur, "__instance__", "used_memory")), REDIS),
         ("Redis: RSS процесса", float(d.memory("redis", p, dur, "__instance__", "used_memory_rss")), REDIS),

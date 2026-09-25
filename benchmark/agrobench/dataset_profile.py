@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -46,6 +47,12 @@ def max_depth(links: list[dict]) -> int:
     return max(depth.values(), default=0)
 
 
+def _generated_with(data_dir: Path) -> list[tuple[str, float]]:
+    """scale and seed as recorded by agrobench.generate next to the CSVs (generate.json)."""
+    meta = json.loads((Path(data_dir) / "generate.json").read_text(encoding="utf-8"))
+    return [("scale", meta["scale"]), ("seed", meta["seed"])]
+
+
 def profile(data_dir: Path) -> list[tuple[str, float]]:
     data_dir = Path(data_dir)
     orgs = _read(data_dir / "organizations.csv")
@@ -71,7 +78,7 @@ def profile(data_dir: Path) -> list[tuple[str, float]]:
         *[(f"spec_status_share_{s}", share) for s, share in generate.STATUS_SHARE.items()],
         ("spec_fail_share", generate.FAIL_SHARE),
         ("spec_max_depth", generate.MAX_DEPTH),
-        ("seed", generate.DEFAULT_SEED),
+        *_generated_with(data_dir),
     ]
     return out
 

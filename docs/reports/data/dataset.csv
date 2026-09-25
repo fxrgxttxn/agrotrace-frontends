@@ -28,4 +28,5 @@ spec_status_share_Accepted,0.2
 spec_status_share_OnSale,0.15
 spec_fail_share,0.03
 spec_max_depth,12
+scale,10000
 seed,42

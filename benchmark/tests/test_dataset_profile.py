@@ -13,6 +13,7 @@ def test_profile_counts_match_the_generated_data(tmp_path):
     for name, rows in (("organizations", g.organizations), ("batches", g.batches),
                        ("batch_links", g.batch_links), ("lab_tests", g.lab_tests)):
         write_csv(rows, tmp_path / f"{name}.csv")
+    (tmp_path / "generate.json").write_text('{"scale": 500, "seed": 42}', encoding="utf-8")
     p = dict(dp.profile(tmp_path))
     assert p["rows_batches"] == 500 and p["rows_batch_links"] == len(g.batch_links)
     assert p["batches_raw"] + p["batches_derived"] == 500
@@ -27,3 +28,10 @@ def test_profile_counts_match_the_generated_data(tmp_path):
 def test_max_depth_is_the_longest_path_in_the_dag(tmp_path):
     links = [{"parent_id": 1, "child_id": 2}, {"parent_id": 2, "child_id": 3}, {"parent_id": 1, "child_id": 3}]
     assert dp.max_depth(links) == 2
+
+
+def test_profile_records_the_seed_generate_actually_used(tmp_path):
+    generate_main = __import__("agrobench.generate", fromlist=["main"]).main
+    generate_main(["--scale", "200", "--seed", "7", "--out-dir", str(tmp_path)])
+    p = dict(dp.profile(tmp_path))
+    assert p["seed"] == 7 and p["scale"] == 200

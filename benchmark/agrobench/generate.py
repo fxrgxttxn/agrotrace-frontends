@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -181,6 +182,9 @@ def main(argv: list[str] | None = None) -> None:
     write_csv(result.batches, args.out_dir / "batches.csv")
     write_csv(result.batch_links, args.out_dir / "batch_links.csv")
     write_csv(result.lab_tests, args.out_dir / "lab_tests.csv")
+    # What was actually used, for agrobench.dataset_profile (the report quotes it).
+    (args.out_dir / "generate.json").write_text(
+        json.dumps({"scale": args.scale, "seed": args.seed}) + "\n", encoding="utf-8")
     print(
         f"generated scale={args.scale} seed={args.seed}: "
         f"{len(result.organizations)} organizations, {len(result.batches)} batches, "

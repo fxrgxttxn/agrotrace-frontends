@@ -15,7 +15,15 @@ block is typed by hand: `python -m agrobench.report_tables` rewrites all blocks,
 - every number in the prose that is a result rather than a structural label — any number with a
   decimal comma, a thousands group, a `%` or a `×`, and any other integer >= 100 — appears as a
   whole token in some generated block. Method constants that are not in the data (warm-up sizes,
-  pipeline chunk sizes) are written as code (`1000`) and are not checked.
+  pipeline chunk sizes) are written as code (`1000`) and are not checked,
+- no prose number uses a decimal point (versions and constants go in code; section numbers after
+  `п.`/`§` and headings are exempt) and no factor is written with a letter x instead of `×`,
+- every prose paragraph has an even number of backticks (a stray one would pair with a later
+  backtick and hide the text in between from the checks above).
+
+Not detectable: a prose number that exists in the tables but is attributed to the wrong query,
+configuration or metric (the prose check proves a number is a real result, not that the sentence
+around it describes it correctly).
 
 Numbers are formatted the Russian way: decimal comma, no-break space between thousands.
 """
@@ -291,6 +299,25 @@ def _client_cpu(d: Data) -> str:
                      "16 клиентов: PG, ядер", "PG, мкс CPU/оп", "Redis, ядер", "Redis, мкс CPU/оп"], rows)
 
 
+def _client_gap(d: Data) -> str:
+    """How much of the PG–Redis p50 gap at 1 client the client CPU difference could explain."""
+    rows = []
+    for q in ("R1", "R6"):
+        for p in PROFILES:
+            pg = d.median("pg", p, "strict", q, "base", "uniform", 1)
+            rd = d.median("redis", p, "strict", q, "base", "uniform", 1)
+            gap = d.derive(float(pg["p50_us"]) - float(rd["p50_us"]))
+            cpu_pg = d.derive(float(pg["client_cpu_cores"]) / float(pg["ops_s"]) * 1e6)
+            cpu_rd = d.derive(float(rd["client_cpu_cores"]) / float(rd["ops_s"]) * 1e6)
+            cpu_gap = d.derive(cpu_pg - cpu_rd)
+            rows.append([f"{q} · {PROFILE_RU[p]}", us(pg["p50_us"]), us(rd["p50_us"]), fmt_num(gap, 1),
+                         fmt_num(cpu_pg, 1), fmt_num(cpu_rd, 1), fmt_num(cpu_gap, 1),
+                         fmt_num(d.derive(cpu_gap / gap * 100), 0) + "%"])
+    return md_table(["Запрос · конфигурация (1 клиент)", "PG p50, мкс", "Redis p50, мкс", "разница p50, мкс",
+                     "PG, мкс CPU клиента/оп", "Redis, мкс CPU клиента/оп", "разница CPU, мкс",
+                     "доля разницы p50"], rows)
+
+
 def _optimization(d: Data) -> str:
     rows = []
     for label, q, dbms, v in READ_RUNS:
@@ -401,7 +428,8 @@ def _memory_pg(d: Data) -> str:
                      mb(d.memory("pg", "tuned", "strict", t, "total_relation_size_bytes"))])
     rows.append(["вся база (pg_database_size, вместе с системным каталогом)", "", "",
                  mb(d.memory("pg", "tuned", "strict", "__database__", "total_bytes"))])
-    return md_table(["Таблица", "данные, МБ", "индексы, МБ", "всего (pg_total_relation_size), МБ"], rows)
+    return md_table(["Таблица", "данные (pg_relation_size), МБ", "индексы (pg_indexes_size), МБ",
+                     "всего (pg_total_relation_size, с картами FSM/VM), МБ"], rows)
 
 
 REDIS_KEYS = [
@@ -445,7 +473,8 @@ def _memory_compare(d: Data) -> str:
         ("Redis: used_memory", float(d.memory("redis", p, dur, "__instance__", "used_memory"))),
         ("Redis: RSS процесса", float(d.memory("redis", p, dur, "__instance__", "used_memory_rss"))),
     ]
-    rows = [[label, mb(v), fmt_num(d.derive(v / tables), 2) + "×"] for label, v in items]
+    rows = [[label, mb(v), "—" if "каталог" in label else fmt_num(d.derive(v / tables), 2) + "×"]
+            for label, v in items]
     return md_table(["Что (оптимизированная, строгий)", "МБ", "к таблицам PG с индексами"], rows)
 
 
@@ -642,6 +671,7 @@ BLOCKS: dict[str, Block] = {
     "reads_zipf": Block(_MED, _reads_zipf),
     "reads_c16": Block(_MED_RUNS, _reads_c16),
     "client_cpu": Block(_MED, _client_cpu),
+    "client_gap": Block(_MED, _client_gap),
     "optimization": Block(_MED_RUNS, _optimization),
     "prepared": Block(_MED, _prepared),
     "writes_tuned": Block(_MED_RUNS, _writes("tuned")),
@@ -709,6 +739,9 @@ _NUM_RE = re.compile(r"(?<![\w.,])\d+(?: \d{3})*(?:[.,]\d+)?")
 # optional % or ×. Whole tokens only: not glued to letters, digits, dots or commas on either side.
 _PROSE_RE = re.compile(r"(?<![\w.,])(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:,\d+)?(?: ?%|×)?(?!\w|[.,]\d)")
 _LINK_TARGET_RE = re.compile(r"\]\([^)]*\)")
+_SECTION_REF_RE = re.compile(r"(?:п\.|§)\s*\d+(?:\.\d+)*")
+_DOT_DECIMAL_RE = re.compile(r"(?<![\w.])\d+\.\d+")
+_LATIN_X_RE = re.compile(r"(?<![\w.,])\d+(?:[.,]\d+)?\s?[xх](?!\w)")
 _COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
 _RAW_RE = re.compile(r"\d+(?:\.\d+)?")
 _CODE_SPAN_RE = re.compile(r"`[^`]*`")
@@ -817,7 +850,20 @@ def verify(text: str, data: Data, blocks: dict[str, Block] | None = None) -> lis
             problems.append(f"number {n} in a table outside the generated blocks")
     in_blocks = {_norm(t) for t in _PROSE_RE.findall("\n".join(generated))}
     prose = "\n".join(line for line in rest.splitlines() if not line.lstrip().startswith("|"))
-    prose = _COMMENT_RE.sub("", _LINK_TARGET_RE.sub("", _CODE_SPAN_RE.sub("", prose)))
+    prose = _COMMENT_RE.sub("", prose)
+    for para in re.split(r"\n\s*\n", prose):
+        if para.count("`") % 2:
+            first = para.strip().splitlines()[0][:60]
+            problems.append(f"prose paragraph has an odd number of backticks (a stray backtick would hide "
+                            f"the rest from the check): {first!r}")
+    prose = _LINK_TARGET_RE.sub("", _CODE_SPAN_RE.sub("", prose))
+    body = "\n".join(line for line in prose.splitlines() if not line.lstrip().startswith("#"))
+    body = _SECTION_REF_RE.sub("", body)
+    for token in _DOT_DECIMAL_RE.findall(body):
+        problems.append(f"prose number {token} uses a decimal point: write it with a comma (a result) "
+                        "or as code (a version or a constant)")
+    for token in _LATIN_X_RE.findall(body):
+        problems.append(f"prose factor {token.strip()} uses a letter x: write × (and generate the ratio)")
     for token in _PROSE_RE.findall(prose):
         if _checked(token) and _norm(token) not in in_blocks:
             problems.append(f"prose number {token.strip()} does not appear in any generated table")
