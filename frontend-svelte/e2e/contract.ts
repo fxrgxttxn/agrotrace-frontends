@@ -18,6 +18,11 @@ export interface Override {
   status?: number;
   example?: string;
   body?: unknown;
+  headers?: Record<string, string>;
+  /** Answer this way only the first time, then the default. */
+  once?: boolean;
+  /** No answer at all: the network fails (a transient failure). */
+  abort?: boolean;
 }
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -43,8 +48,9 @@ const ROUTES: { op: ContractOperation; re: RegExp; rank: number[] }[] = operatio
 /** Answers the page's API calls from the contract; `overrides` by operationId. Returns the list of calls made. */
 export async function mockApi(
   context: BrowserContext,
-  overrides: Record<string, Override> = {},
+  initial: Record<string, Override> = {},
 ): Promise<string[]> {
+  const overrides = { ...initial };
   const calls: string[] = [];
   await context.route('**/api/v1/**', async (route: Route) => {
     const req = route.request();
@@ -62,11 +68,17 @@ export async function mockApi(
     if (hit.op.operationId === 'downloadFile' || hit.op.operationId === 'downloadPublicFile')
       return route.fulfill({ status: 200, contentType: 'image/jpeg', path: PHOTO });
     const o = overrides[hit.op.operationId] ?? {};
+    if (o.once) delete overrides[hit.op.operationId];
+    if (o.abort) return route.abort('failed');
     const spec = contractExample(hit.op.operationId, o.status, o.example);
     const body = o.body !== undefined ? o.body : spec.body;
     return route.fulfill({
       status: spec.status,
-      headers: { ...spec.headers, ...(spec.mediaType ? { 'Content-Type': spec.mediaType } : {}) },
+      headers: {
+        ...spec.headers,
+        ...o.headers,
+        ...(spec.mediaType ? { 'Content-Type': spec.mediaType } : {}),
+      },
       body: body === null || body === undefined ? '' : typeof body === 'string' ? body : JSON.stringify(body),
     });
   });

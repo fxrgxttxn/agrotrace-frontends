@@ -18,12 +18,23 @@
     });
     return () => wait.stop();
   });
+
+  // A disabled button drops the focus; when the wait is over, the focus goes to the button that can act now (as React).
+  let button: HTMLElement | null = $state(null);
+  let waited = false;
+  $effect(() => {
+    if (wait.left > 0) waited = true;
+    else if (waited) {
+      waited = false;
+      button?.focus();
+    }
+  });
 </script>
 
 <AuthLayout title={t('page.unavailable')}>
   <Empty art="empty-search" text={retryAfter ? t('errors.RATE_LIMITED') : t('errors.BACKEND_UNAVAILABLE')}>
     {#snippet action()}
-      <Button variant="primary" disabled={wait.left > 0} onclick={() => void session.restore()}
+      <Button bind:element={button} variant="primary" disabled={wait.left > 0} onclick={() => void session.restore()}
         >{wait.left > 0 ? t('auth.retryIn', { seconds: wait.left }) : t('action.retry')}</Button
       >
     {/snippet}

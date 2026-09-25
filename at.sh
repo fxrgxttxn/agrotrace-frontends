@@ -228,6 +228,7 @@ applied_migrations() {
     echo 0
   fi
 }
+
 # ── Frontends (Plan 2+) ─────────────────────────────────────────────────────────────────────────────────────────────
 # `fe:<cmd> <front>` for react and svelte (angular: its plan adds it). Each front has its own stand, never touching the
 # shared `agrotrace` services:
@@ -269,7 +270,7 @@ fe_gateway() (
         run $DCR up -d --build --wait gateway-react
         echo "React: http://react-express.localhost:8089/  (design system: http://localhost:8089/_ds/)"
       else
-        run $DCS up -d --build --wait gateway-svelte
+        run $DCS up -d --build --force-recreate --wait gateway-svelte
         echo "Svelte: http://svelte-mock.localhost:8091/  (design system: http://localhost:8091/_ds/)"
       fi ;;
     down) if [ "$front" = react ]; then run $DCR down; else run $DCS down; fi ;;
@@ -289,9 +290,9 @@ fe_e2e_smoke() (
     fi
     run $DC run --rm -w //repo/frontend-react playwright npx --no-install playwright test -c e2e/playwright.config.ts "$@"
   else
-    if [ "${AT_DRY_RUN:-}" = "1" ] || [ -z "$($DCS ps -q --status running gateway-svelte 2>/dev/null)" ]; then
-      fe_gateway svelte up
-    fi
+    # Always (re)created: adapter-static replaces frontend-svelte/build on every build, and a running container would
+    # keep serving the deleted directory through its bind mount.
+    fe_gateway svelte up
     run $DCS run --rm -w //repo/frontend-svelte playwright-svelte npx --no-install playwright test -c e2e/playwright.config.ts "$@"
   fi
 )
@@ -411,7 +412,12 @@ case "$cmd" in
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
   # Frontends (see fe_front above): build into frontend-<front>/dist, component tests (Vitest + MSW from the contract),
   # the Vite dev server on http://localhost:5173 (API proxied to api-express), the separate gateway, the smoke e2e.
-  fe:build)  fe_front "${1:-}"; run $T pnpm --filter "@agrotrace/frontend-$1" build ;;
+  fe:build)  fe_front "${1:-}"; run $T pnpm --filter "@agrotrace/frontend-$1" build
+             # A running Svelte stand is recreated so that it serves the new build directory (see fe_e2e_smoke).
+             if [ "$1" = svelte ] && [ "${AT_DRY_RUN:-}" != "1" ] \
+               && [ -n "$($DCS ps -q --status running gateway-svelte 2>/dev/null)" ]; then
+               fe_gateway svelte up
+             fi ;;
   fe:test)   fe_front "${1:-}"; front="$1"; shift; run $T pnpm --filter "@agrotrace/frontend-$front" test "$@" ;;
   fe:dev)    fe_front "${1:-}"; run $DC run --rm -p 5173:5173 tools pnpm --filter "@agrotrace/frontend-$1" dev ;;
   fe:gateway) fe_gateway "$@" ;;

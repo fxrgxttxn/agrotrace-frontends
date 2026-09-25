@@ -55,6 +55,8 @@ export async function renderApp(path: string) {
   live.EventSourceImpl = FakeEventSource as unknown as typeof EventSource;
   const s = resetSession();
   history.replaceState(null, '', '/');
+  // As src/app.html: link navigations keep focus (the app moves it, README «Фокус при смене маршрута»).
+  document.body.setAttribute('data-sveltekit-keepfocus', '');
   const utils = render(App);
   await router.start(path);
   return { ...utils, router, session: s };

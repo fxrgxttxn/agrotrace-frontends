@@ -7,7 +7,9 @@
     <title>AgroTrace</title>
     %sveltekit.head%
   </head>
-  <body>
+  <!-- Focus is managed by the app (README «Фокус при смене маршрута»): the router never blurs or resets it on a link
+       navigation; a pathname change focuses the new page title, a query-only change and a pick in «Ещё» keep it. -->
+  <body data-sveltekit-keepfocus>
     %sveltekit.body%
   </body>
 </html>

@@ -32,3 +32,12 @@ export async function guestOnly(url: URL): Promise<void> {
   await session.start();
   if (session.status === 'authenticated') redirect(307, safeNext(url.searchParams.get('next')));
 }
+
+/** Whether the signed-in user may see the cabinet route at `pathname` (the same rule as `requireRole`). The cabinet
+ * layout re-checks it whenever the session changes under a page — e.g. «Повторить» after «Сервис недоступен» restores
+ * a session whose roles do not admit the page the user deep-linked to. */
+export function mayOpen(pathname: string): boolean {
+  if (session.status !== 'authenticated' || !session.me) return false;
+  const route = cabinetRoute(pathname);
+  return !route || canAccess(session.me, route.access);
+}

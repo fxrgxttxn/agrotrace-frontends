@@ -99,6 +99,24 @@ describe('session start-up', () => {
     expect(refreshes).toBe(1);
   });
 
+  it('a retry that restores a session of another role goes to /403 without showing the page', async () => {
+    server.use(http.post(`${API_BASE}/auth/refresh`, () => HttpResponse.error(), { once: true }));
+    await renderApp('/admin/users');
+    await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' });
+    await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Нет доступа' })).toBeInTheDocument();
+    expect(location.pathname).toBe('/403');
+    expect(screen.queryByRole('heading', { level: 1, name: 'Пользователи' })).toBeNull();
+  });
+
+  it('when the 429 wait ends, «Повторить» takes the focus', async () => {
+    server.use(contractResponse('getMe', { status: 429, headers: { 'Retry-After': '1' }, once: true }));
+    await renderApp('/fields');
+    await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' });
+    const retry = await screen.findByRole('button', { name: 'Повторить' }, { timeout: 3000 });
+    await waitFor(() => expect(document.activeElement).toBe(retry));
+  });
+
   it('a retry that finds no session goes to /login?next=', async () => {
     server.use(
       http.post(`${API_BASE}/auth/refresh`, () => new HttpResponse(null, { status: 503 }), { once: true }),

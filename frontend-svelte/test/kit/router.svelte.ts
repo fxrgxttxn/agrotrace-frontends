@@ -7,7 +7,13 @@ import { page } from './state.svelte';
 // `[...rest]`, static segments first), the same `load` chain (root → group layouts → page, `parent()`, `redirect()`
 // followed), the same layout nesting with `children` snippets, `$app/state` `page` updated, then `afterNavigate`
 // callbacks called once the new page is rendered. Link clicks and `goto` go through it; back/forward walk its history.
-// The real router is exercised by the Playwright specs (e2e/) against the build.
+// Focus as SvelteKit handles it on the way in: unless the navigation keeps focus (`goto(…, { keepFocus })` or a link
+// under `data-sveltekit-keepfocus`), the focused element is blurred before the new page renders.
+//
+// NOT modelled — and so NOT tested here (ruling FM7: focus, history and redirects are verified with Playwright against
+// the real router, e2e/focus.spec.ts): the focus reset to <body>/`autofocus` after rendering, scroll restoration and
+// snapshots, selective re-running of `load` (here every load of the chain runs on each navigation), `invalidate`,
+// preloading, `beforeNavigate`/`onNavigate`, hash routing, full-page reloads. App tests use it for rendering and logic.
 
 type Loader = (event: LoadEvent) => unknown;
 interface LoadEvent {
@@ -158,9 +164,14 @@ class TestRouter {
 
   async goto(
     path: string,
-    opts: { replaceState?: boolean; state?: Record<string, unknown> } = {},
+    opts: { replaceState?: boolean; state?: Record<string, unknown>; keepFocus?: boolean } = {},
   ): Promise<void> {
-    await this.#navigate(path, { replace: Boolean(opts.replaceState), type: 'goto', state: opts.state });
+    await this.#navigate(path, {
+      replace: Boolean(opts.replaceState),
+      type: 'goto',
+      state: opts.state,
+      keepFocus: Boolean(opts.keepFocus),
+    });
   }
 
   async back(): Promise<void> {
@@ -186,12 +197,20 @@ class TestRouter {
     if (url.origin !== location.origin) return;
     if (url.hash && url.pathname === location.pathname && url.search === location.search) return; // in-page anchor
     e.preventDefault();
-    void this.#navigate(url.pathname + url.search + url.hash, { type: 'link' });
+    const keeper = a.closest('[data-sveltekit-keepfocus]');
+    const keepFocus = Boolean(keeper) && keeper!.getAttribute('data-sveltekit-keepfocus') !== 'false';
+    void this.#navigate(url.pathname + url.search + url.hash, { type: 'link', keepFocus });
   };
 
   async #navigate(
     target: string,
-    o: { replace?: boolean; type: NavType; state?: Record<string, unknown>; pop?: boolean },
+    o: {
+      replace?: boolean;
+      type: NavType;
+      state?: Record<string, unknown>;
+      pop?: boolean;
+      keepFocus?: boolean;
+    },
     hops = 0,
   ): Promise<void> {
     if (hops > 10) throw new Error(`redirect loop at ${target}`);
@@ -220,16 +239,20 @@ class TestRouter {
     } catch (e) {
       if (isRedirect(e)) {
         if (token !== this.#token) return;
-        return this.#navigate(
-          e.location,
-          { replace: true, type: o.type === 'popstate' ? 'goto' : o.type },
-          hops + 1,
-        );
+        // SvelteKit follows a redirect as the same navigation: same type, same history mode (a redirected link pushes
+        // only the final URL; a start-up or back/forward redirect replaces), same focus rule.
+        return this.#navigate(e.location, { ...o, replace: o.replace || o.pop, pop: false }, hops + 1);
       }
       throw e;
     }
     if (token !== this.#token) return; // a newer navigation won
 
+    if (
+      !o.keepFocus &&
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement !== document.body
+    )
+      document.activeElement.blur();
     const from = this.#started ? { url: page.url, params: page.params, route: { id: page.route.id } } : null;
     const state = o.state ?? {};
     if (!o.pop) {

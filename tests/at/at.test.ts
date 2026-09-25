@@ -190,7 +190,7 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
 
   it('fe:gateway svelte starts and stops only gateway-svelte of project agrotrace-svelte (own network, port 8091)', () => {
     expect(plus(sh(['./at', 'fe:gateway', 'svelte'], { AT_DRY_RUN: '1' }).out)).toEqual([
-      '+ docker compose -f docker-compose.svelte-mock.yml up -d --build --wait gateway-svelte',
+      '+ docker compose -f docker-compose.svelte-mock.yml up -d --build --force-recreate --wait gateway-svelte',
     ]);
     expect(plus(sh(['./at', 'fe:gateway', 'svelte', 'down'], { AT_DRY_RUN: '1' }).out)).toEqual([
       '+ docker compose -f docker-compose.svelte-mock.yml down',

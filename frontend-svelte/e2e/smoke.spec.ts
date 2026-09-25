@@ -1,5 +1,6 @@
 import { gzipSync } from 'node:zlib';
 import { expect, test } from '@playwright/test';
+import { cabinetOnly, nodeCounts } from './chunks';
 import { ANONYMOUS, mockApi } from './contract';
 import { cspViolations, horizontalOverflow, unexpected, watch } from './helpers';
 
@@ -117,28 +118,35 @@ test('logout in one tab ends the session in the other', async ({ context }) => {
   expect(new URL(b.url()).pathname).toBe('/login');
 });
 
-test('the public pages /p/* load no cabinet code (JS size noted)', async ({ page, context }) => {
+test('the public pages /p/* load no cabinet chunk (module graph) and stay in the JS budget', async ({
+  page,
+  context,
+}) => {
   const w = await watch(page);
   const calls = await mockApi(context);
   const scripts = new Map<string, Promise<string>>();
   page.on('response', (r) => {
     if (r.request().resourceType() === 'script') scripts.set(new URL(r.url()).pathname, r.text());
   });
+  // The graph itself: there are cabinet/auth-only chunks, and the session module is one of them.
+  expect(nodeCounts.app).toBeGreaterThan(30);
+  expect(nodeCounts.public).toBe(3); // the three /p pages (the group has no layout of its own)
+  expect(cabinetOnly.size).toBeGreaterThan(0);
   await page.goto('/p/AT-2026-000123');
   await expect(page.getByRole('heading', { level: 1, name: 'Партия' })).toBeVisible();
   await expect(page.locator('p.at-mono')).toHaveText('AT-2026-000123');
-  const bodies = await Promise.all(scripts.values());
-  const gzip = bodies.reduce((sum, b) => sum + gzipSync(b).length, 0);
-  test.info().annotations.push({
-    type: 'public JS',
-    description: `${scripts.size} scripts, ${(gzip / 1024).toFixed(1)} KB gzip (budget 60 KB, Task S8)`,
-  });
-  console.log(`public /p/:code JS: ${scripts.size} scripts, ${(gzip / 1024).toFixed(1)} KB gzip`);
-  // no session restore, no stream, no shell: the cabinet code never loaded
-  expect(calls).toEqual([]);
-  expect(bodies.some((b) => b.includes('agrotrace-session') || b.includes('at-sidebar'))).toBe(false);
   await page.goto('/p/AT-2026-000123/complaint');
   await expect(page.getByRole('heading', { level: 1, name: 'Сообщить о проблеме' })).toBeVisible();
+  const loaded = [...scripts.keys()];
+  expect(loaded.filter((f) => cabinetOnly.has(f))).toEqual([]);
+  // no session restore, no stream: nothing of the cabinet ran
+  expect(calls).toEqual([]);
+  const bodies = await Promise.all(scripts.values());
+  const gzip = bodies.reduce((sum, b) => sum + gzipSync(b).length, 0) / 1024;
+  const note = `${loaded.length} scripts, ${gzip.toFixed(1)} KB gzip of 60 KB (headroom ${(60 - gzip).toFixed(1)} KB)`;
+  test.info().annotations.push({ type: 'public JS', description: note });
+  console.log(`public /p/* JS: ${note}`);
+  expect(gzip).toBeLessThanOrEqual(60);
   expect(await cspViolations(page)).toEqual([]);
   expect(unexpected(w)).toEqual([]);
 });

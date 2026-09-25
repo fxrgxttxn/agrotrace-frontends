@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { t } from '../app/i18n';
   import { BOTTOM_NAV_ITEMS, isCurrent, NOTIFICATIONS_ITEM, PROFILE_ITEM, type NavItem } from '../app/nav';
@@ -49,10 +50,14 @@
             class="at-sidebar__link"
             href={item.href}
             aria-current={isCurrent(item, page.url.pathname) ? 'page' : undefined}
-            onclick={() => {
-              // README: a pick returns focus to «Ещё» (the page title does not take it).
+            onclick={(e) => {
+              // README: a pick returns focus to «Ещё» (the page title does not take it). The router is told to keep the
+              // focus explicitly: the link itself is gone from the DOM once the menu closes.
+              if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault();
               skipRouteFocus(item.href);
               open = false;
+              void goto(item.href, { keepFocus: true });
             }}><Icon name={item.icon} class="at-sidebar__icon" /><span class="at-sidebar__label">{t(item.label)}</span></a
           >
         </li>
