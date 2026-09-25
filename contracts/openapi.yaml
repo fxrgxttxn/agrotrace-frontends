@@ -30,6 +30,9 @@ info:
     Порядок проверок, если операция не уточняет его: 401 → 403 по роли → `Idempotency-Key` → 400 по схеме
     параметров и тела → 404 → 403 по стороне операции → 409 VERSION_CONFLICT (`If-Match`) → 409 INVALID_TRANSITION
     (статус сущности из пути) → 400 по ссылкам тела → поэлементные проверки. Возвращается первая сработавшая ошибка.
+    Вне операций: путь, которого нет в контракте, — 404 NOT_FOUND; путь контракта с необъявленным для него методом —
+    405 METHOD_NOT_ALLOWED с заголовком `Allow` (ответ `components.responses.MethodNotAllowed`, P3); тело JSON
+    больше 12 МиБ (12 582 912 байт, как у шлюза) — 413 FILE_TOO_LARGE; все — `application/problem+json`.
 
 
     Протокол блокировок (R47, R52) для операций с `x-locks` (перечислены блокируемые строки в порядке блокировки):
@@ -433,6 +436,8 @@ components:
       $ref: './openapi/components/responses.yaml#/TooManyRequests'
     ServiceUnavailable:
       $ref: './openapi/components/responses.yaml#/ServiceUnavailable'
+    MethodNotAllowed:
+      $ref: './openapi/components/responses.yaml#/MethodNotAllowed'
     NotModified:
       $ref: './openapi/components/responses.yaml#/NotModified'
     ImageContent:
@@ -452,6 +457,8 @@ components:
     IdempotencyConflict:
       $ref: './openapi/components/responses.yaml#/IdempotencyConflict'
   headers:
+    Allow:
+      $ref: './openapi/components/headers.yaml#/Allow'
     XRequestId:
       $ref: './openapi/components/headers.yaml#/XRequestId'
     XBackend:

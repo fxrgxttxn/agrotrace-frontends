@@ -9,7 +9,7 @@ import { ZodError } from 'zod';
 import { toFieldErrors } from '@agrotrace/validation';
 import type { Logger } from '../logger.js';
 
-/** contracts/openapi/schemas/common.yaml#/ProblemCode (R5, R42, R48). */
+/** contracts/openapi/schemas/common.yaml#/ProblemCode (R5, R42, R48, P3). */
 export type ProblemCode =
   | 'VALIDATION'
   | 'UNAUTHORIZED'
@@ -35,7 +35,8 @@ export type ProblemCode =
   | 'INTERNAL'
   | 'NO_LAB_AVAILABLE'
   | 'IDEMPOTENCY_KEY_IN_PROGRESS'
-  | 'REFERENCE_IN_USE';
+  | 'REFERENCE_IN_USE'
+  | 'METHOD_NOT_ALLOWED';
 
 /** Default `title` per code — for logs only; clients never rely on it (contract). */
 const TITLES: Record<ProblemCode, string> = {
@@ -64,6 +65,7 @@ const TITLES: Record<ProblemCode, string> = {
   NO_LAB_AVAILABLE: 'No laboratory available',
   IDEMPOTENCY_KEY_IN_PROGRESS: 'Idempotency key in progress',
   REFERENCE_IN_USE: 'Reference in use',
+  METHOD_NOT_ALLOWED: 'Method not allowed',
 };
 
 /** `VERSION_CONFLICT` → `/problems/version-conflict`. */
@@ -188,15 +190,9 @@ export function notFoundHandler(allowedMethods: (path: string) => string[]): Req
     const allow = allowedMethods(req.path);
     const method = req.method === 'HEAD' ? 'GET' : req.method;
     // A declared operation that has no route (yet) is simply not found; a path the contract declares only with other
-    // methods is 405 with `Allow` (the contract is silent on 405 — the code stays NOT_FOUND, see ProblemCode).
+    // methods is 405 METHOD_NOT_ALLOWED with `Allow` (components.responses.MethodNotAllowed, P3).
     if (allow.length > 0 && !allow.includes(method)) {
-      sendProblem(
-        res,
-        new AppProblem(405, 'NOT_FOUND', {
-          title: 'Method not allowed',
-          headers: { Allow: allow.join(', ') },
-        }),
-      );
+      sendProblem(res, new AppProblem(405, 'METHOD_NOT_ALLOWED', { headers: { Allow: allow.join(', ') } }));
       return;
     }
     sendProblem(res, new AppProblem(404, 'NOT_FOUND'));

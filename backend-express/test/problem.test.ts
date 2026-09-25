@@ -137,7 +137,12 @@ describe('404 / 405 fallback (createApp)', () => {
     const wrong = await request(app).get('/api/v1/auth/login');
     expect(wrong.status).toBe(405);
     expect(wrong.headers.allow).toBe('POST');
-    expect(wrong.body).toMatchObject({ status: 405, code: 'NOT_FOUND', type: '/problems/not-found' });
+    expect(wrong.body).toEqual({
+      type: '/problems/method-not-allowed',
+      title: 'Method not allowed',
+      status: 405,
+      code: 'METHOD_NOT_ALLOWED',
+    });
     const templ = await request(app).put('/api/v1/batches/8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e');
     expect(templ.status).toBe(405);
     expect(templ.headers.allow).toBe('GET');

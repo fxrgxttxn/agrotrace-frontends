@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CookieJar, type ApiResponse } from './lib/client.js';
-import { contract, expectContract, expectProblem } from './lib/contract.js';
+import { contract, expectContract, expectProblem, expectSharedResponse } from './lib/contract.js';
 import { demoUser } from './lib/auth.js';
 import { API_BACKEND } from './lib/env.js';
 
@@ -172,6 +172,41 @@ describe('expectProblem (meta)', () => {
       await expect(
         expectProblem(fake({ status: 404, headers: headers(), json }), 404, 'NOT_FOUND'),
       ).rejects.toThrow();
+  });
+});
+
+describe('expectSharedResponse (meta)', () => {
+  const body = {
+    type: '/problems/method-not-allowed',
+    title: 'Method not allowed',
+    status: 405,
+    code: 'METHOD_NOT_ALLOWED',
+  };
+  const headers = (allow: string | null) => {
+    const h = new Headers({
+      'content-type': 'application/problem+json',
+      'x-backend': API_BACKEND,
+      'x-request-id': 'r',
+    });
+    if (allow !== null) h.set('allow', allow);
+    return h;
+  };
+  const check = (allow: string | null, json: object = body) =>
+    expectSharedResponse(fake({ status: 405, headers: headers(allow), json }), 'MethodNotAllowed', {
+      status: 405,
+      code: 'METHOD_NOT_ALLOWED',
+    });
+
+  it('accepts a 405 METHOD_NOT_ALLOWED problem with a valid Allow header', async () => {
+    await expect(check('GET, POST')).resolves.toBe(undefined);
+  });
+
+  it('rejects a missing or malformed Allow header and a different code', async () => {
+    await expect(check(null)).rejects.toThrow(/required header Allow is missing/);
+    await expect(check('get')).rejects.toThrow(/header Allow/);
+    await expect(check('GET', { ...body, code: 'NOT_FOUND', type: '/problems/not-found' })).rejects.toThrow(
+      /body.code NOT_FOUND/,
+    );
   });
 });
 

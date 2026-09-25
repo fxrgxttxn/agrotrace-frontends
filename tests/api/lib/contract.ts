@@ -152,10 +152,17 @@ export async function expectContract(res: ApiResponse, operationId: string): Pro
       `status ${res.status} is not declared (declared: ${Object.keys(responses).join(', ')})`,
     ]);
 
-  const problems = commonHeaderProblems(res);
   const { node: response, pointer: refPtr } = resolve(c.doc, responses[code]);
   const base = refPtr ?? [...op.pointer, 'responses', code];
+  const problems = responseProblems(c, res, response, base);
+  if (problems.length) throw new ContractViolation(res, where, problems);
+  recordChecked({ operationId, status: res.status });
+  return response;
+}
 
+/** Body, media type and declared headers of `response` (at JSON pointer `base`), plus the common headers. */
+function responseProblems(c: Contract, res: ApiResponse, response: Json, base: string[]): string[] {
+  const problems = commonHeaderProblems(res);
   // Body and media type.
   const content = (response.content ?? {}) as Json;
   const declared = Object.keys(content);
@@ -188,10 +195,29 @@ export async function expectContract(res: ApiResponse, operationId: string): Pro
       ...schemaProblems(c, [...(hPtr ?? [...base, 'headers', name]), 'schema'], typed, `header ${name}`),
     );
   }
+  return problems;
+}
 
-  if (problems.length) throw new ContractViolation(res, where, problems);
-  recordChecked({ operationId, status: res.status });
-  return response;
+/**
+ * A response of `components.responses.<name>` that no operation lists (e.g. MethodNotAllowed, P3): status, then the
+ * same body/header checks as expectContract, plus the problem `code` when given.
+ */
+export async function expectSharedResponse(
+  res: ApiResponse,
+  name: string,
+  expected: { status: number; code?: string },
+): Promise<void> {
+  const c = await contract();
+  const response = c.doc.components.responses?.[name] as Json | undefined;
+  if (!response) throw new Error(`unknown components.responses.${name}`);
+  const problems = responseProblems(c, res, response, ['components', 'responses', name]);
+  if (res.status !== expected.status) problems.push(`status ${res.status}, expected ${expected.status}`);
+  if (expected.code !== undefined) {
+    if (res.body?.code !== expected.code)
+      problems.push(`body.code ${res.body?.code}, expected ${expected.code}`);
+    if (res.body?.type !== problemType(expected.code)) problems.push(`body.type ${res.body?.type}`);
+  }
+  if (problems.length) throw new ContractViolation(res, `components.responses.${name}`, problems);
 }
 
 const problemType = (code: string) => `/problems/${code.toLowerCase().replace(/_/g, '-')}`;

@@ -147,6 +147,7 @@ ProblemCode:
     - NO_LAB_AVAILABLE
     - IDEMPOTENCY_KEY_IN_PROGRESS
     - REFERENCE_IN_USE
+    - METHOD_NOT_ALLOWED
   example: VALIDATION
 Problem:
   type: object

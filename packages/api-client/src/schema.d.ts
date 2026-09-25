@@ -2358,7 +2358,7 @@ export interface components {
          * @example VALIDATION
          * @enum {string}
          */
-        ProblemCode: "VALIDATION" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "INVALID_TRANSITION" | "VERSION_CONFLICT" | "BUSINESS_RULE" | "FILE_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "RATE_LIMITED" | "ACCOUNT_LOCKED" | "INVALID_CREDENTIALS" | "TWO_FACTOR_REQUIRED" | "INVALID_TWO_FACTOR_CODE" | "TOKEN_EXPIRED" | "IDEMPOTENCY_KEY_REUSED" | "INVALID_IDEMPOTENCY_KEY" | "CAPTCHA_FAILED" | "GRAPH_CYCLE" | "BACKEND_UNAVAILABLE" | "EXTERNAL_UNAVAILABLE" | "INTERNAL" | "NO_LAB_AVAILABLE" | "IDEMPOTENCY_KEY_IN_PROGRESS" | "REFERENCE_IN_USE";
+        ProblemCode: "VALIDATION" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "INVALID_TRANSITION" | "VERSION_CONFLICT" | "BUSINESS_RULE" | "FILE_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "RATE_LIMITED" | "ACCOUNT_LOCKED" | "INVALID_CREDENTIALS" | "TWO_FACTOR_REQUIRED" | "INVALID_TWO_FACTOR_CODE" | "TOKEN_EXPIRED" | "IDEMPOTENCY_KEY_REUSED" | "INVALID_IDEMPOTENCY_KEY" | "CAPTCHA_FAILED" | "GRAPH_CYCLE" | "BACKEND_UNAVAILABLE" | "EXTERNAL_UNAVAILABLE" | "INTERNAL" | "NO_LAB_AVAILABLE" | "IDEMPOTENCY_KEY_IN_PROGRESS" | "REFERENCE_IN_USE" | "METHOD_NOT_ALLOWED";
         /**
          * @description RFC 7807 Problem Details (`application/problem+json`). `type` детерминирован: `/problems/` + код в нижнем регистре через дефис (VERSION_CONFLICT → `/problems/version-conflict`). `title` — краткое описание для журналов, может различаться между реализациями; клиенты на него не опираются.
          * @example {
@@ -6333,6 +6333,26 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Путь есть в контракте, но метод запроса для него не объявлен (METHOD_NOT_ALLOWED, P3): 405 с заголовком `Allow` — методы, объявленные для пути. Операции его не перечисляют: так отвечает любой путь контракта на необъявленный метод. Путь, которого нет в контракте, — 404 NOT_FOUND. */
+        MethodNotAllowed: {
+            headers: {
+                Allow: components["headers"]["Allow"];
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "X-Backend": components["headers"]["XBackend"];
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "/problems/method-not-allowed",
+                 *       "title": "Method not allowed",
+                 *       "status": 405,
+                 *       "code": "METHOD_NOT_ALLOWED"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description Содержимое не изменилось (`If-None-Match` совпал с ETag); тело пустое. */
         NotModified: {
             headers: {
@@ -6578,6 +6598,11 @@ export interface components {
     };
     requestBodies: never;
     headers: {
+        /**
+         * @description Методы, объявленные контрактом для этого пути (RFC 9110), через запятую — только в ответе 405.
+         * @example GET, POST
+         */
+        Allow: string;
         /**
          * @description Идентификатор запроса (correlation id): значение заголовка `X-Request-Id` из запроса или сгенерированное сервером; пишется в журналы.
          * @example 4f1c2a7e-9b3d-4e5f-8a6b-0c1d2e3f4a5b

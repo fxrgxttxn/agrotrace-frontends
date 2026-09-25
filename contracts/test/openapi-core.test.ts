@@ -43,6 +43,7 @@ const PROBLEM_CODES = [
   'NO_LAB_AVAILABLE', // R42
   'IDEMPOTENCY_KEY_IN_PROGRESS', // R48
   'REFERENCE_IN_USE', // Task 10 D-table: hard delete of a referenced region
+  'METHOD_NOT_ALLOWED', // Plan 1 P3: 405 on a contract path with an undeclared method
 ];
 
 const RATE_LIMITS = JSON.parse(readFileSync(new URL('../rules/rate-limits.json', import.meta.url), 'utf8'));
@@ -420,6 +421,18 @@ describe('openapi contract: bundle', () => {
 
   it('ProblemCode enum equals ruling R5 exactly', () => {
     expect(doc.components.schemas.ProblemCode.enum).toEqual(PROBLEM_CODES);
+  });
+
+  it('P3: 405 METHOD_NOT_ALLOWED is a shared response with the Allow header, described in info', () => {
+    const r = doc.components.responses.MethodNotAllowed;
+    expect(r.content['application/problem+json'].example).toMatchObject({
+      type: '/problems/method-not-allowed',
+      status: 405,
+      code: 'METHOD_NOT_ALLOWED',
+    });
+    expect(Object.keys(r.headers)).toEqual(['Allow', 'X-Request-Id', 'X-Backend']);
+    expect(doc.components.headers.Allow.schema.pattern).toBe('^[A-Z]+(, [A-Z]+)*$');
+    expect(doc.info.description).toMatch(/405 METHOD_NOT_ALLOWED с заголовком `Allow`/);
   });
 });
 

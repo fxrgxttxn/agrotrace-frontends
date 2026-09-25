@@ -103,3 +103,10 @@ CacheControlNoStore:
     type: string
     enum: [no-store]
   example: no-store
+Allow:
+  description: Методы, объявленные контрактом для этого пути (RFC 9110), через запятую — только в ответе 405.
+  required: true
+  schema:
+    type: string
+    pattern: '^[A-Z]+(, [A-Z]+)*$'
+  example: GET, POST

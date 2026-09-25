@@ -511,6 +511,7 @@
     "NO_LAB_AVAILABLE": "No lab is available for testing",
     "IDEMPOTENCY_KEY_IN_PROGRESS": "An earlier request with this key is still in progress",
     "REFERENCE_IN_USE": "This record is in use and cannot be deleted",
+    "METHOD_NOT_ALLOWED": "This action is not available for this address",
     "UNKNOWN": "Unknown error"
   },
   "validation": {

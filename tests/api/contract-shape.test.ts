@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { api } from './lib/client.js';
-import { expectContract, expectProblem } from './lib/contract.js';
+import { expectContract, expectProblem, expectSharedResponse } from './lib/contract.js';
 
 const MAX_BODY = 12 * 1024 * 1024; // the gateway's client_max_body_size (R79)
 
@@ -27,10 +27,17 @@ describe('paths and methods outside the contract', () => {
     await expectProblem(res, 404, 'NOT_FOUND');
   });
 
-  it('a contract path with a method it does not declare → 405 with Allow (contract is silent: code NOT_FOUND)', async () => {
-    const res = await api().delete('/health/live');
-    await expectProblem(res, 405, 'NOT_FOUND');
-    expect(res.headers.get('allow')).toBe('GET');
+  it('a contract path with a method it does not declare → 405 METHOD_NOT_ALLOWED with Allow (P3)', async () => {
+    for (const [method, path, allow] of [
+      ['DELETE', '/health/live', 'GET'],
+      ['POST', '/health/ready', 'GET'],
+      ['GET', '/auth/login', 'POST'],
+      ['PATCH', '/batches/8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e', 'GET'],
+    ] as const) {
+      const res = await api().request(method, path);
+      await expectSharedResponse(res, 'MethodNotAllowed', { status: 405, code: 'METHOD_NOT_ALLOWED' });
+      expect(res.headers.get('allow'), path).toBe(allow);
+    }
   });
 });
 

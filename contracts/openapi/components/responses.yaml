@@ -199,6 +199,27 @@ ServiceUnavailable:
         code: EXTERNAL_UNAVAILABLE
         params:
           service: telegram
+MethodNotAllowed:
+  description: >-
+    Путь есть в контракте, но метод запроса для него не объявлен (METHOD_NOT_ALLOWED, P3): 405 с заголовком `Allow`
+    — методы, объявленные для пути. Операции его не перечисляют: так отвечает любой путь контракта на
+    необъявленный метод. Путь, которого нет в контракте, — 404 NOT_FOUND.
+  headers:
+    Allow:
+      $ref: './headers.yaml#/Allow'
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/method-not-allowed
+        title: Method not allowed
+        status: 405
+        code: METHOD_NOT_ALLOWED
 NotModified:
   description: Содержимое не изменилось (`If-None-Match` совпал с ETag); тело пустое.
   headers:
