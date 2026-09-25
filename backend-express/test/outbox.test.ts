@@ -41,7 +41,7 @@ const vsdData = {
 describe('outbox enqueue', () => {
   it('inserts one outbox_events row (backend express) whose payload is a valid envelope of the event', async () => {
     const { tx, inserts } = fakeTx();
-    const env = await runWithContext({ requestId: 'req-42' }, () =>
+    const env = await runWithContext({ requestId: 'req-42', ip: null }, () =>
       enqueue(tx, { type: 'vsd.import', payload: vsdData, now: () => new Date('2026-09-25T10:00:00.123Z') }),
     );
     expect(inserts).toHaveLength(1);
@@ -64,7 +64,7 @@ describe('outbox enqueue', () => {
   it('requestId is null outside a request (scheduler) and can be passed explicitly (worker)', async () => {
     const { tx, inserts } = fakeTx();
     const a = await enqueue(tx, { type: 'vsd.import', payload: vsdData });
-    const b = await runWithContext({ requestId: 'req-1' }, () =>
+    const b = await runWithContext({ requestId: 'req-1', ip: null }, () =>
       enqueue(tx, { type: 'vsd.import', payload: vsdData, requestId: 'from-event' }),
     );
     expect(a.requestId).toBeNull();

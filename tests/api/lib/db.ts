@@ -57,7 +57,26 @@ export async function dbNow(): Promise<Date> {
   return (await query<{ now: Date }>('SELECT now() AS now'))[0]!.now;
 }
 
+let writePool: pg.Pool | null = null;
+
+/**
+ * The one escape from read-only access: a write that sets up state the API cannot produce (yet) or a clock the test
+ * cannot wait for (a 15-minute lockout). Every call site says why in a comment and, where an API will produce the
+ * state later, names the task that replaces it (e.g. approveOrganization, Task 4). Never used to assert anything.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows of ad-hoc statements
+export async function fixtureWrite<T = Record<string, any>>(
+  sql: string,
+  params: unknown[] = [],
+): Promise<T[]> {
+  const url = process.env.TESTS_DATABASE_URL ?? process.env.APP_DATABASE_URL;
+  if (!url) throw new Error('lib/db: set TESTS_DATABASE_URL or APP_DATABASE_URL');
+  writePool ??= new pg.Pool({ connectionString: url, max: 1, options: '-c TimeZone=UTC' });
+  return (await writePool.query(sql, params)).rows as T[];
+}
+
 export async function closeDb(): Promise<void> {
-  await pool?.end();
+  await Promise.all([pool?.end(), writePool?.end()]);
   pool = null;
+  writePool = null;
 }

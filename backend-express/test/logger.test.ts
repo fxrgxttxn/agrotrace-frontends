@@ -43,7 +43,7 @@ describe('logger redaction (P8)', () => {
 
   it('adds the request id of the current request context', () => {
     const { logger, lines } = capture();
-    runWithContext({ requestId: 'rid-7' }, () => logger.info('in request'));
+    runWithContext({ requestId: 'rid-7', ip: null }, () => logger.info('in request'));
     logger.info('outside');
     expect(lines[0]).toMatchObject({ requestId: 'rid-7', backend: 'express', process: 'api', level: 'info' });
     expect(lines[1]).not.toHaveProperty('requestId');

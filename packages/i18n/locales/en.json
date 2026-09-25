@@ -472,6 +472,16 @@
   "count": {
     "batches": "{count, plural, one {# batch} other {# batches}}"
   },
+  "mail": {
+    "passwordReset": {
+      "subject": "AgroTrace: password reset",
+      "body": "Hello, {fullName}!\n\nWe received a request to change your AgroTrace password. To set a new password, open the link:\n\n{link}\n\nThe link is valid for 1 hour and can be used once. If you did not request a password change, just ignore this email."
+    },
+    "invite": {
+      "subject": "AgroTrace: invitation to {organizationName}",
+      "body": "Hello!\n\nYou have been invited to {organizationName} in AgroTrace. To accept the invitation, enter your full name and set a password via the link:\n\n{link}\n\nThe link is valid for 7 days and can be used once."
+    }
+  },
   "rules": {
     "BR-01": "Batch {publicCode} can be shipped from {until}: the waiting period for {substance} has not elapsed",
     "BR-02": "Indicator conclusion: exceeding the norm on even one indicator gives a FAIL result",

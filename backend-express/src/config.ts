@@ -35,7 +35,18 @@ const schema = z.object({
   S3_BUCKET: z.string().min(1),
   S3_REGION: z.string().min(1).default('us-east-1'),
   JWT_SECRET: z.string().min(32, 'must be at least 32 characters'),
-  PUBLIC_BASE_URL: url(['http:', 'https:']),
+  /** Links in letters: `${PUBLIC_BASE_URL}/password/reset/{token}`, `${PUBLIC_BASE_URL}/invite/{token}` (R82). */
+  PUBLIC_BASE_URL: url(['http:', 'https:']).transform((s) => s.replace(/\/+$/, '')),
+  /** Outgoing mail (dev: Mailpit). */
+  SMTP_HOST: z.string().min(1).default('mailpit'),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
+  SMTP_FROM: z.string().min(3).default('AgroTrace <noreply@agrotrace.local>'),
+  /** DaData (organization lookup by INN). Unset → registration goes to MANUAL_CHECK without calling it. */
+  DADATA_API_KEY: z.string().min(1).optional(),
+  DADATA_URL: url(['http:', 'https:']).default(
+    'https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party',
+  ),
+  DADATA_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(3000),
   /** Readiness checks give up after this long (each dependency). */
   HEALTH_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(2000),
   /** Graceful shutdown: in-flight requests get this long after SIGTERM. */

@@ -16,6 +16,7 @@ import {
   rejectEmptySegments,
 } from './http/problem.js';
 import { backendHeader, requestId } from './http/request-id.js';
+import { authRouter } from './modules/auth/routes.js';
 import { docsRouter } from './modules/docs/routes.js';
 import { healthRouter } from './modules/health/routes.js';
 
@@ -28,6 +29,9 @@ export function createApp(c: Container): Express {
   app.set('strict routing', true);
   // Validators (ETag/If-None-Match) are the contract's business: only file downloads define them.
   app.set('etag', false);
+  // Exactly one proxy hop is trusted: the gateway appends the peer it saw to X-Forwarded-For, so req.ip is the last
+  // entry — a value a client puts in the header itself is never taken (rate limits R30, audit ip).
+  app.set('trust proxy', 1);
 
   app.use(requestId());
   app.use(backendHeader('express'));
@@ -47,6 +51,7 @@ export function createApp(c: Container): Express {
   const api = express.Router(ROUTER_OPTIONS);
   api.use('/health', healthRouter(c));
   api.use('/docs', docsRouter(c));
+  api.use('/auth', authRouter(c));
   app.use('/api/v1', api);
 
   app.use(notFoundHandler());

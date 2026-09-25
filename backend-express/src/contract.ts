@@ -42,3 +42,12 @@ export function contractMethods(doc: OpenApiDoc, prefix = '/api/v1'): (path: str
     return [...out];
   };
 }
+
+/** The operation object with `operationId` (x-roles, x-org-admin, x-rate-limit, …); throws if the contract lacks it. */
+export function operationById(doc: OpenApiDoc, operationId: string): Record<string, unknown> {
+  for (const item of Object.values(doc.paths))
+    for (const [method, op] of Object.entries(item))
+      if (METHODS.includes(method) && (op as { operationId?: string }).operationId === operationId)
+        return op as Record<string, unknown>;
+  throw new Error(`the contract has no operation ${operationId}`);
+}

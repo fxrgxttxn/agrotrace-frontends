@@ -9,6 +9,9 @@ import type { OpenApiDoc } from './contract.js';
 import type { Logger } from './logger.js';
 import { createDb, type Db } from './db/db.js';
 import { Amqp } from './infra/amqp.js';
+import { createDaData, type DaData } from './infra/dadata.js';
+import { createFileUrls, type FileUrls } from './infra/file-urls.js';
+import { createMailer, type Mailer } from './infra/mailer.js';
 import { createRedis } from './infra/redis.js';
 import { createS3, type S3 } from './infra/s3.js';
 
@@ -20,6 +23,9 @@ export interface Container {
   redis: Redis;
   s3: S3;
   amqp: Amqp;
+  mailer: Mailer;
+  dadata: DaData;
+  fileUrls: FileUrls;
   /** The bundled contract (API process only). */
   contract: { doc: OpenApiDoc; raw: string } | null;
   close(): Promise<void>;
@@ -39,6 +45,14 @@ export function createContainer(
   const redis = createRedis(config.REDIS_URL, logger);
   const s3 = createS3(config);
   const amqp = new Amqp(config.RABBITMQ_URL, logger, `agrotrace-express-${opts.process}`);
+  const mailer = createMailer(
+    { host: config.SMTP_HOST, port: config.SMTP_PORT, from: config.SMTP_FROM },
+    logger,
+  );
+  const dadata = createDaData(
+    { apiKey: config.DADATA_API_KEY, url: config.DADATA_URL, timeoutMs: config.DADATA_TIMEOUT_MS },
+    logger,
+  );
   return {
     config,
     logger,
@@ -47,12 +61,16 @@ export function createContainer(
     redis,
     s3,
     amqp,
+    mailer,
+    dadata,
+    fileUrls: createFileUrls(config.JWT_SECRET),
     contract: opts.contract ?? null,
     async close() {
       // quit() waits for pending replies — only on a live connection; a reconnecting client is just dropped.
       const redisDone = redis.status === 'ready' ? redis.quit() : Promise.resolve(redis.disconnect());
       await Promise.allSettled([amqp.close(), redisDone, db.destroy()]);
       s3.client.destroy();
+      mailer.close();
     },
   };
 }

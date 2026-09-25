@@ -2,6 +2,7 @@
  * Minimal HTTP client over fetch with a cookie jar (the refresh cookie `at_refresh`, Path=/api/v1/auth). Tests talk
  * to the backend only through this — never through backend code (Global Constraints).
  */
+import { randomBytes } from 'node:crypto';
 import { API_URL } from './env.js';
 import { recordCall } from './registry.js';
 
@@ -80,9 +81,22 @@ export class CookieJar {
   }
 }
 
+/**
+ * A fresh client address for `X-Forwarded-For`. The backends take the client IP from the last `X-Forwarded-For` entry
+ * (one trusted proxy hop — the gateway appends the real peer address); tests talk to api-<backend> directly, so each
+ * client plays its own "browser" with an address of its own. Per-IP limits (`login-ip`, R30) therefore count per
+ * client: suites never share a login-ip window by accident, and rate-limit tests isolate their subject.
+ */
+export function randomClientIp(): string {
+  const b = randomBytes(3);
+  return `10.${b[0]}.${b[1]}.${(b[2]! % 254) + 1}`;
+}
+
 export class ApiClient {
   readonly jar = new CookieJar();
   accessToken: string | null = null;
+  /** Sent as `X-Forwarded-For` unless a request sets its own. */
+  clientIp: string = randomClientIp();
 
   constructor(readonly baseUrl: string = API_URL) {}
 
@@ -93,6 +107,7 @@ export class ApiClient {
     const headers = new Headers(opts.headers);
     if (this.accessToken && !headers.has('authorization'))
       headers.set('authorization', `Bearer ${this.accessToken}`);
+    if (!headers.has('x-forwarded-for')) headers.set('x-forwarded-for', this.clientIp);
     const cookie = this.jar.header(url.pathname);
     if (cookie && !headers.has('cookie')) headers.set('cookie', cookie);
     let body: string | Uint8Array | undefined;

@@ -42,6 +42,11 @@ export const testConfig = {
   S3_REGION: 'us-east-1',
   JWT_SECRET: 'x'.repeat(32),
   PUBLIC_BASE_URL: 'http://localhost',
+  SMTP_HOST: 'localhost',
+  SMTP_PORT: 1025,
+  SMTP_FROM: 'AgroTrace <noreply@agrotrace.local>',
+  DADATA_URL: 'http://dadata.invalid/party',
+  DADATA_TIMEOUT_MS: 3000,
   HEALTH_TIMEOUT_MS: 200,
   SHUTDOWN_TIMEOUT_MS: 100,
 } satisfies Config;

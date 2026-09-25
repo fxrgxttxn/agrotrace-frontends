@@ -4,6 +4,7 @@
  * response (errors included), runs through the request context into logs and outbox events.
  */
 import { randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 import type { RequestHandler } from 'express';
 import { runWithContext } from '../context.js';
 
@@ -14,12 +15,23 @@ export function acceptRequestId(value: string | string[] | undefined): string {
   return v !== undefined && REQUEST_ID_PATTERN.test(v) ? v : randomUUID();
 }
 
+/**
+ * The client IP: Express `req.ip` with `trust proxy` = 1 (app.ts) — the last `X-Forwarded-For` entry, i.e. the peer
+ * the gateway saw (nginx appends it with `$proxy_add_x_forwarded_for`); without the header, the socket peer. IPv4
+ * mapped into IPv6 (`::ffff:10.0.0.1`) is shown as plain IPv4. A forwarded value that is not an IP literal falls back to the socket peer (requestId).
+ */
+export function clientIp(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const ip = raw.startsWith('::ffff:') && isIP(raw.slice(7)) === 4 ? raw.slice(7) : raw;
+  return isIP(ip) ? ip : null;
+}
+
 export function requestId(): RequestHandler {
   return (req, res, next) => {
     const id = acceptRequestId(req.headers['x-request-id']);
     res.locals.requestId = id;
     res.setHeader('X-Request-Id', id);
-    runWithContext({ requestId: id }, next);
+    runWithContext({ requestId: id, ip: clientIp(req.ip) ?? clientIp(req.socket.remoteAddress) }, next);
   };
 }
 

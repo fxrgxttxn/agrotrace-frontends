@@ -152,12 +152,12 @@ describe('404 / 405 fallback (createApp)', () => {
   it('a declared but not yet implemented operation is 404; another method on a contract path is 405 + Allow', async () => {
     const { c } = await fakeContainer();
     const app = createApp(c);
-    const notImpl = await request(app).post('/api/v1/auth/login').send({});
+    const notImpl = await request(app).get('/api/v1/analytics/dashboard');
     expect(notImpl.status).toBe(404);
     expect(notImpl.body.code).toBe('NOT_FOUND');
-    const wrong = await request(app).get('/api/v1/auth/login');
+    const wrong = await request(app).post('/api/v1/analytics/dashboard');
     expect(wrong.status).toBe(405);
-    expect(wrong.headers.allow).toBe('POST');
+    expect(wrong.headers.allow).toBe('GET');
     expect(wrong.body).toEqual({
       type: '/problems/method-not-allowed',
       title: 'Method not allowed',
@@ -188,16 +188,16 @@ describe('404 / 405 fallback (createApp)', () => {
     const hits: string[] = [];
     const stack = (app as unknown as { _router: { stack: unknown[] } })._router.stack;
     const probe = express.Router();
-    probe.all('/api/v1/auth/logout', (req, res) => {
+    probe.all('/api/v1/analytics/dashboard', (req, res) => {
       hits.push(req.method);
       res.status(204).end();
     });
     stack.splice(stack.length - 2, 0, ...(probe as unknown as { stack: unknown[] }).stack);
-    expect((await request(app).post('/api/v1/auth/logout')).status).toBe(204);
-    const put = await request(app).put('/api/v1/auth/logout');
+    expect((await request(app).get('/api/v1/analytics/dashboard')).status).toBe(204);
+    const put = await request(app).put('/api/v1/analytics/dashboard');
     expect(put.status).toBe(405);
-    expect(put.headers.allow).toBe('POST');
-    expect(hits).toEqual(['POST']);
+    expect(put.headers.allow).toBe('GET');
+    expect(hits).toEqual(['GET']);
   });
 
   it('a raw path with an empty segment is 404 even where Express would collapse the slashes (P8)', async () => {
