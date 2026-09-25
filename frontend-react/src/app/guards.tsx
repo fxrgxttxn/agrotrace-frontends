@@ -1,4 +1,5 @@
-import { Suspense, type ReactNode } from 'react';
+import { useCountdown } from './api';
+import { Suspense, useEffect, type ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { canAccess, type Access } from './access';
 import { safeNext, useSession } from './session';
@@ -8,15 +9,21 @@ import { AuthLayout } from './layouts';
 
 /** Screen shown when the session cannot be restored for a transient reason (R61): retry, not a logout. */
 export function Unavailable() {
-  const { restore } = useSession();
+  const { restore, state } = useSession();
+  const retryAfter = state.status === 'unavailable' ? state.retryAfter : undefined;
+  // After a 429 the retry waits out Retry-After (the session itself is kept).
+  const [wait, startWait] = useCountdown();
+  useEffect(() => {
+    if (retryAfter) startWait(retryAfter);
+  }, [retryAfter, startWait]);
   return (
     <AuthLayout title={t('page.unavailable')}>
       <Empty
         art="empty-search"
-        text={t('errors.BACKEND_UNAVAILABLE')}
+        text={retryAfter ? t('errors.RATE_LIMITED') : t('errors.BACKEND_UNAVAILABLE')}
         action={
-          <Button variant="primary" onClick={() => void restore()}>
-            {t('action.retry')}
+          <Button variant="primary" disabled={wait > 0} onClick={() => void restore()}>
+            {wait > 0 ? t('auth.retryIn', { seconds: wait }) : t('action.retry')}
           </Button>
         }
       />

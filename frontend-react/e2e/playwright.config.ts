@@ -10,7 +10,10 @@ export default defineConfig({
   testDir: '.',
   forbidOnly: true,
   reporter: [['list']],
-  timeout: 60000,
+  // One worker: every login goes through the one gateway-react IP, and the shared stack's login-ip limit is 20 per
+  // 60 s — parallel workers race each other into it (a waited-out 429 can take a minute, hence the timeout).
+  workers: 1,
+  timeout: 180000,
   outputDir: '../test-results/e2e',
   use: {
     ...devices['Desktop Chrome'],

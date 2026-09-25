@@ -55,6 +55,44 @@ describe('session start-up', () => {
     renderApp('/');
     expect(await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' })).toBeInTheDocument();
   });
+
+  it('429 of the refresh (R61) is not a logout: «unavailable», retry after a wait', async () => {
+    server.use(
+      http.post(
+        `${API_BASE}/auth/refresh`,
+        () =>
+          HttpResponse.json(
+            { type: '/problems/rate-limited', title: 'Too many requests', status: 429, code: 'RATE_LIMITED' },
+            { status: 429, headers: { 'Content-Type': 'application/problem+json', 'Retry-After': '2' } },
+          ),
+        { once: true },
+      ),
+    );
+    const { router } = renderApp('/fields');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' })).toBeInTheDocument();
+    expect(screen.getByText('Слишком много запросов — попробуйте позже')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/fields');
+    expect(screen.getByRole('button', { name: /^Повторить через \d+ с$/ })).toBeDisabled();
+    await userEvent.click(await screen.findByRole('button', { name: 'Повторить' }, { timeout: 12000 }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Поля' })).toBeInTheDocument();
+  }, 20000);
+
+  it('429 of GET /me keeps the session: the retry waits Retry-After and reuses the token', async () => {
+    let refreshes = 0;
+    server.use(
+      contractResponse('refreshToken', { onRequest: () => void refreshes++ }),
+      contractResponse('getMe', { status: 429, headers: { 'Retry-After': '2' }, once: true }),
+    );
+    const { router, core } = renderApp('/fields');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' })).toBeInTheDocument();
+    expect(screen.getByText('Слишком много запросов — попробуйте позже')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Повторить через 2 с' })).toBeDisabled();
+    expect(core.store.get()).not.toBeNull();
+    expect(router.state.location.pathname).toBe('/fields');
+    await userEvent.click(await screen.findByRole('button', { name: 'Повторить' }, { timeout: 3500 }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Поля' })).toBeInTheDocument();
+    expect(refreshes).toBe(1);
+  });
 });
 
 describe('login', () => {

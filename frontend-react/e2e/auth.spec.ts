@@ -1,8 +1,10 @@
 import { expect, request as playwrightRequest, test, type Page } from '@playwright/test';
 import {
   annotateMissing,
+  apiLogin,
   API,
   apiUp,
+  quietStream,
   cspViolations,
   currentStep,
   DEMO_PASSWORD,
@@ -57,15 +59,16 @@ async function shoot(page: Page, name: string, heading: string) {
 }
 
 test.describe('with the live API', () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, context }) => {
     test.skip(!(await apiUp(page)), 'api-express is not up on the shared stack (./at up express)');
+    await quietStream(context);
   });
 
   for (const r of ROLES)
     test(`${r.role} demo user signs in and out`, async ({ page }) => {
       const w = await watch(page);
       await page.goto('/login');
-      await signIn(page, r.email, DEMO_PASSWORD);
+      await signIn(page, r.email, DEMO_PASSWORD, w);
       await expect(page.getByRole('heading', { level: 1, name: 'Панель' })).toBeVisible();
       await expect(page.locator('.at-topbar__org-name')).toHaveText(r.org);
       await signOut(page);
@@ -77,7 +80,7 @@ test.describe('with the live API', () => {
   test('an unknown email or a wrong password: one message, the form stays', async ({ page }) => {
     const w = await watch(page);
     await page.goto('/login');
-    await signIn(page, freshEmail('nobody'), 'wrong-password-1');
+    await signIn(page, freshEmail('nobody'), 'wrong-password-1', w);
     await expect(page.locator('.at-toast-region[role="alert"] .at-toast__text')).toHaveText(
       'Неверный email или пароль',
     );
@@ -100,6 +103,7 @@ test.describe('with the live API', () => {
 
   test('logout in one tab signs out every tab', async ({ browser }) => {
     const context = await browser.newContext();
+    await quietStream(context);
     const one = await context.newPage();
     const two = await context.newPage();
     await one.goto('/login');
@@ -126,11 +130,7 @@ test.describe('with the live API', () => {
 
     test('the inspection head invites; the letter link opens /invite/:token; accept', async ({ page }) => {
       const api = await playwrightRequest.newContext();
-      const login = await api.post(`${API}/auth/login`, {
-        data: { email: 'inspector.head@agrotrace.test', password: DEMO_PASSWORD },
-      });
-      expect(login.status(), await login.text()).toBe(200);
-      const { accessToken } = (await login.json()) as { accessToken: string };
+      const accessToken = await apiLogin(api, 'inspector.head@agrotrace.test', DEMO_PASSWORD);
       const invite = await api.post(`${API}/users`, {
         headers: { Authorization: `Bearer ${accessToken}` },
         data: { email, fullName: 'Приглашённый', roles: ['INSPECTOR'], isOrgAdmin: false },
@@ -165,7 +165,7 @@ test.describe('with the live API', () => {
     }) => {
       const w = await watch(page);
       await page.goto('/login');
-      await signIn(page, email, 'not-my-password-1');
+      await signIn(page, email, 'not-my-password-1', w);
       await expect(page.locator('.at-toast-region[role="alert"] .at-toast__text')).toHaveText(
         'Неверный email или пароль',
       );
@@ -188,7 +188,7 @@ test.describe('with the live API', () => {
       await expect(page.locator('.at-toast-region[aria-live] .at-toast__text')).toHaveText(
         'Пароль изменён — войдите с новым паролем',
       );
-      await signIn(page, email, password);
+      await signIn(page, email, password, w);
       await expect(page.getByRole('heading', { level: 1, name: 'Панель' })).toBeVisible();
       annotateMissing(w);
       expect(unexpected(w, [/^http 401 POST \/api\/v1\/auth\/login$/])).toEqual([]);
@@ -197,7 +197,7 @@ test.describe('with the live API', () => {
     test('2FA: set up in the profile (QR + key), then the login asks for the code', async ({ page }) => {
       const w = await watch(page);
       await page.goto('/login');
-      await signIn(page, email, password);
+      await signIn(page, email, password, w);
       await expect(page.getByRole('heading', { level: 1, name: 'Панель' })).toBeVisible();
       await page.goto('/profile');
       const card = page.locator('article', {
@@ -220,12 +220,15 @@ test.describe('with the live API', () => {
       await expect(card.getByText('Включена')).toBeVisible();
       await signOut(page);
 
-      await signIn(page, email, password);
+      await signIn(page, email, password, w);
       await expect(page.getByRole('heading', { level: 1, name: 'Код подтверждения' })).toBeVisible();
       await expect(page).toHaveURL(/\/login\/2fa$/);
       await shoot(page, 'two-factor', 'Код подтверждения');
       await page.getByLabel('Код из приложения').fill('000000');
+      const wrong = page.waitForResponse((r) => r.url().endsWith('/api/v1/auth/2fa/verify'));
       await page.getByRole('button', { name: 'Подтвердить' }).click();
+      const answer = await wrong;
+      expect(answer.status(), await answer.text()).toBe(401);
       await expect(page.getByLabel('Код из приложения')).toHaveAccessibleDescription(
         /^Неверный код\. Осталось попыток: \d$/,
       );

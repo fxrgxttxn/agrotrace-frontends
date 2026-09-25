@@ -14,12 +14,12 @@ import {
   ApiProblem,
   createApi,
   createMemoryTokenStore,
-  unwrap,
   type Api,
   type LoginSuccess,
   type Me,
   type TokenStore,
 } from '@agrotrace/api-client';
+import { call, retryAfterOf } from './api';
 import { t } from './i18n';
 import { useToast } from '../ui/Toasts';
 
@@ -28,6 +28,9 @@ import { useToast } from '../ui/Toasts';
 // session from the cookie (`POST /auth/refresh`, serialized across tabs by api-client's Web Lock) and loads `/me`.
 // A session lost for good (refresh 401/403) sends the user to `/login?next=<where they were>`; a transient failure
 // (network, 5xx) never logs out (R61). Logout is broadcast to the other tabs.
+
+/** Wait after a 429 of `/auth/refresh`: api-client reports it as a transient problem without its Retry-After. */
+const REFRESH_429_WAIT = 10;
 
 export const API_BASE = '/api/v1';
 const SESSION_CHANNEL = 'agrotrace-session';
@@ -59,17 +62,21 @@ export function createSessionCore(fetchImpl?: typeof fetch): SessionCore {
 export type SessionState =
   | { status: 'loading' }
   | { status: 'anonymous'; loggedOut?: boolean }
-  | { status: 'unavailable' }
+  | { status: 'unavailable'; retryAfter?: number }
   | { status: 'authenticated'; me: Me };
 
 type Action =
   | { type: 'loading' }
   | { type: 'anonymous'; loggedOut?: boolean }
-  | { type: 'unavailable' }
+  | { type: 'unavailable'; retryAfter?: number }
   | { type: 'authenticated'; me: Me };
 
 function reducer(_: SessionState, action: Action): SessionState {
   if (action.type === 'authenticated') return { status: 'authenticated', me: action.me };
+  if (action.type === 'unavailable')
+    return action.retryAfter
+      ? { status: 'unavailable', retryAfter: action.retryAfter }
+      : { status: 'unavailable' };
   if (action.type === 'anonymous')
     return action.loggedOut ? { status: 'anonymous', loggedOut: true } : { status: 'anonymous' };
   return { status: action.type };
@@ -124,7 +131,7 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
   here.current = `${location.pathname}${location.search}`;
   const { api, store } = core;
 
-  const loadMe = useCallback(async () => unwrap(await api.GET('/me')) as Me, [api]);
+  const loadMe = useCallback(() => call<Me>(api.GET('/me')), [api]);
 
   const restore = useCallback(async () => {
     booting.current = true;
@@ -137,8 +144,15 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
       }
       dispatch({ type: 'authenticated', me: await loadMe() });
     } catch (e) {
-      // R61: a network error or 5xx is not a logout — offer a retry instead of the login screen.
-      if (e instanceof ApiProblem && (e.status === 0 || e.status >= 500)) dispatch({ type: 'unavailable' });
+      // R61: a network error, a 5xx or a rate limit (429 of /auth/refresh or /me) is not a logout — the session is kept
+      // and a retry is offered (after Retry-After for a 429) instead of the login screen.
+      if (e instanceof ApiProblem && e.status === 429)
+        dispatch({
+          type: 'unavailable',
+          retryAfter: e.code === 'RATE_LIMITED' ? retryAfterOf(e) : REFRESH_429_WAIT,
+        });
+      else if (e instanceof ApiProblem && (e.status === 0 || e.status >= 500))
+        dispatch({ type: 'unavailable' });
       else if (e instanceof TypeError) dispatch({ type: 'unavailable' });
       else {
         store.set(null);

@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
 
 // Shared pieces of the React e2e specs (through gateway-react, the live Express API of the shared stack).
 
@@ -11,7 +11,11 @@ export const MAILPIT = 'http://mailpit:8025/api/v1';
 
 export interface Watch {
   problems: string[];
+  /** `signIn` met the login-ip limit (429) and waited it out: that answer is expected then. */
+  loginRetried?: boolean;
 }
+
+const LOGIN_LIMITED = /^http 429 POST \/api\/v1\/auth\/login$/;
 
 /** Answers that are expected, not defects: the anonymous start-up refresh (401) and endpoints the Express backend does
  * not serve yet (404: SSE, notifications list, public regions) — see `annotateMissing`. */
@@ -23,10 +27,9 @@ export const EXPECTED = [
 ];
 
 export function unexpected(w: Watch, alsoExpected: RegExp[] = []): string[] {
+  const allowed = [...EXPECTED, ...alsoExpected, ...(w.loginRetried ? [LOGIN_LIMITED] : [])];
   return w.problems.filter(
-    (p) =>
-      !/^console: Failed to load resource/.test(p) &&
-      ![...EXPECTED, ...alsoExpected].some((re) => re.test(p)),
+    (p) => !/^console: Failed to load resource/.test(p) && !allowed.some((re) => re.test(p)),
   );
 }
 
@@ -71,23 +74,29 @@ export async function apiUp(page: Page): Promise<boolean> {
   return page.evaluate(async () => (await fetch('/api/v1/health/live')).status === 200);
 }
 
-/** The login form: submits and, if the login-ip limit answers 429, waits out the countdown and submits again. */
-export async function signIn(page: Page, email: string, password: string): Promise<void> {
+/** The login form: submits and, if the login-ip limit answers 429 (20 per 60 s for the one gateway-react IP on the
+ * shared stack), waits out the countdown and submits again. Pass the page's Watch so that 429 is not a defect. */
+export async function signIn(page: Page, email: string, password: string, w?: Watch): Promise<void> {
   if (!/\/login/.test(page.url())) await page.goto('/login');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Пароль').fill(password);
+  const never = () => new Promise<never>(() => {});
   for (let attempt = 0; attempt < 3; attempt++) {
     await page.getByRole('button', { name: 'Войти' }).click();
-    const wait = page.getByRole('button', { name: /^Повторить через/ });
     const outcome = await Promise.race([
-      page.waitForURL((u) => u.pathname !== '/login', { timeout: 15000 }).then(() => 'moved' as const),
-      wait.waitFor({ timeout: 15000 }).then(() => 'limited' as const),
+      page.waitForURL((u) => u.pathname !== '/login', { timeout: 15000 }).then(() => 'moved' as const, never),
+      page
+        .getByRole('button', { name: /^Повторить через/ })
+        .waitFor({ timeout: 15000 })
+        .then(() => 'limited' as const, never),
       page
         .locator('.at-toast-region[role="alert"] .at-toast')
         .waitFor({ timeout: 15000 })
-        .then(() => 'error' as const),
+        .then(() => 'error' as const, never),
+      new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 16000)),
     ]);
     if (outcome !== 'limited') return;
+    if (w) w.loginRetried = true;
     await expect(page.getByRole('button', { name: 'Войти' })).toBeEnabled({ timeout: 70000 });
   }
 }
@@ -147,3 +156,32 @@ export function randomInn(): string {
 /** A unique address for this run (never a demo account: the shared data of Plan 1 stays as it is). */
 export const freshEmail = (what: string) =>
   `e2e-react-${what}-${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}@agrotrace.test`;
+
+/** `POST /auth/login` straight to the API for set-up steps; the login-ip limit (429) is waited out (Retry-After). */
+export async function apiLogin(api: APIRequestContext, email: string, password: string): Promise<string> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await api.post(`${API}/auth/login`, { data: { email, password } });
+    if (res.status() === 429) {
+      const wait = Number(res.headers()['retry-after']) || 60;
+      await new Promise((r) => setTimeout(r, (wait + 1) * 1000));
+      continue;
+    }
+    expect(res.status(), await res.text()).toBe(200);
+    return ((await res.json()) as { accessToken: string }).accessToken;
+  }
+  throw new Error('login-ip limit did not clear');
+}
+
+// Express has no SSE yet: its 404 makes openEventStream refresh the token on every reconnect (1, 3, 7, 15 … s; F5/R63).
+// A full page load that interrupts such a refresh loses the rotated cookie (the server already rotated it) and the
+// next start-up refresh meets the R32 race answer — signed out. Specs about something else answer the stream with an
+// empty event stream (the browser reconnects by itself, no refresh); smoke.spec.ts still reports the real 404 once.
+export async function quietStream(context: BrowserContext): Promise<void> {
+  await context.route('**/api/v1/events/stream**', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' },
+      body: 'event: unread\ndata: {"count":0}\n\n',
+    }),
+  );
+}
