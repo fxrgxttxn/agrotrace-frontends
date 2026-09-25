@@ -16,6 +16,8 @@ services:
     volumes: [.:/repo]
     ipc: host
     environment: { CI: "1" }
+    # In `at` so docs:test reaches the gateway (ds:test serves the showcase itself and needs no network).
+    networks: [at]
   postgres:
     image: postgres:16-alpine
     environment:

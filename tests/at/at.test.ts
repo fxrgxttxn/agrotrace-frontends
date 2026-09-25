@@ -94,6 +94,20 @@ describe('./at wrapper (R88 M6)', () => {
     expect(cmds.at(-1)).toMatch(/pnpm --filter @agrotrace\/tests-api test health$/);
   });
 
+  it('docs:test [back] starts the backend and the gateway, then the Playwright Swagger UI check (P5)', () => {
+    const cmds = sh(['./at', 'docs:test'], { AT_DRY_RUN: '1' })
+      .out.split('\n')
+      .filter((l) => l.startsWith('+ '));
+    expect(cmds.slice(-2)).toEqual([
+      '+ docker compose up -d --build --wait gateway',
+      '+ docker compose run --rm -e DOCS_BACKEND=express playwright npx --no-install playwright test -c api-docs/playwright.config.ts',
+    ]);
+    expect(cmds).toContain(
+      '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
+    );
+    expect(readFileSync(`${REPO}at.sh`, 'utf8')).toMatch(/"\$0" gw:test\n {4}"\$0" docs:test express\n/);
+  });
+
   it('up infra starts mercury-mock too (R88 M4)', () => {
     const r = sh(['./at', 'up', 'infra'], { AT_DRY_RUN: '1' });
     expect(r.out).toContain(

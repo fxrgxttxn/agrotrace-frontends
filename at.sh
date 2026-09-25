@@ -221,7 +221,7 @@ case "$cmd" in
   # The command wrappers (at, at.sh, at.cmd, at.ps1; `up` in AT_DRY_RUN mode) — tests/at.
   at:test)   $T pnpm --filter @agrotrace/tests-at test "$@" ;;
   # Everything, in dependency order: unit → wrappers → tests/db (throwaway agrotrace_test) → dev DB migrated and
-  # seed checked → tests/api against Express (after a reset) → gateway up + gw:test → design-system showcase.
+  # seed checked → tests/api against Express (after a reset) → gateway up + gw:test → Swagger UI through the gateway → design-system showcase.
   test:all)
     "$0" test
     "$0" at:test
@@ -232,6 +232,7 @@ case "$cmd" in
     "$0" api:test express --reset
     "$0" up gateway
     "$0" gw:test
+    "$0" docs:test express
     "$0" ds:test ;;
   # ESLint's flat config (eslint.config.js) already covers the whole repo tree in one pass — `-r`
   # would instead run per-workspace-package `lint` scripts, none of which exist (only the root
@@ -287,6 +288,13 @@ case "$cmd" in
     $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" tools \
       pnpm --filter @agrotrace/backend-express gen:db-types ;;
   ds:test)     $DC run --rm playwright npx --no-install playwright test "$@" ;;
+  # Swagger UI of a backend through the gateway (P5, R89/I6): renders under the gateway CSP with no console error,
+  # CSP violation or foreign request. Starts the backend and the gateway first (`up <back>`, `up gateway`).
+  docs:test)
+    back="${1:-express}"; [ $# -gt 0 ] && shift
+    up_backend "$back"
+    run $DC up -d --build --wait gateway
+    run $DC run --rm -e "DOCS_BACKEND=${back}" playwright npx --no-install playwright test -c api-docs/playwright.config.ts "$@" ;;
   # Gateway must already be up (./at.sh up gateway). See gw_test() above for what this checks.
   gw:test)     gw_test ;;
   api:test)    api_test "$@" ;;

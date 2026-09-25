@@ -92,6 +92,7 @@ jobs:
       - uses: ./.github/actions/pnpm-store-restore
       - run: ./at.sh install
       - run: ./at.sh api:test express --reset
+      - run: ./at.sh docs:test express
       - uses: ./.github/actions/pnpm-store-save
         if: always()
 

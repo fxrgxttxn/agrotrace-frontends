@@ -4,6 +4,8 @@ import { defineConfig, devices } from '@playwright/test';
 // committed screenshot baselines never depend on the host OS.
 export default defineConfig({
   testDir: '.',
+  // api-docs/ has its own config (./at.sh docs:test): it needs the gateway, not the showcase server.
+  testIgnore: ['api-docs/**'],
   fullyParallel: true,
   forbidOnly: true,
   reporter: [['list']],
