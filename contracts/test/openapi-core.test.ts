@@ -423,6 +423,14 @@ describe('openapi contract: bundle', () => {
     expect(doc.components.schemas.ProblemCode.enum).toEqual(PROBLEM_CODES);
   });
 
+  it('P7: body-level errors use the `_root` key; duplicates sit at the repeated element', () => {
+    const d: string = doc.info.description;
+    expect(d).toMatch(/Ключ `_root` — ошибки тела целиком \(P7\)/);
+    expect(d).toMatch(/не разбирается как JSON[^.]*400 VALIDATION `errors\._root: \[validation\.invalid\]`/);
+    expect(d).toMatch(/`errors\._root: \[validation\.type\]`/);
+    expect(d).toMatch(/повтор элемента массива — у поля повторившегося элемента/);
+  });
+
   it('P3: 405 METHOD_NOT_ALLOWED is a shared response with the Allow header, described in info', () => {
     const r = doc.components.responses.MethodNotAllowed;
     expect(r.content['application/problem+json'].example).toMatchObject({

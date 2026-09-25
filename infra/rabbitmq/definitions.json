@@ -37,7 +37,8 @@
       "arguments": {
         "x-queue-type": "quorum",
         "x-dead-letter-exchange": "",
-        "x-dead-letter-routing-key": "agrotrace.express.jobs.dlq"
+        "x-dead-letter-routing-key": "agrotrace.express.jobs.dlq",
+        "x-delivery-limit": 1000000
       }
     },
     {
@@ -55,7 +56,8 @@
       "arguments": {
         "x-queue-type": "quorum",
         "x-dead-letter-exchange": "",
-        "x-dead-letter-routing-key": "agrotrace.django.jobs.dlq"
+        "x-dead-letter-routing-key": "agrotrace.django.jobs.dlq",
+        "x-delivery-limit": 1000000
       }
     },
     {
@@ -73,7 +75,8 @@
       "arguments": {
         "x-queue-type": "quorum",
         "x-dead-letter-exchange": "",
-        "x-dead-letter-routing-key": "agrotrace.laravel.jobs.dlq"
+        "x-dead-letter-routing-key": "agrotrace.laravel.jobs.dlq",
+        "x-delivery-limit": 1000000
       }
     },
     {

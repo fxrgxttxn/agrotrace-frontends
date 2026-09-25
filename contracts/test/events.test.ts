@@ -56,6 +56,22 @@ describe('queue events', () => {
     );
   });
 
+  it('every jobs queue sets an explicit, large x-delivery-limit, documented in the envelope (P8)', () => {
+    const defs = JSON.parse(
+      readFileSync(new URL('../../infra/rabbitmq/definitions.json', import.meta.url), 'utf8'),
+    );
+    const jobs = defs.queues.filter((q: Json) => /^agrotrace\.[a-z]+\.jobs$/.test(q.name));
+    expect(jobs.map((q: Json) => q.name).sort()).toEqual([
+      'agrotrace.django.jobs',
+      'agrotrace.express.jobs',
+      'agrotrace.laravel.jobs',
+    ]);
+    for (const q of jobs) expect(q.arguments['x-delivery-limit'], q.name).toBe(1000000);
+    expect(read('envelope.schema.json').description).toMatch(
+      /`x-delivery-limit` = 1000000 on every jobs queue/,
+    );
+  });
+
   it('envelope transport uses the Task 2 RabbitMQ topology and the transactional outbox (R55)', () => {
     const defs = JSON.parse(
       readFileSync(new URL('../../infra/rabbitmq/definitions.json', import.meta.url), 'utf8'),

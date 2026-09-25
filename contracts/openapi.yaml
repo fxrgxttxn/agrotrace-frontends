@@ -24,7 +24,10 @@ info:
     (`params.reason`: NOT_HOLDER, NOT_SENDER, NOT_RECEIVER, EDIT_WINDOW_CLOSED, BATCH_STATUS; для входа —
     USER_BLOCKED, USER_INVITED, ORGANIZATION_NOT_ACTIVE). Ссылка в теле запроса на несуществующую или невидимую
     сущность — 400 VALIDATION `validation.notFound` (не 404). Пути полей в `errors` — через точку с индексами
-    массивов: `items[0].batchId`.
+    массивов: `items[0].batchId`; повтор элемента массива — у поля повторившегося элемента (каждого, кроме первого
+    вхождения). Ключ `_root` — ошибки тела целиком (P7): тело, которое не разбирается как JSON (синтаксис,
+    неподдерживаемая кодировка `charset`, оборванная передача), — 400 VALIDATION `errors._root: [validation.invalid]`;
+    JSON не того типа (например, массив вместо объекта) — `errors._root: [validation.type]`.
 
 
     Порядок проверок, если операция не уточняет его: 401 → 403 по роли → `Idempotency-Key` → 400 по схеме

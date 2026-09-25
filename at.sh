@@ -303,6 +303,8 @@ case "$cmd" in
     $DC exec -T postgres pg_isready -U agrotrace_owner && \
     $DC exec -T redis redis-cli ping && \
     $DC exec -T rabbitmq rabbitmq-diagnostics -q check_running && \
+    { [ "$($DC exec -T rabbitmq rabbitmqctl -q list_queues name arguments | grep -cE '\.jobs[[:space:]].*x-delivery-limit')" = "3" ] \
+      || { echo "rabbitmq: the three jobs queues (x-delivery-limit) did not load from definitions.json"; false; }; } && \
     $T sh -c 'curl -fsS http://minio:9000/minio/health/live && curl -fsS http://mailpit:8025/livez && curl -fsS http://mercury-mock:8080/health' && echo "infra ok" ;;
   # Demo data (db/seed): replaces all data of the dev DB (except roles, regions, schema_migrations),
   # its MinIO objects and Redis. Timestamps end at SEED_NOW (env, ISO minute; default: now).
