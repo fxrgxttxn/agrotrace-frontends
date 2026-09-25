@@ -75,7 +75,9 @@ export async function apiUp(page: Page): Promise<boolean> {
 }
 
 /** The login form: submits and, if the login-ip limit answers 429 (20 per 60 s for the one gateway-react IP on the
- * shared stack), waits out the countdown and submits again. Pass the page's Watch so that 429 is not a defect. */
+ * shared stack), waits out the countdown and submits again. Pass the page's Watch so that 429 is not a defect.
+ * Returns once the page left /login or showed an error message; throws when nothing happened within 16 s or the limit
+ * still answered after the last attempt (a silent return would only move the failure to a confusing later step). */
 export async function signIn(page: Page, email: string, password: string, w?: Watch): Promise<void> {
   if (!/\/login/.test(page.url())) await page.goto('/login');
   await page.getByLabel('Email').fill(email);
@@ -95,10 +97,14 @@ export async function signIn(page: Page, email: string, password: string, w?: Wa
         .then(() => 'error' as const, never),
       new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 16000)),
     ]);
-    if (outcome !== 'limited') return;
+    if (outcome === 'moved' || outcome === 'error') return;
+    if (outcome === 'timeout')
+      throw new Error(`signIn(${email}): no navigation, message or limit within 16 s`);
     if (w) w.loginRetried = true;
+    if (attempt === 2) break;
     await expect(page.getByRole('button', { name: 'Войти' })).toBeEnabled({ timeout: 70000 });
   }
+  throw new Error(`signIn(${email}): the login limit still answered 429 after 3 attempts`);
 }
 
 export async function signOut(page: Page): Promise<void> {

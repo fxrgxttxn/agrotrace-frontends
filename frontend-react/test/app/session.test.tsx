@@ -86,10 +86,14 @@ describe('session start-up', () => {
     const { router, core } = renderApp('/fields');
     expect(await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' })).toBeInTheDocument();
     expect(screen.getByText('Слишком много запросов — попробуйте позже')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Повторить через 2 с' })).toBeDisabled();
+    // The countdown may already have ticked once on a busy host.
+    expect(screen.getByRole('button', { name: /^Повторить через [12] с$/ })).toBeDisabled();
     expect(core.store.get()).not.toBeNull();
     expect(router.state.location.pathname).toBe('/fields');
-    await userEvent.click(await screen.findByRole('button', { name: 'Повторить' }, { timeout: 3500 }));
+    const retry = await screen.findByRole('button', { name: 'Повторить' }, { timeout: 3500 });
+    // The wait is over: the focus is on the button that can act now.
+    await waitFor(() => expect(retry).toHaveFocus());
+    await userEvent.click(retry);
     expect(await screen.findByRole('heading', { level: 1, name: 'Поля' })).toBeInTheDocument();
     expect(refreshes).toBe(1);
   });
