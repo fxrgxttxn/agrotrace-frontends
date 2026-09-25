@@ -1,9 +1,10 @@
 """Loads the CSVs produced by agrobench.generate into Redis (spec §13.3, §13.4): every write goes
 through one big pipeline flushed every 10000 commands, with persistence disabled for the duration
 (`CONFIG SET save ""` / `appendonly no`) — restored to the requested durability mode
-(appendonly yes, appendfsync per DURABILITY) once loading is done. No `KEYS`/`SCAN` is ever used:
-every key this script writes is tracked in Python as it's written, both for the per-type
-MEMORY USAGE sampling below and for later query/test code.
+(appendonly yes, appendfsync per DURABILITY, via agrobench.config's single source of truth) once
+loading is done. No `KEYS`/`SCAN` is ever used: every key this script writes is tracked in Python
+as it's written, both for the per-type MEMORY USAGE sampling below (a fixed-seed random sample per
+key type, so results are reproducible run to run) and for later query/test code.
 
 Usable as a CLI (`python -m agrobench.load_redis`) and as a library (`load(data_dir)`, used by
 tests/test_load_equivalence.py).
@@ -12,8 +13,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
+import random
 import time
 from pathlib import Path
 
@@ -23,7 +26,10 @@ from agrobench import config, redis_keys
 
 PIPELINE_BATCH = 10_000
 SAMPLE_SIZE = 100
-DURABILITY_APPENDFSYNC = {"strict": "always", "relaxed": "everysec"}
+# Fixed seed for MEMORY USAGE sampling below -> reproducible runs. Each bucket gets its own
+# independent (but still deterministic) RNG, derived from this seed plus the bucket name, so
+# sampling one bucket can't accidentally correlate with another's.
+MEMORY_SAMPLE_SEED = 20260925
 
 # Key classes sampled for MEMORY USAGE and extrapolated to a total (spec §13.4).
 _BUCKETS = [
@@ -42,6 +48,11 @@ def _client() -> redis.Redis:
 def _read_csv(path: Path) -> list[dict]:
     with path.open(newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+def _bucket_rng(bucket: str) -> random.Random:
+    digest = hashlib.sha256(f"{MEMORY_SAMPLE_SEED}:{bucket}".encode()).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
 
 
 def load(data_dir: Path) -> dict:
@@ -185,7 +196,7 @@ def load(data_dir: Path) -> dict:
 
     durability = os.environ.get("DURABILITY", "relaxed")
     client.config_set("appendonly", "yes")
-    client.config_set("appendfsync", DURABILITY_APPENDFSYNC[durability])
+    client.config_set("appendfsync", config.redis_appendfsync_for(durability))
     if original_save:
         client.config_set("save", original_save)
 
@@ -195,7 +206,8 @@ def load(data_dir: Path) -> dict:
         count = len(names)
         if count == 0:
             continue
-        sample_keys = list(names)[:SAMPLE_SIZE]
+        all_keys = list(names)
+        sample_keys = _bucket_rng(bucket).sample(all_keys, min(SAMPLE_SIZE, count))
         usages = [client.memory_usage(k) or 0 for k in sample_keys]
         avg = sum(usages) / len(usages)
         memory_by_bucket[bucket] = {

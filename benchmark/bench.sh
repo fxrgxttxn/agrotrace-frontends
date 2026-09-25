@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 
 DC="docker compose -p agrotrace-bench -f docker-compose.yml"
 STATE_FILE=".bench-state"
+DURABILITY_FILE="durability.conf"
 
 cmd="${1:-help}"; shift || true
 
@@ -19,8 +20,17 @@ usage() {
 check_profile()    { case "$1" in default|tuned) ;; *) echo "bench: profile must be default or tuned, got '$1'" >&2; usage ;; esac; }
 check_durability() { case "$1" in strict|relaxed) ;; *) echo "bench: durability must be strict or relaxed, got '$1'" >&2; usage ;; esac; }
 
-sync_commit_for() { case "$1" in strict) echo on ;; relaxed) echo off ;; *) usage ;; esac; }     # PG synchronous_commit
-appendfsync_for() { case "$1" in strict) echo always ;; relaxed) echo everysec ;; *) usage ;; esac; } # Redis appendfsync
+# Durability (strict|relaxed) -> concrete setting, read from durability.conf — the single source
+# of truth also parsed by agrobench.config (used by tests/test_env.py's expected values and by
+# agrobench.load_redis, which restores this exact appendfsync after the bulk pipeline load).
+durability_setting() { # $1=strict|relaxed $2=pg_synchronous_commit|redis_appendfsync
+  local value
+  value="$(grep -m1 "^$1\.$2=" "$DURABILITY_FILE" | cut -d= -f2)"
+  [ -n "$value" ] || { echo "bench: no $2 entry for durability '$1' in $DURABILITY_FILE" >&2; exit 1; }
+  echo "$value"
+}
+sync_commit_for()   { durability_setting "$1" pg_synchronous_commit; }
+appendfsync_for()   { durability_setting "$1" redis_appendfsync; }
 
 # Every subcommand except up/down needs a stand that `up` already brought up and recorded here —
 # this is what tells `test`/`gen`/`load`/`run`/... which profiles/durability are actually live.
@@ -51,6 +61,22 @@ do_env() {
   export DOCKER_VERSION DOCKER_COMPOSE_VERSION
   DOCKER_VERSION="$(docker --version)"
   DOCKER_COMPOSE_VERSION="$(docker compose version --short 2>/dev/null || echo unknown)"
+
+  # Actual limits applied to the *running* containers, introspected via `docker inspect` (host has
+  # docker; bench-runner, where agrobench.env actually runs, has no docker socket) rather than
+  # just repeating the declared agrobench.config.RESOURCE_LIMITS constant — env.json should report
+  # what the stand really got, not what docker-compose.yml merely asked for.
+  local pg_cid rd_cid
+  pg_cid="$($DC ps -q bench-postgres)"
+  rd_cid="$($DC ps -q bench-redis)"
+  [ -n "$pg_cid" ] && [ -n "$rd_cid" ] || {
+    echo "bench: env needs a running stand — run './at.sh bench up' first" >&2; exit 1; }
+  export PG_LIMITS_CPUS PG_LIMITS_MEM_BYTES REDIS_LIMITS_CPUS REDIS_LIMITS_MEM_BYTES
+  PG_LIMITS_CPUS="$(docker inspect "$pg_cid" --format '{{.HostConfig.NanoCpus}}')"
+  PG_LIMITS_MEM_BYTES="$(docker inspect "$pg_cid" --format '{{.HostConfig.Memory}}')"
+  REDIS_LIMITS_CPUS="$(docker inspect "$rd_cid" --format '{{.HostConfig.NanoCpus}}')"
+  REDIS_LIMITS_MEM_BYTES="$(docker inspect "$rd_cid" --format '{{.HostConfig.Memory}}')"
+
   $DC run --rm bench-runner python -m agrobench.env
 }
 

@@ -85,8 +85,17 @@ def test_env_json_records_identical_resource_limits_for_both_dbms():
     assert env_path.exists(), "results/env.json missing — run ./at.sh bench env (or up) first"
     data = json.loads(env_path.read_text(encoding="utf-8"))
 
+    # These are introspected from the *running* containers (docker inspect, via bench.sh — see
+    # agrobench/env.py), not just repeated from agrobench.config.RESOURCE_LIMITS — so this also
+    # catches docker-compose.yml's cpus/mem_limit drifting from that declared constant.
     limits = data["resource_limits"]
-    assert limits["postgres"] == limits["redis"] == config.RESOURCE_LIMITS
+    assert limits["postgres"] == limits["redis"]
+    assert limits["postgres"]["cpus"] == config.RESOURCE_LIMITS["cpus"], (
+        "actual (docker inspect) postgres cpus limit does not match agrobench.config.RESOURCE_LIMITS"
+    )
+    assert limits["postgres"]["mem_mb"] == config.RESOURCE_LIMITS["mem_mb"], (
+        "actual (docker inspect) postgres memory limit does not match agrobench.config.RESOURCE_LIMITS"
+    )
     assert data["profiles"]["pg_profile"] == os.environ.get("PG_PROFILE", "default")
     assert data["profiles"]["redis_profile"] == os.environ.get("REDIS_PROFILE", "default")
     assert data["profiles"]["durability"] == os.environ.get("DURABILITY", "relaxed")

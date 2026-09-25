@@ -58,6 +58,12 @@ services:
       DURABILITY: ${DURABILITY:-relaxed}
       DOCKER_VERSION: ${DOCKER_VERSION:-}
       DOCKER_COMPOSE_VERSION: ${DOCKER_COMPOSE_VERSION:-}
+      # Actual per-container resource limits, introspected by bench.sh via `docker inspect`
+      # (env.py has no docker socket) — see benchmark/bench.sh:do_env.
+      PG_LIMITS_CPUS: ${PG_LIMITS_CPUS:-}
+      PG_LIMITS_MEM_BYTES: ${PG_LIMITS_MEM_BYTES:-}
+      REDIS_LIMITS_CPUS: ${REDIS_LIMITS_CPUS:-}
+      REDIS_LIMITS_MEM_BYTES: ${REDIS_LIMITS_MEM_BYTES:-}
       RESULTS_DIR: /bench/results
       DATA_DIR: /bench/data
     volumes:

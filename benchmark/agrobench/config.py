@@ -16,9 +16,13 @@ from pathlib import Path
 BENCH_DIR = Path(__file__).resolve().parent.parent
 PG_DIR = BENCH_DIR / "pg"
 REDIS_DIR = BENCH_DIR / "redis"
+DURABILITY_FILE = BENCH_DIR / "durability.conf"
 
 # Identical for bench-postgres and bench-redis (benchmark/docker-compose.yml `cpus`/`mem_limit`;
-# pg/tuned.conf and redis/tuned.conf are sized off MEM_MB too — keep all three in sync).
+# pg/tuned.conf and redis/tuned.conf are sized off MEM_MB too — keep all three in sync). This is
+# the *declared* value; agrobench.env additionally introspects the *actual* running limits via
+# `docker inspect` (bench.sh has host-side docker access; env.py, inside bench-runner, doesn't)
+# and tests/test_env.py fails if the two disagree.
 RESOURCE_LIMITS = {"cpus": 2, "mem_mb": 4096}
 
 _PG_SIZE_SETTINGS = {
@@ -26,8 +30,6 @@ _PG_SIZE_SETTINGS = {
 }
 _PG_FLOAT_SETTINGS = {"random_page_cost"}
 _PG_INT_SETTINGS = {"effective_io_concurrency", "max_connections"}
-
-_REDIS_DURABILITY_APPENDFSYNC = {"strict": "always", "relaxed": "everysec"}
 
 _SIZE_RE = re.compile(r"^(-?\d+(?:\.\d+)?)\s*([a-zA-Z]*)$")
 _PG_UNITS = {"": 1, "b": 1, "kb": 1024, "mb": 1024**2, "gb": 1024**3, "tb": 1024**4}
@@ -76,6 +78,28 @@ def parse_redis_conf(path: Path) -> dict[str, str]:
     return settings
 
 
+def parse_durability_conf(path: Path = DURABILITY_FILE) -> dict[str, str]:
+    """Parses durability.conf (`<durability>.<key>=<value>`) into {"strict.pg_synchronous_commit":
+    "on", ...} — the single source of truth for the durability -> concrete-setting mapping,
+    shared with benchmark/bench.sh (parsed there with grep/cut, not this function)."""
+    settings: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        settings[key.strip()] = value.strip()
+    return settings
+
+
+def pg_synchronous_commit_for(durability: str) -> str:
+    return parse_durability_conf()[f"{durability}.pg_synchronous_commit"]
+
+
+def redis_appendfsync_for(durability: str) -> str:
+    return parse_durability_conf()[f"{durability}.redis_appendfsync"]
+
+
 def pg_size_to_bytes(value: str) -> int:
     """Converts a PostgreSQL size (config-file or `SHOW` style: `1024MB`, `1GB`, `8kB`) to bytes."""
     m = _SIZE_RE.match(value.strip())
@@ -114,7 +138,7 @@ def expected_pg_settings(profile: str, durability: str) -> dict[str, str]:
         "effective_io_concurrency": conf["effective_io_concurrency"],
         "max_wal_size": conf["max_wal_size"],
         # bench.sh always overrides this on the command line, regardless of the file's own value.
-        "synchronous_commit": "on" if durability == "strict" else "off",
+        "synchronous_commit": pg_synchronous_commit_for(durability),
     }
 
 
@@ -139,7 +163,7 @@ def expected_redis_settings(profile: str, durability: str) -> dict[str, str]:
         "io-threads": conf["io-threads"],
         # bench.sh always passes these two on the command line, regardless of the file.
         "appendonly": "yes",
-        "appendfsync": _REDIS_DURABILITY_APPENDFSYNC[durability],
+        "appendfsync": redis_appendfsync_for(durability),
     }
 
 

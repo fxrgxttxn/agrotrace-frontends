@@ -1,7 +1,9 @@
 """Writes benchmark/results/env.json: stand characteristics (spec §13.4, §13.6) — CPU/RAM/disk as
 visible inside bench-runner, OS, Docker/Compose versions (passed in by bench.sh, which is the
 only place with host `docker` access), PostgreSQL/Redis/Python/library versions, the active
-profiles, and the resource limits applied to both DBMS containers.
+profiles, and the resource limits actually applied to both DBMS containers (introspected by
+bench.sh via `docker inspect` and passed in as PG_LIMITS_*/REDIS_LIMITS_* — this module has no
+docker socket of its own, so it never re-declares agrobench.config.RESOURCE_LIMITS as fact).
 
 Run via `./at.sh bench env` (also invoked automatically at the end of `./at.sh bench up`).
 """
@@ -67,6 +69,17 @@ def _redis_version() -> str | None:
         return None
 
 
+def _container_limits(cpus_env: str, mem_bytes_env: str) -> dict:
+    """Converts docker inspect's raw HostConfig fields (NanoCpus, Memory in bytes — both 0 if
+    unset) into the same {"cpus", "mem_mb"} shape as agrobench.config.RESOURCE_LIMITS, so the two
+    are directly comparable."""
+    nano_cpus = os.environ.get(cpus_env, "")
+    mem_bytes = os.environ.get(mem_bytes_env, "")
+    cpus = round(int(nano_cpus) / 1e9, 3) if nano_cpus not in ("", "0") else None
+    mem_mb = round(int(mem_bytes) / (1024**2), 1) if mem_bytes not in ("", "0") else None
+    return {"cpus": cpus, "mem_mb": mem_mb}
+
+
 def collect() -> dict:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -96,11 +109,13 @@ def collect() -> dict:
             "redis_profile": os.environ.get("REDIS_PROFILE", "default"),
             "durability": os.environ.get("DURABILITY", "relaxed"),
         },
+        # Introspected from the running containers (docker inspect .HostConfig, via bench.sh —
+        # see module docstring), not just repeated from agrobench.config.RESOURCE_LIMITS.
         # Identical for both DBMS by construction (docker-compose.yml `cpus`/`mem_limit`) —
-        # tests/test_env.py asserts the two entries match.
+        # tests/test_env.py asserts the two entries match each other AND the declared config.
         "resource_limits": {
-            "postgres": dict(config.RESOURCE_LIMITS),
-            "redis": dict(config.RESOURCE_LIMITS),
+            "postgres": _container_limits("PG_LIMITS_CPUS", "PG_LIMITS_MEM_BYTES"),
+            "redis": _container_limits("REDIS_LIMITS_CPUS", "REDIS_LIMITS_MEM_BYTES"),
         },
     }
 
