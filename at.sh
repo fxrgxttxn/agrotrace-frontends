@@ -254,6 +254,7 @@ case "$cmd" in
     done
     $DC run --rm dbmate --no-dump-schema --wait up
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
+  bench) exec "$(dirname "$0")/benchmark/bench.sh" "$@" ;;
   # Top-level commands only (two-space indented case labels).
   help|*)  grep -E '^  [a-z:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
 esac

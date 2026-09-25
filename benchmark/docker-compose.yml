@@ -1,0 +1,76 @@
+name: agrotrace-bench
+services:
+  # PostgreSQL 16 side of the benchmark (spec §13). Config file picked by PG_PROFILE
+  # (default|tuned, benchmark/pg/*.conf); PG_SYNCHRONOUS_COMMIT overrides the durability-relevant
+  # setting on the command line (bench.sh derives it from `up`'s durability argument, strict/
+  # relaxed — command-line -c always wins over the mounted config file). No host port published:
+  # bench-runner is the only client, over the bench network.
+  bench-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench
+      POSTGRES_DB: bench
+    volumes:
+      - ./pg/${PG_PROFILE:-default}.conf:/etc/postgresql/postgresql.conf:ro
+      - pgdata:/var/lib/postgresql/data
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf",
+              "-c", "synchronous_commit=${PG_SYNCHRONOUS_COMMIT:-on}"]
+    # Resource limits identical to bench-redis (spec §13, Task 1) — also recorded in
+    # results/env.json (agrobench/config.py:RESOURCE_LIMITS mirrors these two numbers).
+    cpus: "2"
+    mem_limit: "4g"
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U bench -d bench"], interval: 2s, retries: 30 }
+    networks: [bench]
+
+  # Redis 7.4 side (spec §13). Config file picked by REDIS_PROFILE (default|tuned,
+  # benchmark/redis/*.conf); appendonly/appendfsync always passed on the command line (durability
+  # strict/relaxed, see bench.sh) — the loader (load_redis.py) temporarily disables persistence
+  # for the bulk pipeline load and restores this exact mode afterwards. No host port published.
+  bench-redis:
+    image: redis:7.4-alpine
+    volumes:
+      - ./redis/${REDIS_PROFILE:-default}.conf:/usr/local/etc/redis/redis.conf:ro
+      - redisdata:/data
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf",
+              "--appendonly", "yes", "--appendfsync", "${REDIS_APPENDFSYNC:-everysec}"]
+    # Resource limits identical to bench-postgres (spec §13, Task 1).
+    cpus: "2"
+    mem_limit: "4g"
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 2s, retries: 30 }
+    networks: [bench]
+
+  # Python 3.12 client: generator, loaders, queries, measurement harness, plots, pytest — all of
+  # benchmark/ is bind-mounted at /bench (rebuild only needed when requirements.txt changes).
+  # Started on demand (`docker compose run --rm bench-runner ...` from bench.sh), never as a
+  # standing service; waits for both DBMS healthchecks so any subcommand can assume a ready stand.
+  bench-runner:
+    build: { context: ., dockerfile: runner.Dockerfile }
+    environment:
+      PGHOST: bench-postgres
+      PGPORT: "5432"
+      PGUSER: bench
+      PGPASSWORD: bench
+      PGDATABASE: bench
+      REDIS_URL: redis://bench-redis:6379/0
+      PG_PROFILE: ${PG_PROFILE:-default}
+      REDIS_PROFILE: ${REDIS_PROFILE:-default}
+      DURABILITY: ${DURABILITY:-relaxed}
+      DOCKER_VERSION: ${DOCKER_VERSION:-}
+      DOCKER_COMPOSE_VERSION: ${DOCKER_COMPOSE_VERSION:-}
+      RESULTS_DIR: /bench/results
+      DATA_DIR: /bench/data
+    volumes:
+      - .:/bench
+    working_dir: /bench
+    depends_on:
+      bench-postgres: { condition: service_healthy }
+      bench-redis: { condition: service_healthy }
+    networks: [bench]
+
+networks:
+  bench: {}
+
+volumes:
+  pgdata: {}
+  redisdata: {}
