@@ -10,9 +10,19 @@ import { api, type ApiClient } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
 import { closeDb, fixtureWrite, query } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
-import { fixture, MAX_IMAGE_BYTES, pngOfSize, RASTER, sha256hex, upload, webpSize } from './lib/files.js';
+import {
+  fixture,
+  MAX_IMAGE_BYTES,
+  multipart,
+  pngOfSize,
+  RASTER,
+  sha256hex,
+  upload,
+  webpSize,
+} from './lib/files.js';
 import { activateOrg, freshEmployee, freshHead, registerOrg } from './lib/fixtures.js';
 import { closeRedis, redis } from './lib/redis.js';
+import { API_URL } from './lib/env.js';
 
 afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
@@ -425,6 +435,51 @@ describe('SVG upload limits (P15, P18): the API never blocks on a hostile docume
     for (const o of others) {
       if (o.status !== 200) expectProblem(o, 415, 'UNSUPPORTED_MEDIA_TYPE', TOO_COMPLEX);
     }
+  });
+
+  it('a flooded lane refuses the overflow as svg-too-complex and keeps serving afterwards', async () => {
+    const { client, org } = await freshHead('FARM');
+    const path = 'M0 0 L1 1 '.repeat(35);
+    const heavy = `<svg xmlns="http://www.w3.org/2000/svg">${`<path fill="#000" d="${path}"/>`.repeat(4900)}</svg>`;
+    // 30 at once into the large lane: 1 running + 8 waiting fit, the rest must be refused.
+    const results = await Promise.all(
+      Array.from({ length: 30 }, () =>
+        uploadLogo(client, org.organizationId, { data: heavy, filename: 'h.svg' }),
+      ),
+    );
+    const refused = results.filter((r) => r.status === 415);
+    for (const r of refused) expectProblem(r, 415, 'UNSUPPORTED_MEDIA_TYPE', TOO_COMPLEX);
+    for (const r of results) expect([200, 415], r.text).toContain(r.status);
+    expect(refused.length).toBeGreaterThan(0); // the bound really applied
+    expect(results.filter((r) => r.status === 200).length).toBeGreaterThan(0);
+    // The same lane still serves.
+    const after = await uploadLogo(client, org.organizationId, { data: heavy, filename: 'after.svg' });
+    expect(after.status, after.text).toBe(200);
+  });
+
+  it('clients that abort their uploads do not slow the lane down for others', async () => {
+    const { client, org } = await freshHead('FARM');
+    const path = 'M0 0 L1 1 '.repeat(35);
+    const heavy = `<svg xmlns="http://www.w3.org/2000/svg">${`<path fill="#000" d="${path}"/>`.repeat(4900)}</svg>`;
+    const { body, contentType } = multipart([
+      { name: 'file', filename: 'gone.svg', contentType: 'image/svg+xml', data: heavy },
+    ]);
+    for (let i = 0; i < 5; i++) {
+      const ac = new AbortController();
+      const pending = fetch(`${API_URL}/organizations/${org.organizationId}/logo`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${client.accessToken}`, 'content-type': contentType },
+        body: new Uint8Array(body),
+        signal: ac.signal,
+      }).catch(() => undefined);
+      await new Promise((r) => setTimeout(r, 150)); // the upload is parsed and queued/running
+      ac.abort();
+      await pending;
+    }
+    const started = Date.now();
+    const res = await uploadLogo(client, org.organizationId, { data: heavy, filename: 'ok.svg' });
+    expect(res.status, res.text).toBe(200);
+    expect(Date.now() - started).toBeLessThan(3000);
   });
 });
 

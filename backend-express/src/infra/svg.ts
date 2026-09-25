@@ -11,10 +11,12 @@
  *    - complexity limits: nesting ≤ 64, ≤ 5 000 elements, ≤ 100 attributes per element, ≤ 20 000 attributes in all,
  *      ≤ 32 namespace declarations (`xmlns`, `xmlns:*`), every attribute value ≤ 64 KiB.
  * 3. The DOM work (svg-sanitize.ts) runs in worker threads behind bounded queues — two lanes, documents up to 64 KiB
- *    and larger ones, each with its own worker: one job running and at most 8 waiting per lane; every job has a 3 s deadline counted from the moment it is queued (waiting included); a
- *    job whose request went away is dropped (a running one terminates the worker); a full queue or a missed deadline
- *    refuses the upload as too complex. A terminated or crashed worker is replaced with an exponential back-off
- *    (100 ms … 2 s).
+ *    and larger ones, each with its own worker: one job running and at most 8 waiting per lane (also while a worker is
+ *    being replaced); every job has a 3 s deadline counted from the moment it is queued (waiting included, the
+ *    start-up of the worker the job itself runs on excluded); a full queue or a missed deadline refuses the upload as
+ *    too complex. A client that goes away never harms others: its waiting job is removed, its running job finishes
+ *    and the result is discarded. Only a missed deadline or a crash terminates a worker; it is replaced with an
+ *    exponential back-off (100 ms … 2 s).
  *
  * The caller answers 415 UNSUPPORTED_MEDIA_TYPE; `too-complex` outcomes carry `params.reason = "svg-too-complex"`.
  */
@@ -227,19 +229,30 @@ export function workerEngine(): SanitizerEngine {
 
 interface Job {
   text: string;
-  settle: (o: SanitizeOutcome) => void;
-  done: boolean;
-  deadline: NodeJS.Timeout;
+  /** The caller has its answer (result, refusal or abort). */
+  settled: boolean;
+  resolve: (o: SanitizeOutcome) => void;
+  /** Deadline bookkeeping: the timer runs while the job waits or runs on a ready engine (P18/P21). */
+  deadline: NodeJS.Timeout | null;
+  deadlineAt: number;
+  remaining: number;
   onAbort: (() => void) | null;
+  signal?: AbortSignal;
 }
 
 /**
- * The bounded queue (P18). One job runs, at most `maxWaiting` wait; each job has one deadline from enqueue. Dropping
- * the running job (deadline, abort, engine failure) terminates the engine; the next one is created after a back-off
- * that doubles with consecutive failures (100 ms … 2 s) and resets after a completed job.
+ * The bounded queue (P18). At most `maxWaiting` jobs wait — counted whether or not an engine currently exists (a
+ * back-off never lifts the bound) — and one runs. Every job has one deadline counted from enqueue, waiting included;
+ * the only time it does not count is the start-up of the engine the job itself runs on (its clock pauses until that
+ * engine is ready — so a respawn is charged to nobody, and never twice).
+ *
+ * Only a missed deadline or a real engine failure terminates the engine and counts towards the respawn back-off
+ * (100 ms doubling to 2 s, reset after a completed job). A client that goes away (abort) never does: a waiting job is
+ * removed; a running job runs to completion and its result is discarded.
  */
 export class SanitizerQueue {
   private engine: SanitizerEngine | null = null;
+  private engineReady = false;
   private readonly waiting: Job[] = [];
   private running: Job | null = null;
   private failures = 0;
@@ -256,24 +269,22 @@ export class SanitizerQueue {
 
   run(text: string, signal?: AbortSignal): Promise<SanitizeOutcome> {
     if (signal?.aborted) return Promise.resolve({ ok: false, reason: 'aborted' });
-    if (this.running && this.waiting.length >= this.opts.maxWaiting)
+    if (this.waiting.length >= this.opts.maxWaiting)
       return Promise.resolve({ ok: false, reason: 'too-complex' });
     return new Promise((resolve) => {
       const job: Job = {
         text,
-        done: false,
+        settled: false,
+        resolve,
+        deadline: null,
+        deadlineAt: 0,
+        remaining: this.opts.deadlineMs,
         onAbort: null,
-        deadline: setTimeout(() => this.drop(job, 'too-complex'), this.opts.deadlineMs),
-        settle: (o) => {
-          if (job.done) return;
-          job.done = true;
-          clearTimeout(job.deadline);
-          if (job.onAbort) signal?.removeEventListener('abort', job.onAbort);
-          resolve(o);
-        },
+        signal,
       };
+      this.startClock(job);
       if (signal) {
-        job.onAbort = () => this.drop(job, 'aborted');
+        job.onAbort = () => this.abort(job);
         signal.addEventListener('abort', job.onAbort, { once: true });
       }
       this.waiting.push(job);
@@ -286,13 +297,50 @@ export class SanitizerQueue {
     return (this.running ? 1 : 0) + this.waiting.length;
   }
 
-  private drop(job: Job, reason: 'too-complex' | 'aborted'): void {
-    if (job.done) return;
+  private startClock(job: Job): void {
+    job.deadlineAt = Date.now() + job.remaining;
+    job.deadline = setTimeout(() => this.expire(job), job.remaining);
+  }
+
+  private pauseClock(job: Job): void {
+    if (!job.deadline) return;
+    clearTimeout(job.deadline);
+    job.deadline = null;
+    job.remaining = Math.max(0, job.deadlineAt - Date.now());
+  }
+
+  private settle(job: Job, o: SanitizeOutcome): void {
+    if (job.settled) return;
+    job.settled = true;
+    if (job.onAbort) job.signal?.removeEventListener('abort', job.onAbort);
+    job.resolve(o);
+  }
+
+  /** The job's slot is free (it finished, expired or crashed): stop its clock. */
+  private release(job: Job): void {
+    if (job.deadline) clearTimeout(job.deadline);
+    job.deadline = null;
+    if (this.running === job) this.running = null;
+  }
+
+  /** Client gone: a waiting job leaves the queue; a running one keeps its slot until it finishes (result dropped). */
+  private abort(job: Job): void {
+    const idx = this.waiting.indexOf(job);
+    if (idx >= 0) {
+      this.waiting.splice(idx, 1);
+      this.release(job);
+    }
+    this.settle(job, { ok: false, reason: 'aborted' });
+  }
+
+  /** Missed deadline: a waiting job is refused; a running one also takes its engine down. */
+  private expire(job: Job): void {
+    job.deadline = null;
     const idx = this.waiting.indexOf(job);
     if (idx >= 0) this.waiting.splice(idx, 1);
-    job.settle({ ok: false, reason });
+    this.settle(job, { ok: false, reason: 'too-complex' });
     if (this.running === job) {
-      this.running = null;
+      this.release(job);
       this.discardEngine();
       this.pump();
     }
@@ -301,6 +349,7 @@ export class SanitizerQueue {
   private discardEngine(): void {
     this.engine?.terminate();
     this.engine = null;
+    this.engineReady = false;
     this.failures += 1;
     this.spawnAt = Date.now() + Math.min(2000, 100 * 2 ** (this.failures - 1));
   }
@@ -317,6 +366,7 @@ export class SanitizerQueue {
         return;
       }
       this.engine = this.factory();
+      this.engineReady = false;
     }
     const engine = this.engine;
     const job = this.waiting.shift()!;
@@ -324,19 +374,26 @@ export class SanitizerQueue {
     void (async () => {
       let outcome: SanitizeOutcome;
       try {
-        await engine.ready;
-        if (job.done) return;
+        if (!this.engineReady) {
+          // The start-up of the engine this job runs on is not charged to the job.
+          this.pauseClock(job);
+          await engine.ready;
+          if (this.engine === engine) this.engineReady = true;
+          if (this.running !== job) return; // expired meanwhile (cannot happen while paused, kept for safety)
+          this.startClock(job);
+        }
         const svg = await engine.run(job.text);
+        if (this.running !== job) return; // the deadline already took this job (and the engine)
         outcome = svg === null ? { ok: false, reason: 'invalid' } : { ok: true, svg };
-        if (this.engine === engine) this.failures = 0;
+        this.failures = 0;
       } catch {
-        // The engine died under this job (or never started): the job is refused, the engine replaced.
-        if (job.done) return;
+        // A real engine failure (crash, never started): the job is refused, the engine replaced.
+        if (this.running !== job) return;
         outcome = { ok: false, reason: 'too-complex' };
         if (this.engine === engine) this.discardEngine();
       }
-      if (this.running === job) this.running = null;
-      job.settle(outcome);
+      this.release(job);
+      this.settle(job, outcome); // no-op for an aborted job: its result is simply dropped
       this.pump();
     })();
   }

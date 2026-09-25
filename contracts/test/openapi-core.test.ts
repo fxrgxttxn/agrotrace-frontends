@@ -1107,8 +1107,13 @@ describe('openapi contract: operations', () => {
     expect(d).toMatch(/не больше 32, значение атрибута не длиннее 64 КиБ/);
     expect(d).toMatch(/`<!DOCTYPE>` и иных объявлений/);
     expect(d).toMatch(/только элементы из списка[^]*feTurbulence/);
-    expect(d).toMatch(/по одной выполняемой\s+и не более 8 ожидающих задач на процесс; срок задачи — 3 с/);
+    expect(d).toMatch(
+      /по одной выполняемой\s+и не более 8 ожидающих задач на процесс[^;]*; срок задачи — 3 с/,
+    );
     expect(d).toMatch(/`\{allowed, reason: "svg-too-complex"\}`/);
+    expect(d).toMatch(/предел действует и пока обработчик перезапускается/);
+    expect(d).toMatch(/запуск обработчика, на котором выполняется сама задача, — нет,\s+P21/);
+    expect(d).toMatch(/выполняемая доводится до конца, и результат\s+отбрасывается/);
     expect(d).toMatch(/корень с префиксом, например `s:svg`, не\s+принимается/);
     expect(d).toMatch(/атрибут `style` сохраняет только свойства fill[^]*`@` и `expression\(`/);
     expect(d).toMatch(/fill, stroke, filter, mask, clip-path, marker-\* удаляются[^]*`url\(#id\)` \(P20\)/);

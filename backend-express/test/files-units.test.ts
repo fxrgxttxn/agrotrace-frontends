@@ -228,17 +228,18 @@ describe('SVG sanitizing — the DOM stage the worker runs', () => {
 
 describe('SanitizerQueue — bounded, with deadlines, aborts and a replaceable engine (P18)', () => {
   /** A stub engine: `run` answers after `delayMs` (never, when null); records terminations. */
-  function stubs(delayMs: number | null) {
-    const log = { created: 0, terminated: 0 };
+  function stubs(delayMs: number | null, readyMs = 0) {
+    const log = { created: 0, terminated: 0, ran: [] as string[] };
     const factory = (): SanitizerEngine => {
       log.created += 1;
       let dead = false;
       let fail: ((e: Error) => void) | null = null;
       return {
-        ready: Promise.resolve(),
+        ready: new Promise((r) => setTimeout(r, readyMs)),
         run: (text) =>
           new Promise((resolve, reject) => {
             fail = reject;
+            log.ran.push(text);
             if (delayMs !== null) setTimeout(() => !dead && resolve(`<svg>${text}</svg>`), delayMs);
           }),
         terminate: () => {
@@ -278,21 +279,58 @@ describe('SanitizerQueue — bounded, with deadlines, aborts and a replaceable e
     expect(q.size).toBe(0);
   });
 
-  it('an aborted waiting job leaves the queue; an aborted running job terminates the engine', async () => {
-    const { log, factory } = stubs(200);
+  it('a client abort never terminates the engine nor causes a back-off (P21)', async () => {
+    const { log, factory } = stubs(100);
     const q = new SanitizerQueue(factory, { maxWaiting: 8, deadlineMs: 3000 });
     const running = new AbortController();
     const waiting = new AbortController();
     const first = q.run('first', running.signal);
     const second = q.run('second', waiting.signal);
     const third = q.run('third');
+    await new Promise((r) => setTimeout(r, 20)); // `first` is running on the engine
     waiting.abort();
     expect(await second).toEqual({ ok: false, reason: 'aborted' });
     running.abort();
     expect(await first).toEqual({ ok: false, reason: 'aborted' });
-    expect(log.terminated).toBe(1);
+    const started = Date.now();
+    // `first` runs to completion on the same engine (result dropped), then `third` — no restart, no back-off.
     expect(await third).toEqual({ ok: true, svg: '<svg>third</svg>' });
-    expect(log.created).toBe(2);
+    expect(Date.now() - started).toBeLessThan(400);
+    expect(log.terminated).toBe(0);
+    expect(log.created).toBe(1);
+    expect(log.ran).toEqual(['first', 'third']); // the aborted waiting job never ran
+    // Many aborted uploads in a row still cost the others nothing.
+    for (let i = 0; i < 5; i++) {
+      const ac = new AbortController();
+      const p = q.run(`gone${i}`, ac.signal);
+      ac.abort();
+      expect(await p).toEqual({ ok: false, reason: 'aborted' });
+    }
+    expect(await q.run('legit')).toEqual({ ok: true, svg: '<svg>legit</svg>' });
+    expect(log.terminated).toBe(0);
+    expect(log.created).toBe(1);
+  });
+
+  it('the waiting bound holds while the engine is being replaced (back-off)', async () => {
+    const { log, factory } = stubs(null); // hangs: the first job's deadline kills the engine
+    const q = new SanitizerQueue(factory, { maxWaiting: 3, deadlineMs: 150 });
+    expect(await q.run('hang')).toEqual({ ok: false, reason: 'too-complex' });
+    expect(log.terminated).toBe(1);
+    // No engine now, back-off pending: only 3 may wait, the 4th is refused at once.
+    const queued = [q.run('a'), q.run('b'), q.run('c')];
+    expect(q.size).toBe(3);
+    expect(await q.run('d')).toEqual({ ok: false, reason: 'too-complex' });
+    expect(q.size).toBe(3);
+    await Promise.all(queued);
+  });
+
+  it('the start-up of a respawned engine is not charged to the job running on it', async () => {
+    // Every engine needs 250 ms to start; the deadline is 200 ms. The job waits for start-up with its clock paused
+    // and still completes (runs 20 ms).
+    const { log, factory } = stubs(20, 250);
+    const q = new SanitizerQueue(factory, { maxWaiting: 8, deadlineMs: 200 });
+    expect(await q.run('first')).toEqual({ ok: true, svg: '<svg>first</svg>' });
+    expect(log.created).toBe(1);
   });
 });
 
