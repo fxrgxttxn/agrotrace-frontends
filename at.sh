@@ -259,7 +259,19 @@ case "$cmd" in
   # package.json has one), so recursing here silently lints nothing.
   lint)      $T pnpm lint ;;
   typecheck) $T pnpm -r typecheck ;;
-  fmt)       $T pnpm exec prettier --write . ;;
+  # P13: explicit paths only. No arguments or any flag-like argument (`--help`, `-w`, …) is refused: prettier would
+  # read a flag as an option and still `--write` the default target, reformatting the whole repository.
+  fmt)
+    if [ $# -eq 0 ]; then
+      echo "usage: ./at fmt <path>… — formats the given files/directories with Prettier (explicit paths only)" >&2
+      exit 2
+    fi
+    for p in "$@"; do
+      case "$p" in
+        -*) echo "./at fmt: '$p' looks like an option; only paths are accepted (P13)" >&2; exit 2 ;;
+      esac
+    done
+    run $T pnpm exec prettier --write -- "$@" ;;
   # --build on every `up` (R80): a stale gateway/mercury-mock image is never silently reused —
   # docker compose skips the build step on its own for any service without a `build:` key, so this
   # is a no-op for postgres/redis/rabbitmq/minio/mailpit.
