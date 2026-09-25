@@ -742,3 +742,40 @@ afterAll(() => {
   const missing = OPERATIONS.filter((op) => ![...(coverage.get(op.operationId) ?? [])].some((s) => s >= 200 && s < 300)).map((op) => op.operationId);
   expect(missing).toEqual([]);
 });
+
+afterAll(() => {
+  const noError = OPERATIONS.filter((op) => ![...(coverage.get(op.operationId) ?? [])].some((s) => s >= 300)).map((op) => op.operationId);
+  console.log('operations without an error case:', noError.join(', '));
+});
+
+describe('representative errors of the remaining operations', () => {
+  it('401, 400, 404 and 409 cases', async () => {
+    await expectStatus(400, 'POST', '/auth/password/forgot', { body: { email: 'bad' } });
+    await expectStatus(401, 'DELETE', '/me/avatar');
+    await expectStatus(401, 'GET', '/me/channels');
+    await expectStatus(401, 'POST', '/me/telegram-code');
+    const head = await as('petrov');
+    const invite = await expectStatus(400, 'POST', '/users', { token: head, body: { email: 'petrov@agrotrace.test', fullName: 'X', roles: ['LAB'], isOrgAdmin: false } });
+    expect(invite.body.errors).toEqual({ email: ['validation.email.taken'], roles: ['validation.notAllowed'] });
+    await expectStatus(404, 'PUT', `/fields/${mock.api.store.t.fields.find((f) => f.organization_id !== org('Петров').id)!.id}`, { token: head, body: { name: 'x', areaHa: '1.00', regionCode: '33' } });
+    await expectStatus(404, 'GET', `/batches/${UNKNOWN}/history`, { token: head });
+    await expectStatus(404, 'GET', `/batches/${batchId(20)}/path`, { token: head });
+    const prov = await as('provizia.head');
+    const b2 = mock.api.store.t.batches.find((b) => b.public_code === code(2))!;
+    const onSale = await expectStatus(409, 'POST', `/batches/${b2.id}/on-sale`, { token: prov, headers: { 'If-Match': String(b2.version) } });
+    expect(onSale.body.params).toEqual({ from: 'OnSale', to: 'OnSale' });
+    await expectStatus(400, 'POST', `/batches/${b2.id}/on-sale`, { token: prov, headers: { 'If-Match': 'W/"1"' } });
+    const queued = mock.api.store.t.lab_tests.find((t) => !t.protocol_file_id)!;
+    await expectStatus(404, 'GET', `/lab-tests/${queued.id}/protocol`, { token: await as('inspector') });
+    await expectStatus(404, 'GET', `/recalls/${UNKNOWN}/graph`, { token: await as('inspector') });
+    await expectStatus(400, 'GET', '/notifications?type=NOPE', { token: head });
+    const admin = await as('admin');
+    await expectStatus(404, 'PUT', `/dictionaries/indicators/${UNKNOWN}`, { token: admin, body: { name: 'x', unit: 'y' } });
+    const ind = mock.api.store.t.indicators;
+    const dup = await expectStatus(400, 'PUT', `/dictionaries/indicators/${ind[0]!.id}`, { token: admin, body: { name: ind[1]!.name, unit: 'y' } });
+    expect(dup.body.errors).toEqual({ name: ['validation.duplicate'] });
+    const res = await mock.api.handle(new Request(`${BASE}/events/stream`));
+    expect(res.status).toBe(401);
+    coverage.get('streamEvents')!.add(401);
+  });
+});
