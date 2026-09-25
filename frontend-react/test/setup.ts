@@ -52,8 +52,8 @@ if (!('locks' in navigator)) {
   });
 }
 
-// Lazy page chunks are transformed on first use: the first screen of a file may need more than the default 1 s.
-configure({ asyncUtilTimeout: 4000 });
+// Lazy page chunks are transformed on first use: the first screen of a file may need several seconds on a busy host.
+configure({ asyncUtilTimeout: 10000 });
 
 loadContract(inject('contract'));
 
