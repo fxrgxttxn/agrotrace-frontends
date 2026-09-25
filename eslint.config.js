@@ -9,6 +9,7 @@ export default tseslint.config(
       '**/.angular/**',
       '**/coverage/**',
       'contracts/**',
+      'packages/mock-api/public/**',
     ],
   },
   ...tseslint.configs.recommended,

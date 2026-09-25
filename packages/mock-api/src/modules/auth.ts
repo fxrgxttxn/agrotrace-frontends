@@ -238,8 +238,14 @@ export const authHandlers: Record<string, Handler> = {
       for (let grew = true; grew; ) {
         grew = false;
         for (const r of ctx.store.t.refresh_tokens) {
-          if (chain.has(r.id) && r.replaced_by && !chain.has(r.replaced_by)) (chain.add(r.replaced_by), (grew = true));
-          if (r.replaced_by && chain.has(r.replaced_by) && !chain.has(r.id)) (chain.add(r.id), (grew = true));
+          if (chain.has(r.id) && r.replaced_by && !chain.has(r.replaced_by)) {
+            chain.add(r.replaced_by);
+            grew = true;
+          }
+          if (r.replaced_by && chain.has(r.replaced_by) && !chain.has(r.id)) {
+            chain.add(r.id);
+            grew = true;
+          }
         }
       }
       for (const r of ctx.store.t.refresh_tokens)
