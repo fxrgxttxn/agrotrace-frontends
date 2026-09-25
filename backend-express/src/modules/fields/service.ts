@@ -213,7 +213,13 @@ export function fieldsService(c: Container) {
   }
 
   async function regionId(q: Q, code: string): Promise<string> {
-    const r = await q.selectFrom('regions').select('id').where('code', '=', code).executeTakeFirst();
+    // FOR KEY SHARE: a parallel deleteDictionaryEntry of the region waits and then sees this field (P23).
+    const r = await q
+      .selectFrom('regions')
+      .select('id')
+      .where('code', '=', code)
+      .forKeyShare()
+      .executeTakeFirst();
     if (!r) throw validationProblem({ regionCode: ['validation.notFound'] });
     return r.id;
   }
@@ -226,6 +232,7 @@ export function fieldsService(c: Container) {
       .select('id')
       .where('id', '=', input.substanceId.toLowerCase())
       .where('deleted_at', 'is', null)
+      .forShare()
       .executeTakeFirst();
     if (!s) errors.substanceId = ['validation.notFound'];
     if (Date.parse(input.appliedAt) > now.getTime()) errors.appliedAt = ['validation.date.future'];
@@ -333,6 +340,17 @@ export function fieldsService(c: Container) {
           regionCode: f.region_code,
           geometry: f.geometry ?? null,
         };
+        // Nothing changes → no write (updated_at kept), no audit row.
+        if (
+          canonical(before) ===
+          canonical({
+            name: input.name,
+            areaHa: input.areaHa,
+            regionCode: input.regionCode,
+            geometry: input.geometry ?? null,
+          })
+        )
+          return;
         const after = await tx
           .updateTable('fields')
           .set({
@@ -464,6 +482,24 @@ export function fieldsService(c: Container) {
     async updateTreatment(p: Principal, id: string, body: unknown): Promise<TreatmentView> {
       const input = TreatmentInputSchema.parse(body);
       await withTx(db, async (tx) => {
+        // Lock order field → treatment (as createTreatment): the field FOR KEY SHARE, so a parallel deleteField
+        // (FOR UPDATE) cannot interleave; then the treatment row.
+        const owner = await tx
+          .selectFrom('treatments')
+          .select('field_id')
+          .where('id', '=', id)
+          .executeTakeFirst();
+        const field = owner
+          ? await tx
+              .selectFrom('fields')
+              .select('id')
+              .where('id', '=', owner.field_id)
+              .where('deleted_at', 'is', null)
+              .where('organization_id', '=', p.orgId)
+              .forKeyShare()
+              .executeTakeFirst()
+          : undefined;
+        if (!field) throw new AppProblem(404, 'NOT_FOUND');
         const t = await tx
           .selectFrom('treatments as t')
           .innerJoin('fields as f', 'f.id', 't.field_id')
@@ -519,4 +555,15 @@ export function fieldsService(c: Container) {
       return treatmentView(await treatmentQuery(db).where('t.id', '=', id).executeTakeFirstOrThrow());
     },
   };
+}
+
+/** JSON with object keys sorted — jsonb reorders keys, so stored and sent geometry compare by content. */
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (v !== null && typeof v === 'object')
+    return `{${Object.keys(v)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`)
+      .join(',')}}`;
+  return JSON.stringify(v);
 }

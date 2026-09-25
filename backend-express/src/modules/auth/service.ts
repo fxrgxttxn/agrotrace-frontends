@@ -419,6 +419,15 @@ export function authService(c: Container) {
 
       try {
         return await withTx(db, async (tx) => {
+          // FOR KEY SHARE (P23): a region deleted since the check above → 400, never a foreign-key 500; a delete
+          // that starts now waits and then sees this organization (REFERENCE_IN_USE).
+          const regionKept = await tx
+            .selectFrom('regions')
+            .select('id')
+            .where('id', '=', region!.id)
+            .forKeyShare()
+            .executeTakeFirst();
+          if (!regionKept) throw validationProblem({ regionCode: ['validation.notFound'] });
           const o = await tx
             .insertInto('organizations')
             .values({

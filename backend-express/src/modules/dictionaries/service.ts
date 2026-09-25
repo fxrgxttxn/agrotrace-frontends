@@ -92,6 +92,7 @@ export function dictionariesService(c: Container) {
   }
 
   /** norms: productId/indicatorId must be non-deleted rows → 400 `validation.notFound` on each. */
+  /** Locked FOR SHARE: a parallel soft delete of the product or indicator waits for this norm (P23). */
   async function checkNormRefs(q: Q, cols: Columns) {
     const [p, i] = await Promise.all([
       q
@@ -99,12 +100,14 @@ export function dictionariesService(c: Container) {
         .select('id')
         .where('id', '=', cols.product_id as string)
         .where('deleted_at', 'is', null)
+        .forShare()
         .executeTakeFirst(),
       q
         .selectFrom('indicators')
         .select('id')
         .where('id', '=', cols.indicator_id as string)
         .where('deleted_at', 'is', null)
+        .forShare()
         .executeTakeFirst(),
     ]);
     const errors: Record<string, string[]> = {};
@@ -122,7 +125,7 @@ export function dictionariesService(c: Container) {
           ? sql`code = ${cols.code}`
           : sql`name = ${cols.name}`;
     const r = await sql<Row>`SELECT * FROM ${sql.table(name)} WHERE ${where}
-      ${exceptId ? sql`AND id <> ${exceptId}` : sql``} FOR UPDATE`.execute(tx);
+      ${exceptId ? sql`AND id <> ${exceptId}` : sql``} FOR NO KEY UPDATE`.execute(tx);
     return r.rows[0];
   }
 
@@ -228,7 +231,7 @@ export function dictionariesService(c: Container) {
       const cols = parseInput(name, body);
       const { row, codes } = await withTx(db, async (tx) => {
         await lockDictionary(tx, name);
-        const current = await selectRow(tx, name, id, true);
+        const current = await selectRow(tx, name, id, 'update');
         if (!current || (SOFT_DELETE[name] && current.deleted_at !== null))
           throw new AppProblem(404, 'NOT_FOUND');
         if (name === 'norms') await checkNormRefs(tx, cols);
@@ -257,7 +260,7 @@ export function dictionariesService(c: Container) {
     async remove(p: Principal, name: DictName, id: string): Promise<void> {
       await withTx(db, async (tx) => {
         await lockDictionary(tx, name);
-        const current = await selectRow(tx, name, id, true);
+        const current = await selectRow(tx, name, id, SOFT_DELETE[name] ? 'update' : 'delete');
         if (!current || (SOFT_DELETE[name] && current.deleted_at !== null))
           throw new AppProblem(404, 'NOT_FOUND');
         let diff;
@@ -310,7 +313,7 @@ export function dictionariesService(c: Container) {
       });
       await storeObjects(c.s3, file);
       const { row, codes } = await withTx(db, async (tx) => {
-        const current = await selectRow(tx, 'products', id, true);
+        const current = await selectRow(tx, 'products', id, 'update');
         if (!current || current.deleted_at !== null) throw new AppProblem(404, 'NOT_FOUND');
         const now = new Date();
         await insertFile(tx, file);

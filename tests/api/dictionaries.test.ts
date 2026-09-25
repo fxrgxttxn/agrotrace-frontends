@@ -13,7 +13,7 @@ import { loginAs, type Role } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { auditEntries } from './lib/audit.js';
 import { expectContract } from './lib/contract.js';
-import { closeDb, query } from './lib/db.js';
+import { closeDb, fixtureWrite, query } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
 import { apiPath, fileIdOf, fixture, multipart, pngOfSize, upload, webpSize } from './lib/files.js';
 import { freshHead, platformAdmin, registerOrg } from './lib/fixtures.js';
@@ -545,6 +545,24 @@ describe('regions: code uniqueness, hard delete, REFERENCE_IN_USE', () => {
     expect(back.status, back.text).toBe(200);
     expect((await delRes(client, r.id)).status).toBe(204);
   });
+
+  it('a soft-deleted field still refers to its region → 409 usedBy [fields]', async () => {
+    const client = await admin();
+    const r = await created(client, 'regions', { code: regionCode(), name: `Тестовый регион ${uniq()}` });
+    const { client: farmer } = await freshHead('FARM');
+    const field = await farmer.post('/fields', {
+      name: 'Удаляемое поле',
+      areaHa: '1.00',
+      regionCode: r.code,
+    });
+    expect(field.status, field.text).toBe(201);
+    expect((await farmer.delete(`/fields/${field.body.id}`)).status).toBe(204);
+    expectProblem(await delRes(client, r.id), 409, 'REFERENCE_IN_USE', { usedBy: ['fields'] });
+    // Clean-up only (regions survive `./at.sh reset`): no API removes a deleted field, so the test's own field row is
+    // hard-deleted by a fixture write, then the region goes through the API.
+    await fixtureWrite('DELETE FROM fields WHERE id = $1 AND deleted_at IS NOT NULL', [field.body.id]);
+    expect((await delRes(client, r.id)).status).toBe(204);
+  });
 });
 
 async function delRes(client: ApiClient, id: string) {
@@ -981,6 +999,17 @@ describe('importDictionary: XLSX', () => {
       file: ['validation.import.header'],
     });
   });
+
+  it('P23 limits (the rest are backend unit tests): a 65th cell in a row → 415 {reason: workbook-too-large}', async () => {
+    const client = await admin();
+    const wide = await xlsx([
+      { name: 'Лист1', rows: [['code', 'name'], Array.from({ length: 65 }, () => 'x')] },
+    ]);
+    expectProblem(await importFile(client, 'regions', wide, 'w.xlsx'), 415, 'UNSUPPORTED_MEDIA_TYPE', {
+      allowed: IMPORT_ALLOWED,
+      reason: 'workbook-too-large',
+    });
+  });
 });
 
 // ── product photos ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -1083,13 +1112,18 @@ describe('product changes and the public batch cache (R82 `pub:batch:*`)', () =>
     };
 
     await fill();
-    expect((await update(client, 'products', wheat.id, { ...body, name: `${wheat.name} ` })).status).toBe(
-      200,
-    );
-    for (const { code } of mine) expect(await r.exists(`pub:batch:${code}`), code).toBe(0);
-    expect(await r.exists(`pub:batch:${other!.code}`)).toBe(1);
-    expect((await update(client, 'products', wheat.id, body)).status).toBe(200);
+    try {
+      const renamed = await update(client, 'products', wheat.id, { ...body, name: `${wheat.name} ` });
+      expect(renamed.status).toBe(200);
+      for (const { code } of mine) expect(await r.exists(`pub:batch:${code}`), code).toBe(0);
+      expect(await r.exists(`pub:batch:${other!.code}`)).toBe(1);
+    } finally {
+      // The seeded name is restored whatever happened above.
+      expect((await update(client, 'products', wheat.id, body)).status).toBe(200);
+    }
 
+    // Only seeded products have batches until the batches API exists (Task 6), so the photo test replaces the
+    // seeded wheat photo; `./at.sh reset` restores it (the previous photo cannot be re-attached through the API).
     await fill();
     const photo = await upload(client, `/dictionaries/products/${wheat.id}/image`, {
       data: fixture('landscape-640x320.png'),

@@ -156,12 +156,12 @@ async function existingRows(
           JOIN unnest(${chunk.map((c) => c.product_id)}::uuid[], ${chunk.map((c) => c.indicator_id)}::uuid[])
                AS k(product_id, indicator_id)
             ON k.product_id = n.product_id AND k.indicator_id = n.indicator_id
-         FOR UPDATE OF n`.execute(tx);
+         FOR NO KEY UPDATE OF n`.execute(tx);
       found = r.rows;
     } else {
       const column = name === 'regions' ? 'code' : 'name';
       const r = await sql<Row>`SELECT * FROM ${sql.table(name)}
-        WHERE ${sql.id(column)} = ANY(${chunk.map((c) => c[column] as string)}::text[]) FOR UPDATE`.execute(
+        WHERE ${sql.id(column)} = ANY(${chunk.map((c) => c[column] as string)}::text[]) FOR NO KEY UPDATE`.execute(
         tx,
       );
       found = r.rows;
@@ -171,11 +171,11 @@ async function existingRows(
   return out;
 }
 
-/** Non-deleted products and indicators by exact name (norms import). */
+/** Non-deleted products and indicators by exact name (norms import), FOR SHARE — no parallel soft delete (P23). */
 async function referenceMaps(tx: Transaction<DB>) {
   const [products, indicators] = await Promise.all([
-    tx.selectFrom('products').select(['id', 'name']).where('deleted_at', 'is', null).execute(),
-    tx.selectFrom('indicators').select(['id', 'name']).where('deleted_at', 'is', null).execute(),
+    tx.selectFrom('products').select(['id', 'name']).where('deleted_at', 'is', null).forShare().execute(),
+    tx.selectFrom('indicators').select(['id', 'name']).where('deleted_at', 'is', null).forShare().execute(),
   ]);
   return {
     products: new Map(products.map((r) => [r.name, r.id])),

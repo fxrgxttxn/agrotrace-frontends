@@ -31,7 +31,8 @@ async function auditLog(client: ApiClient, query: Record<string, string | number
   return res;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const dayBefore = (date: string) =>
+  new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
 describe('x-roles: INSPECTOR and ADMIN read', () => {
   it.each(ROLES)('%s', async (role) => {
@@ -95,7 +96,11 @@ describe('entries and filters', () => {
     expect(await auditEntries({ actorId: user.id, action: 'updatem' }, admin)).toEqual([]);
     expect((await auditEntries({ entityId: user.id, backend: API_BACKEND }, admin)).length).toBe(3);
     expect(await auditEntries({ entityId: user.id, backend: 'seed' }, admin)).toEqual([]);
-    expect((await auditEntries({ actorId: user.id, from: today(), to: today() }, admin)).length).toBe(4);
+    // The UTC dates of the rows themselves (the run may cross midnight UTC): from the first row's day to the last's.
+    const first = mine[0]!.createdAt.slice(0, 10);
+    const last = mine.at(-1)!.createdAt.slice(0, 10);
+    expect((await auditEntries({ actorId: user.id, from: first, to: last }, admin)).length).toBe(4);
+    expect(await auditEntries({ actorId: user.id, to: dayBefore(first) }, admin)).toEqual([]);
     expect(await auditEntries({ actorId: user.id, to: '2020-01-01' }, admin)).toEqual([]);
     expect(await auditEntries({ actorId: user.id, from: '2999-01-01' }, admin)).toEqual([]);
 

@@ -153,16 +153,19 @@ export async function entryViews(q: Q, name: DictName, rows: Row[]): Promise<Rec
   }
 }
 
+/**
+ * A row by id, optionally locked: `update` — FOR NO KEY UPDATE (P23: a change that keeps the key does not block the
+ * foreign-key checks of other tables); `delete` — FOR UPDATE (a hard delete must wait for, and then see, any
+ * transaction that holds a key-share lock to insert a reference).
+ */
 export async function selectRow(
   q: Q,
   name: DictName,
   id: string,
-  forUpdate = false,
+  lock?: 'update' | 'delete',
 ): Promise<Row | undefined> {
-  const r =
-    await sql<Row>`SELECT * FROM ${sql.table(name)} WHERE id = ${id}${forUpdate ? sql` FOR UPDATE` : sql``}`.execute(
-      q,
-    );
+  const mode = lock === 'delete' ? sql` FOR UPDATE` : lock === 'update' ? sql` FOR NO KEY UPDATE` : sql``;
+  const r = await sql<Row>`SELECT * FROM ${sql.table(name)} WHERE id = ${id}${mode}`.execute(q);
   return r.rows[0];
 }
 

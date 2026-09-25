@@ -3,7 +3,12 @@
  * Content-Type —
  *
  * - a ZIP (`PK\x03\x04`) is an XLSX workbook when its central directory lists `[Content_Types].xml` and
- *   `xl/workbook.xml`; any other ZIP, a broken one or a workbook that cannot be read → 415;
+ *   `xl/workbook.xml`; any other ZIP, a broken one or a workbook that cannot be read → 415. A workbook is read in
+ *   memory within hard limits (P23): ≤ 64 archive entries, ≤ 16 MiB per entry and ≤ 32 MiB in all — declared and
+ *   actually inflated —, ≤ 20 000 `<row>` elements in the sheet (empty ones included), ≤ 64 cells per row, 10 s in
+ *   all; beyond any of them → 415 `{allowed, reason: "workbook-too-large"}`. No temporary file is ever written: only
+ *   the parts the import needs are inflated and handed to exceljs as a new in-memory archive in which the shared
+ *   strings precede the sheet;
  * - otherwise a byte NUL → 415; invalid UTF-8 or an unclosed quote → 400 `errors.file: [validation.import.format]`;
  *   the rest is CSV: UTF-8 (a leading BOM is skipped), `;` separators, RFC 4180 quotes, CRLF or LF record ends.
  *
@@ -15,6 +20,7 @@
 import { Readable } from 'node:stream';
 import ExcelJS from 'exceljs';
 import { AppProblem, validationProblem } from '../../http/problem.js';
+import { storedZip, unzip, ZipError, zipDirectory, type ZipEntry } from '../../infra/zip.js';
 
 export const INVALID = Symbol('invalid cell');
 export type Cell = string | typeof INVALID;
@@ -39,11 +45,22 @@ const tooManyRows = () => validationProblem({ file: ['validation.import.tooManyR
 
 export const isEmptyRow = (cells: Cell[]): boolean => cells.every((c) => c === '');
 
-export async function readSheet(bytes: Buffer): Promise<Sheet> {
-  if (bytes.length >= 4 && bytes.readUInt32LE(0) === 0x04034b50) {
-    if (!isWorkbookZip(bytes)) throw unsupported();
-    return readXlsx(bytes);
-  }
+/** P23 limits of a workbook (exported for the unit tests). */
+export const XLSX_LIMITS = {
+  zip: { maxEntries: 64, maxEntryBytes: 16 * 1024 * 1024, maxTotalBytes: 32 * 1024 * 1024 },
+  maxSheetRows: 20_000,
+  maxRowCells: 64,
+  deadlineMs: 10_000,
+};
+
+const tooLarge = () =>
+  new AppProblem(415, 'UNSUPPORTED_MEDIA_TYPE', {
+    params: { allowed: IMPORT_TYPES, reason: 'workbook-too-large' },
+  });
+
+export async function readSheet(bytes: Buffer, opts: { deadlineMs?: number } = {}): Promise<Sheet> {
+  if (bytes.length >= 4 && bytes.readUInt32LE(0) === 0x04034b50)
+    return readXlsx(bytes, opts.deadlineMs ?? XLSX_LIMITS.deadlineMs);
   if (bytes.includes(0)) throw unsupported();
   let text: string;
   try {
@@ -125,30 +142,78 @@ export function parseCsv(text: string): string[][] {
 
 // ── XLSX ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** A ZIP whose central directory names the OOXML content types and a workbook part. */
-function isWorkbookZip(b: Buffer): boolean {
-  // End of central directory: the last `PK\x05\x06` (a comment of up to 65 535 bytes may follow it).
-  const from = Math.max(0, b.length - 22 - 65_535);
-  let eocd = -1;
-  for (let i = b.length - 22; i >= from; i--)
-    if (b.readUInt32LE(i) === 0x06054b50) {
-      eocd = i;
-      break;
-    }
-  if (eocd < 0) return false;
-  const count = b.readUInt16LE(eocd + 10);
-  let p = b.readUInt32LE(eocd + 16);
-  const names = new Set<string>();
-  for (let k = 0; k < count; k++) {
-    if (p + 46 > b.length || b.readUInt32LE(p) !== 0x02014b50) return false;
-    const nameLen = b.readUInt16LE(p + 28);
-    const extra = b.readUInt16LE(p + 30);
-    const comment = b.readUInt16LE(p + 32);
-    if (p + 46 + nameLen > b.length) return false;
-    names.add(b.toString('utf8', p + 46, p + 46 + nameLen));
-    p += 46 + nameLen + extra + comment;
+const zipProblem = (err: unknown): AppProblem =>
+  err instanceof ZipError && err.kind === 'tooLarge' ? tooLarge() : unsupported();
+
+const SHEET_PATH = 'xl/worksheets/sheet1.xml';
+const RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`;
+const EMPTY_SST = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0" uniqueCount="0"/>`;
+
+/** The archive path of the first sheet in workbook order (`xl/workbook.xml` → its relationship target). */
+function firstSheetPath(workbook: string, rels: string): string | null {
+  const sheet = /<(?:[\w-]+:)?sheet\b[^>]*>/.exec(workbook)?.[0];
+  const rid = sheet && /\s[\w-]+:id\s*=\s*"([^"]+)"/.exec(sheet)?.[1];
+  if (!rid) return null;
+  for (const rel of rels.match(/<(?:[\w-]+:)?Relationship\b[^>]*>/g) ?? []) {
+    if (/\sId\s*=\s*"([^"]+)"/.exec(rel)?.[1] !== rid) continue;
+    const target = /\sTarget\s*=\s*"([^"]+)"/.exec(rel)?.[1];
+    if (!target) return null;
+    return target.startsWith('/') ? target.slice(1) : `xl/${target.replace(/^\.\//, '')}`;
   }
-  return names.has('[Content_Types].xml') && names.has('xl/workbook.xml');
+  return null;
+}
+
+/**
+ * The parts of the workbook the import reads, inflated within the P23 limits, repacked (stored, in memory) as a
+ * minimal workbook: the workbook part, one relationship to the first sheet, styles, shared strings (an empty table
+ * when the workbook has none) and that sheet as `xl/worksheets/sheet1.xml` — in that order, so exceljs's streaming
+ * reader parses the sheet directly and never buffers it to a temporary file.
+ */
+export function minimalWorkbook(bytes: Buffer): Buffer {
+  let names: string[];
+  try {
+    names = zipDirectory(bytes, XLSX_LIMITS.zip).map((e) => e.name);
+  } catch (err) {
+    throw zipProblem(err);
+  }
+  if (!names.includes('[Content_Types].xml') || !names.includes('xl/workbook.xml')) throw unsupported();
+  const part = (entries: ZipEntry[], name: string) => entries.find((e) => e.name === name)?.data;
+  let meta: ZipEntry[];
+  try {
+    meta = unzip(
+      bytes,
+      XLSX_LIMITS.zip,
+      (n) => n === 'xl/workbook.xml' || n === 'xl/_rels/workbook.xml.rels',
+    );
+  } catch (err) {
+    throw zipProblem(err);
+  }
+  const workbook = part(meta, 'xl/workbook.xml')!;
+  const rels = part(meta, 'xl/_rels/workbook.xml.rels');
+  const sheetPath = rels ? firstSheetPath(workbook.toString('utf8'), rels.toString('utf8')) : null;
+  if (!sheetPath || !names.includes(sheetPath)) throw unsupported();
+  let parts: ZipEntry[];
+  try {
+    parts = unzip(
+      bytes,
+      XLSX_LIMITS.zip,
+      (n) => n === sheetPath || n === 'xl/styles.xml' || n === 'xl/sharedStrings.xml',
+    );
+  } catch (err) {
+    throw zipProblem(err);
+  }
+  return storedZip([
+    { name: 'xl/workbook.xml', data: workbook },
+    { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from(RELS, 'utf8') },
+    ...parts.filter((e) => e.name === 'xl/styles.xml'),
+    {
+      name: 'xl/sharedStrings.xml',
+      data: part(parts, 'xl/sharedStrings.xml') ?? Buffer.from(EMPTY_SST, 'utf8'),
+    },
+    { name: SHEET_PATH, data: part(parts, sheetPath)! },
+  ]);
 }
 
 /** The shortest decimal text that reads back as `n` (JavaScript's own), written without an exponent. */
@@ -196,11 +261,13 @@ function trimTrailing(cells: Cell[]): Cell[] {
 }
 
 /**
- * The first worksheet of the workbook (by `xl/workbook.xml`; when the workbook part is stored after the sheets, the
- * first sheet stored). Any read error of the workbook → 415.
+ * The first worksheet of the workbook (by `xl/workbook.xml`), read from the minimal in-memory workbook. Any read error
+ * → 415; a limit of P23 (rows, cells per row, the deadline) → 415 `workbook-too-large`.
  */
-async function readXlsx(bytes: Buffer): Promise<Sheet> {
-  const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from(bytes), {
+async function readXlsx(bytes: Buffer, deadlineMs: number): Promise<Sheet> {
+  const started = Date.now();
+  const minimal = minimalWorkbook(bytes);
+  const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from(minimal), {
     sharedStrings: 'cache',
     hyperlinks: 'ignore',
     styles: 'cache',
@@ -208,13 +275,17 @@ async function readXlsx(bytes: Buffer): Promise<Sheet> {
     entries: 'ignore',
   });
   const sheet: Sheet = { header: null, rows: [], padShort: true };
-  try {
+  let expired = false;
+  const read = async () => {
+    let seen = 0;
     for await (const ws of reader) {
-      const wanted = (reader as unknown as { model?: { sheets?: { id: number }[] } }).model?.sheets?.[0]?.id;
-      if (wanted !== undefined && Number((ws as unknown as { id: unknown }).id) !== Number(wanted)) continue;
       let first = true;
       for await (const row of ws as unknown as AsyncIterable<ExcelJS.Row>) {
+        if (expired || Date.now() - started > deadlineMs) throw tooLarge();
+        seen += 1;
+        if (seen > XLSX_LIMITS.maxSheetRows) throw tooLarge();
         const values = row.values as XlsxValue[];
+        if (values.length - 1 > XLSX_LIMITS.maxRowCells) throw tooLarge();
         const cells: Cell[] = [];
         for (let col = 1; col < values.length; col++) cells.push(cellText(values[col]));
         const trimmed = trimTrailing(cells);
@@ -232,9 +303,27 @@ async function readXlsx(bytes: Buffer): Promise<Sheet> {
       }
       break;
     }
+  };
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => {
+        expired = true;
+        reject(tooLarge());
+      },
+      Math.max(0, deadlineMs - (Date.now() - started)),
+    );
+  });
+  const work = read();
+  // After the deadline the reader stops at its next row; its own rejection then has nobody to report to.
+  work.catch(() => undefined);
+  try {
+    await Promise.race([work, deadline]);
   } catch (err) {
     if (err instanceof AppProblem) throw err;
     throw unsupported();
+  } finally {
+    clearTimeout(timer);
   }
   return sheet;
 }

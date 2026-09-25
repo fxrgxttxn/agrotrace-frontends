@@ -206,6 +206,7 @@ export function adminService(c: Container) {
             .selectFrom('regions')
             .select(['id', 'code'])
             .where('code', '=', input.regionCode)
+            .forKeyShare()
             .executeTakeFirst();
           if (!found) throw validationProblem({ regionCode: ['validation.notFound'] });
           region = found;

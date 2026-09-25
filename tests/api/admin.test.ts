@@ -330,9 +330,13 @@ describe('updateAdminOrganization', () => {
     expect(codes.length).toBeGreaterThan(0);
     const r = redis();
     for (const { code } of codes) await r.set(`pub:batch:${code}`, '{}', 'EX', 300);
-    expect((await patchOrg(client, petrov!.id, { name: `${petrov!.name} ` })).status).toBe(200);
-    for (const { code } of codes) expect(await r.exists(`pub:batch:${code}`), code).toBe(0);
-    expect((await patchOrg(client, petrov!.id, { name: petrov!.name })).status).toBe(200);
+    try {
+      expect((await patchOrg(client, petrov!.id, { name: `${petrov!.name} ` })).status).toBe(200);
+      for (const { code } of codes) expect(await r.exists(`pub:batch:${code}`), code).toBe(0);
+    } finally {
+      // The seeded name is restored whatever happened above.
+      expect((await patchOrg(client, petrov!.id, { name: petrov!.name })).status).toBe(200);
+    }
   });
 });
 
