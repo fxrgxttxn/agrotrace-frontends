@@ -74,9 +74,13 @@ services:
       REDIS_LIMITS_CPUS: ${REDIS_LIMITS_CPUS:-}
       REDIS_LIMITS_MEM_BYTES: ${REDIS_LIMITS_MEM_BYTES:-}
       RESULTS_DIR: /bench/results
+      # Task 5: plots and report tables read the published data in docs/reports/data and write
+      # docs/reports/img/databases/*.png and the generated blocks of docs/reports/databases.md.
+      REPORT_DIR: /reports
       DATA_DIR: /bench/data
     volumes:
       - .:/bench
+      - ../docs/reports:/reports
     working_dir: /bench
     depends_on:
       bench-postgres: { condition: service_healthy }

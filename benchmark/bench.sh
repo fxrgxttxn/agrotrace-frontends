@@ -168,10 +168,12 @@ do_all() {
   finished="$(date +%s)"
   printf '{\n  "started_at": "%s",\n  "finished_at": "%s",\n  "duration_seconds": %s,\n  "command": "./at.sh bench all%s"\n}\n' \
     "$started_iso" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$((finished - started))" "${*:+ $*}" > "$RESULTS_DIR/run_meta.json"
-  # Task 5 adds plot.py/report_tables.py; until then `all` stops after the measurements.
-  if [ -f agrobench/plot.py ]; then "$SELF" plot; fi
-  if [ -f agrobench/report_tables.py ]; then "$SELF" report; fi
+  # Publish first: plot.py and report_tables.py read the published data in docs/reports/data
+  # (mounted at /reports) and write docs/reports/img/databases/*.png and the generated tables of
+  # docs/reports/databases.md, so figures and tables always match the committed CSVs.
   do_publish
+  "$SELF" plot
+  "$SELF" report
   echo "bench: all done in $((finished - started)) s"
 }
 
@@ -189,8 +191,9 @@ case "$cmd" in
     $DC run --rm bench-runner python -m agrobench.load_pg "$@"
     $DC run --rm bench-runner python -m agrobench.load_redis "$@" ;;
   run)     load_state; $DC run --rm bench-runner python -m agrobench.run "$@" ;;
-  plot)    load_state; $DC run --rm bench-runner python -m agrobench.plot "$@" ;;
-  report)  load_state; $DC run --rm bench-runner python -m agrobench.report_tables "$@" ;;
+  # plot/report only read docs/reports/data: no DBMS needed (--no-deps).
+  plot)    load_state; $DC run --rm --no-deps bench-runner python -m agrobench.plot "$@" ;;
+  report)  load_state; $DC run --rm --no-deps bench-runner python -m agrobench.report_tables "$@" ;;
   publish) do_publish ;;
   all)     do_all "$@" ;;
   help|*) usage ;;
