@@ -153,7 +153,12 @@ describe('signed file URLs (contract GET /files/{id}, R88 M2)', () => {
 
 describe('access tokens', () => {
   const secret = 'x'.repeat(32);
-  const p = { userId: 'u-1', orgId: 'o-1', roles: ['FARMER' as const], orgAdmin: true };
+  const p = {
+    userId: '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d',
+    orgId: '0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10',
+    roles: ['FARMER' as const],
+    orgAdmin: true,
+  };
 
   it('issue → verify round trip; claims sub/org/roles/org_admin/iat/exp(+900)/jti', async () => {
     const token = await issueAccessToken(secret, p, new Date());
@@ -168,16 +173,26 @@ describe('access tokens', () => {
     expect(await verifyAccessToken(secret, past)).toBeNull();
     expect(await verifyAccessToken('y'.repeat(32), await issueAccessToken(secret, p))).toBeNull();
     const now = Math.floor(Date.now() / 1000);
-    const hs512 = await new SignJWT({ org: 'o', roles: ['FARMER'], org_admin: false })
+    const hs512 = await new SignJWT({
+      org: '0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10',
+      roles: ['FARMER'],
+      org_admin: false,
+    })
       .setProtectedHeader({ alg: 'HS512' })
-      .setSubject('u')
+      .setSubject('1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d')
+      .setJti('j')
       .setIssuedAt(now)
       .setExpirationTime(now + 900)
       .sign(new TextEncoder().encode(secret));
     expect(await verifyAccessToken(secret, hs512)).toBeNull();
-    const badRole = await new SignJWT({ org: 'o', roles: ['ROOT'], org_admin: false })
+    const badRole = await new SignJWT({
+      org: '0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10',
+      roles: ['ROOT'],
+      org_admin: false,
+    })
       .setProtectedHeader({ alg: 'HS256' })
-      .setSubject('u')
+      .setSubject('1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d')
+      .setJti('j')
       .setIssuedAt(now)
       .setExpirationTime(now + 900)
       .sign(new TextEncoder().encode(secret));

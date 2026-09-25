@@ -31,15 +31,23 @@ export async function issueAccessToken(secret: string, p: Principal, now = new D
     .sign(key(secret));
 }
 
-/** The principal of a valid token; null for anything else (bad signature, expired, malformed, wrong claims). */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The principal of a valid token; null for anything else. Claim types per the contract (`AccessToken`, P12): `sub`
+ * and `org` UUIDs, `roles` a non-empty array of RoleCode, `org_admin` boolean, `exp`/`iat` integers, `jti` string;
+ * HS256 only; an unknown `crit` header parameter is rejected (jose).
+ */
 export async function verifyAccessToken(secret: string, token: string): Promise<Principal | null> {
   try {
     const { payload } = await jwtVerify(token, key(secret), {
       algorithms: ['HS256'],
-      requiredClaims: ['exp', 'sub'],
+      requiredClaims: ['exp', 'iat', 'sub', 'jti'],
     });
-    const { sub, org, roles, org_admin: orgAdmin } = payload;
-    if (typeof sub !== 'string' || typeof org !== 'string' || typeof orgAdmin !== 'boolean') return null;
+    const { sub, org, roles, org_admin: orgAdmin, exp, iat, jti } = payload;
+    if (typeof sub !== 'string' || !UUID.test(sub) || typeof org !== 'string' || !UUID.test(org)) return null;
+    if (typeof orgAdmin !== 'boolean' || typeof jti !== 'string') return null;
+    if (!Number.isInteger(exp) || !Number.isInteger(iat)) return null;
     if (
       !Array.isArray(roles) ||
       roles.length === 0 ||

@@ -3,8 +3,11 @@ AccessToken:
   type: string
   pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
   description: >-
-    JWT HS256 (общий `JWT_SECRET`), срок 15 минут; claims `sub`, `org`, `roles`, `org_admin`, `exp`, `iat`, `jti`.
-    Принимается любой backend-реализацией.
+    JWT HS256 (общий `JWT_SECRET`), срок 15 минут; принимается любой backend-реализацией. Обязательные claims и их
+    типы (P12): `sub` — UUID пользователя (строка), `org` — UUID организации (строка), `roles` — непустой массив
+    `RoleCode`, `org_admin` — boolean, `exp` и `iat` — целые (секунды Unix, `exp` = `iat` + 900), `jti` — строка.
+    Токен с другим `alg` (в том числе `none`), с неверной подписью, истёкший, без любого из этих claims, с claim
+    другого типа или с заголовком `crit`, перечисляющим неизвестные параметры, — 401 UNAUTHORIZED.
   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYTJiM2M0ZC01ZTZmLTRhN2ItOGM5ZC0wZTFmMmEzYjRjNWQifQ.3fQy8m2Kc1q5Z0Xn9sVbWtRjLpHdGe7aCuYoIiMk4Nw
 LoginRequest:
   type: object

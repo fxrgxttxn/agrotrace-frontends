@@ -51,14 +51,22 @@ export async function createRefreshToken(
 }
 
 /**
- * R40: revokes the rotation chain of `id` — every row linked to it through `replaced_by`, its ancestors and its
- * descendants (the active one included); other sessions of the user are untouched. The lineage rows are locked
- * (`FOR UPDATE`, in id order) before the revocation, and the walk is repeated until it finds no new row: a rotation
- * of the active descendant running concurrently either commits first (its new row joins the lineage on the next
- * walk) or waits for this transaction and then finds its token revoked.
+ * P12: every transaction that revokes or rotates several refresh tokens of a user first takes the per-user advisory
+ * lock `pg_advisory_xact_lock(hashtext('refresh:' || user_id))` (documented in the contract's lock order). Refreshes
+ * of one user — parallel tabs, parallel reuse of stale tokens of one chain — therefore run one after another: no
+ * deadlock between chain walks, and a rotation never interleaves with a chain revocation.
  */
-const lineage = (id: string) => sql<{ id: string }>`
-  SELECT id FROM refresh_tokens WHERE id IN (
+export async function lockUserRefresh(tx: Transaction<DB>, userId: string): Promise<void> {
+  await sql`SELECT pg_advisory_xact_lock(hashtext(${'refresh:' + userId}))`.execute(tx);
+}
+
+/**
+ * R40: revokes the rotation chain of `id` — every row linked to it through `replaced_by`, its ancestors and its
+ * descendants (the active one included); other sessions of the user are untouched. Runs under the user's advisory
+ * lock, so the lineage cannot grow while it is walked.
+ */
+async function revokeChain(tx: Transaction<DB>, id: string, now: Date): Promise<void> {
+  await sql`
     WITH RECURSIVE down(id, replaced_by) AS (
       SELECT id, replaced_by FROM refresh_tokens WHERE id = ${id}
       UNION
@@ -68,22 +76,9 @@ const lineage = (id: string) => sql<{ id: string }>`
       UNION
       SELECT r.id FROM refresh_tokens r JOIN up u ON r.replaced_by = u.id
     )
-    SELECT id FROM down UNION SELECT id FROM up
-  ) ORDER BY id FOR UPDATE`;
-
-async function revokeChain(tx: Transaction<DB>, id: string, now: Date): Promise<void> {
-  let ids = new Set<string>();
-  for (;;) {
-    const locked = new Set((await lineage(id).execute(tx)).rows.map((r) => r.id));
-    if (locked.size === ids.size) break;
-    ids = locked;
-  }
-  await tx
-    .updateTable('refresh_tokens')
-    .set({ revoked_at: now })
-    .where('id', 'in', [...ids])
-    .where('revoked_at', 'is', null)
-    .execute();
+    UPDATE refresh_tokens SET revoked_at = ${now}
+     WHERE revoked_at IS NULL AND id IN (SELECT id FROM down UNION SELECT id FROM up)
+  `.execute(tx);
 }
 
 export type RefreshOutcome =
@@ -93,14 +88,23 @@ export type RefreshOutcome =
   | { kind: 'forbidden'; reason: 'USER_BLOCKED' | 'ORGANIZATION_NOT_ACTIVE' };
 
 /**
- * refreshToken (contract): the presented row is locked (`FOR UPDATE`), so two parallel refreshes with one token
- * rotate once — the second sees the row revoked by rotation just now (grace → 401 without cookie deletion).
+ * refreshToken (contract): the owner is looked up by the token hash without a lock, then the user's advisory lock
+ * (P12) is taken and only then the presented row is read `FOR UPDATE` — so two parallel refreshes with one token
+ * rotate once (the second sees the row revoked by rotation just now: grace → 401 without cookie deletion), and
+ * parallel stale tokens of one chain are handled one at a time (all 401, the chain revoked once).
  */
 export function rotateRefreshToken(db: Kysely<DB>, token: string | null): Promise<RefreshOutcome> {
   if (token === null || !/^[A-Za-z0-9_-]{16,256}$/.test(token))
     return Promise.resolve({ kind: 'expired', clearCookie: true });
   const hash = sha256hex(token);
   return withTx(db, async (tx): Promise<RefreshOutcome> => {
+    const owner = await tx
+      .selectFrom('refresh_tokens')
+      .select('user_id')
+      .where('token_hash', '=', hash)
+      .executeTakeFirst();
+    if (!owner) return { kind: 'expired', clearCookie: true };
+    await lockUserRefresh(tx, owner.user_id);
     const now = new Date();
     const row = await tx
       .selectFrom('refresh_tokens')
@@ -166,6 +170,7 @@ export async function revokeAllRefreshTokens(
   userId: string,
   now = new Date(),
 ): Promise<void> {
+  await lockUserRefresh(tx, userId);
   await tx
     .updateTable('refresh_tokens')
     .set({ revoked_at: now })

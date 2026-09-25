@@ -1055,6 +1055,25 @@ describe('openapi contract: operations', () => {
     }
   });
 
+  it('P12: JWT claim types and the per-user advisory refresh lock are documented', () => {
+    const at: string = doc.components.schemas.AccessToken.description;
+    for (const re of [
+      /`sub` — UUID пользователя/,
+      /`org` — UUID организации/,
+      /`roles` — непустой массив\s+`RoleCode`/,
+      /`org_admin` — boolean/,
+      /`exp` и `iat` — целые/,
+      /`jti` — строка/,
+      /`crit`, перечисляющим неизвестные параметры, — 401 UNAUTHORIZED/,
+    ])
+      expect(at).toMatch(re);
+    const d: string = doc.info.description;
+    expect(d).toMatch(
+      /Refresh-токены \(P12\)[^]*pg_advisory_xact_lock\(hashtext\('refresh:' \|\| user_id\)\)/,
+    );
+    expect(d).toMatch(/без взаимоблокировок: каждое получает 401, никогда 409/);
+  });
+
   it('P10: RATE_LIMIT_OVERRIDES is documented as deployment configuration', () => {
     const d: string = doc.info.description;
     expect(d).toMatch(/Конфигурация развёртывания \(P10\): переменная окружения `RATE_LIMIT_OVERRIDES`/);

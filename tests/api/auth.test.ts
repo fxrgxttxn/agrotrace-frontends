@@ -11,7 +11,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { demoUser, demoUsers, loginAs, type Role } from './lib/auth.js';
 import { api, ApiClient, type ApiResponse } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
-import { closeDb, fixtureWrite } from './lib/db.js';
+import { closeDb, fixtureWrite, query } from './lib/db.js';
 import {
   activateOrg,
   activeOrgHead,
@@ -184,11 +184,34 @@ describe('login', () => {
     }
   });
 
+  it('R31 deterministic: the right password verified while the 5th wrong one is locking → ACCOUNT_LOCKED', async () => {
+    const org = await activeOrgHead();
+    for (let i = 1; i <= 4; i++) await login(api(), org.email, `wrong-${i}-password`);
+    const [{ id }] = (await query<{ id: string }>('SELECT id FROM users WHERE email = $1', [org.email])) as [
+      { id: string },
+    ];
+    // Fixture: hold the user row for 1.5 s (the subquery takes the row lock before the outer pg_sleep runs), so both
+    // requests below read "not locked", verify their passwords and then queue on the row in arrival order.
+    const hold = fixtureWrite(
+      'SELECT pg_sleep(1.5) FROM (SELECT id FROM users WHERE id = $1 FOR UPDATE) held',
+      [id],
+    );
+    await new Promise((r) => setTimeout(r, 100));
+    const wrong = login(api(), org.email, 'wrong-5-password');
+    await new Promise((r) => setTimeout(r, 300));
+    const right = login(api(), org.email, org.password);
+    const [w, r] = await Promise.all([wrong, right, hold]);
+    expectProblem(w, 401, 'ACCOUNT_LOCKED');
+    expectProblem(r, 401, 'ACCOUNT_LOCKED');
+    expect(r.body.params.lockedUntil).toBe(w.body.params.lockedUntil);
+    expectNoCookie(r);
+  });
+
   it('R31 under concurrency: a right password racing the locking 5th wrong one is never let in once the lock is set', async () => {
     // 4 wrong passwords first, then the 5th wrong and the right one in parallel. Either the right one resets the
     // counter first (the 5th wrong then counts 1, no lock, the right one is 200), or the 5th wrong locks first and the
     // right one must be ACCOUNT_LOCKED — the account state afterwards tells which happened. Never both.
-    for (let round = 0; round < 4; round++) {
+    for (let round = 0; round < 10; round++) {
       const org = await activeOrgHead();
       for (let i = 1; i <= 4; i++) await login(api(), org.email, `wrong-${i}-password`);
       const [, right] = await Promise.all([
@@ -375,6 +398,13 @@ describe('Bearer access token', () => {
       'no sub': signJwt(without('sub')),
       'no org': signJwt(without('org')),
       'no exp': signJwt(without('exp')),
+      'no iat': signJwt(without('iat')),
+      'no jti': signJwt(without('jti')),
+      'sub not a uuid': signJwt({ ...valid, sub: 'admin' }),
+      'org not a uuid': signJwt({ ...valid, org: 42 }),
+      'exp not an integer': signJwt({ ...valid, exp: now + 900.5 }),
+      'roles empty': signJwt({ ...valid, roles: [] }),
+      'jti not a string': signJwt({ ...valid, jti: 7 }),
       'org_admin as a string': signJwt({ ...valid, org_admin: 'true' }),
       'unknown role': signJwt({ ...valid, roles: ['ROOT'] }),
       'unknown crit header': signJwt(valid, undefined, {
@@ -660,6 +690,28 @@ describe('refresh', () => {
     expectNoCookie(race);
     await refreshOk(client, b);
   });
+
+  it('stale tokens of one chain reused in parallel > 10 s later: all 401 (never 409/5xx), the chain revoked', async () => {
+    const { org } = await freshHead('FARM');
+    const client = api();
+    const other = api();
+    const { token: a } = await loginOk(client, org.email, org.password);
+    const { token: x } = await loginOk(other, org.email, org.password);
+    const b = await refreshOk(client, a);
+    const c = await refreshOk(client, b);
+    const d = await refreshOk(client, c);
+    const e = await refreshOk(client, d); // active; a–d rotated
+    await new Promise((r) => setTimeout(r, 11_000)); // past the R32 grace window
+    const results = await Promise.all([a, b, c, d].map((t) => refresh(api(), t)));
+    for (const r of results) {
+      await expectContract(r, 'refreshToken');
+      expectProblem(r, 401, 'TOKEN_EXPIRED');
+      expectClearedCookie(r);
+    }
+    const active = await refresh(api(), e);
+    expectProblem(active, 401, 'TOKEN_EXPIRED');
+    await refreshOk(other, x); // another session of the same user is untouched
+  }, 40_000);
 
   it('reuse of a token rotated > 10 s ago revokes its chain only; other sessions live', async () => {
     const { org } = await freshHead('FARM');
