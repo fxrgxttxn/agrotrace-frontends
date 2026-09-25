@@ -76,6 +76,15 @@ const schema = z.object({
       return r.data;
     }),
   DADATA_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(3000),
+  /**
+   * Telegram bot (FR-NOTIF-02). Unset → createTelegramCode is 503 EXTERNAL_UNAVAILABLE {service: telegram}; the
+   * username (without @) is what users are told to message with `/start <code>`.
+   */
+  TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
+  TELEGRAM_BOT_USERNAME: z
+    .string()
+    .regex(/^[A-Za-z0-9_]{5,32}$/, 'must be a Telegram username without @ (5-32 of A-Z a-z 0-9 _)')
+    .default('agrotrace_bot'),
   /** Readiness checks give up after this long (each dependency). */
   HEALTH_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(2000),
   /** Graceful shutdown: in-flight requests get this long after SIGTERM. */

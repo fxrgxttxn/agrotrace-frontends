@@ -20,12 +20,13 @@ import type { Container } from '../../container.js';
 import { withTx } from '../../db/tx.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
 import { hitRateLimit } from '../../http/rate-limit.js';
-import { issueAccessToken, ACCESS_TTL_SEC, type Principal, type RoleCode } from '../../security/jwt.js';
+import { issueAccessToken, ACCESS_TTL_SEC, type Principal } from '../../security/jwt.js';
 import { dummyVerify, hashPassword, verifyPassword } from '../../security/passwords.js';
 import { newOpaqueToken, sha256hex } from '../../security/tokens.js';
 import { generateTotpSecret, matchStep, otpauthUrl } from '../../security/totp.js';
 import { auditDiff, auditService, SECRET } from '../audit/service.js';
 import { loadMe, type MeView } from '../me/view.js';
+import { ROLE_OF_TYPE } from '../users/roles.js';
 import { registrationIdentity } from './registration.js';
 import {
   createRefreshToken,
@@ -44,14 +45,6 @@ const PWRESET_TTL_SEC = 3600;
 const ru = createT('ru');
 const iso = (d: Date) => d.toISOString();
 const nowSec = () => Math.floor(Date.now() / 1000);
-
-const ROLE_OF_TYPE: Record<string, RoleCode> = {
-  FARM: 'FARMER',
-  PROCESSOR: 'PROCESSOR',
-  LAB: 'LAB',
-  RETAILER: 'RETAILER',
-  AUTHORITY: 'INSPECTOR',
-};
 
 export interface Session {
   accessToken: string;
