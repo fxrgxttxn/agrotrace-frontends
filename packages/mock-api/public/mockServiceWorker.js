@@ -12,6 +12,10 @@ const PACKAGE_VERSION = '2.6.4'
 const INTEGRITY_CHECKSUM = 'ca7800994cc8bfb5eb961e037c877074'
 const IS_MOCKED_RESPONSE = Symbol('isMockedResponse')
 const activeClientIds = new Set()
+// @agrotrace/mock-api patch (msw 2.6.4 race): ids of the requests announced to a client with "REQUEST". A request
+// passed through while its tab was not yet active must not produce a "RESPONSE" message once the tab has activated
+// (the page would look up an unknown request and throw "reading 'url'" — seen with several tabs of one origin).
+const announcedRequestIds = new Set()
 
 self.addEventListener('install', function () {
   self.skipWaiting()
@@ -127,7 +131,7 @@ async function handleRequest(event, requestId) {
   // Send back the response clone for the "response:*" life-cycle events.
   // Ensure MSW is active and ready to handle the message, otherwise
   // this message will pend indefinitely.
-  if (client && activeClientIds.has(client.id)) {
+  if (client && activeClientIds.has(client.id) && announcedRequestIds.delete(requestId)) {
     ;(async function () {
       const responseClone = response.clone()
 
@@ -219,6 +223,7 @@ async function getResponse(event, client, requestId) {
 
   // Notify the client that a request has been intercepted.
   const requestBuffer = await request.arrayBuffer()
+  announcedRequestIds.add(requestId)
   const clientMessage = await sendToClient(
     client,
     {
