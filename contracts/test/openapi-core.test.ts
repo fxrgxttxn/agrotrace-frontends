@@ -1074,6 +1074,30 @@ describe('openapi contract: operations', () => {
     expect(d).toMatch(/без взаимоблокировок: каждое получает 401, никогда 409/);
   });
 
+  it('P14: task-3 behaviour is codified (visibility, uploads, roles, sorting, Telegram bot name)', () => {
+    const d: string = doc.info.description;
+    expect(d).toMatch(/сортировка по строковым полям `x-sort`[^]*побайтово в UTF-8[^]*\(P14\)[^]*`COLLATE "C"`/);
+    expect(d).toMatch(/Загрузка файлов \(P14\)/);
+    expect(d).toMatch(/`errors\._root: \[validation\.invalid\]`/);
+    expect(d).toMatch(/не декодируется как тип, указанный сигнатурой[^]*415 UNSUPPORTED_MEDIA_TYPE/);
+    expect(d).toMatch(/без увеличения/);
+    expect(d).toMatch(/`TELEGRAM_BOT_USERNAME` — имя бота без `@`, отдаётся в `TelegramCode\.botUsername`/);
+    const tag = doc.tags.find((t: Json) => t.name === 'Organizations').description as string;
+    expect(tag).toMatch(/контрагентов по накладным[^]*кроме DRAFT[^]*404[^]*\/organizations\/\{id\}\/logo/);
+    const opDesc = (id: string) => ops.find(({ op }) => op.operationId === id)!.op.description as string;
+    for (const id of ['getOrganization', 'getOrganizationLogo', 'uploadOrganizationLogo'])
+      expect(opDesc(id), id).toMatch(/P14/);
+    expect(opDesc('downloadFile')).toMatch(/не являющийся\s+десятичным целым[^]*403, не 400/);
+    const s = doc.components.schemas;
+    expect(s.UserInvite.description).toMatch(/`errors\.roles: \[validation\.notAllowed\]`/);
+    expect(s.UserPatch.description).toMatch(/`errors\.roles: \[validation\.notAllowed\]`/);
+    expect(s.UserPatch.description).toMatch(/`errors\.<поле>: \[validation\.notAllowed\]`/);
+    expect(s.TelegramCode.properties.botUsername.description).toMatch(/TELEGRAM_BOT_USERNAME/);
+    expect(doc.components.responses.UnsupportedMediaType.description).toMatch(/не декодируется/);
+    const env = readFileSync(new URL('../../.env.example', import.meta.url), 'utf8');
+    expect(env).toMatch(/^TELEGRAM_BOT_USERNAME=agrotrace_bot$/m);
+  });
+
   it('P10: RATE_LIMIT_OVERRIDES is documented as deployment configuration', () => {
     const d: string = doc.info.description;
     expect(d).toMatch(/Конфигурация развёртывания \(P10\): переменная окружения `RATE_LIMIT_OVERRIDES`/);

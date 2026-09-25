@@ -225,7 +225,7 @@ export interface paths {
         get?: never;
         /**
          * Загрузка аватарки
-         * @description Загружает или заменяет аватарку (FR-IAM-07, п. 8.6): JPEG, PNG или WebP не более 2 МБ (≤ 2 097 152 байт включительно), тип определяется по сигнатуре содержимого. Сохраняется как WebP 96 и 480 px; прежний файл помечается удалённым. Аватарка доступна любому авторизованному пользователю.
+         * @description Загружает или заменяет аватарку (FR-IAM-07, п. 8.6): JPEG, PNG или WebP не более 2 МБ (≤ 2 097 152 байт включительно), тип определяется по сигнатуре содержимого. Сохраняется как WebP 96 и 480 px (без увеличения, P14); прежний файл помечается удалённым. Ошибки формы и декодирования — «Загрузка файлов (P14)» в описании API. Аватарка доступна любому авторизованному пользователю.
          */
         put: operations["uploadMyAvatar"];
         post?: never;
@@ -382,7 +382,7 @@ export interface paths {
         };
         /**
          * Карточка организации
-         * @description Участник видит свою организацию и организации своих непосредственных поставщиков и получателей; INSPECTOR и ADMIN — все организации (п. 4.2). Невидимая организация — 404.
+         * @description Участник видит свою организацию и организации своих непосредственных поставщиков и получателей — контрагентов по видимым ему накладным (правило — в описании тега Organizations, P14); INSPECTOR и ADMIN — все организации (п. 4.2). Невидимая организация — 404.
          */
         get: operations["getOrganization"];
         put?: never;
@@ -402,12 +402,12 @@ export interface paths {
         };
         /**
          * Логотип организации
-         * @description Логотип (WebP выбранного варианта или исходный SVG). Для страниц без авторизации тот же файл доступен по `GET /public/files/{id}`. Нет организации или логотипа — 404.
+         * @description Логотип (WebP выбранного варианта или исходный SVG). Для страниц без авторизации тот же файл доступен по `GET /public/files/{id}`. Нет организации, она невидима пользователю (тег Organizations, P14) или у неё нет логотипа — 404.
          */
         get: operations["getOrganizationLogo"];
         /**
          * Загрузка логотипа организации
-         * @description Загружает или заменяет логотип (п. 8.6): JPEG, PNG, WebP (→ WebP 96 и 480 px) или SVG (санитизация от скриптов, хранится как есть), не более 2 МБ (≤ 2 097 152 байт включительно); тип определяется по сигнатуре. Руководитель — только для своей организации (для чужой — 403); ADMIN — для любой. Логотип публичен.
+         * @description Загружает или заменяет логотип (п. 8.6): JPEG, PNG, WebP (→ WebP 96 и 480 px) или SVG (санитизация от скриптов, хранится как есть), не более 2 МБ (≤ 2 097 152 байт включительно); тип определяется по сигнатуре. Руководитель — только для своей организации (для чужой — 403); ADMIN — для любой. Невидимая организация (тег Organizations, P14) — 404, видимая чужая — 403. Ошибки формы и декодирования — «Загрузка файлов (P14)» в описании API. Логотип публичен.
          */
         put: operations["uploadOrganizationLogo"];
         post?: never;
@@ -1121,7 +1121,8 @@ export interface paths {
          *     `ecedca06a78414e48b66ba0a401a61401c7f8af078b2fc35c8dfe5017e7a4a70` (hex), подпись —
          *     `9de1ced479cc0f1c78c9d8deff00f42955b37d6a7cb19f9635a07a6300c29ee0`. Параметр
          *     `variant` не подписывается: клиент свободно добавляет или заменяет `variant=96|480` в выданном URL.
-         *     Сравнение подписи — за постоянное время. Неверная подпись, `exp` в прошлом или только один из `exp`/`sig` — 403 FORBIDDEN;
+         *     Сравнение подписи — за постоянное время. Неверная подпись, `exp` в прошлом или только один из `exp`/`sig` — 403 FORBIDDEN (в том числе `exp`, не являющийся
+         *     десятичным целым, и `sig` не по шаблону — 403, не 400; параметры `id` и `variant` проверяются после подписи, P14);
          *     права пользователя при этом не проверяются. Если переданы `exp`/`sig`, проверяется только подпись
          *     (заголовок Authorization игнорируется).
          *
@@ -2785,6 +2786,7 @@ export interface components {
         TelegramCode: {
             code: string;
             expiresAt: components["schemas"]["DateTime"];
+            /** @description Имя бота без `@` — значение `TELEGRAM_BOT_USERNAME` конфигурации развёртывания (P14). */
             botUsername: string;
         };
         /**
@@ -2901,7 +2903,7 @@ export interface components {
             total: components["schemas"]["TotalCount"];
         };
         /**
-         * @description Приглашение сотрудника (FR-IAM-02): создаётся пользователь со статусом INVITED и отправляется письмо со ссылкой-токеном. `organizationId` задаёт только ADMIN (иначе 400); руководитель приглашает в свою организацию. Роли должны соответствовать типу организации (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB, RETAILER→RETAILER, AUTHORITY→INSPECTOR, PLATFORM→ADMIN), иначе 400 VALIDATION (`errors.roles`). Занятый email — 400 VALIDATION (`errors.email: [validation.email.taken]`).
+         * @description Приглашение сотрудника (FR-IAM-02): создаётся пользователь со статусом INVITED и отправляется письмо со ссылкой-токеном. `organizationId` задаёт только ADMIN (иначе 400); руководитель приглашает в свою организацию. Роли должны соответствовать типу организации (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB, RETAILER→RETAILER, AUTHORITY→INSPECTOR, PLATFORM→ADMIN): набор ролей — ровно роль типа организации, иначе 400 VALIDATION `errors.roles: [validation.notAllowed]` (P14). Занятый email — 400 VALIDATION (`errors.email: [validation.email.taken]`).
          * @example {
          *       "email": "sidorova@kfh-petrov.ru",
          *       "fullName": "Сидорова Анна Викторовна",
@@ -2919,7 +2921,7 @@ export interface components {
             organizationId?: components["schemas"]["Uuid"];
         };
         /**
-         * @description Изменение ролей, признака руководителя и статуса сотрудника. Переходы статуса: только ACTIVE → BLOCKED и BLOCKED → ACTIVE (блокировка отзывает refresh-токены пользователя); INVITED → ACTIVE выполняется только через `POST /auth/accept-invite` — любое изменение `status` у пользователя INVITED даёт 409 INVALID_TRANSITION (`params.from`, `params.to`); `status`, равный текущему, — без изменений (200). Роли должны соответствовать типу организации пользователя (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB, RETAILER→RETAILER, AUTHORITY→INSPECTOR, PLATFORM→ADMIN), иначе 400 VALIDATION (`errors.roles`). Изменить собственные роли, признак руководителя или статус нельзя — 400 VALIDATION.
+         * @description Изменение ролей, признака руководителя и статуса сотрудника. Переходы статуса: только ACTIVE → BLOCKED и BLOCKED → ACTIVE (блокировка отзывает refresh-токены пользователя); INVITED → ACTIVE выполняется только через `POST /auth/accept-invite` — любое изменение `status` у пользователя INVITED даёт 409 INVALID_TRANSITION (`params.from`, `params.to`); `status`, равный текущему, — без изменений (200). Роли должны соответствовать типу организации пользователя (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB, RETAILER→RETAILER, AUTHORITY→INSPECTOR, PLATFORM→ADMIN): набор ролей — ровно роль типа организации, иначе 400 VALIDATION `errors.roles: [validation.notAllowed]` (P14). Изменить собственные роли, признак руководителя или статус нельзя: каждое из этих полей, присутствующее в теле запроса к самому себе (даже с текущим значением), — 400 VALIDATION `errors.<поле>: [validation.notAllowed]` (P14).
          * @example {
          *       "status": "BLOCKED"
          *     }
@@ -3019,12 +3021,12 @@ export interface components {
             size: components["schemas"]["PageSize"];
             total: components["schemas"]["TotalCount"];
         };
-        /** @description Изображение в поле `file`. MIME проверяется по сигнатуре содержимого, а не по расширению или заголовку части; имя файла сохраняется только как `originalName`. Хранится как WebP 96 и 480 px по большей стороне. */
+        /** @description Изображение в поле `file`. MIME проверяется по сигнатуре содержимого, а не по расширению или заголовку части; имя файла сохраняется только как `originalName`. Хранится как WebP 96 и 480 px по большей стороне без увеличения меньших изображений (P14). */
         ImageUpload: {
             /** Format: binary */
             file: string;
         };
-        /** @description Логотип в поле `file`: JPEG, PNG, WebP (конвертируются в WebP 96 и 480 px) или SVG (санитизируется от скриптов и хранится как есть). MIME проверяется по сигнатуре содержимого. */
+        /** @description Логотип в поле `file`: JPEG, PNG, WebP (конвертируются в WebP 96 и 480 px) или SVG (санитизируется от скриптов и хранится как есть). MIME проверяется по сигнатуре содержимого; растровые варианты — без увеличения, SVG — корректный XML в пространстве имён SVG в UTF-8 без `<!ENTITY>`, иначе 415 (P14). */
         LogoUpload: {
             /** Format: binary */
             file: string;
@@ -6235,7 +6237,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Тип файла, определённый по сигнатуре содержимого, не допускается (UNSUPPORTED_MEDIA_TYPE, `params.allowed`; п. 8.6). */
+        /** @description Тип файла, определённый по сигнатуре содержимого, не допускается (UNSUPPORTED_MEDIA_TYPE, `params.allowed`; п. 8.6), либо содержимое не декодируется как тип, указанный сигнатурой (P14). */
         UnsupportedMediaType: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
@@ -6639,7 +6641,7 @@ export interface components {
          */
         CacheControl: "private, max-age=0, must-revalidate" | "public, max-age=86400" | "no-store" | "no-cache";
         /**
-         * @description Всегда `inline; filename="<ascii>"; filename*=UTF-8''<pct>`, где имя = базовое имя `originalName` без расширения + `.` + расширение отдаваемого MIME (image/webp → webp, image/svg+xml → svg, image/png → png, application/pdf → pdf, xlsx → xlsx). `<ascii>` — то же имя, в котором символы вне печатного ASCII, `"` и `\` заменены на `_`; `<pct>` — имя в UTF-8, закодированное по RFC 5987.
+         * @description Всегда `inline; filename="<ascii>"; filename*=UTF-8''<pct>`, где имя = `originalName` без последнего расширения (часть от последней точки, если точка не первый символ; каталоги и иные части имени не отбрасываются, P14) + `.` + расширение отдаваемого MIME (image/webp → webp, image/svg+xml → svg, image/png → png, application/pdf → pdf, xlsx → xlsx). `<ascii>` — то же имя, в котором символы вне печатного ASCII, `"` и `\` заменены на `_`; `<pct>` — имя в UTF-8, закодированное по RFC 5987.
          * @example inline; filename="______.webp"; filename*=UTF-8''%D0%BF%D0%B5%D1%82%D1%80%D0%BE%D0%B2.webp
          */
         ContentDisposition: string;
