@@ -178,6 +178,15 @@ function responseProblems(c: Contract, res: ApiResponse, response: Json, base: s
     }
   }
 
+  // Every problem is self-consistent (RFC 7807 + contract `Problem`): body.status is the HTTP status and type is
+  // `/problems/<kebab(code)>`.
+  if (res.contentType === 'application/problem+json' && res.body && typeof res.body === 'object') {
+    if (res.body.status !== res.status)
+      problems.push(`body.status ${res.body.status} != HTTP status ${res.status}`);
+    if (typeof res.body.code === 'string' && res.body.type !== problemType(res.body.code))
+      problems.push(`body.type ${res.body.type} != ${problemType(res.body.code)} (from code)`);
+  }
+
   // Declared headers.
   for (const [name, h] of Object.entries<Json>(response.headers ?? {})) {
     const { node: header, pointer: hPtr } = resolve(c.doc, h);
@@ -220,7 +229,9 @@ export async function expectSharedResponse(
   if (problems.length) throw new ContractViolation(res, `components.responses.${name}`, problems);
 }
 
-const problemType = (code: string) => `/problems/${code.toLowerCase().replace(/_/g, '-')}`;
+function problemType(code: string): string {
+  return `/problems/${code.toLowerCase().replace(/_/g, '-')}`;
+}
 
 /**
  * For responses no operation describes (unknown path, 405, the 12 MiB body limit): an RFC 7807 problem of the

@@ -30,7 +30,7 @@ async function probe(fn: (signal: AbortSignal) => Promise<unknown>, timeoutMs: n
 }
 
 export function healthRouter(c: Container): Router {
-  const r = Router();
+  const r = Router({ caseSensitive: true, strict: true });
 
   r.get('/live', (_req, res) => {
     res.json({ status: 'ok' });

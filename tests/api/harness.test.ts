@@ -147,6 +147,36 @@ describe('expectContract (meta)', () => {
   });
 });
 
+describe('problem consistency in expectContract (meta, fix round 1 I3)', () => {
+  const headers = () =>
+    new Headers({
+      'content-type': 'application/problem+json',
+      'x-backend': API_BACKEND,
+      'x-request-id': 'r',
+    });
+  const login400 = (json: object) =>
+    expectContract(
+      fake({ method: 'POST', path: '/auth/login', status: 400, headers: headers(), json }),
+      'login',
+    );
+  const ok = { type: '/problems/validation', title: 'Validation failed', status: 400, code: 'VALIDATION' };
+
+  it('accepts a problem whose status and type agree with the response and its code', async () => {
+    await expect(login400(ok)).resolves.toBeTruthy();
+  });
+
+  it('rejects body.status different from the HTTP status', async () => {
+    await expect(login400({ ...ok, status: 422 })).rejects.toThrow(/body.status 422 != HTTP status 400/);
+  });
+
+  it('rejects a type that is not /problems/<kebab(code)> (schema-valid but inconsistent)', async () => {
+    await expect(login400({ ...ok, type: '/problems/not-found' })).rejects.toThrow(
+      /body.type \/problems\/not-found != \/problems\/validation/,
+    );
+    await expect(login400({ ...ok, code: 'RATE_LIMITED' })).rejects.toThrow(/!= \/problems\/rate-limited/);
+  });
+});
+
 describe('expectProblem (meta)', () => {
   const headers = () =>
     new Headers({

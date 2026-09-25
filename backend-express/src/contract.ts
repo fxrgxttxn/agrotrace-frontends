@@ -33,7 +33,7 @@ export function contractMethods(doc: OpenApiDoc, prefix = '/api/v1'): (path: str
   const segment = (s: string) =>
     /^\{[^/}]+\}$/.test(s) ? '[^/]+' : s.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');
   const routes = Object.entries(doc.paths).map(([template, item]) => ({
-    re: new RegExp(`^${prefix}${template.split('/').map(segment).join('/')}/?$`),
+    re: new RegExp(`^${prefix}${template.split('/').map(segment).join('/')}$`),
     methods: Object.keys(item).filter((m) => METHODS.includes(m)),
   }));
   return (path) => {

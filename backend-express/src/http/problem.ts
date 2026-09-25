@@ -142,6 +142,9 @@ interface HttpParserError extends Error {
 export function toProblem(err: unknown): AppProblem | null {
   if (err instanceof AppProblem) return err;
   if (err instanceof ZodError) return validationProblem(toFieldErrors(err));
+  // A path parameter with a malformed percent-escape (Express: URIError "Failed to decode param", status 400) — the
+  // path identifies no resource (I2).
+  if (err instanceof URIError) return new AppProblem(404, 'NOT_FOUND');
   const e = err as HttpParserError;
   switch (e?.type) {
     case 'entity.parse.failed':
@@ -149,16 +152,35 @@ export function toProblem(err: unknown): AppProblem | null {
       return validationProblem({ _root: ['validation.invalid'] });
     case 'entity.too.large':
       return new AppProblem(413, 'FILE_TOO_LARGE', { params: { maxBytes: JSON_BODY_LIMIT_BYTES } });
+    // P7: a body that cannot be read as JSON (unsupported charset/encoding, aborted transfer) — body-level error.
     case 'encoding.unsupported':
     case 'charset.unsupported':
-      return new AppProblem(415, 'UNSUPPORTED_MEDIA_TYPE', { params: { allowed: ['application/json'] } });
     case 'request.aborted':
     case 'request.size.invalid':
     case 'stream.encoding.set':
     case 'stream.not.readable':
       return validationProblem({ _root: ['validation.invalid'] });
     default:
-      return null;
+      return fromHttpError(e);
+  }
+}
+
+/**
+ * Any other client error raised by Express or its middleware as an http-error (numeric 4xx `status`, `expose`):
+ * mapped by status; the problem never carries the library's message. Anything else (5xx, plain errors) — null.
+ */
+function fromHttpError(e: HttpParserError | undefined): AppProblem | null {
+  const status = e?.status ?? (e as { statusCode?: number } | undefined)?.statusCode;
+  if (typeof status !== 'number' || status < 400 || status > 499 || e?.expose === false) return null;
+  switch (status) {
+    case 404:
+      return new AppProblem(404, 'NOT_FOUND');
+    case 413:
+      return new AppProblem(413, 'FILE_TOO_LARGE', { params: { maxBytes: JSON_BODY_LIMIT_BYTES } });
+    case 415:
+      return new AppProblem(415, 'UNSUPPORTED_MEDIA_TYPE', { params: { allowed: ['application/json'] } });
+    default:
+      return validationProblem({ _root: ['validation.invalid'] });
   }
 }
 
@@ -184,17 +206,31 @@ export function problemHandler(logger: Logger): ErrorRequestHandler {
   };
 }
 
-/** Terminal handler for paths no route matched: 404 NOT_FOUND, or 405 when the path exists with other methods. */
-export function notFoundHandler(allowedMethods: (path: string) => string[]): RequestHandler {
-  return (req, res) => {
+/**
+ * 405 before any route (I1): a request whose path is a contract path but whose method the contract does not declare
+ * for it — OPTIONS included — is 405 METHOD_NOT_ALLOWED with `Allow` = the declared methods
+ * (components.responses.MethodNotAllowed, P3). HEAD counts as GET. OPTIONS on any other path is 404 (Express would
+ * otherwise answer it itself with `200 text/html` and its own Allow list).
+ */
+export function methodGuard(allowedMethods: (path: string) => string[]): RequestHandler {
+  return (req, res, next) => {
     const allow = allowedMethods(req.path);
     const method = req.method === 'HEAD' ? 'GET' : req.method;
-    // A declared operation that has no route (yet) is simply not found; a path the contract declares only with other
-    // methods is 405 METHOD_NOT_ALLOWED with `Allow` (components.responses.MethodNotAllowed, P3).
     if (allow.length > 0 && !allow.includes(method)) {
       sendProblem(res, new AppProblem(405, 'METHOD_NOT_ALLOWED', { headers: { Allow: allow.join(', ') } }));
       return;
     }
+    if (allow.length === 0 && method === 'OPTIONS') {
+      sendProblem(res, new AppProblem(404, 'NOT_FOUND'));
+      return;
+    }
+    next();
+  };
+}
+
+/** Terminal handler for requests no route matched (a declared but not yet implemented operation included): 404. */
+export function notFoundHandler(): RequestHandler {
+  return (_req, res) => {
     sendProblem(res, new AppProblem(404, 'NOT_FOUND'));
   };
 }

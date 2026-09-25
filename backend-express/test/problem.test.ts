@@ -19,7 +19,7 @@ function appWith(route: (app: express.Express) => void) {
   app.use(backendHeader('express'));
   app.use(express.json());
   route(app);
-  app.use(notFoundHandler(() => []));
+  app.use(notFoundHandler());
   app.use(problemHandler(logger));
   return { app, lines };
 }
@@ -122,7 +122,28 @@ describe('problem handler', () => {
       code: 'FILE_TOO_LARGE',
       params: { maxBytes: 12582912 },
     });
-    expect(toProblem(Object.assign(new Error('x'), { type: 'charset.unsupported' }))?.status).toBe(415);
+    expect(toProblem(Object.assign(new Error('x'), { type: 'charset.unsupported' }))?.body()).toMatchObject({
+      status: 400,
+      errors: { _root: ['validation.invalid'] },
+    });
+    // I2: a malformed percent-escape in a path parameter (Express throws a URIError with status 400).
+    expect(toProblem(Object.assign(new URIError('URI malformed'), { status: 400 }))?.body()).toMatchObject({
+      status: 404,
+      code: 'NOT_FOUND',
+    });
+    // Other exposed 4xx http-errors map by status, never with the library message; 5xx and non-exposed stay 500.
+    const httpErr = (status: number, expose = true) =>
+      Object.assign(new Error('lib text'), { status, expose });
+    expect(toProblem(httpErr(404))?.code).toBe('NOT_FOUND');
+    expect(toProblem(httpErr(400))?.body()).toEqual({
+      type: '/problems/validation',
+      title: 'Validation failed',
+      status: 400,
+      code: 'VALIDATION',
+      errors: { _root: ['validation.invalid'] },
+    });
+    expect(toProblem(httpErr(503))).toBeNull();
+    expect(toProblem(httpErr(400, false))).toBeNull();
     expect(toProblem(new Error('other'))).toBeNull();
   });
 });
@@ -146,5 +167,44 @@ describe('404 / 405 fallback (createApp)', () => {
     const templ = await request(app).put('/api/v1/batches/8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e');
     expect(templ.status).toBe(405);
     expect(templ.headers.allow).toBe('GET');
+  });
+
+  it("OPTIONS on an implemented route is 405 with the contract Allow, not Express's automatic 200 (I1)", async () => {
+    const { c } = await fakeContainer();
+    const res = await request(createApp(c)).options('/api/v1/health/live');
+    expect(res.status).toBe(405);
+    expect(res.headers.allow).toBe('GET');
+    expect(res.headers['content-type']).toMatch(/^application\/problem\+json/);
+    expect(res.body.code).toBe('METHOD_NOT_ALLOWED');
+    const other = await request(createApp(c)).options('/api/v1/docs');
+    expect(other.status).toBe(404);
+    expect(other.body.code).toBe('NOT_FOUND');
+  });
+
+  it('a route mounted on a contract path inherits the guard: only the declared method reaches it', async () => {
+    const { c } = await fakeContainer();
+    const app = createApp(c);
+    // What a future module does: mount a router with a handler for every method on a contract path.
+    const hits: string[] = [];
+    const stack = (app as unknown as { _router: { stack: unknown[] } })._router.stack;
+    const probe = express.Router();
+    probe.all('/api/v1/auth/logout', (req, res) => {
+      hits.push(req.method);
+      res.status(204).end();
+    });
+    stack.splice(stack.length - 2, 0, ...(probe as unknown as { stack: unknown[] }).stack);
+    expect((await request(app).post('/api/v1/auth/logout')).status).toBe(204);
+    const put = await request(app).put('/api/v1/auth/logout');
+    expect(put.status).toBe(405);
+    expect(put.headers.allow).toBe('POST');
+    expect(hits).toEqual(['POST']);
+  });
+
+  it('routing is case-sensitive and strict (P8)', async () => {
+    const { c } = await fakeContainer();
+    const app = createApp(c);
+    expect((await request(app).get('/api/v1/health/live')).status).toBe(200);
+    for (const p of ['/api/v1/Health/live', '/api/v1/health/live/', '/API/v1/health/live'])
+      expect((await request(app).get(p)).status, p).toBe(404);
   });
 });

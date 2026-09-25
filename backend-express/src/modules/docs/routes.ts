@@ -63,7 +63,7 @@ function send(res: Response, type: string, body: string | Buffer, cache: string)
 }
 
 export function docsRouter(c: Container): Router {
-  const r = Router();
+  const r = Router({ caseSensitive: true, strict: true });
   const contract = c.contract?.raw ?? '{}';
   const files = new Map(
     Object.entries(ASSETS).map(([name, [file, type]]) => [

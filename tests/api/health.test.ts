@@ -1,10 +1,11 @@
 /** Health (contracts/openapi/paths/health.yaml) and the headers every response carries (spec 8.3, R79). */
 import { describe, expect, it } from 'vitest';
 import { api } from './lib/client.js';
-import { expectContract } from './lib/contract.js';
+import { expectContract, REQUEST_ID } from './lib/contract.js';
 import { API_BACKEND } from './lib/env.js';
 
-const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+// Generated ids follow the R79 pattern; the format beyond it (UUID or not) is each backend's choice.
+const GENERATED = REQUEST_ID;
 
 describe('GET /health/live', () => {
   it('200 {status: ok} with X-Backend and X-Request-Id', async () => {
@@ -34,18 +35,18 @@ describe('X-Request-Id (R79)', () => {
     }
   });
 
-  it('replaces an id that does not match with a generated UUID', async () => {
+  it('replaces an id that does not match with a generated one', async () => {
     for (const id of ['x'.repeat(65), 'has space', 'semi;colon', 'slash/id', 'é', '']) {
       const res = await api().get('/health/live', { headers: { 'x-request-id': id } });
       await expectContract(res, 'getHealthLive');
-      expect(res.headers.get('x-request-id')).toMatch(UUID_V4);
+      expect(res.headers.get('x-request-id')).toMatch(GENERATED);
     }
   });
 
-  it('generates a fresh UUID per request when none is sent', async () => {
+  it('generates a fresh id per request when none is sent', async () => {
     const [a, b] = await Promise.all([api().get('/health/live'), api().get('/health/live')]);
-    expect(a.headers.get('x-request-id')).toMatch(UUID_V4);
-    expect(b.headers.get('x-request-id')).toMatch(UUID_V4);
+    expect(a.headers.get('x-request-id')).toMatch(GENERATED);
+    expect(b.headers.get('x-request-id')).toMatch(GENERATED);
     expect(a.headers.get('x-request-id')).not.toBe(b.headers.get('x-request-id'));
   });
 

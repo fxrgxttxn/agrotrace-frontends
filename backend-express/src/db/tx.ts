@@ -2,6 +2,10 @@
  * Transactions (R47/R52): READ COMMITTED by default, REPEATABLE READ for the recall engine (R54/D7). A deadlock
  * (40P01) or serialization failure (40001) re-runs the whole transaction once; a second failure is 409
  * VERSION_CONFLICT (`params.currentVersion` from `conflictParams`, if the operation has an If-Match entity).
+ *
+ * Contract for `fn` (P8): it may run TWICE, so it touches only the database through `tx` — no Redis, no S3, no
+ * publishing, no email, no in-memory state that survives a failed attempt. Side effects that must follow the commit
+ * go to the outbox (`enqueue(tx, …)`) or run after `withTx` resolves (e.g. `pub:batch` cache deletion).
  */
 import type { IsolationLevel, Kysely, Transaction } from 'kysely';
 import { AppProblem } from '../http/problem.js';

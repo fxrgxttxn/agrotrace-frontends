@@ -22,6 +22,42 @@ describe('paths and methods outside the contract', () => {
     }
   });
 
+  it('paths are case-sensitive and strict: another case or a trailing slash is not the contract path (P8)', async () => {
+    for (const path of ['/Health/live', '/health/LIVE', '/health/live/', '/health/ready/']) {
+      const res = await api().get(path);
+      await expectProblem(res, 404, 'NOT_FOUND');
+    }
+  });
+
+  it('a malformed percent-escape in the path → 404 NOT_FOUND, never 500 (fix round 1 I2)', async () => {
+    for (const path of [
+      '/docs/%zz',
+      '/docs/%E0%A4%A',
+      '/health/%zz',
+      '/batches/%zz',
+      '/batches/%zz/documents',
+    ]) {
+      const res = await api().get(path);
+      await expectProblem(res, 404, 'NOT_FOUND');
+    }
+  });
+
+  it('OPTIONS is not a contract method: 405 with the contract Allow on a contract path, 404 elsewhere (I1)', async () => {
+    for (const [path, allow] of [
+      ['/health/live', 'GET'], // implemented route
+      ['/health/ready', 'GET'],
+      ['/auth/login', 'POST'], // declared, not implemented yet
+    ] as const) {
+      const res = await api().request('OPTIONS', path);
+      await expectSharedResponse(res, 'MethodNotAllowed', { status: 405, code: 'METHOD_NOT_ALLOWED' });
+      expect(res.headers.get('allow'), path).toBe(allow);
+    }
+    for (const path of ['/docs', '/no/such/path']) {
+      const res = await api().request('OPTIONS', path);
+      await expectProblem(res, 404, 'NOT_FOUND');
+    }
+  });
+
   it('a path outside /api/v1 → 404 NOT_FOUND problem', async () => {
     const res = await api().request('GET', '/../../nope');
     await expectProblem(res, 404, 'NOT_FOUND');
@@ -30,6 +66,7 @@ describe('paths and methods outside the contract', () => {
   it('a contract path with a method it does not declare → 405 METHOD_NOT_ALLOWED with Allow (P3)', async () => {
     for (const [method, path, allow] of [
       ['DELETE', '/health/live', 'GET'],
+      ['PUT', '/health/live', 'GET'],
       ['POST', '/health/ready', 'GET'],
       ['GET', '/auth/login', 'POST'],
       ['PATCH', '/batches/8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e', 'GET'],

@@ -53,7 +53,8 @@ describe('contractMethods', () => {
   it('matches path templates segment by segment', async () => {
     const m = contractMethods((await testContract()).doc);
     expect(m('/api/v1/health/live')).toEqual(['GET']);
-    expect(m('/api/v1/health/live/')).toEqual(['GET']);
+    expect(m('/api/v1/health/live/')).toEqual([]); // strict routing (P8)
+    expect(m('/api/v1/Health/live')).toEqual([]);
     expect(m('/api/v1/batches/abc/documents')).toEqual(['GET']);
     expect(m('/api/v1/batches/abc/def/documents')).toEqual([]);
     expect(m('/api/v1/nope')).toEqual([]);
