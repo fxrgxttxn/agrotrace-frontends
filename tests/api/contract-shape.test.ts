@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { api } from './lib/client.js';
+import { API_URL } from './lib/env.js';
 import { expectContract, expectProblem, expectSharedResponse } from './lib/contract.js';
 
 const MAX_BODY = 12 * 1024 * 1024; // the gateway's client_max_body_size (R79)
@@ -27,6 +28,26 @@ describe('paths and methods outside the contract', () => {
       const res = await api().get(path);
       await expectProblem(res, 404, 'NOT_FOUND');
     }
+  });
+
+  it('a path with an empty segment (`//`, `///`) is not a contract path → 404 (P8, fix round 2)', async () => {
+    for (const path of [
+      '//health/live', // right after /api/v1
+      '/health//live',
+      '/health/live//',
+      '///health/live',
+      '/health///live',
+      '//docs',
+    ]) {
+      for (const method of ['GET', 'OPTIONS', 'DELETE']) {
+        const res = await api().request(method, path);
+        await expectProblem(res, 404, 'NOT_FOUND');
+      }
+    }
+    // Also before the /api/v1 prefix.
+    const res = await fetch(API_URL.replace('/api/v1', '//api/v1') + '/health/live');
+    expect(res.status).toBe(404);
+    expect(res.headers.get('content-type')).toMatch(/^application\/problem\+json/);
   });
 
   it('a malformed percent-escape in the path → 404 NOT_FOUND, never 500 (fix round 1 I2)', async () => {

@@ -8,7 +8,13 @@ import express, { type Express } from 'express';
 import type { Container } from './container.js';
 import { contractMethods } from './contract.js';
 import { accessLog } from './http/access-log.js';
-import { JSON_BODY_LIMIT_BYTES, methodGuard, notFoundHandler, problemHandler } from './http/problem.js';
+import {
+  JSON_BODY_LIMIT_BYTES,
+  methodGuard,
+  notFoundHandler,
+  problemHandler,
+  rejectEmptySegments,
+} from './http/problem.js';
 import { backendHeader, requestId } from './http/request-id.js';
 import { docsRouter } from './modules/docs/routes.js';
 import { healthRouter } from './modules/health/routes.js';
@@ -26,6 +32,7 @@ export function createApp(c: Container): Express {
   app.use(requestId());
   app.use(backendHeader('express'));
   app.use(accessLog(c.logger));
+  app.use(rejectEmptySegments());
   // Every route — present and future — inherits the contract's method set: an undeclared method (OPTIONS included)
   // on a contract path is 405 METHOD_NOT_ALLOWED with the contract's Allow, never Express's automatic answer.
   app.use(methodGuard(c.contract ? contractMethods(c.contract.doc) : () => []));

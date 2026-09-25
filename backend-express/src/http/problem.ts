@@ -207,6 +207,22 @@ export function problemHandler(logger: Logger): ErrorRequestHandler {
 }
 
 /**
+ * P8: a raw path with an empty segment (`//`, `///`, anywhere — also before `/api/v1`) is no contract path: 404
+ * NOT_FOUND. Checked on `req.originalUrl` before the query string, early in the chain, because Express collapses
+ * repeated slashes at router mount boundaries (`/api/v1//health/live` would otherwise reach /health/live).
+ */
+export function rejectEmptySegments(): RequestHandler {
+  return (req, res, next) => {
+    const raw = req.originalUrl.split('?')[0]!;
+    if (raw.includes('//')) {
+      sendProblem(res, new AppProblem(404, 'NOT_FOUND'));
+      return;
+    }
+    next();
+  };
+}
+
+/**
  * 405 before any route (I1): a request whose path is a contract path but whose method the contract does not declare
  * for it — OPTIONS included — is 405 METHOD_NOT_ALLOWED with `Allow` = the declared methods
  * (components.responses.MethodNotAllowed, P3). HEAD counts as GET. OPTIONS on any other path is 404 (Express would

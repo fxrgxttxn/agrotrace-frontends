@@ -200,6 +200,23 @@ describe('404 / 405 fallback (createApp)', () => {
     expect(hits).toEqual(['POST']);
   });
 
+  it('a raw path with an empty segment is 404 even where Express would collapse the slashes (P8)', async () => {
+    const { c } = await fakeContainer();
+    const app = createApp(c);
+    for (const p of [
+      '/api/v1//health/live',
+      '/api/v1/health//live',
+      '//api/v1/health/live',
+      '/api/v1///health/live',
+      '/api/v1/health/live//?x=1',
+    ]) {
+      const res = await request(app).get(p);
+      expect(res.status, p).toBe(404);
+      expect(res.body.code, p).toBe('NOT_FOUND');
+    }
+    expect((await request(app).get('/api/v1/health/live?next=//x')).status).toBe(200); // query is not the path
+  });
+
   it('routing is case-sensitive and strict (P8)', async () => {
     const { c } = await fakeContainer();
     const app = createApp(c);
