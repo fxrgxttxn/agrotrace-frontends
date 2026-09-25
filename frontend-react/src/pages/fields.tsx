@@ -2,14 +2,14 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
-import { enumLabel, formatDecimal, formatLocalDate, formatLocalDateTime } from '@agrotrace/i18n';
+import { enumLabel, formatBytes, formatDecimal, formatLocalDate, formatLocalDateTime } from '@agrotrace/i18n';
 import { FieldInputSchema, TreatmentInputSchema } from '@agrotrace/validation';
 import { call, errorText, errorTone, useFormAlert } from '../app/api';
 import { addDays } from '../app/dates';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
-import { isBadListQuery, useListParams, type ListSpec } from '../app/listState';
+import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
 import { momentCheck, momentDefaults, MomentInput, momentWire } from '../app/MomentInput';
 import { OrgPicker } from '../app/OrgPicker';
 import { useMe, useSession } from '../app/session';
@@ -29,6 +29,7 @@ import {
   FileField,
   Input,
   InputGroup,
+  ListChanged,
   LoadFailed,
   Page,
   PageToolbar,
@@ -165,7 +166,11 @@ export function FieldsPage() {
           onReset={isBadListQuery(query.error) ? list.reset : undefined}
         />
       );
-    if (!query.data || (items.length === 0 && query.data.total > 0)) return <AreaLoading />;
+    if (!query.data) return <AreaLoading />;
+    const gap = listGap(query.data, list.page, SIZE);
+    if (gap === 'pastEnd') return <AreaLoading />;
+    if (gap === 'changed')
+      return <ListChanged busy={query.isFetching} onReload={() => void query.refetch()} />;
     if (items.length === 0)
       return (
         <Card>
@@ -413,7 +418,7 @@ function FieldFormReady({
     form.setValue('geometry', parsed.ok && parsed.value ? prettyGeometry(parsed.value) : text, {
       shouldDirty: true,
     });
-    setFile([{ key: f.name, name: f.name, sizeText: `${Math.max(1, Math.round(f.size / 1024))} КБ` }]);
+    setFile([{ key: f.name, name: f.name, sizeText: formatBytes(f.size, LOCALE) }]);
     if (parsed.ok) form.clearErrors('geometry');
     else form.setError('geometry', { type: 'file', message: 'fields.geometryInvalid' });
   };
@@ -447,6 +452,8 @@ function FieldFormReady({
           className="at-textarea at-mono"
           rows={6}
           spellCheck={false}
+          // The format stays described when the placeholder is gone: the file field's hint (ruling F12).
+          aria-describedby={`${id}-geometry-file-hint`}
           placeholder={'{\n  "type": "Polygon",\n  "coordinates": [[[39.01, 45.04], …, [39.01, 45.04]]]\n}'}
           {...form.register('geometry')}
         />
@@ -790,7 +797,11 @@ function Treatments({ field, farmer }: { field: FieldT; farmer: boolean }) {
           }
         />
       );
-    if (!query.data || (items.length === 0 && query.data.total > 0)) return <AreaLoading blocks={1} />;
+    if (!query.data) return <AreaLoading blocks={1} />;
+    const gap = listGap(query.data, list.page, SIZE);
+    if (gap === 'pastEnd') return <AreaLoading blocks={1} />;
+    if (gap === 'changed')
+      return <ListChanged busy={query.isFetching} onReload={() => void query.refetch()} />;
     if (items.length === 0)
       return (
         <Empty

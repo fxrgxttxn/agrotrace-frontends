@@ -11,6 +11,8 @@ import { formatSort, parseSort, type SortState } from '../ui/Table';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** Longest search text of the contract (`Q`: maxLength 100, in code points). */
+const TEXT_MAX = 100;
 
 export interface ListSpec {
   /** x-sort fields of the operation. */
@@ -68,9 +70,10 @@ export function sanitizeParams(params: URLSearchParams, spec: ListSpec): URLSear
     const v = params.get(key);
     if (v && re.test(v)) out.set(key, v);
   }
+  // `q`: 1–100 code points in the contract (Q parameter); a longer text is cut, not sent to a certain 400.
   for (const key of spec.texts ?? []) {
     const v = params.get(key);
-    if (v) out.set(key, v);
+    if (v) out.set(key, [...v].slice(0, TEXT_MAX).join(''));
   }
   return out;
 }
@@ -141,13 +144,16 @@ export function useListParams(path: string, spec: ListSpec): ListParams {
         const s = q.toString();
         return `${path}${s ? `?${s}` : ''}`;
       },
-      reset: () =>
+      reset: () => {
         setParams((current) => {
           const own = ownKeys(spec);
           const keep = new URLSearchParams();
           for (const [k, v] of current) if (!own.has(k)) keep.append(k, v);
           return keep;
-        }),
+        });
+        // The «Сбросить фильтры» button goes away with the filters: the focus goes to the page title (ruling F12).
+        document.querySelector<HTMLElement>('h1.at-page__title')?.focus({ preventScroll: true });
+      },
       clampPage: (total: number, size: number) => {
         const last = Math.max(1, Math.ceil(total / size));
         if (page <= last) return;
@@ -164,6 +170,18 @@ export function useListParams(path: string, spec: ListSpec): ListParams {
     }),
     [params, page, sort, set, path, setParams, spec],
   );
+}
+
+/** An empty page of a non-empty list: `pastEnd` — past the last page (go to the last one); `changed` — a page inside
+ * the list came back empty (the list changed between the count and the rows): the screen offers a reload, never an
+ * endless loading. `null` — nothing odd. */
+export function listGap(
+  data: { items: readonly unknown[]; total: number },
+  page: number,
+  size: number,
+): 'pastEnd' | 'changed' | null {
+  if (data.items.length > 0 || data.total === 0) return null;
+  return page > Math.max(1, Math.ceil(data.total / size)) ? 'pastEnd' : 'changed';
 }
 
 /** A list request the server rejected as invalid (400): the screen offers «Сбросить фильтры». */

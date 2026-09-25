@@ -18,7 +18,7 @@ import { call, errorText, errorTone, retryAfterOf, useCountdown } from '../app/a
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
-import { isBadListQuery, useListParams, type ListSpec } from '../app/listState';
+import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
 import { momentCheck, momentDefaults, MomentInput, momentWire } from '../app/MomentInput';
 import { OrgPicker } from '../app/OrgPicker';
 import { CABINET_ROUTES } from '../app/routes';
@@ -40,6 +40,7 @@ import {
   Empty,
   Field,
   InputGroup,
+  ListChanged,
   LoadFailed,
   Page,
   PageToolbar,
@@ -180,8 +181,9 @@ export function BatchesPage() {
     if (query.data && query.data.items.length === 0 && query.data.total > 0)
       clampPage(query.data.total, SIZE);
   }, [query.data, clampPage]);
-  // One production-date column: RAW batches sort by harvest, DERIVED by release (x-sort has both).
-  const producedSort = kind === 'DERIVED' ? 'producedAt' : 'harvestedAt';
+  // One production-date column, but x-sort has no combined moment (ruling F12): it sorts by harvest (kind RAW) or by
+  // release (kind DERIVED) only while the kind filter says which; without it the column is not sortable.
+  const producedSort = kind === 'DERIVED' ? 'producedAt' : kind === 'RAW' ? 'harvestedAt' : undefined;
 
   const columns: Column<BatchItem>[] = [
     {
@@ -229,7 +231,11 @@ export function BatchesPage() {
           onReset={isBadListQuery(query.error) ? reset : undefined}
         />
       );
-    if (!query.data || (items.length === 0 && query.data.total > 0)) return <AreaLoading />;
+    if (!query.data) return <AreaLoading />;
+    const gap = listGap(query.data, list.page, SIZE);
+    if (gap === 'pastEnd') return <AreaLoading />;
+    if (gap === 'changed')
+      return <ListChanged busy={query.isFetching} onReload={() => void query.refetch()} />;
     if (items.length === 0)
       return (
         <Card>
@@ -271,7 +277,9 @@ export function BatchesPage() {
             { value: 'publicCode,asc', label: t('batches.sort.code') },
             { value: 'massKg,desc', label: t('batches.sort.massDesc') },
             { value: 'massKg,asc', label: t('batches.sort.massAsc') },
-            { value: `${producedSort},desc`, label: t('batches.sort.producedDesc') },
+            ...(producedSort
+              ? [{ value: `${producedSort},desc`, label: t('batches.sort.producedDesc') }]
+              : []),
           ]}
         />
         <Pagination page={list.page} size={SIZE} total={query.data.total} hrefFor={list.hrefFor} />

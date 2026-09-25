@@ -99,7 +99,11 @@ export function FileField({
             <use href="#i-upload" />
           </svg>
           <span className="at-file__action">{t('ui.chooseFile')}</span>
-          {hint && <span className="at-file__hint">{hint}</span>}
+          {hint && (
+            <span className="at-file__hint" id={`${id}-hint`}>
+              {hint}
+            </span>
+          )}
         </label>
         {files.length > 0 && (
           <ul className="at-file__list">

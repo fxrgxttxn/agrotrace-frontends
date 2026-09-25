@@ -33,7 +33,11 @@ export function momentCheck(m: MomentValues, dateKey: string, timeKey: string, n
   if (!m.date) return out;
   const at = localToInstant(m.date, m.time);
   if (!at) out[timeKey] = 'validation.required';
-  else if (Date.parse(at) > now && at !== m.original) out[dateKey] = 'validation.date.future';
+  else if (Date.parse(at) > now && at !== m.original) {
+    // Today with a later time: the time is what is wrong, not the date (ruling F12).
+    if (m.date === localDate(now)) out[timeKey] = 'moment.timeFuture';
+    else out[dateKey] = 'validation.date.future';
+  }
   return out;
 }
 

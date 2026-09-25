@@ -31,7 +31,14 @@ export function useFullscreen() {
     const made: Element[] = [];
     for (let el: Element | null = block.current; el && el !== document.body; el = el.parentElement)
       for (const sib of el.parentElement?.children ?? [])
-        if (sib !== el && !sib.hasAttribute('inert') && sib.tagName !== 'SCRIPT') {
+        // The toast stack stays live (ruling F12): announcements made meanwhile must still be heard.
+        if (
+          sib !== el &&
+          !sib.hasAttribute('inert') &&
+          sib.tagName !== 'SCRIPT' &&
+          !sib.matches('.at-toasts') &&
+          !sib.querySelector('.at-toasts')
+        ) {
           sib.setAttribute('inert', '');
           made.push(sib);
         }

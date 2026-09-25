@@ -118,6 +118,8 @@ describe('/batches', () => {
     expect(await screen.findByText('Ничего не найдено.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Сбросить фильтры' }));
     await waitFor(() => expect(router.state.location.search).toBe(''));
+    // The button is gone with the filters: the focus goes to the page title (F12).
+    expect(screen.getByRole('heading', { level: 1, name: 'Партии' })).toHaveFocus();
   });
 });
 
@@ -479,8 +481,18 @@ describe('review round 1', () => {
     await openFilters();
     const select = screen.getByLabelText('Статус') as HTMLSelectElement;
     expect(select.selectedOptions[0]!.textContent).toBe('Несколько (2)');
-    await userEvent.click(screen.getByRole('button', { name: 'Дата производства' }));
+    // Without a kind the production date is not one field of the contract (F12): the column is not sortable.
+    expect(screen.queryByRole('button', { name: 'Дата производства' })).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText('Вид'), 'Сырьевая');
+    await userEvent.click(await screen.findByRole('button', { name: 'Дата производства' }));
     await waitFor(() => expect(seen.at(-1)!.get('sort')).toBe('harvestedAt,asc'));
+  });
+
+  it('an empty slice inside the list (the list changed meanwhile): a reload, never an endless loading', async () => {
+    server.use(dictionaries(), contractResponse('listBatches', { body: pageOf([], 30), once: true }));
+    await open('/batches', 'Партии');
+    await userEvent.click(await screen.findByRole('button', { name: 'Обновить список' }));
+    expect(await screen.findByRole('link', { name: 'AT-2026-000123' })).toBeInTheDocument();
   });
 
   it('a date filter that came back with the URL (back/forward) survives a blur', async () => {
@@ -568,6 +580,8 @@ describe('review round 1', () => {
     const heading = document.querySelector('h1.at-page__title')!;
     expect(heading.closest('[inert]')).not.toBeNull();
     expect(block.closest('[inert]')).toBeNull();
+    // Toasts stay announced (ruling F12): their stack is never inert.
+    expect(document.querySelector('.at-toasts')!.closest('[inert]')).toBeNull();
     // The tab panel around it (tabindex 0) is out of the tab order meanwhile.
     expect(document.getElementById('panel-graph')).toHaveAttribute('tabindex', '-1');
     await userEvent.keyboard('{Escape}');

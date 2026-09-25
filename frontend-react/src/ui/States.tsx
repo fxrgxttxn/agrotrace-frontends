@@ -48,3 +48,20 @@ export function AreaLoading({ blocks = 2 }: { blocks?: number }) {
     </div>
   );
 }
+
+/** A page inside a list came back empty (the list changed between the count and the rows): one reload button. */
+export function ListChanged({ busy, onReload }: { busy?: boolean; onReload: () => void }) {
+  return (
+    <Card>
+      <Empty
+        art="empty-search"
+        text={t('filters.changed')}
+        action={
+          <Button variant="primary" busy={busy} onClick={onReload}>
+            {t('filters.reload')}
+          </Button>
+        }
+      />
+    </Card>
+  );
+}

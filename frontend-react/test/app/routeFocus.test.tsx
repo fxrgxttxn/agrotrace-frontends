@@ -57,6 +57,18 @@ describe('focus on route change', () => {
     await waitFor(() => expect(document.activeElement).toBe(h1('Поля')));
   });
 
+  it('a link to a route of another role: the redirect to /403 focuses its title (FM7)', async () => {
+    const { router } = renderApp('/batches');
+    await screen.findByRole('heading', { level: 1, name: 'Партии' });
+    const link = document.querySelector('.at-sidebar a[href="/fields"]') as HTMLElement;
+    link.focus();
+    await act(async () => {
+      await router.navigate('/recalls');
+    });
+    await screen.findByRole('heading', { level: 1, name: 'Нет доступа' });
+    await waitFor(() => expect(document.activeElement).toBe(h1('Нет доступа')));
+  });
+
   it('a redirect at start-up counts as the first load', async () => {
     server.use(contractResponse('refreshToken', { status: 401 }));
     renderApp('/batches');

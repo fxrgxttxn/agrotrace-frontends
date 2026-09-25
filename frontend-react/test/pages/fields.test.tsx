@@ -460,5 +460,9 @@ describe('review round 1: URL state, focus, outline import', () => {
     await waitFor(() => expect(outline.value).toContain('"type": "Polygon"'));
     expect(outline.value).toContain('[39, 45]');
     expect(JSON.parse(outline.value)).toEqual(polygon);
+    // Size in the locale's units (formatBytes); the format hint stays described after the placeholder is gone (F12).
+    expect(document.querySelector('.at-file__size')!.textContent).toMatch(/^\d+ Б$/);
+    const hint = document.getElementById(outline.getAttribute('aria-describedby')!.split(' ')[0]!)!;
+    expect(hint).toHaveTextContent('GeoJSON (.geojson) с контуром Polygon, до 1 МБ');
   });
 });

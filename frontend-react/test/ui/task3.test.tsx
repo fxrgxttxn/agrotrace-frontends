@@ -6,7 +6,7 @@ import { graphElements, graphStyle, kebab, type BatchGraph } from '../../src/gra
 import { boundsOf, FieldMap } from '../../src/maps/FieldMap';
 import { normalizeDecimal } from '../../src/app/forms';
 import { parseGeometry, prettyGeometry } from '../../src/pages/fields';
-import { sanitizeParams } from '../../src/app/listState';
+import { listGap, sanitizeParams } from '../../src/app/listState';
 import { momentCheck, momentWire } from '../../src/app/MomentInput';
 import { localToInstant } from '../../src/app/dates';
 import { contractExample } from '../msw/fromContract';
@@ -236,8 +236,12 @@ describe('review round 1 helpers', () => {
     expect(
       momentCheck({ date: '2026-07-18', time: '06:15', original: null }, 'd', 't', Date.parse(at) - 1),
     ).toEqual({
-      d: 'validation.date.future',
+      // Today's date with a later time: the time is what is wrong (F12).
+      t: 'moment.timeFuture',
     });
+    expect(
+      momentCheck({ date: '2026-07-19', time: '00:10', original: null }, 'd', 't', Date.parse(at)),
+    ).toEqual({ d: 'validation.date.future' });
     expect(
       momentCheck({ date: '2026-07-18', time: '06:15', original: null }, 'd', 't', Date.parse(at)),
     ).toEqual({});
@@ -256,5 +260,21 @@ describe('review round 1 helpers', () => {
     expect(prettyGeometry(p)).toBe(
       '{\n  "type": "Polygon",\n  "coordinates": [\n    [\n      [39, 45.5],\n      [-39.1, 45]\n    ]\n  ]\n}',
     );
+  });
+});
+
+describe('review round 2 (ruling F12)', () => {
+  it('q longer than the contract allows (100 code points) is cut before the request', () => {
+    const spec = { sort: [], texts: ['q'] };
+    const long = `${'ё'.repeat(99)}😀xyz`;
+    expect(sanitizeParams(new URLSearchParams({ q: long }), spec).get('q')).toBe(`${'ё'.repeat(99)}😀`);
+    expect(sanitizeParams(new URLSearchParams({ q: 'abc' }), spec).get('q')).toBe('abc');
+  });
+
+  it('a page of an empty slice inside the list (items [] with total > 0 on a page ≤ last) is not «loading»', () => {
+    expect(listGap({ items: [], total: 30 }, 1, 20)).toBe('changed');
+    expect(listGap({ items: [], total: 30 }, 3, 20)).toBe('pastEnd');
+    expect(listGap({ items: [1], total: 30 }, 1, 20)).toBe(null);
+    expect(listGap({ items: [], total: 0 }, 1, 20)).toBe(null);
   });
 });

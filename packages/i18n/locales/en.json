@@ -483,7 +483,12 @@
     "reset": "Reset filters",
     "any": "All",
     "several": "Several ({count})",
-    "invalid": "The list cannot be shown with these filters."
+    "invalid": "The list cannot be shown with these filters.",
+    "changed": "The list has changed.",
+    "reload": "Reload the list"
+  },
+  "moment": {
+    "timeFuture": "The time cannot be later than now"
   },
   "maps": {
     "open": "Open map",
