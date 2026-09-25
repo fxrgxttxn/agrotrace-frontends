@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import {
   Avatar,
   Button,
+  ButtonLink,
   Card,
   CardBody,
   CardFacts,
@@ -18,14 +19,18 @@ import {
   Empty,
   illustrationMarkup,
   Field,
+  FieldSet,
   FileField,
   Input,
   InputGroup,
   Metric,
+  Page,
   Pagination,
   Progress,
   Radio,
   Select,
+  Skeleton,
+  Spinner,
   Stepper,
   Switch,
   Table,
@@ -36,20 +41,23 @@ import {
   ToastProvider,
   useToast,
 } from '../../src/ui';
-import { canonical, canonicalHtml, expandIcons, readmeBlock } from './readme';
-import { useEffect } from 'react';
+import { canonical, canonicalHtml, readmeBlock } from './readme';
 
-// Review Focus 1: every wrapper renders exactly the README markup (classes, attributes, ARIA). The README examples
-// are parsed from packages/design-system/README.md itself; only its shorthands («…#i-close…», «…») are expanded.
+// Review Focus 1 / ruling F5: every wrapper renders exactly the README markup (classes, attributes, ARIA). The README
+// examples are parsed from packages/design-system/README.md and compared as they are; the only substitutions are
+// README placeholders for content an example does not spell out (an illustration file, a sparkline, «…» = more of the
+// same). Live state (`value`, `checked`, `selected`) is compared through properties where it matters, not attributes.
+
+const FUTURE = { v7_startTransition: true, v7_relativeSplatPath: true } as const;
 
 function dom(ui: ReactNode): string {
-  const { container } = render(<MemoryRouter>{ui}</MemoryRouter>);
+  const { container } = render(<MemoryRouter future={FUTURE}>{ui}</MemoryRouter>);
   return canonical(container.childNodes);
 }
 
 const noop = () => {};
 
-describe('README markup contract', () => {
+describe('README markup contract: forms', () => {
   it('at-button', () => {
     expect(
       dom(
@@ -60,6 +68,20 @@ describe('README markup contract', () => {
     ).toBe(canonicalHtml(readmeBlock('Кнопка')));
   });
 
+  it('at-button states: busy, icon-only, disabled', () => {
+    expect(
+      dom(
+        <>
+          <Button variant="primary" busy>
+            Сохранить
+          </Button>
+          <Button iconOnly icon="download" aria-label="Скачать список" />
+          <Button disabled>Отгрузить</Button>
+        </>,
+      ),
+    ).toBe(canonicalHtml(readmeBlock('Кнопка', 1)));
+  });
+
   it('at-field with an error', () => {
     expect(
       dom(
@@ -68,6 +90,31 @@ describe('README markup contract', () => {
         </Field>,
       ),
     ).toBe(canonicalHtml(readmeBlock('Поле формы')));
+  });
+
+  it('at-field without an error', () => {
+    expect(
+      dom(
+        <Field id="name" label="Название">
+          <Input />
+        </Field>,
+      ),
+    ).toBe(canonicalHtml(readmeBlock('Поле формы', 1)));
+  });
+
+  it('fieldset group', () => {
+    expect(
+      dom(
+        <FieldSet legend="Тема" direction="row">
+          <Radio name="theme" value="system">
+            Системная
+          </Radio>
+          <Radio name="theme" value="light">
+            Светлая
+          </Radio>
+        </FieldSet>,
+      ),
+    ).toBe(canonicalHtml(readmeBlock('Поле формы', 2)));
   });
 
   it('text inputs', () => {
@@ -103,7 +150,7 @@ describe('README markup contract', () => {
     ).toBe(canonicalHtml(readmeBlock('Список')));
   });
 
-  it('at-combobox (open, second option highlighted, first selected, third disabled)', () => {
+  it('at-combobox (open after «Пше», second option highlighted, first selected, third disabled)', () => {
     const options = [
       { value: 'w', label: 'Пшеница озимая', meta: 'Зерно' },
       { value: 's', label: 'Пшеница яровая' },
@@ -113,7 +160,7 @@ describe('README markup contract', () => {
       <Combobox
         id="product"
         listLabel="Продукт"
-        query=""
+        query="Пше"
         onQueryChange={noop}
         options={options}
         selected="w"
@@ -124,26 +171,65 @@ describe('README markup contract', () => {
     fireEvent.keyDown(input, { key: 'ArrowDown' }); // open
     fireEvent.keyDown(input, { key: 'ArrowDown' }); // first
     fireEvent.keyDown(input, { key: 'ArrowDown' }); // second
-    // With an empty query nothing is marked (the <mark> case is the next test); every option label is a <span>
-    // (the README abbreviates the disabled one to «…»).
-    const expected = canonicalHtml(readmeBlock('Поиск с подсказками'))
-      .replace(/\n( +)<mark>\n +"Пше"\n +"ница яровая"/, '\n$1"Пшеница яровая"')
-      .replace(/(id="product-opt-3" role="option">\n)( +)"…"/, '$1$2<span>\n$2  "…"');
-    expect(canonical(container.childNodes)).toBe(expected);
+    expect(canonical(container.childNodes)).toBe(canonicalHtml(readmeBlock('Поиск с подсказками')));
   });
 
-  it('at-combobox marks the match', () => {
+  it('at-combobox states: loading, nothing found, closed without options', () => {
+    const { container } = render(
+      <>
+        <Combobox
+          id="lab"
+          listLabel="Лаборатория"
+          query="аг"
+          onQueryChange={noop}
+          options={[]}
+          loading
+          onSelect={noop}
+        />
+        <Combobox
+          id="org"
+          listLabel="Организация"
+          query="zz"
+          onQueryChange={noop}
+          options={[]}
+          onSelect={noop}
+        />
+        <Combobox id="region" listLabel="Регион" query="" onQueryChange={noop} options={[]} onSelect={noop} />
+      </>,
+    );
+    fireEvent.keyDown(screen.getAllByRole('combobox')[0]!, { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getAllByRole('combobox')[1]!, { key: 'ArrowDown' });
+    expect(canonical(container.childNodes)).toBe(canonicalHtml(readmeBlock('Поиск с подсказками', 1)));
+  });
+
+  it('at-combobox: open before the first query — empty status, never hidden', () => {
+    const { container } = render(
+      <Combobox id="r" listLabel="Регион" query="" onQueryChange={noop} options={[]} onSelect={noop} />,
+    );
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'ArrowDown' });
+    const status = container.querySelector('[role="status"]')!;
+    expect(status.childNodes).toHaveLength(0);
+    expect(status.hasAttribute('hidden')).toBe(false);
+  });
+
+  it('at-combobox closed with options: hidden listbox, no active descendant', () => {
     const { container } = render(
       <Combobox
         id="p"
         listLabel="Продукт"
-        query="пше"
+        query=""
         onQueryChange={noop}
-        options={[{ value: 's', label: 'Пшеница яровая' }]}
+        options={[{ value: 'a', label: 'Пшеница' }]}
         onSelect={noop}
       />,
     );
-    expect(container.querySelector('li span')?.innerHTML).toBe('<mark>Пше</mark>ница яровая');
+    const list = container.querySelector('ul.at-combobox__list')!;
+    expect(list).toHaveAttribute('role', 'listbox');
+    expect(list).toHaveAttribute('id', 'p-list');
+    expect(list).toHaveAttribute('hidden');
+    const input = container.querySelector('input')!;
+    expect(input).toHaveAttribute('aria-expanded', 'false');
+    expect(input).not.toHaveAttribute('aria-activedescendant');
   });
 
   it('at-check and at-radio', () => {
@@ -169,22 +255,60 @@ describe('README markup contract', () => {
     ).toBe(canonicalHtml(readmeBlock('Выключатель')));
   });
 
-  it('at-file with an uploading PDF-less image preview', () => {
-    const got = dom(
+  it('at-file with an image preview while uploading', () => {
+    expect(
+      dom(
+        <FileField
+          id="proto"
+          label="Протокол анализа"
+          accept="application/pdf,image/*"
+          hint="PDF, JPG или PNG до 10 МБ"
+          files={[{ key: '1', name: 'protokol.pdf', sizeText: '1,2 МБ', previewUrl: 'blob:…', progress: 64 }]}
+          onFiles={noop}
+          onRemove={noop}
+        />,
+      ),
+    ).toBe(canonicalHtml(readmeBlock('Файл')));
+  });
+
+  it('at-file with an error, a PDF without preview, a file dragged over, no hint', () => {
+    const { container } = render(
       <FileField
         id="proto"
         label="Протокол анализа"
-        accept="application/pdf,image/*"
-        hint="PDF, JPG или PNG до 10 МБ"
-        files={[{ key: '1', name: 'protokol.pdf', sizeText: '1,2 МБ', previewUrl: 'blob:…', progress: 64 }]}
+        accept="application/pdf"
+        error="Файл слишком большой"
+        files={[
+          { key: '1', name: 'protokol.pdf', sizeText: 'Файл слишком большой', kind: 'PDF', error: true },
+        ]}
         onFiles={noop}
         onRemove={noop}
       />,
     );
-    // The README input has no id; ours has one so the page can focus it (and a label points at the zone).
-    expect(got.replace(' id="proto"', '')).toBe(canonicalHtml(readmeBlock('Файл')));
+    fireEvent.dragEnter(container.querySelector('.at-file')!);
+    expect(canonical(container.childNodes)).toBe(canonicalHtml(readmeBlock('Файл', 1)));
   });
 
+  it('at-file keeps data-dragover while the pointer moves over nested elements', () => {
+    const { container } = render(<FileField id="f" label="Файл" files={[]} onFiles={noop} onRemove={noop} />);
+    const zone = container.querySelector('.at-file')!;
+    fireEvent.dragEnter(zone);
+    fireEvent.dragEnter(zone.querySelector('.at-file__action')!); // entering a child…
+    fireEvent.dragLeave(zone); // …leaves the parent
+    expect(zone).toHaveAttribute('data-dragover');
+    fireEvent.dragLeave(zone.querySelector('.at-file__action')!);
+    expect(zone).not.toHaveAttribute('data-dragover');
+    fireEvent.dragEnter(zone);
+    fireEvent.drop(zone, { dataTransfer: { files: [] } });
+    expect(zone).not.toHaveAttribute('data-dragover');
+  });
+
+  it('at-spinner', () => {
+    expect(dom(<Spinner />)).toBe(canonicalHtml(readmeBlock('Индикатор')));
+  });
+});
+
+describe('README markup contract: data and feedback', () => {
   it('at-chip (status and tone)', () => {
     expect(
       dom(
@@ -211,11 +335,12 @@ describe('README markup contract', () => {
     ).toBe(canonicalHtml(readmeBlock('Карточка').replace(/(<\/div>)\s*…\s*(<\/dl>)/, '$1$2')));
   });
 
+  const rows = [
+    { id: '1', code: 'AT-2026-000123', product: 'Пшеница озимая', status: 'Approved', mass: '12 480,000' },
+  ];
+  type Row = (typeof rows)[number];
+
   it('at-table with selection, sort, mobile bar and actions', () => {
-    const rows = [
-      { id: '1', code: 'AT-2026-000123', product: 'Пшеница озимая', status: 'Approved', mass: '12 480,000' },
-    ];
-    type Row = (typeof rows)[number];
     const got = dom(
       <Table<Row>
         cards
@@ -251,27 +376,34 @@ describe('README markup contract', () => {
         )}
       />,
     );
-    // Sort values follow the contract's `sort=field,dir` (README: «значение то же, что у сортировки в URL»).
-    const expected = canonicalHtml(
-      readmeBlock('Таблица')
-        .replace(/massKg:desc/, 'massKg,desc')
-        .replace(/code:asc/, 'code,asc'),
-    );
-    expect(got).toBe(expected);
+    expect(got).toBe(canonicalHtml(readmeBlock('Таблица')));
   });
 
-  it('at-pagination', () => {
-    const got = dom(<Pagination page={1} size={20} total={248} hrefFor={(p) => `/?page=${p}`} />);
-    // README abbreviates the page list (1, 2, …); the last page (13) follows the gap.
-    const expected = canonicalHtml(
-      expandIcons(readmeBlock('Пагинация'), null)
-        .replace(/href="\?page=/g, 'href="/?page=')
-        .replace(
-          '<li><span class="at-pagination__gap" aria-hidden="true">…</span></li>',
-          '<li><span class="at-pagination__gap" aria-hidden="true">…</span></li><li><a class="at-pagination__item" href="/?page=13">13</a></li>',
-        ),
+  it('at-table mobile sort while unsorted: a disabled placeholder with an empty value, selected', () => {
+    const { container } = render(
+      <MemoryRouter future={FUTURE}>
+        <Table<Row>
+          cards
+          rows={rows}
+          rowKey={(r) => r.id}
+          sort={null}
+          onSort={noop}
+          sortOptions={[{ value: 'massKg,desc', label: 'Масса, по убыванию' }]}
+          columns={[
+            { key: 'mass', header: 'Масса, кг', numeric: true, sortField: 'massKg', cell: (r) => r.mass },
+          ]}
+        />
+      </MemoryRouter>,
     );
-    expect(got).toBe(expected);
+    const label = container.querySelector('.at-table-mobilebar__sort')!;
+    expect(canonical([label])).toBe(canonicalHtml(readmeBlock('Таблица', 1)));
+    expect(label.querySelector('select')).toHaveValue('');
+  });
+
+  it('at-pagination (first, last, current ± 1)', () => {
+    expect(dom(<Pagination page={1} size={20} total={248} hrefFor={(p) => `/batches?page=${p}`} />)).toBe(
+      canonicalHtml(readmeBlock('Пагинация')),
+    );
   });
 
   it('at-tabs', () => {
@@ -287,11 +419,10 @@ describe('README markup contract', () => {
         panel={() => '…'}
       />,
     );
-    // Inactive panels are rendered empty (README allows «не выводятся вовсе» for their content).
-    expect(got).toBe(canonicalHtml(readmeBlock('Вкладки')).replace(/(hidden=""[^\n]*>)\n\s*"…"/, '$1'));
+    expect(got).toBe(canonicalHtml(readmeBlock('Вкладки')));
   });
 
-  it('at-dialog (confirmation, opened)', () => {
+  it('at-dialog (confirmation, opened: focus on the repeat field, danger disabled)', () => {
     const { baseElement } = render(
       <Dialog
         open
@@ -301,25 +432,33 @@ describe('README markup contract', () => {
         actions={
           <>
             <Button variant="ghost">Отмена</Button>
-            <Button variant="danger">Запустить отзыв</Button>
+            <Button variant="danger" disabled>
+              Запустить отзыв
+            </Button>
           </>
         }
       >
-        …повтор ключевого параметра (кода партии)…
+        <Field id="recall-code" label="Код партии">
+          <Input mono autoComplete="off" />
+        </Field>
       </Dialog>,
     );
     const dialog = baseElement.querySelector('dialog')!;
     expect(dialog.hasAttribute('open')).toBe(true);
-    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Запустить отзыв' }));
+    expect(document.activeElement).toBe(screen.getByLabelText('Код партии'));
     dialog.removeAttribute('open');
-    // The body has nothing focusable here, so the title takes the initial focus (tabindex="-1", README).
-    const expected = canonicalHtml(
-      expandIcons(readmeBlock('Диалог'), 'at-button__icon').replace(
-        'id="recall-title"',
-        'id="recall-title" tabindex="-1"',
-      ),
+    expect(canonical([dialog])).toBe(canonicalHtml(readmeBlock('Диалог')));
+  });
+
+  it('at-dialog without a focusable body: the title takes the focus with tabindex="-1"', () => {
+    render(
+      <Dialog open onClose={noop} title="Просмотр">
+        Текст
+      </Dialog>,
     );
-    expect(canonical([dialog])).toBe(expected);
+    const title = screen.getByRole('heading', { name: 'Просмотр', hidden: true });
+    expect(title).toHaveAttribute('tabindex', '-1');
+    expect(document.activeElement).toBe(title);
   });
 
   it('at-toast regions', () => {
@@ -334,18 +473,13 @@ describe('README markup contract', () => {
       }, [push]);
       return null;
     }
-    const got = dom(
-      <ToastProvider>
-        <Push />
-      </ToastProvider>,
-    );
-    const expected = canonicalHtml(
-      expandIcons(readmeBlock('Уведомления `at-toast`'), 'at-button__icon').replace(
-        /<div class="at-toast-region" role="alert">…ошибки \(data-tone="danger"\)…<\/div>/,
-        '<div class="at-toast-region" role="alert"></div>',
+    expect(
+      dom(
+        <ToastProvider>
+          <Push />
+        </ToastProvider>,
       ),
-    );
-    expect(got).toBe(expected);
+    ).toBe(canonicalHtml(readmeBlock('Уведомления `at-toast`')));
   });
 
   it('at-stepper', () => {
@@ -394,6 +528,17 @@ describe('README markup contract', () => {
     expect(canonical(container.childNodes)).toBe(canonicalHtml(readmeBlock('Пустое состояние')));
   });
 
+  it('at-skeleton', () => {
+    expect(
+      dom(
+        <>
+          <Skeleton width="40%" />
+          <Skeleton shape="block" />
+        </>,
+      ),
+    ).toBe(canonicalHtml(readmeBlock('Загрузка')));
+  });
+
   it('at-avatar', () => {
     expect(
       dom(
@@ -420,5 +565,26 @@ describe('README markup contract', () => {
     expect(dom(<Progress id="recall-progress" label="Подтверждено" value={7} max={12} />)).toBe(
       canonicalHtml(readmeBlock('Прогресс')),
     );
+  });
+});
+
+describe('README markup contract: page', () => {
+  it('at-page header (title with tabindex="-1", actions)', () => {
+    const { container } = render(
+      <MemoryRouter future={FUTURE}>
+        <Page
+          title="Партии"
+          actions={
+            <ButtonLink variant="primary" to="/batches/new">
+              Зарегистрировать партию
+            </ButtonLink>
+          }
+        />
+      </MemoryRouter>,
+    );
+    const header = readmeBlock('Страница').match(
+      /<div class="at-page__header">[\s\S]*?<\/div>\n {2}<\/div>/,
+    )![0];
+    expect(canonical([container.querySelector('.at-page__header')!])).toBe(canonicalHtml(header));
   });
 });

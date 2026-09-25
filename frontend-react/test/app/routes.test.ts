@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_ROLES, canAccess, type Role } from '../../src/app/access';
-import { isCurrent, navFor, ROLE_NAV } from '../../src/app/nav';
+import { isCurrent, navFor, NOTIFICATIONS_ITEM, PROFILE_ITEM, ROLE_NAV } from '../../src/app/nav';
 import { AUTH_ROUTES, CABINET_ROUTES } from '../../src/app/routes';
 import { operation } from '../msw/fromContract';
 
@@ -147,5 +147,18 @@ describe('menu (§9.5)', () => {
     expect(isCurrent(fields!, '/fieldsx')).toBe(false);
     expect(isCurrent(dashboard!, '/')).toBe(true);
     expect(isCurrent(dashboard!, '/fields')).toBe(false);
+  });
+});
+
+describe('menu icons', () => {
+  it('no two items of one menu (with «Ещё»: notifications, profile) share an icon', () => {
+    for (const role of ALL_ROLES)
+      for (const head of [false, true]) {
+        const icons = [...navFor(viewer(role, head)), NOTIFICATIONS_ITEM, PROFILE_ITEM].map((i) => i.icon);
+        expect(new Set(icons).size, `${role}${head ? ' head' : ''}: ${icons.join(',')}`).toBe(icons.length);
+      }
+    const all = navFor({ roles: [...ALL_ROLES], isOrgAdmin: true });
+    const icons = all.map((i) => i.icon);
+    expect(new Set(icons).size).toBe(icons.length);
   });
 });

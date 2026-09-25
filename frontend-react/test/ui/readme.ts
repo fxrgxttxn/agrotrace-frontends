@@ -51,7 +51,7 @@ function walk(node: Node, out: string[], depth: number): void {
   const skip = STATE_ATTRS[tag] ?? [];
   const attrs = [...el.attributes]
     .filter((a) => !skip.includes(a.name))
-    .map((a) => `${a.name}="${a.value}"`)
+    .map((a) => `${a.name}="${a.name === 'style' ? normStyle(a.value) : a.value}"`)
     .sort();
   out.push(`${pad}<${tag}${attrs.length ? ' ' + attrs.join(' ') : ''}>`);
   const children = tag === 'template' ? (el as HTMLTemplateElement).content.childNodes : el.childNodes;
@@ -70,4 +70,14 @@ export function canonicalHtml(html: string): string {
   const tpl = document.createElement('template');
   tpl.innerHTML = html;
   return canonical(tpl.content.childNodes);
+}
+
+/** `width: 40%;` and `width:40%` are the same declaration list (React writes the trailing semicolon). */
+function normStyle(v: string): string {
+  return v
+    .split(';')
+    .map((d) => d.trim())
+    .filter(Boolean)
+    .map((d) => d.replace(/\s*:\s*/, ': '))
+    .join('; ');
 }

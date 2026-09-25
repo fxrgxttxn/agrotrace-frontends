@@ -7,6 +7,7 @@ import { GuestOnly, RequireAuth, RequireRole } from './guards';
 import { AUTH_ROUTES, CABINET_ROUTES } from './routes';
 import { SessionProvider, useSession, type SessionCore } from './session';
 import { LiveEventsProvider } from './sse';
+import { RouteFocusProvider } from './routeFocus';
 
 // All routes of spec §9.4. The public QR pages (/p/*) are a separate entry (src/public): a client-side navigation
 // into them reloads the document so the cabinet code never serves them.
@@ -26,11 +27,13 @@ const GUEST_ONLY = new Set(['/login', '/login/2fa']);
 
 function Root({ core, EventSourceImpl }: { core: SessionCore; EventSourceImpl?: typeof EventSource }) {
   return (
-    <SessionProvider core={core}>
-      <LiveEventsProvider EventSourceImpl={EventSourceImpl}>
-        <Outlet />
-      </LiveEventsProvider>
-    </SessionProvider>
+    <RouteFocusProvider>
+      <SessionProvider core={core}>
+        <LiveEventsProvider EventSourceImpl={EventSourceImpl}>
+          <Outlet />
+        </LiveEventsProvider>
+      </SessionProvider>
+    </RouteFocusProvider>
   );
 }
 
@@ -48,6 +51,12 @@ function PublicReload() {
   }, [location]);
   return null;
 }
+
+/** `/_ds` component showcase (spec §10.7): development build only — `import.meta.env.DEV` is a build-time constant, so
+ * the route and its chunk are dropped from the production dist. */
+const DEV_ROUTES: RouteObject[] = import.meta.env.DEV
+  ? [{ path: '/_ds', lazy: async () => ({ Component: (await import('../dev/Showcase')).Showcase }) }]
+  : [];
 
 export function buildRoutes(core: SessionCore, EventSourceImpl?: typeof EventSource): RouteObject[] {
   return [
@@ -88,6 +97,7 @@ export function buildRoutes(core: SessionCore, EventSourceImpl?: typeof EventSou
           }),
         },
         { path: '/p/*', element: <PublicReload /> },
+        ...DEV_ROUTES,
         {
           element: <MaybeShell />,
           children: [
@@ -99,3 +109,12 @@ export function buildRoutes(core: SessionCore, EventSourceImpl?: typeof EventSou
     },
   ];
 }
+
+/** React Router v7 behaviour, opted into now (no future-flag warnings; the same in the app and in tests). */
+export const ROUTER_FUTURE = {
+  v7_relativeSplatPath: true,
+  v7_fetcherPersist: true,
+  v7_normalizeFormMethod: true,
+  v7_partialHydration: true,
+  v7_skipActionErrorRevalidation: true,
+} as const;

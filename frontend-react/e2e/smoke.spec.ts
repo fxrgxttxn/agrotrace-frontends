@@ -26,12 +26,10 @@ function unexpected(w: Watch): string[] {
 
 function annotate(w: Watch): void {
   if (w.problems.some((p) => EXPECTED[1]!.test(p)))
-    test
-      .info()
-      .annotations.push({
-        type: 'backend',
-        description: 'GET /events/stream answered 404 (no SSE in the backend yet)',
-      });
+    test.info().annotations.push({
+      type: 'backend',
+      description: 'GET /events/stream answered 404 (no SSE in the backend yet)',
+    });
 }
 
 async function watch(page: Page): Promise<Watch> {
@@ -175,4 +173,9 @@ test.describe('with the live API', () => {
         }
       }
   });
+});
+
+test('the /_ds showcase is not in the production build', async ({ page }) => {
+  await page.goto('/_ds');
+  await expect(page.getByRole('heading', { level: 1, name: 'Страница не найдена' })).toBeVisible();
 });

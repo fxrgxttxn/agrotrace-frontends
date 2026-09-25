@@ -1,10 +1,12 @@
-import { useEffect, type ReactNode } from 'react';
-import { Card, CardBody, CardHeader, Illustration, type IllustrationName } from '../ui';
+import type { ReactNode } from 'react';
+import { Card, CardBody, Illustration, Page, type IllustrationName } from '../ui';
 
-// Screens outside the cabinet shell (login, 2FA, password, registration, invite; the «unavailable» screen): one
-// narrow column of a design-system page with a card. Only the login screen carries the furrow band (README «Карточка»).
+// Screens outside the cabinet shell (login, 2FA, password, registration, invite, 403/404 without a session, the
+// «unavailable» screen): a narrow `at-page` with its header (README «Страница») and the content in a card below. Only
+// the login screen carries the furrow band (README «Карточка»).
 
 const NARROW = { maxWidth: '30rem' } as const;
+const CENTERED = { display: 'block', marginInline: 'auto' } as const;
 
 export function AuthLayout({
   title,
@@ -17,18 +19,14 @@ export function AuthLayout({
   art?: IllustrationName;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    document.title = `${title} — AgroTrace`;
-  }, [title]);
   return (
-    <main className="at-page" id="main" tabIndex={-1} style={NARROW}>
+    <Page title={title} main style={NARROW}>
       <Card furrow={furrow}>
-        <CardHeader title={title} level={1} />
         <CardBody>
-          {art && <Illustration name={art} style={{ display: 'block', marginInline: 'auto' }} />}
+          {art && <Illustration name={art} style={CENTERED} />}
           {children}
         </CardBody>
       </Card>
-    </main>
+    </Page>
   );
 }

@@ -38,7 +38,7 @@ const ITEMS = {
     key: 'recallTasks',
     label: 'nav.recallTasks',
     href: '/recall-tasks',
-    icon: 'recall',
+    icon: 'check',
     section: '/recall-tasks',
   },
   recalls: { key: 'recalls', label: 'nav.recalls', href: '/recalls', icon: 'recall', section: '/recalls' },
@@ -62,7 +62,7 @@ const ITEMS = {
     key: 'users',
     label: 'nav.adminUsers',
     href: '/admin/users',
-    icon: 'users',
+    icon: 'shield',
     section: '/admin/users',
   },
   dictionaries: {
@@ -72,7 +72,7 @@ const ITEMS = {
     icon: 'settings',
     section: '/admin/dictionaries',
   },
-  audit: { key: 'audit', label: 'nav.audit', href: '/admin/audit', icon: 'shield', section: '/admin/audit' },
+  audit: { key: 'audit', label: 'nav.audit', href: '/admin/audit', icon: 'eye', section: '/admin/audit' },
 } satisfies Record<string, NavItem>;
 
 type Key = keyof typeof ITEMS;

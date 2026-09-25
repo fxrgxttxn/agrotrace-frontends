@@ -1,27 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import Ajv2020 from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
-import { inject } from 'vitest';
 import { server } from '../setup';
 import {
   API_BASE,
   contractExample,
   contractResponse,
   operations,
+  responseSchemaErrors,
   sampleFromSchema,
-  type Json,
 } from './fromContract';
 
 // Ruling F1: component tests run on handlers generated from the contract. The generated answers must themselves be
 // valid against the contract, or the tests would pass on data no backend can send.
-
-function validator() {
-  const ajv = new Ajv2020({ strict: false, allErrors: true, validateFormats: true });
-  addFormats(ajv);
-  ajv.addFormat('binary', true);
-  ajv.addSchema(inject('contract'), 'urn:agrotrace:openapi');
-  return ajv;
-}
 
 describe('MSW handlers from contract examples', () => {
   it('cover every operation of the contract', () => {
@@ -29,22 +18,13 @@ describe('MSW handlers from contract examples', () => {
   });
 
   it('every default (first 2xx) JSON answer is valid against its response schema', () => {
-    const ajv = validator();
     const bad: string[] = [];
     for (const op of operations()) {
       if (op.operationId === 'streamEvents') continue;
       const spec = contractExample(op.operationId);
       if (!spec.mediaType || !/json/.test(spec.mediaType)) continue;
-      const esc = (s: string) => s.replace(/~/g, '~0').replace(/\//g, '~1');
-      const raw = op.op.responses[String(spec.status)] as Json;
-      const base =
-        typeof raw.$ref === 'string'
-          ? (raw.$ref as string).slice(1)
-          : `/paths/${esc(op.path)}/${op.method}/responses/${spec.status}`;
-      const validate = ajv.compile({
-        $ref: `urn:agrotrace:openapi#${base}/content/${esc(spec.mediaType)}/schema`,
-      });
-      if (!validate(spec.body)) bad.push(`${op.operationId}: ${ajv.errorsText(validate.errors)}`);
+      const errors = responseSchemaErrors(op.operationId, spec.status, spec.mediaType, spec.body);
+      if (errors.length) bad.push(`${op.operationId}: ${errors.join('; ')}`);
     }
     expect(bad).toEqual([]);
   });
@@ -69,6 +49,18 @@ describe('MSW handlers from contract examples', () => {
       code: 'ACCOUNT_LOCKED',
       params: { lockedUntil: '2026-09-24T08:45:00Z' },
     });
+  });
+
+  it('refuses an explicit body the schema does not allow, accepts a valid one', () => {
+    expect(() =>
+      contractResponse('getMe', { body: { ...(contractExample('getMe').body as object), roles: [] } }),
+    ).toThrow(/does not match the contract/);
+    expect(() => contractResponse('login', { status: 401, body: { code: 'INVALID_CREDENTIALS' } })).toThrow(
+      /does not match the contract/,
+    );
+    expect(() =>
+      contractResponse('getMe', { body: { ...(contractExample('getMe').body as object), roles: ['LAB'] } }),
+    ).not.toThrow();
   });
 
   it('refuses a status the contract does not declare', () => {

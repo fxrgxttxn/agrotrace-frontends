@@ -110,6 +110,11 @@ export function Table<T>({
                   if (s) onSort?.(s);
                 }}
               >
+                {!sort && (
+                  <option value="" disabled>
+                    {t('ui.sortDefault')}
+                  </option>
+                )}
                 {sortOptions.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}

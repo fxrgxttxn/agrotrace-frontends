@@ -154,17 +154,16 @@ export function Combobox(props: ComboboxProps) {
         }}
       />
       {showStatus ? (
-        <div className="at-combobox__list" id={listId} role="status" hidden={!open}>
-          <p className="at-combobox__status">
-            {loading ? (
-              <>
-                <span className="at-spinner" aria-hidden="true"></span>
-                {t('ui.searching')}
-              </>
-            ) : (
-              t('empty.search')
-            )}
-          </p>
+        // A live region: never `hidden`; empty while closed or before the first query (README, `:empty` hides it).
+        <div className="at-combobox__list" id={listId} role="status">
+          {open && loading ? (
+            <p className="at-combobox__status">
+              <span className="at-spinner" aria-hidden="true"></span>
+              {t('ui.searching')}
+            </p>
+          ) : open && query.trim() ? (
+            <p className="at-combobox__status">{t('empty.search')}</p>
+          ) : null}
         </div>
       ) : (
         <ul

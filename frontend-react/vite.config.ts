@@ -21,6 +21,6 @@ export default defineConfig({
     emptyOutDir: true,
     modulePreload: { polyfill: false },
     assetsInlineLimit: 0,
-    sourcemap: true,
+    sourcemap: false,
   },
 });

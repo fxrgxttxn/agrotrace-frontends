@@ -2,7 +2,7 @@ import { render } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach } from 'vitest';
 import { AppProviders, createQueryClient } from '../../src/app/providers';
-import { buildRoutes } from '../../src/app/router';
+import { buildRoutes, ROUTER_FUTURE } from '../../src/app/router';
 import { createSessionCore, type SessionCore } from '../../src/app/session';
 
 /** A controllable EventSource: tests push `unread` / `notification` events through `FakeEventSource.last`. */
@@ -49,10 +49,11 @@ export function renderApp(path: string) {
   cores.push(core);
   const router = createMemoryRouter(buildRoutes(core, FakeEventSource as unknown as typeof EventSource), {
     initialEntries: [path],
+    future: ROUTER_FUTURE,
   });
   const utils = render(
     <AppProviders queryClient={createQueryClient()}>
-      <RouterProvider router={router} />
+      <RouterProvider router={router} future={{ v7_startTransition: true }} />
     </AppProviders>,
   );
   return { ...utils, router, core };

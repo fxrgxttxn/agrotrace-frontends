@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type ReactNode } from 'react';
+import { useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { t } from '../app/i18n';
 import { Button } from './Button';
 
@@ -20,8 +20,8 @@ export interface FileFieldProps {
   label: ReactNode;
   accept?: string;
   multiple?: boolean;
-  /** Formats and limit, e.g. «PDF, JPG или PNG до 10 МБ». */
-  hint: string;
+  /** Formats and limit, e.g. «PDF, JPG или PNG до 10 МБ»; no hint — no `.at-file__hint`. */
+  hint?: string;
   files: FileItem[];
   onFiles: (files: File[]) => void;
   onRemove: (key: string) => void;
@@ -44,11 +44,14 @@ export function FileField({
   disabled,
 }: FileFieldProps) {
   const [over, setOver] = useState(false);
+  // dragenter/dragleave fire for every nested element: count them so moving over the zone's children does not flicker.
+  const depth = useRef(0);
   const labelId = `${id}-label`;
   const errorId = error ? `${id}-error` : undefined;
 
   const drop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    depth.current = 0;
     setOver(false);
     if (disabled) return;
     const list = [...e.dataTransfer.files];
@@ -64,11 +67,16 @@ export function FileField({
         className="at-file"
         data-dragover={over ? '' : undefined}
         data-invalid={error ? '' : undefined}
-        onDragOver={(e) => {
+        onDragEnter={(e) => {
           e.preventDefault();
+          depth.current += 1;
           if (!disabled) setOver(true);
         }}
-        onDragLeave={() => setOver(false)}
+        onDragOver={(e) => e.preventDefault()}
+        onDragLeave={() => {
+          depth.current = Math.max(0, depth.current - 1);
+          if (depth.current === 0) setOver(false);
+        }}
         onDrop={drop}
       >
         <label className="at-file__drop">
@@ -91,7 +99,7 @@ export function FileField({
             <use href="#i-upload" />
           </svg>
           <span className="at-file__action">{t('ui.chooseFile')}</span>
-          <span className="at-file__hint">{hint}</span>
+          {hint && <span className="at-file__hint">{hint}</span>}
         </label>
         {files.length > 0 && (
           <ul className="at-file__list">

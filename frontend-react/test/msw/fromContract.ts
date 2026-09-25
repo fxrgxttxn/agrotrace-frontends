@@ -1,4 +1,6 @@
 import { http, HttpResponse, type HttpHandler } from 'msw';
+import Ajv2020 from 'ajv/dist/2020.js';
+import addFormats from 'ajv-formats';
 
 // MSW handlers generated from the contract (ruling F1): one handler per operation of the bundled
 // contracts/openapi.yaml, answering its first declared 2xx status with the contract's own example — the media
@@ -26,6 +28,7 @@ let ops: Map<string, ContractOperation> | null = null;
 /** Installs the bundled contract (test/globalSetup.ts provides it). */
 export function loadContract(bundled: Json): void {
   doc = bundled;
+  ajv = null;
   ops = new Map();
   for (const [path, item] of Object.entries<Json>(bundled.paths))
     for (const method of METHODS)
@@ -41,6 +44,39 @@ export function loadContract(bundled: Json): void {
 function contractDoc(): Json {
   if (!doc) throw new Error('contract not loaded (test/setup.ts)');
   return doc;
+}
+
+const DOC_ID = 'urn:agrotrace:openapi';
+let ajv: Ajv2020 | null = null;
+
+function contractAjv(): Ajv2020 {
+  if (!ajv) {
+    ajv = new Ajv2020({ strict: false, allErrors: true, validateFormats: true });
+    addFormats(ajv);
+    ajv.addFormat('binary', true);
+    ajv.addSchema(contractDoc(), DOC_ID);
+  }
+  return ajv;
+}
+
+/** Errors of `body` against the response schema of `operationId` / `status` / `mediaType` (`[]` — valid). */
+export function responseSchemaErrors(
+  operationId: string,
+  status: number,
+  mediaType: string,
+  body: unknown,
+): string[] {
+  const op = operation(operationId);
+  const esc = (s: string) => s.replace(/~/g, '~0').replace(/\//g, '~1');
+  const raw = op.op.responses?.[String(status)] as Json | undefined;
+  if (!raw) return [`status ${status} is not declared`];
+  const base =
+    typeof raw.$ref === 'string'
+      ? (raw.$ref as string).slice(1)
+      : `/paths/${esc(op.path)}/${op.method}/responses/${status}`;
+  const a = contractAjv();
+  const validate = a.compile({ $ref: `${DOC_ID}#${base}/content/${esc(mediaType)}/schema` });
+  return validate(body) ? [] : [a.errorsText(validate.errors)];
 }
 
 export function operations(): ContractOperation[] {
@@ -225,7 +261,17 @@ export interface Override {
 export function contractResponse(operationId: string, o: Override = {}): HttpHandler {
   const op = operation(operationId);
   const spec = contractExample(operationId, o.status, o.example);
-  if (o.body !== undefined) spec.body = o.body;
+  if (o.body !== undefined) {
+    // An explicit body must still be something a backend can send (else the test proves nothing).
+    if (spec.mediaType && /json/.test(spec.mediaType)) {
+      const errors = responseSchemaErrors(operationId, spec.status, spec.mediaType, o.body);
+      if (errors.length)
+        throw new Error(
+          `${operationId} ${spec.status}: body does not match the contract: ${errors.join('; ')}`,
+        );
+    }
+    spec.body = o.body;
+  }
   Object.assign(spec.headers, o.headers ?? {});
   return http[op.method](
     toMswPath(op.path),

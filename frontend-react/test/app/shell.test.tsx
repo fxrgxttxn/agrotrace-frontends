@@ -3,7 +3,7 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { server } from '../setup';
 import { contractExample, contractResponse } from '../msw/fromContract';
-import { canonical, canonicalHtml, expandIcons, readmeBlock } from '../ui/readme';
+import { canonical, canonicalHtml, readmeBlock } from '../ui/readme';
 import { bellCount } from '../../src/shell/Topbar';
 import { FakeEventSource, renderApp } from './renderApp';
 
@@ -104,7 +104,8 @@ describe('shell markup (README «Каркас»)', () => {
     clone.removeAttribute('open');
     for (const a of clone.querySelectorAll('li')) if (!/recall-tasks|profile/.test(a.innerHTML)) a.remove();
     expect(canonical([clone])).toBe(
-      canonicalHtml(expandIcons(readmeBlock('Нижняя навигация', 1), 'at-button__icon')),
+      // The README example draws «Задачи отзыва» with #i-recall; the app gives it #i-check (distinct from «Отзывы»).
+      canonicalHtml(readmeBlock('Нижняя навигация', 1).replace('#i-recall', '#i-check')),
     );
     await userEvent.click(within(dialog).getByRole('link', { name: 'Уведомления' }));
     expect(router.state.location.pathname).toBe('/notifications');
@@ -199,5 +200,16 @@ describe('theme', () => {
     await userEvent.click(screen.getByRole('radio', { name: 'Системная' }));
     expect(document.documentElement).not.toHaveAttribute('data-theme');
     expect(localStorage.getItem('agrotrace-theme')).toBeNull();
+  });
+});
+
+describe('/_ds showcase (dev build only)', () => {
+  it('renders every wrapper group', async () => {
+    renderApp('/_ds');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Витрина компонентов' })).toBeInTheDocument();
+    for (const name of ['at-button', 'at-chip', 'at-file', 'Иллюстрации, at-empty'])
+      expect(screen.getByRole('heading', { level: 2, name })).toBeInTheDocument();
+    expect(document.querySelectorAll('svg.at-empty__art').length).toBeGreaterThanOrEqual(12);
+    expect(document.querySelectorAll('.at-chip[data-status]').length).toBeGreaterThanOrEqual(11);
   });
 });

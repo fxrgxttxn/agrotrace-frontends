@@ -49,6 +49,11 @@
   display: none;
 }
 
+/* The status container (loading / nothing found) is a live region and is never `hidden`; while closed it is left empty. */
+.at-combobox__list:empty {
+  display: none;
+}
+
 .at-combobox__list > [role='option'] {
   display: flex;
   align-items: center;
