@@ -22,6 +22,7 @@ import { authRouter } from './modules/auth/routes.js';
 import { dictionariesRouter } from './modules/dictionaries/routes.js';
 import { docsRouter } from './modules/docs/routes.js';
 import { filesRouter, publicFilesRouter } from './modules/files/routes.js';
+import { fieldsRouter } from './modules/fields/routes.js';
 import { healthRouter } from './modules/health/routes.js';
 import { meRouter } from './modules/me/routes.js';
 import { organizationsRouter } from './modules/organizations/routes.js';
@@ -68,6 +69,7 @@ export function createApp(c: Container): Express {
   api.use(dictionariesRouter(c));
   api.use(adminRouter(c));
   api.use(auditRouter(c));
+  api.use(fieldsRouter(c));
   app.use('/api/v1', api);
 
   app.use(notFoundHandler());
