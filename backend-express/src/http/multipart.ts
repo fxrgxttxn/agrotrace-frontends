@@ -12,8 +12,9 @@
  * `{maxBytes}`. The file name — its base name, without any `/` or `\` path segments (P17) — is kept only as
  * `originalName` (never used for the type or the storage key).
  */
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import busboy from 'busboy';
+import { codePointLength } from '@agrotrace/validation';
 import { AppProblem, JSON_BODY_LIMIT_BYTES, validationProblem } from './problem.js';
 
 export interface UploadedFile {
@@ -120,7 +121,18 @@ export async function readFileUpload(req: Request, maxBytes: number): Promise<Up
     addError(FIELD, 'validation.duplicate');
   }
   if (got === null || (got.bytes.length === 0 && !tooLarge)) addError(FIELD, 'validation.required');
+  // The limit applies to the stored base name (P20), i.e. after the path segments were dropped.
+  if (got !== null && codePointLength(got.filename) > 255) addError(FIELD, 'validation.maxLength');
   if (Object.keys(errors).length > 0) throw validationProblem(errors);
   if (tooLarge) throw new AppProblem(413, 'FILE_TOO_LARGE', { params: { maxBytes } });
   return got!;
+}
+
+/** An AbortSignal that fires when the client goes away before the response is complete (P18: drop queued work). */
+export function clientGone(res: Response): AbortSignal {
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) ac.abort();
+  });
+  return ac.signal;
 }

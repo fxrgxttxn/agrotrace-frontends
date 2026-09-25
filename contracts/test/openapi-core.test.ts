@@ -1100,21 +1100,29 @@ describe('openapi contract: operations', () => {
     expect(env).toMatch(/^TELEGRAM_BOT_USERNAME=agrotrace_bot$/m);
   });
 
-  it('P15–P17: SVG limits, style allowlist, base-name filenames, exp format, _root minProperties', () => {
+  it('P15–P20: SVG limits and queue, style/CSS rules, base-name filenames, exp format, error keys', () => {
     const d: string = doc.info.description;
-    expect(d).toMatch(/не больше 64\s+уровней и элементов не больше 5 000/);
+    expect(d).toMatch(/вложенность\s+элементов не больше 64 уровней, элементов не больше 5 000/);
+    expect(d).toMatch(/атрибутов не больше 100 у элемента и 20 000 всего/);
+    expect(d).toMatch(/не больше 32, значение атрибута не длиннее 64 КиБ/);
     expect(d).toMatch(/`<!DOCTYPE>` и иных объявлений/);
-    expect(d).toMatch(/санитизация укладывается в 2 с — иначе 415/);
-    expect(d).toMatch(/корень с префиксом, например `s:svg`, не принимается/);
-    expect(d).toMatch(
-      /атрибут `style` сохраняет только свойства fill[^]*без `url\(`, `\\`, `image-set` и `@`/,
-    );
-    expect(d).toMatch(/все сегменты пути до\s+последнего `\/` или `\\` отбрасываются \(P17\)/);
+    expect(d).toMatch(/только элементы из списка[^]*feTurbulence/);
+    expect(d).toMatch(/по одной выполняемой\s+и не более 8 ожидающих задач на процесс; срок задачи — 3 с/);
+    expect(d).toMatch(/`\{allowed, reason: "svg-too-complex"\}`/);
+    expect(d).toMatch(/корень с префиксом, например `s:svg`, не\s+принимается/);
+    expect(d).toMatch(/атрибут `style` сохраняет только свойства fill[^]*`@` и `expression\(`/);
+    expect(d).toMatch(/fill, stroke, filter, mask, clip-path, marker-\* удаляются[^]*`url\(#id\)` \(P20\)/);
+    expect(d).toMatch(/все сегменты пути до последнего `\/` или `\\` отбрасываются \(P17\)/);
+    expect(d).toMatch(/длина проверяется после отбрасывания пути, P20/);
     expect(d).toMatch(/`minProperties: 1`, — `errors\._root: \[validation\.minProperties\]` \(P16\)/);
+    expect(d).toMatch(
+      /Ключи ошибок \(P19\): пустая строка[^]*`validation\.required`[^]*`validation\.minItems`/,
+    );
     expect(doc.components.schemas.FileRef.properties.originalName.description).toMatch(/Базовое имя/);
     const dl: string = ops.find(({ op }) => op.operationId === 'downloadFile')!.op.description;
     expect(dl).toContain('`^[1-9]\\d{0,11}$`');
-    expect(doc.components.schemas.LogoUpload.description).toMatch(/5 000 элементов/);
+    expect(doc.components.schemas.LogoUpload.description).toMatch(/20 000 атрибутов/);
+    expect(doc.components.responses.UnsupportedMediaType.description).toMatch(/svg-too-complex/);
   });
 
   it('P10: RATE_LIMIT_OVERRIDES is documented as deployment configuration', () => {

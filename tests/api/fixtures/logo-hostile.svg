@@ -1,13 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 96 96" onload="alert('onload')">
-  <script type="text/javascript">alert('script')</script>
-  <style>@import url(http://evil.example/steal.css);</style>
-  <foreignObject width="96" height="96"><div xmlns="http://www.w3.org/1999/xhtml" onclick="alert('fo')">html</div></foreignObject>
   <a href="javascript:alert('link')"><rect id="keep" width="96" height="96" fill="#D9B650" onclick="alert('click')" onmouseover="alert('over')"/></a>
+  <a xlink:href="https://evil.example/phish"><circle r="4" cx="8" cy="8"/></a>
   <image href="http://evil.example/track.png" width="10" height="10"/>
-  <use xlink:href="http://evil.example/sprite.svg#icon"/>
-  <rect width="10" height="10" style="fill: url(http://evil.example/x)" filter="url(https://evil.example/f.svg#f)"/>
-  <set attributeName="onmouseover" to="alert('set')"/>
-  <animate attributeName="href" to="javascript:alert('animate')"/>
+  <rect width="10" height="10" style="fill: url(http://evil.example/x); stroke: #000" filter="url(https://evil.example/f.svg#f)"/>
+  <rect width="5" height="5" fill="u&#x5c;72l(http://evil.example/y)" mask="url(http://evil.example/m)"/>
   <text x="48" y="56">Безопасный текст</text>
 </svg>

@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { Container } from '../../container.js';
 import { ah } from '../../http/async.js';
 import { guard, principalOf } from '../../http/auth.js';
-import { readFileUpload } from '../../http/multipart.js';
+import { clientGone, readFileUpload } from '../../http/multipart.js';
 import { idParam, variantParam } from '../../http/params.js';
 import { CACHE_PRIVATE, sendFile } from '../files/download.js';
 import { LOGO_MAX_BYTES, organizationsService } from './service.js';
@@ -32,7 +32,7 @@ export function organizationsRouter(c: Container): Router {
     ah(async (req, res) => {
       const id = idParam(req);
       const upload = await readFileUpload(req, LOGO_MAX_BYTES);
-      res.status(200).json(await svc.uploadLogo(principalOf(res), id, upload));
+      res.status(200).json(await svc.uploadLogo(principalOf(res), id, upload, clientGone(res)));
     }),
   );
   r.get(

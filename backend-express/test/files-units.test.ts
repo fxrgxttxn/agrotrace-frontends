@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest';
 import type { Container } from '../src/container.js';
 import { AppProblem } from '../src/http/problem.js';
 import { rasterVariants, sniff } from '../src/infra/images.js';
-import { cleanStyle, sanitizeSvgText } from '../src/infra/svg-sanitize.js';
-import { sanitizeSvg, scanSvg } from '../src/infra/svg.js';
+import { cleanStyle, safeCssAttribute, sanitizeSvgText } from '../src/infra/svg-sanitize.js';
+import { SanitizerQueue, sanitizeSvg, scanSvg, type SanitizerEngine } from '../src/infra/svg.js';
 import { contentDisposition, ifNoneMatch } from '../src/modules/files/download.js';
 import { meService } from '../src/modules/me/service.js';
 import { testConfig } from './helpers.js';
@@ -56,35 +56,83 @@ describe('rasterVariants', () => {
   });
 });
 
-describe('scanSvg — streaming pre-scan before any DOM (P15)', () => {
+describe('scanSvg — streaming pre-scan before any DOM (P15, P18)', () => {
   const nested = (n: number) =>
     `<svg xmlns="http://www.w3.org/2000/svg">${'<g>'.repeat(n - 1)}${'</g>'.repeat(n - 1)}</svg>`;
   const flat = (n: number) =>
     `<svg xmlns="http://www.w3.org/2000/svg">${'<rect width="1" height="1"/>'.repeat(n - 1)}</svg>`;
+  const why = (s: string) => {
+    const r = scanSvg(s);
+    return r.ok ? null : `${r.tooComplex ? 'complex: ' : ''}${r.why}`;
+  };
 
-  it('depth ≤ 64 and ≤ 5 000 elements pass; one more is refused; no DOCTYPE; terminated constructs only', () => {
-    expect(scanSvg(nested(64))).toBeNull();
-    expect(scanSvg(nested(65))).toMatch(/deep/);
-    expect(scanSvg(flat(5000))).toBeNull();
-    expect(scanSvg(flat(5001))).toMatch(/too many/);
-    expect(scanSvg('<!DOCTYPE svg><svg xmlns="http://www.w3.org/2000/svg"/>')).toMatch(/declaration/);
-    expect(scanSvg('<?xml version="1.0"?><!-- a > b --><svg a=">" b=\'<g>\'/>')).toBeNull();
-    expect(scanSvg('<svg><![CDATA[<g><g>]]></svg>')).toBeNull();
-    expect(scanSvg('<svg><!-- never closed')).toMatch(/comment/);
-    expect(scanSvg('<svg a="unterminated>')).toMatch(/start tag/);
-    expect(scanSvg('</g><svg/>')).toMatch(/unbalanced/);
-    expect(scanSvg('text only')).toMatch(/no element/);
+  it('depth ≤ 64 and ≤ 5 000 elements pass; one more is too complex; no DOCTYPE; terminated constructs only', () => {
+    expect(why(nested(64))).toBeNull();
+    expect(why(nested(65))).toMatch(/complex: .*deep/);
+    expect(why(flat(5000))).toBeNull();
+    expect(why(flat(5001))).toMatch(/complex: too many elements/);
+    expect(why('<!DOCTYPE svg><svg xmlns="http://www.w3.org/2000/svg"/>')).toMatch(/declaration/);
+    expect(why('<?xml version="1.0"?><!-- a > b --><svg a=">" b=\'/g\'/>')).toBeNull();
+    expect(why('<svg><![CDATA[<g><g>]]></svg>')).toBeNull();
+    expect(why('<svg><!-- never closed')).toMatch(/comment/);
+    expect(why('<svg a="unterminated>')).toMatch(/attribute value/);
+    expect(why('</g><svg/>')).toMatch(/unbalanced/);
+    expect(why('<svg><g>')).toMatch(/unclosed/);
+    expect(why('text only')).toMatch(/no element/);
+  });
+
+  it('element allowlist: script, style, foreignObject, use, animation, prefixed names → refused (not complex)', () => {
+    for (const el of [
+      'script',
+      'style',
+      'foreignObject',
+      'use',
+      'set',
+      'animate',
+      'feImage',
+      'svg:rect',
+      'RECT',
+    ])
+      expect(why(`<svg xmlns="http://www.w3.org/2000/svg"><${el}/></svg>`), el).toMatch(
+        /^element .* not allowed/,
+      );
+    expect(why('<s:svg xmlns:s="http://www.w3.org/2000/svg"/>')).toMatch(/not allowed/);
+    expect(
+      why(
+        '<svg xmlns="http://www.w3.org/2000/svg"><linearGradient id="g"><stop/></linearGradient><feGaussianBlur/></svg>',
+      ),
+    ).toBeNull();
+  });
+
+  it('attribute limits: 100 per element, 20 000 in all, 32 namespace declarations, 64 KiB per value', () => {
+    const attrs = (k: number, prefix = 'a') =>
+      Array.from({ length: k }, (_, i) => ` ${prefix}${i}="1"`).join('');
+    expect(why(`<svg${attrs(100)}/>`)).toBeNull();
+    expect(why(`<svg${attrs(101)}/>`)).toMatch(/complex: too many attributes on an element/);
+    const rects = `<rect${attrs(100)}/>`.repeat(200); // 20 000 attributes + the root's none
+    expect(why(`<svg>${rects}</svg>`)).toBeNull();
+    expect(why(`<svg a="1">${rects}</svg>`)).toMatch(/complex: too many attributes$/);
+    expect(why(`<svg${attrs(32, 'xmlns:n')}/>`)).toBeNull();
+    expect(why(`<svg${attrs(33, 'xmlns:n')}/>`)).toMatch(/complex: too many namespace/);
+    expect(why(`<svg d="${'1'.repeat(64 * 1024)}"/>`)).toBeNull();
+    expect(why(`<svg d="${'1'.repeat(64 * 1024 + 1)}"/>`)).toMatch(/complex: attribute value too long/);
+    expect(why('<svg a=1/>')).toMatch(/unquoted/);
+    expect(why('<svg a/>')).toMatch(/without a value/);
   });
 
   it('a 10 000-deep document is refused in milliseconds, without touching a DOM', async () => {
     const started = Date.now();
-    expect(await sanitizeSvg(Buffer.from(nested(10000)))).toBeNull();
+    expect(await sanitizeSvg(Buffer.from(nested(10000)))).toEqual({ ok: false, reason: 'too-complex' });
     expect(Date.now() - started).toBeLessThan(200);
+    expect(await sanitizeSvg(Buffer.from([0x3c, 0x73, 0x76, 0x67, 0xff, 0x3e]))).toEqual({
+      ok: false,
+      reason: 'invalid',
+    }); // not UTF-8
   });
 });
 
-describe('cleanStyle — style attribute allowlist (P17)', () => {
-  it('keeps allowlisted presentation properties with plain values only', () => {
+describe('cleanStyle / safeCssAttribute (P17, P20)', () => {
+  it('style keeps allowlisted presentation properties with plain values only', () => {
     expect(cleanStyle('fill: #fff; stroke:red;font-family: Onest, sans-serif ;opacity:.5')).toBe(
       'fill: #fff; stroke: red; font-family: Onest, sans-serif; opacity: .5',
     );
@@ -93,14 +141,27 @@ describe('cleanStyle — style attribute allowlist (P17)', () => {
     expect(cleanStyle('fill: \\75 rl(x); stroke: image-set("a.png" 1x); font-family: @x; display:none')).toBe(
       'display: none',
     );
+    expect(cleanStyle('fill: expression(alert(1)); stroke: blue')).toBe('stroke: blue');
     expect(cleanStyle('behavior: url(x.htc); position: fixed')).toBe('');
+  });
+
+  it('CSS-parsed attributes: no backslash, only url(#id)', () => {
+    expect(safeCssAttribute('url(#g)')).toBe(true);
+    expect(safeCssAttribute('url( #grad-1 ) red')).toBe(true);
+    expect(safeCssAttribute('#D9B650')).toBe(true);
+    expect(safeCssAttribute('url(http://e/x)')).toBe(false);
+    expect(safeCssAttribute("url('#g')")).toBe(false);
+    expect(safeCssAttribute('u\\72l(http://e/x)')).toBe(false);
+    expect(safeCssAttribute('URL(#g) url(//e/x)')).toBe(false);
+    expect(safeCssAttribute('expression(alert(1))')).toBe(false);
   });
 });
 
-describe('SVG sanitizing (pre-scan + the DOM stage the worker runs)', () => {
+describe('SVG sanitizing — the DOM stage the worker runs', () => {
   // The worker thread itself runs in tests/api (built image); from sources it would load jsdom through tsx, far too
-  // slow for a unit test, so the DOM stage is called directly here.
-  const clean = async (s: string) => (scanSvg(s) === null ? sanitizeSvgText(s) : null);
+  // slow for a unit test, so the DOM stage is called directly — also on documents the pre-scan would refuse, to
+  // prove the defence in depth.
+  const clean = async (s: string) => sanitizeSvgText(s);
 
   it('removes scripts, handlers, foreignObject, style elements, animation, external references', async () => {
     const out =
@@ -111,7 +172,7 @@ describe('SVG sanitizing (pre-scan + the DOM stage the worker runs)', () => {
       <a xlink:href="https://evil.example/"><rect width="1" height="1"/></a>
       <image href="https://evil.example/t.png"/><image href="data:image/png;base64,iVBORw0KGgo="/>
       <use href="https://evil.example/s.svg#i"/><rect style="fill:url(https://e/x)" filter="url(#f)" mask="url(http://e/m)"/>
-      <rect style="fill: #D9B650; background-image: url(https://e/y)"/>
+      <rect style="fill: #D9B650; background-image: url(https://e/y)" fill="u&#x5c;72l(x)" stroke="&#117;rl(http://e/z)"/>
       <set attributeName="onclick" to="alert(1)"/><animate attributeName="href" to="javascript:alert(1)"/>
     </svg>`))!;
     expect(out).not.toBeNull();
@@ -129,6 +190,8 @@ describe('SVG sanitizing (pre-scan + the DOM stage the worker runs)', () => {
       '<set',
       '<animate',
       'background',
+      '\\',
+      'stroke=',
     ])
       expect(out, bad).not.toContain(bad);
     expect(out).toContain('filter="url(#f)"');
@@ -137,7 +200,7 @@ describe('SVG sanitizing (pre-scan + the DOM stage the worker runs)', () => {
     expect(out.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
   });
 
-  it('keeps an ordinary logo intact (case-sensitive SVG names, text)', async () => {
+  it('keeps an ordinary logo intact (case-sensitive SVG names, text, url(#id) paint)', async () => {
     const out = (await clean(
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><defs><linearGradient id="g"><stop offset="0" stop-color="#fff"/></linearGradient><clipPath id="c"><rect width="9" height="9"/></clipPath></defs><rect fill="url(#g)" clip-path="url(#c)" width="96" height="96"/><text x="1" y="2">Лого &amp; Ко</text></svg>',
     ))!;
@@ -145,6 +208,7 @@ describe('SVG sanitizing (pre-scan + the DOM stage the worker runs)', () => {
       'viewBox="0 0 96 96"',
       '<linearGradient id="g">',
       '<clipPath id="c">',
+      'fill="url(#g)"',
       'clip-path="url(#c)"',
       'Лого &amp; Ко',
     ])
@@ -157,14 +221,78 @@ describe('SVG sanitizing (pre-scan + the DOM stage the worker runs)', () => {
     expect(await clean('<s:svg xmlns:s="http://www.w3.org/2000/svg"/>')).toBeNull(); // namespaced root
     expect(await clean('<html xmlns="http://www.w3.org/1999/xhtml"/>')).toBeNull();
     expect(
-      await clean(
-        '<!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg"><text>&a;</text></svg>',
-      ),
-    ).toBeNull();
-    expect(await sanitizeSvg(Buffer.from([0x3c, 0x73, 0x76, 0x67, 0xff, 0x3e]))).toBeNull(); // not UTF-8
-    expect(
       await clean('<svg xmlns="http://www.w3.org/2000/svg"/><svg xmlns="http://www.w3.org/2000/svg"/>'),
     ).toBeNull();
+  });
+});
+
+describe('SanitizerQueue — bounded, with deadlines, aborts and a replaceable engine (P18)', () => {
+  /** A stub engine: `run` answers after `delayMs` (never, when null); records terminations. */
+  function stubs(delayMs: number | null) {
+    const log = { created: 0, terminated: 0 };
+    const factory = (): SanitizerEngine => {
+      log.created += 1;
+      let dead = false;
+      let fail: ((e: Error) => void) | null = null;
+      return {
+        ready: Promise.resolve(),
+        run: (text) =>
+          new Promise((resolve, reject) => {
+            fail = reject;
+            if (delayMs !== null) setTimeout(() => !dead && resolve(`<svg>${text}</svg>`), delayMs);
+          }),
+        terminate: () => {
+          dead = true;
+          log.terminated += 1;
+          fail?.(new Error('terminated'));
+        },
+      };
+    };
+    return { log, factory };
+  }
+
+  it('a job past its deadline is refused and its engine terminated; the next job gets a fresh engine', async () => {
+    const { log, factory } = stubs(null); // hangs forever
+    // deadline 300 ms > the first back-off (100 ms), so the second job does reach a fresh engine
+    const q = new SanitizerQueue(factory, { maxWaiting: 8, deadlineMs: 300 });
+    const started = Date.now();
+    expect(await q.run('a')).toEqual({ ok: false, reason: 'too-complex' });
+    expect(Date.now() - started).toBeLessThan(900);
+    expect(log.terminated).toBe(1);
+    expect(q.size).toBe(0);
+    await q.run('b'); // also hangs → deadline, after the back-off a second engine was created
+    expect(log.created).toBe(2);
+  });
+
+  it('1 running + 8 waiting; the 10th job is refused at once; the deadline counts waiting time', async () => {
+    const { factory } = stubs(60);
+    const q = new SanitizerQueue(factory, { maxWaiting: 8, deadlineMs: 250 });
+    const jobs = Array.from({ length: 10 }, (_, i) => q.run(`j${i}`));
+    expect(await jobs[9]).toEqual({ ok: false, reason: 'too-complex' }); // overflow
+    const results = await Promise.all(jobs.slice(0, 9));
+    const done = results.filter((r) => r.ok).length;
+    // 60 ms each, 250 ms budget from enqueue: the first few finish, the rest time out while waiting.
+    expect(done).toBeGreaterThanOrEqual(3);
+    expect(done).toBeLessThan(9);
+    for (const r of results.filter((x) => !x.ok)) expect(r).toEqual({ ok: false, reason: 'too-complex' });
+    expect(q.size).toBe(0);
+  });
+
+  it('an aborted waiting job leaves the queue; an aborted running job terminates the engine', async () => {
+    const { log, factory } = stubs(200);
+    const q = new SanitizerQueue(factory, { maxWaiting: 8, deadlineMs: 3000 });
+    const running = new AbortController();
+    const waiting = new AbortController();
+    const first = q.run('first', running.signal);
+    const second = q.run('second', waiting.signal);
+    const third = q.run('third');
+    waiting.abort();
+    expect(await second).toEqual({ ok: false, reason: 'aborted' });
+    running.abort();
+    expect(await first).toEqual({ ok: false, reason: 'aborted' });
+    expect(log.terminated).toBe(1);
+    expect(await third).toEqual({ ok: true, svg: '<svg>third</svg>' });
+    expect(log.created).toBe(2);
   });
 });
 

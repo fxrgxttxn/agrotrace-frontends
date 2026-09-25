@@ -11,9 +11,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { Insertable, Selectable, Transaction } from 'kysely';
-import { codePointLength } from '@agrotrace/validation';
 import type { DB, Files } from '../../db/types.generated.js';
-import { AppProblem, validationProblem } from '../../http/problem.js';
+import { AppProblem } from '../../http/problem.js';
 import type { UploadedFile } from '../../http/multipart.js';
 import { publicFileUrl, type FileUrls } from '../../infra/file-urls.js';
 import { RASTER_TYPES, rasterVariants, sha256hex, sniff, type SniffedType } from '../../infra/images.js';
@@ -102,11 +101,19 @@ export function fileAuditView(row: PreparedFile['row']): Record<string, unknown>
  */
 export async function prepareUpload(
   upload: UploadedFile,
-  opts: { kind: FileKind; ownerId: string; bucket: string; allowed: readonly SniffedType[] },
+  opts: {
+    kind: FileKind;
+    ownerId: string;
+    bucket: string;
+    allowed: readonly SniffedType[];
+    /** Aborted when the client goes away: a queued SVG job is dropped (P18). */
+    signal?: AbortSignal;
+  },
 ): Promise<PreparedFile> {
-  if (codePointLength(upload.filename) > 255) throw validationProblem({ file: ['validation.maxLength'] });
-  const unsupported = () =>
-    new AppProblem(415, 'UNSUPPORTED_MEDIA_TYPE', { params: { allowed: [...opts.allowed] } });
+  const unsupported = (reason?: string) =>
+    new AppProblem(415, 'UNSUPPORTED_MEDIA_TYPE', {
+      params: { allowed: [...opts.allowed], ...(reason && { reason }) },
+    });
   const mime = sniff(upload.bytes);
   if (mime === null || !opts.allowed.includes(mime)) throw unsupported();
 
@@ -125,9 +132,9 @@ export async function prepareUpload(
       objects.push({ key: key(size), body: v.body, contentType: 'image/webp' });
     }
   } else if (mime === 'image/svg+xml') {
-    const clean = await sanitizeSvg(upload.bytes);
-    if (!clean) throw unsupported();
-    original = clean;
+    const clean = await sanitizeSvg(upload.bytes, opts.signal);
+    if (!clean.ok) throw unsupported(clean.reason === 'too-complex' ? 'svg-too-complex' : undefined);
+    original = Buffer.from(clean.svg, 'utf8');
   }
   objects.unshift({ key: key('original'), body: original, contentType: mime });
 

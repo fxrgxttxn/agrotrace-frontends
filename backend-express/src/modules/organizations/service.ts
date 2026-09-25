@@ -160,7 +160,12 @@ export function organizationsService(c: Container) {
      * ADMIN: any), then the file (415); the old logo is soft-deleted and the public batch pages that show the
      * organization (origin or a stage of `path`) are dropped from the cache after the commit (R82 `pub:batch:*`).
      */
-    async uploadLogo(p: Principal, orgId: string, upload: UploadedFile): Promise<FileRef> {
+    async uploadLogo(
+      p: Principal,
+      orgId: string,
+      upload: UploadedFile,
+      signal?: AbortSignal,
+    ): Promise<FileRef> {
       await visibleOr404(p, orgId);
       if (!p.roles.includes('ADMIN') && orgId !== p.orgId) throw new AppProblem(403, 'FORBIDDEN');
       const file = await prepareUpload(upload, {
@@ -168,6 +173,7 @@ export function organizationsService(c: Container) {
         ownerId: p.userId,
         bucket: c.s3.bucket,
         allowed: LOGO_TYPES,
+        signal,
       });
       await storeObjects(c.s3, file);
       const codes = await withTx(db, async (tx) => {

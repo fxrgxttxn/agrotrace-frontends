@@ -16,12 +16,13 @@ export function expectProblem(
 }
 
 /**
- * 400 VALIDATION where each listed field carries (at least) the listed keys (P16): a field may list further keys and
- * other fields may carry errors of their own — the order and completeness of a validator's key list is not contract.
+ * 400 VALIDATION with exactly these fields (P19: an unexpected field fails), each carrying (at least) the listed keys
+ * (P16: a field may list further keys; their order is not contract).
  */
 export function expectErrors(res: ApiResponse, errors: Record<string, readonly string[]>): void {
   expect(res.status, res.text).toBe(400);
   expect(res.body?.code, res.text).toBe('VALIDATION');
+  expect(Object.keys(res.body.errors ?? {}).sort(), res.text).toEqual(Object.keys(errors).sort());
   for (const [field, keys] of Object.entries(errors))
     for (const key of keys) expect(res.body.errors?.[field] ?? [], `${field} in ${res.text}`).toContain(key);
 }

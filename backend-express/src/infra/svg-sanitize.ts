@@ -9,7 +9,8 @@
  * 3. A hook drops every external reference: `href`/`xlink:href` must point inside the document (`#id`) — except a
  *    raster `data:` URI in `<image>` — and any attribute with `url(…)` not starting with `#`, `@import`, `expression(`
  *    or `javascript:` is removed. The `style` attribute keeps only allowlisted presentation properties whose values
- *    contain no `url(`, `\`, `image-set` or `@` (P17).
+ *    contain no `url(`, `\`, `image-set`, `@` or `expression(` (P17, P20); `fill`, `stroke`, `filter`, `mask`,
+ *    `clip-path` and `marker-*` are dropped when they contain `\` or any `url(…)` other than `url(#id)` (P20).
  * 4. The result is serialized as XML (XMLSerializer) and parsed again to prove it is well-formed.
  *
  * Returns the sanitized document, or null when it is not an acceptable SVG.
@@ -36,7 +37,22 @@ const STYLE_PROPERTIES = new Set([
   'display',
   'visibility',
 ]);
-const STYLE_VALUE_FORBIDDEN = /url\s*\(|\\|image-set|@/i;
+const STYLE_VALUE_FORBIDDEN = /url\s*\(|\\|image-set|@|expression\s*\(/i;
+
+/** P20: presentation attributes whose values CSS parses (escapes, `url()`); `style` is handled by `cleanStyle`. */
+const CSS_ATTRIBUTE = /^(fill|stroke|filter|mask|clip-path|marker-start|marker-mid|marker-end|marker)$/;
+const LOCAL_URL = /url\(\s*#[A-Za-z_][\w.-]*\s*\)/gi;
+
+/**
+ * A CSS-parsed attribute value is kept only without `\` (CSS escapes could hide `url(`) and with every `url(` being a
+ * plain same-document reference `url(#id)` — gradients, clip paths and masks keep working (P20). The value is the
+ * DOM's, i.e. already entity-decoded.
+ */
+export function safeCssAttribute(value: string): boolean {
+  if (value.includes('\\') || /expression\s*\(/i.test(value)) return false;
+  const urls = (value.match(/url\s*\(/gi) ?? []).length;
+  return urls === (value.match(LOCAL_URL) ?? []).length;
+}
 
 /** P17: the declarations of a `style` attribute that are allowlisted presentation properties with plain values. */
 export function cleanStyle(style: string): string {
@@ -65,6 +81,10 @@ function getEngine() {
       return;
     }
     const value = data.attrValue ?? '';
+    if (CSS_ATTRIBUTE.test(name) && !safeCssAttribute(value)) {
+      data.keepAttr = false;
+      return;
+    }
     if (name === 'href' || name === 'xlink:href') {
       const dataImage = node.nodeName.toLowerCase() === 'image' && RASTER_DATA_URI.test(value);
       if (!isLocalRef(value) && !dataImage) data.keepAttr = false;

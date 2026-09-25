@@ -339,7 +339,7 @@ describe('inviteUser', () => {
         {
           email: ['validation.email'],
           fullName: ['validation.pattern'],
-          roles: ['validation.required'],
+          roles: ['validation.minItems'],
           isOrgAdmin: ['validation.type'],
         },
       ],

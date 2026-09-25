@@ -11,6 +11,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { demoUser, demoUsers, loginAs, type Role } from './lib/auth.js';
 import { api, ApiClient, type ApiResponse } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
+import { expectErrors } from './lib/expect.js';
 import { closeDb, fixtureWrite, query } from './lib/db.js';
 import {
   activateOrg,
@@ -317,10 +318,10 @@ describe('login', () => {
     const missing = await client.post('/auth/login', { email: 'a@b.ru' });
     await expectContract(missing, 'login');
     expectProblem(missing, 400, 'VALIDATION');
-    expect(missing.body.errors.password).toEqual(['validation.required']);
+    expect(missing.body.errors.password).toContain('validation.required');
     const extra = await client.post('/auth/login', { email: 'a@b.ru', password: 'x', remember: true });
     expectProblem(extra, 400, 'VALIDATION');
-    expect(extra.body.errors.remember).toEqual(['validation.unknownField']);
+    expect(extra.body.errors.remember).toContain('validation.unknownField');
     const email = await client.post('/auth/login', { email: 'not-an-email', password: 'x' });
     expectProblem(email, 400, 'VALIDATION');
     expect(Object.keys(email.body.errors)).toEqual(['email']);
@@ -966,18 +967,18 @@ describe('registerOrganization', () => {
     const taken = await registerOrg('FARM');
     const checksum = await register(registration({ inn: breakChecksum(randomInn()) }));
     expectProblem(checksum, 400, 'VALIDATION');
-    expect(checksum.body.errors).toEqual({ inn: ['validation.inn.checksum'] });
+    expectErrors(checksum, { inn: ['validation.inn.checksum'] });
 
     const dup = await register(registration({ inn: taken.inn }, { email: taken.email.toUpperCase() }));
     expectProblem(dup, 400, 'VALIDATION');
-    expect(dup.body.errors).toEqual({
+    expectErrors(dup, {
       inn: ['validation.inn.taken'],
       'admin.email': ['validation.email.taken'],
     });
 
     const region = await register(registration({ regionCode: 'XX' }));
     expectProblem(region, 400, 'VALIDATION');
-    expect(region.body.errors).toEqual({ regionCode: ['validation.notFound'] });
+    expectErrors(region, { regionCode: ['validation.notFound'] });
 
     const noName = registration();
     delete (noName as Record<string, unknown>).name;
@@ -1018,7 +1019,7 @@ describe('acceptInvite', () => {
     const invalid = await api().post('/auth/accept-invite', { token, fullName: '  ', password: PASSWORD });
     await expectContract(invalid, 'acceptInvite');
     expectProblem(invalid, 400, 'VALIDATION');
-    expect(invalid.body.errors).toEqual({ fullName: ['validation.pattern'] });
+    expectErrors(invalid, { fullName: ['validation.pattern'] });
     expect(await redis().exists(`invite:${sha256hex(token)}`)).toBe(1);
 
     const ok = await api().post('/auth/accept-invite', {

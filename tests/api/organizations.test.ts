@@ -224,7 +224,7 @@ describe('uploadOrganizationLogo', () => {
     });
   });
 
-  it('SVG is sanitized (scripts, handlers, external references, foreignObject removed) and stored as SVG', async () => {
+  it('SVG is sanitized (handlers, javascript: and external references, CSS escapes removed) and stored as SVG', async () => {
     const { client, org } = await freshHead('RETAILER');
     const res = await uploadLogo(client, org.organizationId, {
       data: fixture('logo-hostile.svg'),
@@ -255,6 +255,8 @@ describe('uploadOrganizationLogo', () => {
       '@import',
       '<set',
       '<animate',
+      '\\',
+      'mask=',
     ])
       expect(svg.toLowerCase(), bad).not.toContain(bad.toLowerCase());
     // variant is ignored for SVG
@@ -276,6 +278,7 @@ describe('uploadOrganizationLogo', () => {
     for (const name of [
       'broken.svg',
       'entities.svg',
+      'logo-forbidden-elements.svg',
       'text-as-image.png',
       'document.pdf',
       'fake-signature.png',
@@ -349,7 +352,8 @@ describe('uploadOrganizationLogo', () => {
   });
 });
 
-describe('SVG upload limits (P15): the API never blocks on a hostile document', () => {
+describe('SVG upload limits (P15, P18): the API never blocks on a hostile document', () => {
+  const TOO_COMPLEX = { allowed: LOGO_TYPES, reason: 'svg-too-complex' };
   const nested = (n: number) =>
     `<svg xmlns="http://www.w3.org/2000/svg">${'<g>'.repeat(n - 1)}${'</g>'.repeat(n - 1)}</svg>`;
   const flat = (n: number) =>
@@ -367,7 +371,7 @@ describe('SVG upload limits (P15): the API never blocks on a hostile document', 
       probes.push(Date.now() - t);
     }
     const res = await pending;
-    expectProblem(res, 415, 'UNSUPPORTED_MEDIA_TYPE', { allowed: LOGO_TYPES });
+    expectProblem(res, 415, 'UNSUPPORTED_MEDIA_TYPE', TOO_COMPLEX);
     expect(Date.now() - started).toBeLessThan(1000);
     expect(Math.max(...probes)).toBeLessThan(500);
   });
@@ -375,11 +379,52 @@ describe('SVG upload limits (P15): the API never blocks on a hostile document', 
   it('6 000 flat elements → 415; 64 levels and 4 000 elements are still accepted', async () => {
     const { client, org } = await freshHead('FARM');
     const many = await uploadLogo(client, org.organizationId, { data: flat(6000), filename: 'flat.svg' });
-    expectProblem(many, 415, 'UNSUPPORTED_MEDIA_TYPE', { allowed: LOGO_TYPES });
+    expectProblem(many, 415, 'UNSUPPORTED_MEDIA_TYPE', TOO_COMPLEX);
     const deepOk = await uploadLogo(client, org.organizationId, { data: nested(64), filename: 'ok.svg' });
     expect(deepOk.status, deepOk.text).toBe(200);
     const flatOk = await uploadLogo(client, org.organizationId, { data: flat(4000), filename: 'ok2.svg' });
     expect(flatOk.status, flatOk.text).toBe(200);
+  });
+
+  it('attribute limits (P18): 101 attributes on an element, a 65 KiB value, 33 namespaces → 415 too complex', async () => {
+    const { client, org } = await freshHead('FARM');
+    const attrs = (k: number, prefix: string) =>
+      Array.from({ length: k }, (_, i) => ` ${prefix}${i}="1"`).join('');
+    for (const svg of [
+      `<svg xmlns="http://www.w3.org/2000/svg"><rect${attrs(101, 'data-a')}/></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg"><path d="${'M0 0 '.repeat(13_200)}"/></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg"${attrs(33, 'xmlns:n')}/>`,
+    ]) {
+      const res = await uploadLogo(client, org.organizationId, { data: svg, filename: 'x.svg' });
+      expectProblem(res, 415, 'UNSUPPORTED_MEDIA_TYPE', TOO_COMPLEX);
+    }
+  });
+
+  it('10 parallel heavy SVGs cannot starve a legitimate one: it completes within 3 s', async () => {
+    const heads = await Promise.all(Array.from({ length: 11 }, () => freshHead('FARM')));
+    // Just inside every limit: 4 900 elements with 4 attributes and long path data each (≈ 1.9 MB).
+    const path = 'M0 0 L1 1 '.repeat(35);
+    const heavy = `<svg xmlns="http://www.w3.org/2000/svg">${`<path fill="#000" stroke="#fff" opacity=".5" d="${path}"/>`.repeat(4900)}</svg>`;
+    const flood = heads
+      .slice(0, 10)
+      .map(({ client, org }) =>
+        uploadLogo(client, org.organizationId, { data: heavy, filename: 'heavy.svg' }),
+      );
+    await new Promise((r) => setTimeout(r, 50));
+    const legit = heads[10]!;
+    const started = Date.now();
+    const res = await uploadLogo(legit.client, legit.org.organizationId, {
+      data: fixture('logo-clean.svg'),
+      filename: 'legit.svg',
+    });
+    const elapsed = Date.now() - started;
+    const others = await Promise.all(flood);
+    expect(res.status, res.text).toBe(200);
+    expect(elapsed).toBeLessThan(3000);
+    // Every heavy upload either passed or was refused as too complex (queue full / deadline) — never a 5xx.
+    for (const o of others) {
+      if (o.status !== 200) expectProblem(o, 415, 'UNSUPPORTED_MEDIA_TYPE', TOO_COMPLEX);
+    }
   });
 });
 
