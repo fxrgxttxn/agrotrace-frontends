@@ -5,3 +5,4 @@ packages:
   - mercury-mock
   - backend-express
   - tests/*
+  - frontend-react

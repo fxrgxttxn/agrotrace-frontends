@@ -1,0 +1,73 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+// The markup contract (packages/design-system/README.md): the ```html examples, looked up by the heading they stand
+// under. The React wrappers must render the same DOM (Review Focus 1: Angular and Svelte reproduce the same).
+
+const README = readFileSync(
+  resolve(process.cwd(), '../packages/design-system/README.md'), // cwd: frontend-react (vitest root)
+  'utf8',
+);
+
+/** The `n`-th ```html block under the first heading that contains `heading`. */
+export function readmeBlock(heading: string, n = 0): string {
+  const start = README.split('\n').findIndex((l) => /^#{2,4} /.test(l) && l.includes(heading));
+  if (start < 0) throw new Error(`README heading not found: ${heading}`);
+  const rest = README.split('\n').slice(start + 1);
+  const end = rest.findIndex((l) => /^#{2,4} /.test(l));
+  const section = (end < 0 ? rest : rest.slice(0, end)).join('\n');
+  const blocks = [...section.matchAll(/```html\n([\s\S]*?)```/g)].map((m) => m[1]!);
+  if (!blocks[n]) throw new Error(`README block ${n} under «${heading}» not found`);
+  return blocks[n];
+}
+
+/** README shorthand for a sprite icon inside a component (`…#i-close…`) → the real markup. */
+export function expandIcons(html: string, cls: string | null): string {
+  return html.replace(/…#i-([a-z-]+)…/g, (_, name: string) =>
+    cls === null
+      ? `<svg aria-hidden="true"><use href="#i-${name}"></use></svg>`
+      : `<svg class="${cls}" aria-hidden="true"><use href="#i-${name}"></use></svg>`,
+  );
+}
+
+/** Attributes that carry live state, not markup (React/Angular/Svelte set them as properties). */
+const STATE_ATTRS: Record<string, string[]> = {
+  input: ['value', 'checked'],
+  textarea: ['value'],
+  select: ['value'],
+  option: ['selected'],
+};
+
+function walk(node: Node, out: string[], depth: number): void {
+  const pad = '  '.repeat(depth);
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = (node.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (text) out.push(`${pad}"${text}"`);
+    return;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return;
+  const el = node as Element;
+  const tag = el.tagName.toLowerCase();
+  const skip = STATE_ATTRS[tag] ?? [];
+  const attrs = [...el.attributes]
+    .filter((a) => !skip.includes(a.name))
+    .map((a) => `${a.name}="${a.value}"`)
+    .sort();
+  out.push(`${pad}<${tag}${attrs.length ? ' ' + attrs.join(' ') : ''}>`);
+  const children = tag === 'template' ? (el as HTMLTemplateElement).content.childNodes : el.childNodes;
+  for (const c of children) walk(c, out, depth + 1);
+}
+
+/** Canonical form of a DOM fragment: one element/text per line, attributes sorted, whitespace collapsed, comments
+ * dropped, live state attributes (value/checked/selected) ignored. */
+export function canonical(nodes: Iterable<Node>): string {
+  const out: string[] = [];
+  for (const n of nodes) walk(n, out, 0);
+  return out.join('\n');
+}
+
+export function canonicalHtml(html: string): string {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  return canonical(tpl.content.childNodes);
+}

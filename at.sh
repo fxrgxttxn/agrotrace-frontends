@@ -229,6 +229,50 @@ applied_migrations() {
   fi
 }
 
+# ── Frontends (Plan 2+) ─────────────────────────────────────────────────────────────────────────────────────────────
+# `fe:<cmd> <front>`; only react exists so far. The React stand is a separate gateway (`gateway-react`, compose project
+# agrotrace-react, docker-compose.react-dev.yml, host port 8089) on the main stack's network: it never touches the
+# shared `agrotrace` services.
+DCR="docker compose -f docker-compose.react-dev.yml"
+
+fe_front() {
+  case "${1:-}" in
+    react) ;;
+    angular|svelte) echo "fe: frontend-$1 does not exist yet (its plan adds it)" >&2; exit 1 ;;
+    *) echo "usage: ./at fe:<build|test|dev|gateway|e2e-smoke> react" >&2; exit 2 ;;
+  esac
+}
+
+# `fe:gateway react [up|down]`: the built dist (./at fe:build react) behind the gateway nginx at
+# http://react-express.localhost:8089/ (the backend itself comes from the shared stack: ./at up express).
+fe_gateway() (
+  set -euo pipefail
+  fe_front "${1:-}"
+  case "${2:-up}" in
+    up)
+      if [ "${AT_DRY_RUN:-}" != "1" ]; then
+        [ -f frontend-react/dist/index.html ] || { echo "fe:gateway: no frontend-react/dist — run ./at fe:build react first" >&2; exit 1; }
+        docker network inspect agrotrace_at >/dev/null 2>&1 \
+          || { echo "fe:gateway: network agrotrace_at does not exist — start the stack first (./at up express)" >&2; exit 1; }
+      fi
+      run $DCR up -d --build --wait gateway-react
+      echo "React: http://react-express.localhost:8089/  (design system: http://localhost:8089/_ds/)" ;;
+    down) run $DCR down ;;
+    *) echo "usage: ./at fe:gateway react [up|down]" >&2; exit 2 ;;
+  esac
+)
+
+# `fe:e2e-smoke react [playwright args…]`: the build through gateway-react (started if needed), Playwright one-off in
+# the `playwright` service on network agrotrace_at — frontend-react/e2e (`//repo`: no Git Bash path conversion).
+fe_e2e_smoke() (
+  set -euo pipefail
+  fe_front "${1:-}"; shift
+  if [ "${AT_DRY_RUN:-}" = "1" ] || [ -z "$($DCR ps -q --status running gateway-react 2>/dev/null)" ]; then
+    fe_gateway react up
+  fi
+  run $DC run --rm -w //repo/frontend-react playwright npx --no-install playwright test -c e2e/playwright.config.ts "$@"
+)
+
 case "$cmd" in
   install)   $T pnpm install "$@" ;;
   sh)        $T bash ;;
@@ -342,6 +386,13 @@ case "$cmd" in
     done
     $DC run --rm dbmate --no-dump-schema --wait up
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
+  # Frontends (see fe_front above): build into frontend-<front>/dist, component tests (Vitest + MSW from the contract),
+  # the Vite dev server on http://localhost:5173 (API proxied to api-express), the separate gateway, the smoke e2e.
+  fe:build)  fe_front "${1:-}"; run $T pnpm --filter "@agrotrace/frontend-$1" build ;;
+  fe:test)   fe_front "${1:-}"; front="$1"; shift; run $T pnpm --filter "@agrotrace/frontend-$front" test "$@" ;;
+  fe:dev)    fe_front "${1:-}"; run $DC run --rm -p 5173:5173 tools pnpm --filter "@agrotrace/frontend-$1" dev ;;
+  fe:gateway) fe_gateway "$@" ;;
+  fe:e2e-smoke) fe_e2e_smoke "$@" ;;
   # Top-level commands only (two-space indented case labels).
-  help|*)  grep -E '^  [a-z:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
+  help|*)  grep -E '^  [a-z0-9:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
 esac

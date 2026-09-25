@@ -148,3 +148,48 @@ describe('Windows wrappers (R85, R88 M6)', () => {
     expect(cmd).toMatch(/exit \/b %ERRORLEVEL%/);
   });
 });
+
+describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the smoke e2e', () => {
+  const plus = (out: string) => out.split('\n').filter((l) => l.startsWith('+ '));
+
+  it('help lists the fe commands', () => {
+    const cmds = sh(['./at', 'help']).out.trim().split('\n');
+    expect(cmds).toEqual(expect.arrayContaining(['fe:build', 'fe:test', 'fe:dev', 'fe:gateway', 'fe:e2e-smoke']));
+  });
+
+  it('fe:build / fe:test react run in the tools container', () => {
+    expect(plus(sh(['./at', 'fe:build', 'react'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-react build',
+    ]);
+    expect(plus(sh(['./at', 'fe:test', 'react', '-t', 'shell'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-react test -t shell',
+    ]);
+  });
+
+  it('fe:gateway react starts and stops only gateway-react of project agrotrace-react', () => {
+    expect(plus(sh(['./at', 'fe:gateway', 'react'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose -f docker-compose.react-dev.yml up -d --build --wait gateway-react',
+    ]);
+    expect(plus(sh(['./at', 'fe:gateway', 'react', 'down'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose -f docker-compose.react-dev.yml down',
+    ]);
+    const compose = readFileSync(`${REPO}docker-compose.react-dev.yml`, 'utf8');
+    expect(compose).toMatch(/^name: agrotrace-react$/m);
+    expect(compose).toMatch(/name: agrotrace_at\n\s+external: true/);
+    expect(compose).toMatch(/- \.\/frontend-react\/dist:\/srv\/react:ro/);
+    expect(compose).toMatch(/'8089:80'/);
+  });
+
+  it('fe:e2e-smoke react runs Playwright on the shared network against gateway-react', () => {
+    expect(plus(sh(['./at', 'fe:e2e-smoke', 'react'], { AT_DRY_RUN: '1' }).out).at(-1)).toBe(
+      '+ docker compose run --rm -w //repo/frontend-react playwright npx --no-install playwright test -c e2e/playwright.config.ts',
+    );
+  });
+
+  it('rejects frontends that do not exist yet', () => {
+    const r = sh(['./at', 'fe:build', 'svelte'], { AT_DRY_RUN: '1' });
+    expect(r.code).toBe(1);
+    expect(r.err).toMatch(/frontend-svelte does not exist yet/);
+    expect(sh(['./at', 'fe:test'], { AT_DRY_RUN: '1' }).code).toBe(2);
+  });
+});
