@@ -1,0 +1,43 @@
+{
+  "name": "@agrotrace/backend-express",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgroTrace backend on Express (Plan 1): api, worker and scheduler processes from one image.",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev:api": "tsx watch src/main-api.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p .",
+    "gen:db-types": "kysely-codegen --dialect postgres --date-parser string --numeric-parser string --url \"$DATABASE_URL\" --out-file \"${DB_TYPES_OUT:-src/db/types.generated.ts}\""
+  },
+  "dependencies": {
+    "@agrotrace/domain": "workspace:*",
+    "@agrotrace/validation": "workspace:*",
+    "@aws-sdk/client-s3": "^3.700.0",
+    "amqplib": "^0.10.5",
+    "express": "^4.21.2",
+    "ioredis": "^5.4.2",
+    "kysely": "^0.27.5",
+    "pg": "^8.13.1",
+    "pino": "^9.5.0",
+    "swagger-ui-dist": "^5.18.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@redocly/openapi-core": "^1.25.11",
+    "@types/amqplib": "^0.10.5",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "@types/supertest": "^6.0.2",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "esbuild": "^0.24.0",
+    "kysely-codegen": "^0.17.0",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

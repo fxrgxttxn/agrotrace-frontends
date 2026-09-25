@@ -1,0 +1,145 @@
+/**
+ * The error paths tests/api cannot provoke over HTTP: an unexpected exception (500 INTERNAL without internals), a
+ * ZodError from a handler, an AppProblem with rule/params/errors, and the log line carrying the request id.
+ */
+import express from 'express';
+import request from 'supertest';
+import { z } from 'zod';
+import { describe, expect, it } from 'vitest';
+import { AppProblem, notFoundHandler, problemHandler, problemType, toProblem } from '../src/http/problem.js';
+import { backendHeader, requestId } from '../src/http/request-id.js';
+import { ah } from '../src/http/async.js';
+import { createApp } from '../src/app.js';
+import { fakeContainer, memoryLogger } from './helpers.js';
+
+function appWith(route: (app: express.Express) => void) {
+  const { logger, lines } = memoryLogger();
+  const app = express();
+  app.use(requestId());
+  app.use(backendHeader('express'));
+  app.use(express.json());
+  route(app);
+  app.use(notFoundHandler(() => []));
+  app.use(problemHandler(logger));
+  return { app, lines };
+}
+
+describe('problem handler', () => {
+  it('an unexpected error → 500 INTERNAL problem, no message or stack in the body; logged with the request id', async () => {
+    const { app, lines } = appWith((a) =>
+      a.get(
+        '/boom',
+        ah(async () => {
+          throw new Error('secret connection string postgres://u:p@db');
+        }),
+      ),
+    );
+    const res = await request(app).get('/boom').set('X-Request-Id', 'req-500');
+    expect(res.status).toBe(500);
+    expect(res.headers['content-type']).toMatch(/^application\/problem\+json/);
+    expect(res.headers['x-backend']).toBe('express');
+    expect(res.headers['x-request-id']).toBe('req-500');
+    expect(res.body).toEqual({
+      type: '/problems/internal',
+      title: 'Internal server error',
+      status: 500,
+      code: 'INTERNAL',
+    });
+    expect(res.text).not.toMatch(/secret|postgres|at |Error/);
+    const logged = lines.find((l) => l.msg === 'unhandled error')!;
+    expect(logged).toMatchObject({ level: 50, requestId: 'req-500', path: '/boom' });
+    expect(JSON.stringify(logged.err)).toMatch(/secret connection string/);
+  });
+
+  it('a synchronous throw is handled the same way', async () => {
+    const { app } = appWith((a) =>
+      a.get('/sync', () => {
+        throw new TypeError('x is undefined');
+      }),
+    );
+    const res = await request(app).get('/sync');
+    expect(res.status).toBe(500);
+    expect(res.body.code).toBe('INTERNAL');
+  });
+
+  it('a ZodError → 400 VALIDATION with toFieldErrors keys (contract path form items[0].field)', async () => {
+    const schema = z.object({
+      email: z.string().email('validation.email'),
+      items: z.array(z.object({ id: z.string().uuid('validation.uuid') })),
+    });
+    const { app } = appWith((a) => a.post('/v', (req) => void schema.parse(req.body)));
+    const res = await request(app)
+      .post('/v')
+      .send({ email: 'nope', items: [{ id: 'x' }] });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      type: '/problems/validation',
+      title: 'Validation failed',
+      status: 400,
+      code: 'VALIDATION',
+      errors: { email: ['validation.email'], 'items[0].id': ['validation.uuid'] },
+    });
+  });
+
+  it('an AppProblem keeps rule, params, errors, detail and extra headers', async () => {
+    const { app } = appWith((a) =>
+      a.post('/br', () => {
+        throw new AppProblem(422, 'BUSINESS_RULE', {
+          rule: 'BR-01',
+          params: { until: '2026-09-25', substance: 'X' },
+          headers: { 'Retry-After': '5' },
+        });
+      }),
+    );
+    const res = await request(app).post('/br');
+    expect(res.status).toBe(422);
+    expect(res.headers['retry-after']).toBe('5');
+    expect(res.body).toEqual({
+      type: '/problems/business-rule',
+      title: 'Business rule violated',
+      status: 422,
+      code: 'BUSINESS_RULE',
+      rule: 'BR-01',
+      params: { until: '2026-09-25', substance: 'X' },
+    });
+  });
+
+  it('type is /problems/ + the code in kebab case', () => {
+    expect(problemType('VERSION_CONFLICT')).toBe('/problems/version-conflict');
+    expect(problemType('IDEMPOTENCY_KEY_IN_PROGRESS')).toBe('/problems/idempotency-key-in-progress');
+    expect(problemType('NOT_FOUND')).toBe('/problems/not-found');
+  });
+
+  it('maps body-parser errors: malformed JSON → 400, too large → 413 FILE_TOO_LARGE, bad charset → 415', () => {
+    expect(
+      toProblem(Object.assign(new SyntaxError('x'), { type: 'entity.parse.failed' }))?.body(),
+    ).toMatchObject({
+      status: 400,
+      errors: { _root: ['validation.invalid'] },
+    });
+    expect(toProblem(Object.assign(new Error('x'), { type: 'entity.too.large' }))?.body()).toMatchObject({
+      status: 413,
+      code: 'FILE_TOO_LARGE',
+      params: { maxBytes: 12582912 },
+    });
+    expect(toProblem(Object.assign(new Error('x'), { type: 'charset.unsupported' }))?.status).toBe(415);
+    expect(toProblem(new Error('other'))).toBeNull();
+  });
+});
+
+describe('404 / 405 fallback (createApp)', () => {
+  it('a declared but not yet implemented operation is 404; another method on a contract path is 405 + Allow', async () => {
+    const { c } = await fakeContainer();
+    const app = createApp(c);
+    const notImpl = await request(app).post('/api/v1/auth/login').send({});
+    expect(notImpl.status).toBe(404);
+    expect(notImpl.body.code).toBe('NOT_FOUND');
+    const wrong = await request(app).get('/api/v1/auth/login');
+    expect(wrong.status).toBe(405);
+    expect(wrong.headers.allow).toBe('POST');
+    expect(wrong.body).toMatchObject({ status: 405, code: 'NOT_FOUND', type: '/problems/not-found' });
+    const templ = await request(app).put('/api/v1/batches/8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e');
+    expect(templ.status).toBe(405);
+    expect(templ.headers.allow).toBe('GET');
+  });
+});

@@ -40,7 +40,7 @@ describe('./at wrapper (R88 M6)', () => {
   });
 
   it.each([
-    ['express', 'api-express worker-express'],
+    ['express', 'api-express worker-express scheduler-express'],
     ['django', 'api-django worker-django beat-django'],
     ['laravel', 'api-laravel worker-laravel scheduler-laravel'],
   ])('up <front> %s starts infra, the backend services and the gateway', (back, services) => {
@@ -66,6 +66,32 @@ describe('./at wrapper (R88 M6)', () => {
       expect(r.code, args.join(' ')).toBe(2);
       expect(r.err).toMatch(/usage: \.\/at up/);
     }
+  });
+
+  it('up <back> starts infra and the backend services only (no gateway)', () => {
+    const r = sh(['./at', 'up', 'express'], { AT_DRY_RUN: '1' });
+    expect(r.code, r.err).toBe(0);
+    expect(r.out.split('\n').filter((l) => l.startsWith('+ '))).toEqual([
+      '+ docker compose up -d --build --wait postgres redis rabbitmq minio mailpit mercury-mock',
+      '+ docker compose up --build minio-init',
+      '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
+    ]);
+  });
+
+  it('api:test [back] [--reset] runs tests/api against api-<back> after starting it', () => {
+    const plain = sh(['./at', 'api:test'], { AT_DRY_RUN: '1' })
+      .out.split('\n')
+      .filter((l) => l.startsWith('+ '));
+    expect(plain.at(-1)).toBe(
+      '+ docker compose run --rm -e API_URL=http://api-express:8000/api/v1 -e API_BACKEND=express tools pnpm --filter @agrotrace/tests-api test',
+    );
+    expect(plain).toContain(
+      '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
+    );
+    const r = sh(['./at', 'api:test', 'express', '--reset', 'health'], { AT_DRY_RUN: '1' });
+    const cmds = r.out.split('\n').filter((l) => l.startsWith('+ '));
+    expect(cmds.at(-2)).toMatch(/^\+ \S*at\.sh reset$/);
+    expect(cmds.at(-1)).toMatch(/pnpm --filter @agrotrace\/tests-api test health$/);
   });
 
   it('up infra starts mercury-mock too (R88 M4)', () => {

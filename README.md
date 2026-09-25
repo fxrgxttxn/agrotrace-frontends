@@ -36,8 +36,9 @@ agrotrace/
     domain/  validation/  i18n/  api-client/  design-system/
   gateway/             nginx routing, start page, gwtest stub upstream
   mercury-mock/        emulator of the external «Меркурий» veterinary system
+  backend-express/     Express backend (Plan 1): api, worker, scheduler from one image
   tests/
-    at/  db/  ds/  gateway/  shared test suites (more added by later plans)
+    api/  at/  db/  ds/  gateway/  shared test suites (tests/api: HTTP contract suite for every backend)
   infra/               postgres/rabbitmq/minio init and config
   docs/                spec, deploy guide, demo accounts, plans (docs/superpowers/plans/)
   .github/             CI (ci.yml) and its local composite actions

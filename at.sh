@@ -81,10 +81,16 @@ dump_schema() (
 # directives and for the absence of `proxy_intercept_errors` (fix round 1: that directive rewrote
 # real backend error responses into the gateway's own problem+json instead of passing them
 # through), then runs the full tests/gateway suite. The stub is always torn down afterwards, pass
-# or fail, so it never lingers or collides with a later plan's real api-express service.
+# or fail, so it never lingers. A running real api-express (Plan 1) would share the name with the stub (Docker DNS
+# round-robin), so it is stopped for the run and started again afterwards.
 gw_test() (
   set -euo pipefail
-  cleanup() { $DC --profile gwtest rm -sf gateway-test-upstream >/dev/null 2>&1 || true; }
+  had_api=0
+  if [ -n "$($DC ps -q --status running api-express 2>/dev/null)" ]; then had_api=1; $DC stop api-express >/dev/null; fi
+  cleanup() {
+    $DC --profile gwtest rm -sf gateway-test-upstream >/dev/null 2>&1 || true
+    if [ "$had_api" = "1" ]; then $DC start api-express >/dev/null 2>&1 || true; fi
+  }
   trap cleanup EXIT
 
   $DC --profile gwtest up -d --wait gateway-test-upstream
@@ -139,7 +145,7 @@ run() {
 # Services of one backend implementation (spec §14.4).
 backend_services() {
   case "$1" in
-    express) echo "api-express worker-express" ;;
+    express) echo "api-express worker-express scheduler-express" ;;
     django)  echo "api-django worker-django beat-django" ;;
     laravel) echo "api-laravel worker-laravel scheduler-laravel" ;;
     *) return 1 ;;
@@ -168,6 +174,32 @@ up_combo() (
   echo "$front + $back: http://${front}-${back}.localhost:${port}/"
 )
 
+# `./at up <back>`: infra + one backend's services (api, worker, scheduler), no gateway.
+up_backend() (
+  set -euo pipefail
+  back="$1"
+  services="$(backend_services "$back")"
+  run $DC up -d --build --wait $INFRA_SERVICES
+  run $DC up --build minio-init
+  run $DC up -d --build --wait $services
+  echo "$back up: http://api-${back}:8000/api/v1 inside the \`at\` network (through the gateway: ./at up <front> $back)"
+)
+
+# `./at api:test [backend] [--reset] [vitest args…]`: tests/api (HTTP contract suite, shared by the three backends)
+# against api-<backend> (default express). Starts infra and the backend's services first; --reset reloads the demo
+# data (./at reset) before the run. The suite reads the dev DB read-only (tests/api/lib/db.ts).
+api_test() (
+  set -euo pipefail
+  back="express"
+  case "${1:-}" in express|django|laravel) back="$1"; shift ;; esac
+  reset=0
+  if [ "${1:-}" = "--reset" ]; then reset=1; shift; fi
+  up_backend "$back"
+  if [ "$reset" = "1" ]; then run "$0" reset; fi
+  run $DC run --rm -e "API_URL=http://api-${back}:8000/api/v1" -e "API_BACKEND=${back}" tools \
+    pnpm --filter @agrotrace/tests-api test "$@"
+)
+
 # Number of migrations applied to the dev DB (0 when schema_migrations does not exist).
 applied_migrations() {
   local q="$DC exec -T postgres psql -tA -v ON_ERROR_STOP=1 -U agrotrace_owner -d agrotrace -c"
@@ -189,7 +221,7 @@ case "$cmd" in
   # The command wrappers (at, at.sh, at.cmd, at.ps1; `up` in AT_DRY_RUN mode) — tests/at.
   at:test)   $T pnpm --filter @agrotrace/tests-at test "$@" ;;
   # Everything, in dependency order: unit → wrappers → tests/db (throwaway agrotrace_test) → dev DB migrated and
-  # seed checked → gateway up + gw:test → design-system showcase (Playwright).
+  # seed checked → tests/api against Express (after a reset) → gateway up + gw:test → design-system showcase.
   test:all)
     "$0" test
     "$0" at:test
@@ -197,6 +229,7 @@ case "$cmd" in
     "$0" db:test
     "$0" db:migrate
     "$0" seed:test
+    "$0" api:test express --reset
     "$0" up gateway
     "$0" gw:test
     "$0" ds:test ;;
@@ -219,8 +252,9 @@ case "$cmd" in
         set -a; . ./.env; set +a
         echo "Gateway up: http://localhost:${GATEWAY_PORT:-80}/  (design system: http://localhost:${GATEWAY_PORT:-80}/_ds/)" ;;
       react|angular|svelte) up_combo "$@" ;;
+      express|django|laravel) up_backend "$1" ;;
       all) run $DC up -d --build --wait ;;
-      *) echo "usage: ./at up [all|infra|gateway|<react|angular|svelte> <express|django|laravel>]" >&2; exit 2 ;;
+      *) echo "usage: ./at up [all|infra|gateway|<express|django|laravel>|<react|angular|svelte> <express|django|laravel>]" >&2; exit 2 ;;
     esac ;;
   down)        $DC down "$@" ;;
   db:migrate)  $DC run --rm dbmate --no-dump-schema --wait up && dump_schema ;;
@@ -241,9 +275,21 @@ case "$cmd" in
     $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
     $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" -e APP_DATABASE_URL="$TEST_APP_DATABASE_URL" tools \
       pnpm --filter @agrotrace/tests-db test ;;
+  # Kysely types of the Express backend (backend-express/src/db/types.generated.ts) from a freshly migrated
+  # agrotrace_test — the schema of the migrations on disk, never the drifting dev DB. tests/db checks freshness.
+  gen:db-types)
+    set -a; . ./.env; set +a
+    TDB=agrotrace_test
+    TEST_DATABASE_URL="${DATABASE_URL%/*}/${TDB}?sslmode=disable"
+    $DC up -d --wait postgres
+    recreate_db "$TDB"
+    $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
+    $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" tools \
+      pnpm --filter @agrotrace/backend-express gen:db-types ;;
   ds:test)     $DC run --rm playwright npx --no-install playwright test "$@" ;;
   # Gateway must already be up (./at.sh up gateway). See gw_test() above for what this checks.
   gw:test)     gw_test ;;
+  api:test)    api_test "$@" ;;
   psql)        $DC exec postgres psql -U agrotrace_owner agrotrace ;;
   check)
     $DC exec -T postgres pg_isready -U agrotrace_owner && \

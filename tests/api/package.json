@@ -1,0 +1,20 @@
+{
+  "name": "@agrotrace/tests-api",
+  "private": true,
+  "type": "module",
+  "description": "HTTP contract tests shared by the three backends (API_URL); never imports backend code.",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@redocly/openapi-core": "^1.25.11",
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "pg": "^8.13.1",
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
