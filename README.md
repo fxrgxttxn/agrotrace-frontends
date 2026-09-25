@@ -66,6 +66,20 @@ For every other command (`test`, `lint`, `typecheck`, `db:test`, `seed:test`, `d
 `gw:test`, `reset`, `down`, …), service ports, environment variables and troubleshooting, see
 **[docs/deploy.md](docs/deploy.md)**.
 
+## Database benchmark (PostgreSQL vs Redis)
+
+`benchmark/` is a stand-alone stand (compose project `agrotrace-bench`, no published ports; it never
+touches the main stack) for the "Types of databases" lab (spec §13). One command reproduces it:
+
+```bash
+./at bench          # = ./at bench all (Windows: at.cmd bench / ./at.ps1 bench); about 90 minutes
+```
+
+It generates the data and runs the benchmark in 4 configurations × 3 repetitions from clean volumes.
+The CSVs are published to `docs/reports/data/`, and the plots and the report tables are regenerated.
+`./at bench help` lists the subcommands; `plot`, `report` and `lint` work without the stand up.
+The report, in Russian: **[docs/reports/databases.md](docs/reports/databases.md)**.
+
 ## Documentation
 
 - [Technical specification](docs/tz-agrotrace-v2.md) (`docs/tz-agrotrace-v2.md`) — the single

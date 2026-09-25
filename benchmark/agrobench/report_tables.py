@@ -118,7 +118,7 @@ class Data:
     def derive(self, value: float) -> float:
         """Registers a number computed from source values (sum, ratio, per-op CPU) so the checker
         accepts its formatted forms in the block being built; returns it unchanged."""
-        self.derived |= _float_forms(value)
+        self.derived |= _float_forms(value) | _float_forms(abs(value))  # a sign is not part of the token
         return value
 
     def text(self, name: str) -> str:
@@ -540,9 +540,15 @@ def _settings(d: Data) -> str:
     rows = []
     for name in PG_SETTINGS:
         rows.append([f"PostgreSQL {name}"] + [d.setting("pg", p, "strict", name) for p in PROFILES])
+    def redis_value(p: str, name: str) -> str:
+        value = d.setting("redis", p, "strict", name)
+        if name == "maxmemory":
+            n = int(value)
+            return "0 (без ограничения)" if n == 0 else f"{fmt_num(d.derive(n / 2**20), 0)} МиБ"
+        return value or "\"\" (выключено)"
+
     for name in REDIS_SETTINGS:
-        rows.append([f"Redis {name}"] + [d.setting("redis", p, "strict", name) or "\"\" (выключено)"
-                                         for p in PROFILES])
+        rows.append([f"Redis {name}"] + [redis_value(p, name) for p in PROFILES])
     return md_table(["Параметр", "по умолчанию", "оптимизированная"], rows, align="lll")
 
 
@@ -567,8 +573,10 @@ def _stand(d: Data) -> str:
         ["Docker", env["docker"]["docker_version"]],
         ["Docker Compose", env["docker"]["compose_version"]],
         ["Лимиты bench-postgres и bench-redis",
-         f"CPU {fmt_num(lim['postgres']['cpus'], 1)}, память {fmt_num(lim['postgres']['mem_mb'], 0)} МБ "
-         f"(Redis: CPU {fmt_num(lim['redis']['cpus'], 1)}, {fmt_num(lim['redis']['mem_mb'], 0)} МБ)"],
+         f"у каждой CPU {fmt_num(lim['postgres']['cpus'], 1)}, память {fmt_num(lim['postgres']['mem_mb'], 0)} МиБ"
+         if lim["postgres"] == lim["redis"] else
+         f"PostgreSQL: CPU {fmt_num(lim['postgres']['cpus'], 1)}, {fmt_num(lim['postgres']['mem_mb'], 0)} МиБ; "
+         f"Redis: CPU {fmt_num(lim['redis']['cpus'], 1)}, {fmt_num(lim['redis']['mem_mb'], 0)} МиБ"],
         ["Диск с данными СУБД", f"{disk['device']}, {disk['fstype']}, {fmt_num(disk['total_gb'], 2)} ГБ"],
         ["PostgreSQL", ver["postgres"]],
         ["Redis", ver["redis"]],
@@ -632,6 +640,22 @@ def _redis_commands(d: Data) -> str:
     return md_table(["Команда", "прогон 1, мкс/вызов", "прогон 2, мкс/вызов", "прогон 3, мкс/вызов"], rows)
 
 
+def _redis_c16_runs(d: Data) -> str:
+    """Per-run quantiles of Redis strict writes at 16 clients: where the mean sits against p50."""
+    rows = []
+    for p in PROFILES:
+        for q in WRITES:
+            runs = [r for r in d.csv("measurements.csv")
+                    if (r["dbms"], r["profile"], r["durability"], r["query"], r["distribution"], r["concurrency"])
+                    == ("redis", p, "strict", q, "prepared", "16")]
+            for r in sorted(runs, key=lambda r: r["run"]):
+                rows.append([f"{PROFILE_RU[p]} · {q} · прогон {r['run']}", us(r["p50_us"]), us(r["mean_us"]),
+                             fmt_num(d.derive(float(r["mean_us"]) - float(r["p50_us"])), 1),
+                             us(r["p95_us"]), us(r["p99_us"])])
+    return md_table(["Redis, строгий, 16 клиентов", "p50, мкс", "среднее, мкс", "среднее − p50, мкс",
+                     "p95, мкс", "p99, мкс"], rows)
+
+
 PLAN_BLOCKS = [("R3", "default"), ("R3", "tuned"), ("R4", "default"), ("R4", "tuned"),
                ("R5_max", "default"), ("R5_max", "tuned"), ("D1", "default"), ("D1", "tuned")]
 
@@ -680,6 +704,7 @@ BLOCKS: dict[str, Block] = {
     "redis_fsync": Block(_REDIS_DIAG, _redis_fsync),
     "redis_fsync_relaxed": Block(tuple(_diag_file("tuned", "relaxed", r) for r in (1, 2, 3)), _redis_fsync_relaxed),
     "redis_commands": Block(_REDIS_DIAG, _redis_commands),
+    "redis_c16_runs": Block(("measurements.csv",), _redis_c16_runs),
     **{f"plan_{q}_{p}": Block((_plan_file(q, p),), _plan(q, p)) for q, p in PLAN_BLOCKS},
 }
 

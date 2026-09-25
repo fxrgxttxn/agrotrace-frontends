@@ -262,3 +262,11 @@ def test_prose_dot_decimals_and_latin_x_factors_are_rejected(tiny):
 def test_odd_backticks_in_a_paragraph_are_rejected(tiny):
     problems = _prose_problems(tiny, "Команда `GET без закрывающей кавычки, а дальше 141,0 мкс.")
     assert any("backtick" in p for p in problems)
+
+
+def test_settings_show_redis_maxmemory_in_mib_and_stand_limits_once():
+    d = rt.Data(rt.DATA_DIR)
+    settings = rt.BLOCKS["settings"].build(d)
+    assert "| Redis maxmemory | 0 (без ограничения) | 3" + NB + "072 МиБ |" in settings
+    stand = rt.BLOCKS["stand"].build(d)
+    assert stand.count("CPU 2,0") == 1

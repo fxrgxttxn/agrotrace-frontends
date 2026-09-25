@@ -22,10 +22,13 @@ DURABILITY_FILE="durability.conf"
 RESULTS_DIR="results"
 PUBLISH_DIR="../docs/reports/data"
 
-cmd="${1:-help}"; shift || true
+# A bare `./at bench` (spec checklist: the benchmark is reproduced by one command) runs `all`;
+# `./at bench help` prints the usage.
+cmd="${1:-all}"; shift || true
 
 usage() {
-  echo "usage: ./at.sh bench <up|down|env|test|lint|gen|profile|load|run|plot|report|publish|all> [args]" >&2
+  echo "usage: ./at.sh bench [all|help|up|down|env|test|lint|gen|profile|load|run|plot|report|publish] [args]" >&2
+  echo "       no command = all: the full benchmark from clean volumes (about 90 minutes), CSV, plots, report tables" >&2
   echo "       ./at.sh bench up [pg_profile:default|tuned] [redis_profile:default|tuned] [durability:strict|relaxed]" >&2
   exit 2
 }
@@ -63,6 +66,19 @@ write_state() { # $1=pg_profile $2=redis_profile $3=durability
 load_state() {
   [ -f "$STATE_FILE" ] || { echo "bench: no stand is up — run './at.sh bench up' first" >&2; exit 1; }
   set -a; . "./$STATE_FILE"; set +a
+}
+
+# plot/report/lint/profile never touch a DBMS (they run bench-runner with --no-deps), so they work
+# on a fresh clone with no stand up. Compose still interpolates the whole file, so without a stand
+# they get fixed placeholder values: with --no-deps no DBMS container is started or recreated from
+# them, and none of these commands reads the profile.
+load_state_offline() {
+  if [ -f "$STATE_FILE" ]; then
+    load_state
+  else
+    export PG_PROFILE=default REDIS_PROFILE=default DURABILITY=relaxed \
+           PG_SYNCHRONOUS_COMMIT=off REDIS_APPENDFSYNC=everysec
+  fi
 }
 
 do_up() {
@@ -183,10 +199,10 @@ case "$cmd" in
   down) do_down "$@" ;;
   env)  do_env ;;
   test) load_state; $DC run --rm bench-runner python -m pytest tests "$@" ;;
-  lint) load_state; $DC run --rm bench-runner python -m ruff check agrobench tests "$@" ;;
+  lint) load_state_offline; $DC run --rm --no-deps bench-runner python -m ruff check agrobench tests "$@" ;;
   gen)  load_state; $DC run --rm bench-runner python -m agrobench.generate "$@" ;;
   # Summary of the generated CSVs (shares, parents, depth) for the report: results/dataset.csv.
-  profile) load_state; $DC run --rm --no-deps bench-runner python -m agrobench.dataset_profile "$@" ;;
+  profile) load_state_offline; $DC run --rm --no-deps bench-runner python -m agrobench.dataset_profile "$@" ;;
   # PostgreSQL first (COPY -> indexes -> ANALYZE), then Redis (pipeline load, then durability
   # mode restored) — independent datastores, order between the two does not matter otherwise.
   load)
@@ -195,8 +211,8 @@ case "$cmd" in
     $DC run --rm bench-runner python -m agrobench.load_redis "$@" ;;
   run)     load_state; $DC run --rm bench-runner python -m agrobench.run "$@" ;;
   # plot/report only read docs/reports/data: no DBMS needed (--no-deps).
-  plot)    load_state; $DC run --rm --no-deps bench-runner python -m agrobench.plot "$@" ;;
-  report)  load_state; $DC run --rm --no-deps bench-runner python -m agrobench.report_tables "$@" ;;
+  plot)    load_state_offline; $DC run --rm --no-deps bench-runner python -m agrobench.plot "$@" ;;
+  report)  load_state_offline; $DC run --rm --no-deps bench-runner python -m agrobench.report_tables "$@" ;;
   publish) do_publish ;;
   all)     do_all "$@" ;;
   help|*) usage ;;
