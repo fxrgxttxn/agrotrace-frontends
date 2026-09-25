@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { decimal, errorMap, fileUpload, uuid } from './common.js';
+import { decimal, errorMap, fileUpload, noDuplicate, uuid } from './common.js';
 
 export const LabTestCreateSchema = z
   .object(
@@ -29,24 +29,7 @@ const labResult = z
 export const LabResultsInputSchema = z
   .object(
     {
-      results: z
-        .array(labResult, { errorMap })
-        .min(1)
-        .max(200)
-        .superRefine((items, ctx) => {
-          const seen = new Set<string>();
-          for (const item of items) {
-            if (seen.has(item.indicatorId)) {
-              ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: 'validation.duplicate',
-                path: ['results'],
-              });
-              return;
-            }
-            seen.add(item.indicatorId);
-          }
-        }),
+      results: z.array(labResult, { errorMap }).min(1).max(200).superRefine(noDuplicate('indicatorId')),
     },
     { errorMap },
   )

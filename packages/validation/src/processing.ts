@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { errorMap, massKg, uuid } from './common.js';
+import { errorMap, massKg, noDuplicate, uuid } from './common.js';
 
 const processingInput = z
   .object(
@@ -24,24 +24,7 @@ const processingOutput = z
 export const ProcessingRequestSchema = z
   .object(
     {
-      inputs: z
-        .array(processingInput, { errorMap })
-        .min(1)
-        .max(50)
-        .superRefine((items, ctx) => {
-          const seen = new Set<string>();
-          for (const item of items) {
-            if (seen.has(item.batchId)) {
-              ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: 'validation.duplicate',
-                path: ['inputs'],
-              });
-              return;
-            }
-            seen.add(item.batchId);
-          }
-        }),
+      inputs: z.array(processingInput, { errorMap }).min(1).max(50).superRefine(noDuplicate('batchId')),
       outputs: z.array(processingOutput, { errorMap }).min(1).max(20),
     },
     { errorMap },

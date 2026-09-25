@@ -1,16 +1,7 @@
 import { z } from 'zod';
-import { codePointString, errorMap, massKg, uuid } from './common.js';
+import { codePointString, errorMap, massKg, noDuplicate, uuid } from './common.js';
 
-function noDuplicateBatchIds<T extends { batchId: string }>(items: T[], ctx: z.RefinementCtx) {
-  const seen = new Set<string>();
-  for (const item of items) {
-    if (seen.has(item.batchId)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'validation.duplicate', path: ['items'] });
-      return;
-    }
-    seen.add(item.batchId);
-  }
-}
+const noDuplicateBatchIds = noDuplicate('batchId');
 
 const waybillCreateItem = z
   .object(

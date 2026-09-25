@@ -174,3 +174,20 @@ export function atLeastOneKey<Shape extends z.ZodRawShape>(
     message: 'validation.minProperties',
   });
 }
+
+/**
+ * `superRefine` for arrays whose elements must not repeat `field` (contract: `errors["inputs[1].batchId"]`,
+ * `errors["results[i].indicatorId"]`, `errors["items[i].batchId"]`): every repeated element — not the first
+ * occurrence — gets `validation.duplicate` at its own `[i].field` (the path is relative to the array).
+ */
+export function noDuplicate<K extends string>(field: K) {
+  return (items: Record<K, unknown>[], ctx: z.RefinementCtx): void => {
+    const seen = new Set<unknown>();
+    items.forEach((item, i) => {
+      const v = item[field];
+      if (seen.has(v))
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'validation.duplicate', path: [i, field] });
+      seen.add(v);
+    });
+  };
+}
