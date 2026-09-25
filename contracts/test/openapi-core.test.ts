@@ -1041,6 +1041,26 @@ describe('openapi contract: operations', () => {
     expect(d).toMatch(/только worker, удерживающий `tg:poller`/);
   });
 
+  it('P9: client IP rule, Redis JSON reading rule, no-store on token responses', () => {
+    const d: string = doc.info.description;
+    expect(d).toMatch(/IP клиента \(P9\)[^]*ровно один прокси-хоп[^]*последний элемент\s+`X-Forwarded-For`/);
+    expect(d).toMatch(/без `X-Forwarded-For`[^.]*адрес сокетного соединения/);
+    expect(d).toMatch(/JSON-значения ключей \(P9\): читатель разбирает значение как JSON/);
+    expect(d).toMatch(/Исключение — `pub:batch:\{publicCode\}`/);
+    for (const id of ['login', 'refreshToken', 'verifyTwoFactor']) {
+      const op = ops.find(({ op }) => op.operationId === id)!.op;
+      const h = deref(deref(op.responses['200']).headers['Cache-Control']);
+      expect(h.required, id).toBe(true);
+      expect(deref(h.schema).enum, id).toEqual(['no-store']);
+    }
+  });
+
+  it('P10: RATE_LIMIT_OVERRIDES is documented as deployment configuration', () => {
+    const d: string = doc.info.description;
+    expect(d).toMatch(/Конфигурация развёртывания \(P10\): переменная окружения `RATE_LIMIT_OVERRIDES`/);
+    expect(d).toMatch(/в эксплуатации не задаётся/);
+  });
+
   it('R88 M2: signed file URLs use a key derived from JWT_SECRET; the documented vector is correct', () => {
     const d: string = ops.find(({ op }) => op.operationId === 'downloadFile')!.op.description;
     expect(d).toMatch(/fileUrlKey = HMAC-SHA256\(key = JWT_SECRET, message = "agrotrace:file-url:v1"\)/);

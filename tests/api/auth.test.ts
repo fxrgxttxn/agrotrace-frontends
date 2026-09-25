@@ -25,6 +25,7 @@ import {
 } from './lib/fixtures.js';
 import { linkToken, mailsTo, waitForMails } from './lib/mail.js';
 import { awayFromWindowEdge, closeRedis, redis, sha256hex, windowStart } from './lib/redis.js';
+import { itRateLimit } from './lib/tags.js';
 import { awayFromStepEdge, currentStep, totpAt } from './lib/totp.js';
 import { DEMO_PASSWORD } from '../../db/seed/src/data.js';
 
@@ -254,25 +255,34 @@ describe('login', () => {
     expect(Object.keys(email.body.errors)).toEqual(['email']);
   });
 
-  it('login-ip: the 21st attempt from one IP within the window → 429 with Retry-After and params', async () => {
-    await awayFromWindowEdge(60, 20);
-    const client = api();
-    const email = uniqueEmail('ratelimit');
-    for (let i = 0; i < 20; i++)
-      expectProblem(await login(client, email, 'some-password'), 401, 'INVALID_CREDENTIALS');
-    const u = demoUsers[0]!;
-    const limited = await login(client, u.email, DEMO_PASSWORD); // the limit comes first (R31 step 1)
-    expectProblem(limited, 429, 'RATE_LIMITED');
-    expect(limited.body.params).toEqual({ scope: 'login-ip', limit: 20, windowSec: 60 });
-    const retry = Number(limited.headers.get('retry-after'));
-    expect(retry).toBeGreaterThanOrEqual(1);
-    expect(retry).toBeLessThanOrEqual(60);
-    expectNoCookie(limited);
-    const count = await redis().get(`rl:login-ip:${client.clientIp}:${windowStart(60)}`);
-    expect(Number(count)).toBeGreaterThanOrEqual(21);
-    // Another address is not affected.
-    await loginOk(api(), u.email, DEMO_PASSWORD);
-  });
+  itRateLimit(
+    'login-ip: the 21st attempt from one IP within the window → 429 with Retry-After and params',
+    async () => {
+      await awayFromWindowEdge(60, 20);
+      const client = api();
+      // P9: only the last X-Forwarded-For entry (appended by the gateway) is the client; what a client puts left of it
+      // is ignored. A fresh spoofed address per run so its (absent) counter is not shared with earlier runs.
+      const ip = client.clientIp;
+      const spoofed = `203.0.113.${Math.floor(Math.random() * 254) + 1}`;
+      client.clientIp = `${spoofed}, ${ip}`;
+      const email = uniqueEmail('ratelimit');
+      for (let i = 0; i < 20; i++)
+        expectProblem(await login(client, email, 'some-password'), 401, 'INVALID_CREDENTIALS');
+      const u = demoUsers[0]!;
+      const limited = await login(client, u.email, DEMO_PASSWORD); // the limit comes first (R31 step 1)
+      expectProblem(limited, 429, 'RATE_LIMITED');
+      expect(limited.body.params).toEqual({ scope: 'login-ip', limit: 20, windowSec: 60 });
+      const retry = Number(limited.headers.get('retry-after'));
+      expect(retry).toBeGreaterThanOrEqual(1);
+      expect(retry).toBeLessThanOrEqual(60);
+      expectNoCookie(limited);
+      const count = await redis().get(`rl:login-ip:${ip}:${windowStart(60)}`);
+      expect(Number(count)).toBeGreaterThanOrEqual(21);
+      expect(await redis().exists(`rl:login-ip:${spoofed}:${windowStart(60)}`)).toBe(0);
+      // Another address is not affected.
+      await loginOk(api(), u.email, DEMO_PASSWORD);
+    },
+  );
 });
 
 // ── Bearer authentication ───────────────────────────────────────────────────────────────────────────────────────
@@ -326,7 +336,7 @@ describe('Bearer access token', () => {
     expect(res.body.params).toBeUndefined();
   });
 
-  it("scope 'user': the 101st authenticated request within the window → 429", async () => {
+  itRateLimit("scope 'user': the 101st authenticated request within the window → 429", async () => {
     const { client, user } = await freshHead('FARM');
     await awayFromWindowEdge(60, 20);
     const results = await Promise.all(Array.from({ length: 100 }, () => client.post('/auth/2fa/setup', {})));
@@ -689,24 +699,29 @@ describe('password reset', () => {
     expectProblem(invalid, 400, 'VALIDATION');
   });
 
-  it('forgot: the 4th request for one email within the hour → 429 (email lower-cased, existing or not)', async () => {
-    await awayFromWindowEdge(3600, 30);
-    const email = uniqueEmail('forgot');
-    for (let i = 0; i < 3; i++) {
-      const res = await api().post('/auth/password/forgot', { email: i === 1 ? email.toUpperCase() : email });
-      expect(res.status, res.text).toBe(204);
-    }
-    const limited = await api().post('/auth/password/forgot', { email: email.toUpperCase() });
-    await expectContract(limited, 'forgotPassword');
-    expectProblem(limited, 429, 'RATE_LIMITED');
-    expect(limited.body.params).toEqual({ scope: 'forgot', limit: 3, windowSec: 3600 });
-    const retry = Number(limited.headers.get('retry-after'));
-    expect(retry).toBeGreaterThanOrEqual(1);
-    expect(retry).toBeLessThanOrEqual(3600);
-    expect(Number(await redis().get(`rl:forgot:${email}:${windowStart(3600)}`))).toBeGreaterThanOrEqual(4);
-    // Another email is not affected.
-    expect((await api().post('/auth/password/forgot', { email: uniqueEmail('forgot') })).status).toBe(204);
-  });
+  itRateLimit(
+    'forgot: the 4th request for one email within the hour → 429 (email lower-cased, existing or not)',
+    async () => {
+      await awayFromWindowEdge(3600, 30);
+      const email = uniqueEmail('forgot');
+      for (let i = 0; i < 3; i++) {
+        const res = await api().post('/auth/password/forgot', {
+          email: i === 1 ? email.toUpperCase() : email,
+        });
+        expect(res.status, res.text).toBe(204);
+      }
+      const limited = await api().post('/auth/password/forgot', { email: email.toUpperCase() });
+      await expectContract(limited, 'forgotPassword');
+      expectProblem(limited, 429, 'RATE_LIMITED');
+      expect(limited.body.params).toEqual({ scope: 'forgot', limit: 3, windowSec: 3600 });
+      const retry = Number(limited.headers.get('retry-after'));
+      expect(retry).toBeGreaterThanOrEqual(1);
+      expect(retry).toBeLessThanOrEqual(3600);
+      expect(Number(await redis().get(`rl:forgot:${email}:${windowStart(3600)}`))).toBeGreaterThanOrEqual(4);
+      // Another email is not affected.
+      expect((await api().post('/auth/password/forgot', { email: uniqueEmail('forgot') })).status).toBe(204);
+    },
+  );
 });
 
 // ── registration ─────────────────────────────────────────────────────────────────────────────────────────────────

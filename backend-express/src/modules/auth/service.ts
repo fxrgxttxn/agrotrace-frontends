@@ -145,7 +145,7 @@ export function authService(c: Container) {
   return {
     /** login — R31, steps 1–6. */
     async login(ip: string | null, body: unknown): Promise<LoginResult> {
-      await hitRateLimit(redis, 'login-ip', ip ?? 'unknown');
+      await hitRateLimit(redis, 'login-ip', ip ?? 'unknown', c.config.RATE_LIMIT_OVERRIDES);
       const input = LoginRequestSchema.parse(body);
       const email = input.email.toLowerCase();
       const u = await loadAuthUser({ email });
@@ -311,7 +311,7 @@ export function authService(c: Container) {
     async forgotPassword(body: unknown): Promise<void> {
       const input = ForgotPasswordRequestSchema.parse(body);
       const email = input.email.toLowerCase();
-      await hitRateLimit(redis, 'forgot', email);
+      await hitRateLimit(redis, 'forgot', email, c.config.RATE_LIMIT_OVERRIDES);
       const u = await db
         .selectFrom('users')
         .select(['id', 'email', 'full_name'])

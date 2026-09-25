@@ -21,10 +21,16 @@ const LIMITS = new Map<RateScope, Limit>(
   (rules.limits as Limit[]).map((l) => [l.scope, { scope: l.scope, limit: l.limit, windowSec: l.windowSec }]),
 );
 
-export function rateLimitOf(scope: RateScope): Limit {
+/** P10: `RATE_LIMIT_OVERRIDES` — replaces `limit` of the named scopes (test stand only); windows and keys stay. */
+export type RateLimitOverrides = Partial<Record<RateScope, number>>;
+
+export const RATE_SCOPES = [...LIMITS.keys()];
+
+export function rateLimitOf(scope: RateScope, overrides: RateLimitOverrides = {}): Limit {
   const l = LIMITS.get(scope);
   if (!l) throw new Error(`rate-limits.json has no scope ${scope}`);
-  return l;
+  const o = overrides[scope];
+  return o === undefined ? l : { ...l, limit: o };
 }
 
 /**
@@ -35,9 +41,10 @@ export async function hitRateLimit(
   redis: Redis,
   scope: RateScope,
   subject: string,
+  overrides: RateLimitOverrides = {},
   nowMs = Date.now(),
 ): Promise<void> {
-  const { limit, windowSec } = rateLimitOf(scope);
+  const { limit, windowSec } = rateLimitOf(scope, overrides);
   const nowSec = Math.floor(nowMs / 1000);
   const windowStart = Math.floor(nowSec / windowSec) * windowSec;
   const key = `rl:${scope}:${subject}:${windowStart}`;

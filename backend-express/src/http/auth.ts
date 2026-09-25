@@ -36,7 +36,7 @@ export function guard(c: Container, operationId: string): RequestHandler {
   if (roles.includes('PUBLIC')) throw new Error(`guard(): ${operationId} is public`);
   return ah(async (req, res, next) => {
     const principal = await authenticate(c, req);
-    await hitRateLimit(c.redis, 'user', principal.userId);
+    await hitRateLimit(c.redis, 'user', principal.userId, c.config.RATE_LIMIT_OVERRIDES);
     const roleOk = roles.includes('ANY') || principal.roles.some((r) => roles.includes(r));
     const adminOk = !orgAdmin || principal.roles.includes('ADMIN') || principal.orgAdmin;
     if (!roleOk || !adminOk) throw new AppProblem(403, 'FORBIDDEN');

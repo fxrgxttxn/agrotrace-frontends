@@ -185,19 +185,38 @@ up_backend() (
   echo "$back up: http://api-${back}:8000/api/v1 inside the \`at\` network (through the gateway: ./at up <front> $back)"
 )
 
-# `./at api:test [backend] [--reset] [vitest args…]`: tests/api (HTTP contract suite, shared by the three backends)
-# against api-<backend> (default express). Starts infra and the backend's services first; --reset reloads the demo
-# data (./at reset) before the run. The suite reads the dev DB read-only (tests/api/lib/db.ts).
+# `./at api:test [backend] [--reset] [--ratelimits] [vitest args…]`: tests/api (HTTP contract suite, shared by the
+# three backends) against api-<backend> (default express). Starts infra and the backend's services first; --reset
+# reloads the demo data (./at reset) before the run. The suite reads the dev DB read-only (tests/api/lib/db.ts),
+# apart from the documented fixture writes.
+# P10: by default api-<backend> runs for the suite with the api-test overrides (docker-compose.api-test.yml:
+# RATE_LIMIT_OVERRIDES) and is restored to its plain configuration afterwards; the rate-limit tests (named
+# `[ratelimit]`) skip themselves. --ratelimits runs only those tests (API_RATELIMITS=1 → tests/api/vitest.config.ts
+# testNamePattern), against the plain backend (no overrides).
 api_test() (
   set -euo pipefail
   back="express"
   case "${1:-}" in express|django|laravel) back="$1"; shift ;; esac
   reset=0
-  if [ "${1:-}" = "--reset" ]; then reset=1; shift; fi
+  ratelimits=0
+  while :; do
+    case "${1:-}" in
+      --reset) reset=1; shift ;;
+      --ratelimits) ratelimits=1; shift ;;
+      *) break ;;
+    esac
+  done
   up_backend "$back"
   if [ "$reset" = "1" ]; then run "$0" reset; fi
-  run $DC run --rm -e "API_URL=http://api-${back}:8000/api/v1" -e "API_BACKEND=${back}" tools \
-    pnpm --filter @agrotrace/tests-api test "$@"
+  tests="$DC run --rm -e API_URL=http://api-${back}:8000/api/v1 -e API_BACKEND=${back}"
+  if [ "$ratelimits" = "1" ]; then
+    run $tests -e API_RATELIMITS=1 tools pnpm --filter @agrotrace/tests-api test "$@"
+    return
+  fi
+  restore() { run $DC up -d --no-build --wait "api-${back}"; }
+  trap restore EXIT
+  run $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait "api-${back}"
+  run $tests tools pnpm --filter @agrotrace/tests-api test "$@"
 )
 
 # Number of migrations applied to the dev DB (0 when schema_migrations does not exist).
@@ -221,7 +240,7 @@ case "$cmd" in
   # The command wrappers (at, at.sh, at.cmd, at.ps1; `up` in AT_DRY_RUN mode) — tests/at.
   at:test)   $T pnpm --filter @agrotrace/tests-at test "$@" ;;
   # Everything, in dependency order: unit → wrappers → tests/db (throwaway agrotrace_test) → dev DB migrated and
-  # seed checked → tests/api against Express (after a reset) → gateway up + gw:test → Swagger UI through the gateway → design-system showcase.
+  # seed checked → tests/api against Express (after a reset; then its rate-limit tests, P10) → gateway up + gw:test → Swagger UI through the gateway → design-system showcase.
   test:all)
     "$0" test
     "$0" at:test
@@ -230,6 +249,7 @@ case "$cmd" in
     "$0" db:migrate
     "$0" seed:test
     "$0" api:test express --reset
+    "$0" api:test express --ratelimits
     "$0" up gateway
     "$0" gw:test
     "$0" docs:test express

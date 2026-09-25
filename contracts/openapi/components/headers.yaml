@@ -110,3 +110,10 @@ Allow:
     type: string
     pattern: '^[A-Z]+(, [A-Z]+)*$'
   example: GET, POST
+CacheControlNoStoreToken:
+  description: Ответ с токенами (access-токен, challenge TOTP) никогда не кэшируется (P9).
+  required: true
+  schema:
+    type: string
+    enum: [no-store]
+  example: no-store

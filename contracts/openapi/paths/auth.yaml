@@ -38,6 +38,8 @@
         headers:
           Set-Cookie:
             $ref: '../components/headers.yaml#/SetRefreshCookie'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlNoStoreToken'
           X-Request-Id:
             $ref: '../components/headers.yaml#/XRequestId'
           X-Backend:
@@ -148,6 +150,8 @@
         headers:
           Set-Cookie:
             $ref: '../components/headers.yaml#/SetRefreshCookie'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlNoStoreToken'
           X-Request-Id:
             $ref: '../components/headers.yaml#/XRequestId'
           X-Backend:
@@ -257,6 +261,8 @@
         headers:
           Set-Cookie:
             $ref: '../components/headers.yaml#/SetRefreshCookie'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlNoStoreToken'
           X-Request-Id:
             $ref: '../components/headers.yaml#/XRequestId'
           X-Backend:

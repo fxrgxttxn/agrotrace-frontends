@@ -90,6 +90,26 @@ info:
     `getUpdates` опрашивает только worker, удерживающий `tg:poller` (остальные не опрашивают); смещение
     (`offset` = последний `update_id` + 1) подтверждается на стороне Telegram, поэтому новый владелец продолжает с
     места предыдущего, а повторно полученное сообщение безвредно (`GETDEL` кода).
+
+    JSON-значения ключей (P9): читатель разбирает значение как JSON и не сравнивает байты — пробелы и порядок полей
+    в записи любой реализации допустимы (таблица показывает форму значения). Исключение — `pub:batch:{publicCode}`:
+    сохранённые байты отдаются клиенту как есть, без разбора.
+
+
+    IP клиента (P9) — для лимитов `login-ip`/`complaint-ip` (R30) и `audit_log.ip`: доверяется ровно один прокси-хоп —
+    шлюз, который дописывает адрес своего соединения в конец `X-Forwarded-For`; backend берёт последний элемент
+    `X-Forwarded-For`, а значения, присланные клиентом левее, игнорирует. Запрос без `X-Forwarded-For` (прямой вызов
+    внутри сети) — адрес сокетного соединения. IPv4, отображённый в IPv6 (`::ffff:a.b.c.d`), приводится к IPv4.
+
+
+    Ответы с токенами (`login`, `refreshToken`, `verifyTwoFactor`) несут `Cache-Control: no-store` (P9).
+
+
+    Конфигурация развёртывания (P10): переменная окружения `RATE_LIMIT_OVERRIDES` — JSON-объект
+    `{"<scope>": <limit>}` (целые ≥ 1, только скоупы из `contracts/rules/rate-limits.json`), заменяющий `limit`
+    указанных скоупов; окна и ключи не меняются. По умолчанию не задана — действуют значения из файла; неверное
+    значение останавливает процесс при старте. Используется только тестовым стендом (`api-test`), чтобы наборы
+    тестов, не проверяющие лимиты, не упирались в них; в эксплуатации не задаётся.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -490,6 +510,8 @@ components:
       $ref: './openapi/components/headers.yaml#/ClearRefreshCookie'
     ReportContentDisposition:
       $ref: './openapi/components/headers.yaml#/ReportContentDisposition'
+    CacheControlNoStoreToken:
+      $ref: './openapi/components/headers.yaml#/CacheControlNoStoreToken'
     CacheControlNoStore:
       $ref: './openapi/components/headers.yaml#/CacheControlNoStore'
   schemas:

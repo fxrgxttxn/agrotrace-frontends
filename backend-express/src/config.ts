@@ -4,6 +4,9 @@
  * server.
  */
 import { z } from 'zod';
+import rateLimits from '../../contracts/rules/rate-limits.json' with { type: 'json' };
+
+const RATE_SCOPES = rateLimits.limits.map((l) => l.scope) as [string, ...string[]];
 
 const url = (protocols: string[]) =>
   z
@@ -46,6 +49,32 @@ const schema = z.object({
   DADATA_URL: url(['http:', 'https:']).default(
     'https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party',
   ),
+  /**
+   * P10 (contract info.description, deployment configuration): JSON `{"<scope>": <limit>}` replacing the `limit` of
+   * scopes from contracts/rules/rate-limits.json. Test stand only (compose profile api-test); unset in operation.
+   */
+  RATE_LIMIT_OVERRIDES: z
+    .string()
+    .optional()
+    .transform((s, ctx): Record<string, number> => {
+      if (s === undefined) return {};
+      let v: unknown;
+      try {
+        v = JSON.parse(s);
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'must be a JSON object {"<scope>": <limit>}' });
+        return z.NEVER;
+      }
+      const r = z.record(z.enum(RATE_SCOPES), z.number().int().min(1)).safeParse(v);
+      if (!r.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `must map scopes (${RATE_SCOPES.join(', ')}) to integers >= 1`,
+        });
+        return z.NEVER;
+      }
+      return r.data;
+    }),
   DADATA_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(3000),
   /** Readiness checks give up after this long (each dependency). */
   HEALTH_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(2000),

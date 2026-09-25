@@ -6674,6 +6674,11 @@ export interface components {
          */
         ReportContentDisposition: string;
         /**
+         * @description Ответ с токенами (access-токен, challenge TOTP) никогда не кэшируется (P9).
+         * @example no-store
+         */
+        CacheControlNoStoreToken: "no-store";
+        /**
          * @description Динамически сформированный ответ не кэшируется.
          * @example no-store
          */
@@ -6700,6 +6705,7 @@ export interface operations {
             200: {
                 headers: {
                     "Set-Cookie": components["headers"]["SetRefreshCookie"];
+                    "Cache-Control": components["headers"]["CacheControlNoStoreToken"];
                     "X-Request-Id": components["headers"]["XRequestId"];
                     "X-Backend": components["headers"]["XBackend"];
                     [name: string]: unknown;
@@ -6740,6 +6746,7 @@ export interface operations {
             200: {
                 headers: {
                     "Set-Cookie": components["headers"]["SetRefreshCookie"];
+                    "Cache-Control": components["headers"]["CacheControlNoStoreToken"];
                     "X-Request-Id": components["headers"]["XRequestId"];
                     "X-Backend": components["headers"]["XBackend"];
                     [name: string]: unknown;
@@ -6838,6 +6845,7 @@ export interface operations {
             200: {
                 headers: {
                     "Set-Cookie": components["headers"]["SetRefreshCookie"];
+                    "Cache-Control": components["headers"]["CacheControlNoStoreToken"];
                     "X-Request-Id": components["headers"]["XRequestId"];
                     "X-Backend": components["headers"]["XBackend"];
                     [name: string]: unknown;

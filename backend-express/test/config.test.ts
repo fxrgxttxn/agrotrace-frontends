@@ -3,9 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from '../src/config.js';
 import { acceptRequestId } from '../src/http/request-id.js';
 import { contractMethods } from '../src/contract.js';
+import { rateLimitOf } from '../src/http/rate-limit.js';
 import { testConfig, testContract } from './helpers.js';
 
-const env = Object.fromEntries(Object.entries(testConfig).map(([k, v]) => [k, String(v)]));
+const env = Object.fromEntries(
+  Object.entries(testConfig)
+    .filter(([k]) => k !== 'RATE_LIMIT_OVERRIDES')
+    .map(([k, v]) => [k, String(v)]),
+);
 
 describe('loadConfig', () => {
   it('parses a complete environment, coercing numbers', () => {
@@ -35,6 +40,25 @@ describe('loadConfig', () => {
     expect(problems).toMatch(/APP_DATABASE_URL: must be a postgres: or postgresql: URL/);
     expect(problems).toMatch(/JWT_SECRET: must be at least 32 characters/);
     expect(problems).toMatch(/REDIS_URL: Required/);
+  });
+});
+
+describe('RATE_LIMIT_OVERRIDES (P10)', () => {
+  it('unset → {}; a JSON object of known scopes → limits; anything else stops the start', () => {
+    expect(loadConfig(env).RATE_LIMIT_OVERRIDES).toEqual({});
+    expect(
+      loadConfig({ ...env, RATE_LIMIT_OVERRIDES: '{"user":100000,"login-ip":5}' }).RATE_LIMIT_OVERRIDES,
+    ).toEqual({
+      user: 100000,
+      'login-ip': 5,
+    });
+    for (const bad of ['{"nope":1}', '{"user":0}', '{"user":1.5}', '[1]', 'not json', '{"user":"10"}'])
+      expect(() => loadConfig({ ...env, RATE_LIMIT_OVERRIDES: bad }), bad).toThrow(/RATE_LIMIT_OVERRIDES/);
+  });
+
+  it('an override replaces only the limit of its scope', () => {
+    expect(rateLimitOf('user', { user: 7 })).toEqual({ scope: 'user', limit: 7, windowSec: 60 });
+    expect(rateLimitOf('forgot', { user: 7 })).toEqual({ scope: 'forgot', limit: 3, windowSec: 3600 });
   });
 });
 

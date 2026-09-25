@@ -82,16 +82,32 @@ describe('./at wrapper (R88 M6)', () => {
     const plain = sh(['./at', 'api:test'], { AT_DRY_RUN: '1' })
       .out.split('\n')
       .filter((l) => l.startsWith('+ '));
-    expect(plain.at(-1)).toBe(
+    // P10: the suite runs against the api-test overrides, then the plain backend is restored.
+    expect(plain.slice(-3)).toEqual([
+      '+ docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait api-express',
       '+ docker compose run --rm -e API_URL=http://api-express:8000/api/v1 -e API_BACKEND=express tools pnpm --filter @agrotrace/tests-api test',
-    );
+      '+ docker compose up -d --no-build --wait api-express',
+    ]);
     expect(plain).toContain(
       '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
     );
     const r = sh(['./at', 'api:test', 'express', '--reset', 'health'], { AT_DRY_RUN: '1' });
     const cmds = r.out.split('\n').filter((l) => l.startsWith('+ '));
-    expect(cmds.at(-2)).toMatch(/^\+ \S*at\.sh reset$/);
-    expect(cmds.at(-1)).toMatch(/pnpm --filter @agrotrace\/tests-api test health$/);
+    expect(cmds.at(-4)).toMatch(/^\+ \S*at\.sh reset$/);
+    expect(cmds.at(-2)).toMatch(/pnpm --filter @agrotrace\/tests-api test health$/);
+  });
+
+  it('api:test [back] --ratelimits runs only the [ratelimit] tests against the plain backend (P10)', () => {
+    const cmds = sh(['./at', 'api:test', 'express', '--ratelimits'], { AT_DRY_RUN: '1' })
+      .out.split('\n')
+      .filter((l) => l.startsWith('+ '));
+    expect(cmds.at(-1)).toBe(
+      '+ docker compose run --rm -e API_URL=http://api-express:8000/api/v1 -e API_BACKEND=express -e API_RATELIMITS=1 tools pnpm --filter @agrotrace/tests-api test',
+    );
+    expect(cmds.some((l) => l.includes('docker-compose.api-test.yml'))).toBe(false);
+    expect(readFileSync(`${REPO}docker-compose.api-test.yml`, 'utf8')).toMatch(
+      /RATE_LIMIT_OVERRIDES: '\{"user":100000,"login-ip":100000\}'/,
+    );
   });
 
   it('docs:test [back] starts the backend and the gateway, then the Playwright Swagger UI check (P5)', () => {

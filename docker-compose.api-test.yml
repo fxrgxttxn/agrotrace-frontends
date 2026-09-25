@@ -1,0 +1,8 @@
+# The api-test profile (P10): `./at api:test <backend>` layers this file over docker-compose.yml for the run, so the
+# shared HTTP suite does not trip over rate limits it does not test (the contract's RATE_LIMIT_OVERRIDES, deployment
+# configuration). The rate-limit tests themselves run against the plain backend: `./at api:test <backend> --ratelimits`.
+# Later plans add api-django / api-laravel here.
+services:
+  api-express:
+    environment:
+      RATE_LIMIT_OVERRIDES: '{"user":100000,"login-ip":100000}'
