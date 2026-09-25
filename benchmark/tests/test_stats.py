@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections import Counter
 
 import pytest
 
@@ -206,3 +207,104 @@ def test_merge_sequential_sums_only_the_timed_parts():
     merged = m.merge_sequential(parts)
     assert merged.elapsed_ns == 400 and merged.ops == 2
     assert merged.summary().mean_us == pytest.approx(0.2)
+
+
+# ---------------------------------------------------------------------------------------------
+# Connection affinity, warm-up per client, shared work queue (fix round 1, ruling B6)
+# ---------------------------------------------------------------------------------------------
+
+class CountingPool:
+    """acquire() hands out a new distinct connection object each time (like a FIFO pool that
+    rotates), so any warm-up/measurement split across acquisitions would be visible."""
+
+    def __init__(self) -> None:
+        self.handed_out = 0
+
+    def acquire(self):
+        self.handed_out += 1
+        return contextlib.nullcontext(f"conn{self.handed_out}")
+
+
+def test_concurrency_1_warms_and_measures_on_the_same_connection():
+    pool = CountingPool()
+    warm_conns, meas_conns = [], []
+
+    async def op(conn, phase):
+        (warm_conns if phase == "w" else meas_conns).append(conn)
+
+    res = _run(m.measure(op, [("m",)] * 50, acquire=pool.acquire, method=None,
+                         warm_args=[("w",)] * 20, min_warm_per_client=10))
+    assert pool.handed_out == 1
+    assert set(warm_conns) == set(meas_conns) == {"conn1"}
+    assert len(res.warmup_latencies_ns) == 20 and res.ops == 50
+
+
+def test_every_client_measures_only_on_a_connection_it_warmed_itself():
+    pool = CountingPool()
+    warm_by_conn: Counter = Counter()
+    meas_conns = set()
+
+    async def op(conn, phase):
+        if phase == "w":
+            warm_by_conn[conn] += 1
+        else:
+            meas_conns.add(conn)
+        await asyncio.sleep(0)
+
+    _run(m.measure(op, [("m",)] * 400, acquire=pool.acquire, concurrency=4, method=None,
+                   warm_args=[("w",)] * 40, min_warm_per_client=10))
+    assert pool.handed_out == 4
+    assert meas_conns <= set(warm_by_conn)
+    assert all(n >= 10 for n in warm_by_conn.values()) and len(warm_by_conn) == 4
+
+
+def test_too_small_warm_up_for_the_client_count_is_rejected():
+    async def op(_conn, _x):
+        return None
+
+    with pytest.raises(ValueError, match="warm-up"):
+        _run(m.measure(op, [(1,)] * 10, acquire=_acquire, concurrency=4, method=None,
+                       warm_args=[(1,)] * 39, min_warm_per_client=10))
+
+
+def test_decide_method_hook_sees_all_warm_samples_and_sets_the_method():
+    seen = {}
+
+    def decide(samples, failures):
+        seen["n"], seen["failures"] = len(samples), failures
+        return "batched"
+
+    async def op(_conn, x):
+        return x
+
+    res = _run(m.measure(op, [(1,)] * 100, acquire=_acquire, concurrency=2, method=None,
+                         warm_args=[(1,)] * 20 + [(0,)] * 2, decide_method=decide,
+                         check=lambda r, _a: r == 1))
+    assert seen == {"n": 22, "failures": 2}
+    assert res.method == "batched" and res.ops == 100 and res.batch_size == 50
+
+
+def test_shared_claim_splits_one_queue_between_measure_calls_without_loss_or_duplication():
+    done = []
+
+    async def op(_conn, i):
+        done.append(i)
+        await asyncio.sleep(0)
+
+    counter = {"next": 0}
+
+    def claim():
+        counter["next"] += 1
+        return counter["next"] - 1
+
+    args = [(i,) for i in range(1000)]
+
+    async def both():
+        return await asyncio.gather(
+            m.measure(op, args, acquire=_acquire, concurrency=2, claim=claim, total_concurrency=4),
+            m.measure(op, args, acquire=_acquire, concurrency=2, claim=claim, total_concurrency=4),
+        )
+
+    a, b = _run(both())
+    assert sorted(done) == list(range(1000))
+    assert a.ops + b.ops == 1000 and a.ops > 0 and b.ops > 0

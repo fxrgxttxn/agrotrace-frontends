@@ -193,8 +193,8 @@ def _redis_sizes() -> dict:
         r.close()
 
 
-TINY = run.Sizes(runs=1, warmup=5, reads=20, write_warmup=5, writes=40, w2_warmup=1, w2_ops=2,
-                 w2_size=300, d2_warmup=1, d2_ops=5, d2_size=50)
+TINY = run.Sizes(runs=1, warmup=160, reads=20, write_warmup=160, writes=40, writes_c16=200,
+                 w2_warmup=2, w2_ops=2, w2_size=300, d2_warmup=2, d2_ops=5, d2_size=50)
 
 
 @pytest.mark.parametrize("dbms", ["pg", "redis"])
@@ -214,7 +214,8 @@ def test_every_write_delete_series_restores_the_dataset(loaded, tmp_path, dbms):
                         ("D1", "base", 1), ("D1", "base", 16), ("D2", "base", 1)} | w2
     for r in runner.rows:
         assert r["restored"] == "verified" and r["failures"] == 0
-        assert r["n"] == {"W2": 2, "D2": 5}.get(r["query"], 40)
+        assert r["n"] == {"W2": 2, "D2": 5}.get(r["query"], 40 if r["concurrency"] == 1 else 200)
+        assert r["effective_concurrency"] == pytest.approx(r["mean_us"] * 1e-6 * r["ops_s"], rel=1e-2, abs=1e-2)
 
 
 @pytest.mark.parametrize("dbms", ["pg", "redis"])
@@ -258,3 +259,37 @@ def test_settings_capture_matches_the_live_profile_and_rejects_a_mismatch():
     tampered = dict(live["redis"], appendfsync="no")
     with pytest.raises(RuntimeError, match="appendfsync"):
         run.verify_settings("redis", tampered, p["redis_profile"], p["durability"])
+
+
+async def _backend_pid(conn):
+    cur = await conn.execute("SELECT pg_backend_pid()")
+    return (await cur.fetchone())[0]
+
+
+def test_pg_concurrency_1_warm_up_and_series_share_one_backend(loaded):
+    """Ruling B6 against the real FIFO pool of 16: warm-up and every measured call (and every call
+    of a pinned W2/D2-style loop) run on one and the same PostgreSQL backend."""
+    from agrobench.measure import measure
+
+    async def body():
+        side = run.PgSide()
+        await side.open()
+        try:
+            res_pids = []
+            res = await measure(_backend_pid, [()] * 200, acquire=side.acquire, method=None,
+                                warm_args=[()] * 20, min_warm_per_client=10,
+                                check=lambda pid, _a: res_pids.append(pid) or True)
+            pinned = []
+            async with side.pin() as acquire:
+                for _ in range(20):
+                    r = await measure(_backend_pid, [()], acquire=acquire,
+                                      check=lambda pid, _a: pinned.append(pid) or True)
+                    assert r.ops == 1
+            return res, res_pids, pinned
+        finally:
+            await side.close()
+
+    res, pids, pinned = asyncio.run(body())
+    assert len(set(pids)) == 1 and len(pids) == 220  # 20 warm-up + 200 measured, one backend
+    assert len(set(pinned)) == 1
+    assert res.ops == 200

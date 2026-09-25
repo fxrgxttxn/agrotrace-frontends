@@ -63,6 +63,7 @@ services:
       DURABILITY: ${DURABILITY:?DURABILITY not set, run ./at.sh bench up first (ruling B3)}
       DOCKER_VERSION: ${DOCKER_VERSION:-}
       DOCKER_COMPOSE_VERSION: ${DOCKER_COMPOSE_VERSION:-}
+      DOCKER_INFO: ${DOCKER_INFO:-}
       # Actual per-container resource limits, introspected by bench.sh via `docker inspect`
       # (env.py has no docker socket) — see benchmark/bench.sh:do_env.
       PG_LIMITS_CPUS: ${PG_LIMITS_CPUS:-}

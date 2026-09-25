@@ -142,6 +142,10 @@ def expected_pg_settings(profile: str, durability: str) -> dict[str, str]:
         "max_wal_size": conf["max_wal_size"],
         # bench.sh always overrides this on the command line, regardless of the file's own value.
         "synchronous_commit": pg_synchronous_commit_for(durability),
+        # Neither profile may trade crash safety for speed: the durability comparison (strict vs
+        # relaxed) is only about synchronous_commit vs appendfsync (fix round 1, ruling B6).
+        "fsync": "on",
+        "full_page_writes": "on",
     }
 
 

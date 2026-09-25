@@ -86,24 +86,40 @@ crash is recoverable the same way it would be for any interrupted bulk load (ret
 Identical for both DBMS: the same Python process layout, the same asyncio call shape
 (`await op(conn, *args)` timed with `perf_counter_ns`, `agrobench/measure.py`), the same key
 sequences (a function of the generated CSVs, query, distribution and phase only —
-`agrobench/workload.py:read_args`), the same warm-up (1000 calls, same distribution, same Zipf hot
-set), the same prepared records (fresh `Allocator` per DBMS and run, so ids/timestamps match
-exactly), the same restore-and-verify step after every write/delete series, and the same client
-topology: concurrency 1 = one asyncio client in the parent process; concurrency 16 = 8 client
-processes x 2 asyncio clients, 16 connections in total (`agrobench/run.py:CLIENT_PROCS`).
+`agrobench/workload.py:read_args`), the same warm-up (1000 calls for reads, 160 for W1/W3/D1,
+10 for W2/D2, same distribution, same Zipf hot set), the same prepared records (fresh `Allocator`
+per DBMS and run, so ids/timestamps match exactly), the same restore-and-verify step after every
+write/delete series, and the same client topology: concurrency 1 = one asyncio client in the
+parent process; concurrency 16 = 8 client processes x 2 asyncio clients, 16 connections in total
+(`agrobench/run.py:CLIENT_PROCS`), all measured calls handed out from one queue shared by the 8
+processes.
+
+**Connection affinity (fix round 1, ruling B6).** Every client acquires its connection once and
+runs its own warm-up on it before measuring on that same connection (`agrobench/measure.py`); at
+concurrency 16 each of the 16 clients warms its own connection with at least 10 calls (2x
+psycopg's prepare threshold) before the common start. The W2/D2 loops (one timed call per
+`measure()`, untimed fixture work in between) run warm-up and every measured call on one pinned
+connection (`PgSide.pin` / `RedisSide.pin`). The first version of the harness did not do this: its
+warm-up was a separate `measure()` call, and with psycopg's FIFO pool the measured connection at
+concurrency 1 was a different, cold one (statements not yet prepared, backend caches cold), and
+the per-call W2/D2 loop rotated over all 16 pooled connections — while redis-py's LIFO pool kept
+reusing the warm connection. That biased the first run against PostgreSQL; the published data
+comes from the fixed harness.
 
 What differs, because the drivers differ:
 
-- **Connection pool use.** A PostgreSQL client checks one connection out of its
+- **Connection pool use.** A PostgreSQL client holds one connection from its
   `AsyncConnectionPool` for the whole series (psycopg has no per-statement pool checkout);
   redis-py's asyncio client checks a connection out of its `BlockingConnectionPool` per command
-  (that is how redis-py pools work). Both pools are filled before the series starts, so neither
-  side pays for connection setup inside a measurement.
+  (that is how redis-py pools work; the pool is LIFO, so a lone client keeps reusing the same,
+  warm connection, and a pinned W2/D2 loop uses a single-connection client). Both pools are
+  filled before the series starts, so neither side pays for connection setup inside a
+  measurement.
 - **Prepared statements** exist only on the PostgreSQL side (psycopg prepares a statement
-  server-side from its 5th execution on a connection; the 1000-call warm-up guarantees every
-  pooled connection is past that). Redis has no equivalent; its closest analogue — Lua scripts
-  called by SHA (`EVALSHA`) instead of full text — is used for R5-lua, W3 and D1. The
-  `variant=unprepared` rows (PostgreSQL, concurrency 1, uniform) measure the same reads with
+  server-side from its 5th execution on a connection; every measured connection has executed the
+  statement at least 10 times in its own warm-up). Redis has no equivalent; its closest analogue
+  — Lua scripts called by SHA (`EVALSHA`) instead of full text — is used for R5-lua, W3 and D1.
+  The `variant=unprepared` rows (PostgreSQL, concurrency 1, uniform) measure the same reads with
   prepared statements disabled, so the report can show what that optimisation is worth.
 - **Round trips per logical call** differ where the data model forces it (R2, R3, R4, R5-bfs
   need 2+ dependent Redis round trips; each is one SQL statement) — this is part of what is being
@@ -113,11 +129,17 @@ What differs, because the drivers differ:
   land in the next one's numbers; Redis prepared records are removed with the D1 script and the
   touched `stats:org:*` hashes are restored from a snapshot (HINCRBY -1 leaves a "0" field where
   none existed before). Both then prove full-content equality with the pre-series fingerprint.
+- **Diagnostics.** Redis SLOWLOG / LATENCY / commandstats are reset right before and read right
+  after each measured part only, so fixture traffic (prepared inserts, cleanup, DEBUG DIGEST) is
+  excluded (`agrobench/run.py:RedisDiag`).
 
 Known biases that apply to both and are reported rather than hidden: every latency includes the
 Docker bridge network hop and Python/asyncio client time (`client_cpu_cores` per series shows how
 much CPU the client used — around 0.7 of a core per client process at concurrency 1); both DBMS
 containers are capped at 2 CPUs, so at concurrency 16 CPU-heavy PostgreSQL queries (R4, R5) hit
-the CFS quota and show multi-millisecond p99 throttling stalls; and nothing else on the host is
-stopped for the run (other compose projects keep running), which is why every configuration is
-measured three times and the median reported alongside the min/max p50 across runs.
+the CFS quota and show multi-millisecond p99 throttling stalls; `effective_concurrency` (mean
+latency x ops/s, Little's law) shows how many calls were really in flight on average — below 16
+means the clients were not all busy for the whole series; concurrency-16 write/delete series are
+10 000 calls long so they span many CFS periods; and nothing else on the host is stopped for the
+run (other compose projects keep running), which is why every configuration is measured three
+times and the median reported alongside the min/max p50 across runs.

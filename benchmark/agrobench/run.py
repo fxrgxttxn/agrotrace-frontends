@@ -18,9 +18,10 @@ measurements_median.csv (median of runs — what the report uses), load.csv, mem
 settings.csv.
 
 Workload sizes (spec §13.6): warm-up 1000 and 10 000 measured calls per read series; 1000
-measured calls per W1/W3/D1 series (100 warm-up calls on separate prepared records); D2 1000
-measured calls, each deleting a fresh prepared group of 1000 lab tests; W2 is itself a 10 000-row
-bulk insert, so it is measured 20 times per run (2 warm-up) rather than 1000 — see
+measured calls per W1/W3/D1 series at concurrency 1 and 10 000 at concurrency 16 (160 warm-up
+calls on separate prepared records, >= 10 per client connection); D2 1000 measured calls (10
+warm-up), each deleting a fresh prepared group of 1000 lab tests; W2 is itself a 10 000-row bulk
+insert, so it is measured 20 times per run (10 warm-up) rather than 1000 — see
 docs/reports and task-4-report for the reasoning. W2 and D2 run at concurrency 1 only (bulk
 operations over one shared range, not independent per-client work).
 """
@@ -48,7 +49,10 @@ from psycopg_pool import AsyncConnectionPool
 
 from agrobench import config
 from agrobench.generate import OTHER_STATUSES, STATUS_SHARE
-from agrobench.measure import SeriesResult, choose_method, measure, merge_parallel, merge_sequential
+from agrobench.measure import (
+    MIN_WARM_PER_CLIENT, PG_PREPARE_THRESHOLD, SeriesResult, choose_method, measure, merge_parallel,
+    merge_sequential,
+)
 from agrobench.queries import pg_async as pga
 from agrobench.queries import redis_async as ra
 from agrobench.stats import METRICS, median_of_runs
@@ -68,14 +72,16 @@ CONCURRENCY = (1, 16)
 # oversubscribe the host instead. client_cpu_cores in measurements.csv records how busy the
 # client side was in every series.
 CLIENT_PROCS = 8
-# psycopg's default: a statement is server-side prepared from its 5th execution on a connection.
-PG_PREPARE_THRESHOLD = 5
 
 MEASUREMENT_FIELDS = [
     "dbms", "profile", "durability", "query", "variant", "distribution", "concurrency", "run",
     "method", "batch_size", "n", "samples", "p50_us", "p95_us", "p99_us", "mean_us", "ops_s",
-    "failures", "restored", "client_procs", "client_cpu_cores", "live_durability", "started_at",
+    "failures", "restored", "client_procs", "client_cpu_cores", "effective_concurrency",
+    "live_durability", "started_at",
 ]
+# Little's law: mean latency x throughput = how many calls were actually in flight on average.
+# Well below `concurrency` means the clients were not all busy for the whole series (fix round 1).
+MEDIAN_METRICS = METRICS + ("effective_concurrency", "client_cpu_cores")
 MEDIAN_KEY = ["dbms", "profile", "durability", "query", "variant", "distribution", "concurrency"]
 MEDIAN_CARRY = ["method", "batch_size", "n", "samples", "client_procs", "live_durability"]
 
@@ -98,9 +104,13 @@ class Sizes:
     runs: int = 3
     warmup: int = 1000
     reads: int = 10_000
-    write_warmup: int = 100
+    # >= MIN_WARM_PER_CLIENT per client at concurrency 16 (each client warms its own connection)
+    write_warmup: int = 160
     writes: int = 1000
-    w2_warmup: int = 2
+    # concurrency 16 write/delete series: long enough (seconds, not tens of ms) that the 16
+    # clients overlap for the whole series and CFS-period effects average out (fix round 1)
+    writes_c16: int = 10_000
+    w2_warmup: int = 10
     w2_ops: int = 20
     w2_size: int = 10_000
     d2_warmup: int = 10
@@ -108,8 +118,8 @@ class Sizes:
     d2_size: int = 1000
 
 
-QUICK = Sizes(runs=1, warmup=50, reads=200, write_warmup=10, writes=50, w2_warmup=1, w2_ops=2,
-              w2_size=500, d2_warmup=1, d2_ops=10, d2_size=100)
+QUICK = Sizes(runs=1, warmup=160, reads=320, write_warmup=160, writes=50, writes_c16=320,
+              w2_warmup=1, w2_ops=2, w2_size=500, d2_warmup=1, d2_ops=10, d2_size=100)
 
 
 def _is_not_none(result, _args) -> bool:
@@ -161,8 +171,16 @@ class PgSide:
         await self.pool.close()
 
     def acquire(self):
-        # Each measured client checks one connection out of the pool for its whole series.
+        # Each measured client checks one connection out of the pool for its whole series
+        # (warm-up included — see agrobench.measure).
         return self.pool.connection()
+
+    @contextlib.asynccontextmanager
+    async def pin(self):
+        """One pooled connection for a whole multi-call loop (W2/D2: warm-up calls and every
+        measured call run on it; ruling B6) — an `acquire` for measure() that always yields it."""
+        async with self.pool.connection() as conn:
+            yield lambda: contextlib.nullcontext(conn)
 
     def reads(self) -> list[tuple[str, str, Callable]]:
         return [
@@ -211,7 +229,18 @@ class RedisSide:
 
     def acquire(self):
         # redis-py checks a pooled connection out per command; clients share the pooled client.
+        # BlockingConnectionPool is LIFO, so a lone client keeps reusing the same connection.
         return contextlib.nullcontext(self.client)
+
+    @contextlib.asynccontextmanager
+    async def pin(self):
+        """Redis counterpart of PgSide.pin: a single-connection client from the same pool, so a
+        W2/D2 loop also runs on one connection throughout."""
+        client = self.client.client()
+        try:
+            yield lambda: contextlib.nullcontext(client)
+        finally:
+            await client.aclose()
 
     def reads(self) -> list[tuple[str, str, Callable]]:
         return [
@@ -297,23 +326,33 @@ def make_side(dbms: str, prepare_threshold: int | None, pool_size: int):
     return RedisSide(pool_size=pool_size)
 
 
-def _child_series(dbms, prepare_threshold, tasks, fn, warm_args, args, check, pipe, barrier) -> None:
-    """Client-process body: own pool of `tasks` connections, its share of the warm-up (reported to
-    the parent, which picks the method from all processes' warm-up samples together), then its
-    share of the measured calls, started in lockstep with the other processes via `barrier`."""
+def _child_series(dbms, prepare_threshold, tasks, total_concurrency, fn, warm_args, args, check,
+                  counter, pipe, barrier) -> None:
+    """Client-process body: own pool of `tasks` connections; every client warms its own
+    connection (its share of `warm_args`, >= MIN_WARM_PER_CLIENT calls) and measures on that same
+    connection; the warm-up samples go to the parent, which picks the method from all processes'
+    warm-ups together; measured calls come from the work queue shared by all processes
+    (`counter`), started in lockstep via `barrier`."""
+    def claim() -> int:
+        with counter.get_lock():
+            idx = counter.value
+            counter.value = idx + 1
+        return idx
+
+    def decide(samples: list[float], failures: int) -> str:
+        pipe.send(("warm", samples, failures))
+        return pipe.recv()
+
     async def body():
         side = make_side(dbms, prepare_threshold, tasks)
         await side.open()
         try:
-            if warm_args:
-                warm = await measure(fn, warm_args, acquire=side.acquire, concurrency=tasks,
-                                     method="single", check=check)
-                pipe.send(("warm", warm.latencies_ns, warm.failures))
-            else:  # tiny warm-ups (tests) may leave a process without a share
-                pipe.send(("warm", [], 0))
-            method = pipe.recv()
-            res = await measure(fn, args, acquire=side.acquire, concurrency=tasks, method=method,
-                                check=check, before_start=lambda: barrier.wait(timeout=300))
+            res = await measure(fn, args, acquire=side.acquire, concurrency=tasks, method=None,
+                                check=check, warm_args=warm_args,
+                                min_warm_per_client=MIN_WARM_PER_CLIENT, decide_method=decide,
+                                claim=claim, total_concurrency=total_concurrency,
+                                before_start=lambda: barrier.wait(timeout=300))
+            res.warmup_latencies_ns = []  # already reported; keep the pickled result small
             pipe.send(("done", res))
         finally:
             await side.close()
@@ -330,24 +369,29 @@ def _child_series(dbms, prepare_threshold, tasks, fn, warm_args, args, check, pi
 
 def measure_in_processes(side, fn, args_list, warm_args, concurrency: int, check, procs: int) -> SeriesResult:
     """Runs one series at `concurrency` as `procs` client processes x concurrency/procs asyncio
-    clients each (spawned fresh; each gets every procs-th call of the warm-up and of the measured
-    sequence), merges the per-process results (merge_parallel: all samples, wall time from the
-    first start to the last finish)."""
+    clients each (spawned fresh). Each process gets every procs-th warm-up call and warms each of
+    its own connections with them; all measured calls are handed out from one queue shared by
+    every process (a shared counter over the full argument list), so faster clients take more
+    work and no process idles while others still have a backlog. Per-process results are merged
+    (merge_parallel: all samples, wall time from the first start to the last finish)."""
     procs = min(procs, concurrency)
     if concurrency % procs:
         raise ValueError(f"concurrency {concurrency} not divisible by {procs} client processes")
     tasks = concurrency // procs
-    if len(args_list) < procs or not warm_args:
-        raise ValueError(f"need a warm-up and at least {procs} measured calls for {procs} client processes")
+    if len(warm_args) < MIN_WARM_PER_CLIENT * concurrency:
+        raise ValueError(f"need >= {MIN_WARM_PER_CLIENT * concurrency} warm-up calls for "
+                         f"{concurrency} clients, got {len(warm_args)}")
     ctx = mp.get_context("spawn")
     barrier = ctx.Barrier(procs)
+    counter = ctx.Value("q", 0)
+    args_all = list(args_list)
     children = []
     for i in range(procs):
         parent_end, child_end = ctx.Pipe()
         p = ctx.Process(
             target=_child_series,
-            args=(side.dbms, getattr(side, "prepare_threshold", None), tasks, fn,
-                  list(warm_args[i::procs]), list(args_list[i::procs]), check, child_end, barrier),
+            args=(side.dbms, getattr(side, "prepare_threshold", None), tasks, concurrency, fn,
+                  list(warm_args[i::procs]), args_all, check, counter, child_end, barrier),
             daemon=True,
         )
         p.start()
@@ -379,7 +423,12 @@ def measure_in_processes(side, fn, args_list, warm_args, concurrency: int, check
             if p.is_alive():
                 p.terminate()
             conn.close()
-    return merge_parallel(parts)
+    merged = merge_parallel(parts)
+    if merged.ops != len(args_all):
+        raise RuntimeError(f"shared queue lost calls: {merged.ops} of {len(args_all)} executed")
+    return merged
+
+
 
 
 # ---------------------------------------------------------------------------------------------
@@ -398,6 +447,7 @@ class Runner:
         self.log = log
         self.rows: list[dict] = []
         self.live: dict[str, dict] = {}
+        self.diag: RedisDiag | None = None  # set by main() while Redis is being measured
 
     # -- helpers -------------------------------------------------------------------------------
 
@@ -419,13 +469,15 @@ class Runner:
             "mean_us": round(s.mean_us, 3), "ops_s": round(s.ops_s, 2), "failures": res.failures,
             "restored": restored, "client_procs": res.client_procs,
             "client_cpu_cores": round(res.client_cpu_cores, 3),
+            "effective_concurrency": round(s.mean_us * 1e-6 * s.ops_s, 3),
             "live_durability": live_durability(dbms, self.live[dbms]),
             "started_at": started_at,
         }
         self.rows.append(row)
         self.log(f"  {dbms:5} {query:3} {variant:13} {distribution:8} c={concurrency:<2} run={run} "
                  f"{res.method:7} p50={row['p50_us']:>10.1f}us p99={row['p99_us']:>10.1f}us "
-                 f"ops/s={row['ops_s']:>10.1f} cpu={row['client_cpu_cores']:.2f}")
+                 f"ops/s={row['ops_s']:>10.1f} cpu={row['client_cpu_cores']:.2f} "
+                 f"eff_c={row['effective_concurrency']:.1f}")
         return row
 
     @staticmethod
@@ -443,26 +495,35 @@ class Runner:
         self._row(side.dbms, query, variant, distribution, concurrency, run, res, started)
 
     async def _timed(self, side, fn, args_list, concurrency, check, warm_args) -> SeriesResult:
-        """Warm-up (timed per call) -> method choice -> measured series. Concurrency 1 runs in
-        this process on `side`'s pool; higher concurrency is spread over client processes (see
-        measure_in_processes)."""
-        if concurrency > 1 and self.client_procs > 1:
-            return measure_in_processes(side, fn, args_list, warm_args, concurrency, check,
-                                        self.client_procs)
-        wres = await measure(fn, warm_args, acquire=side.acquire, concurrency=concurrency,
-                             method="single", check=check)
-        if wres.failures:
-            raise RuntimeError(f"warm-up of {fn.__name__} failed {wres.failures} checks")
-        method = choose_method(wres.latencies_ns)
-        return await measure(fn, args_list, acquire=side.acquire, concurrency=concurrency,
-                             method=method, check=check)
+        """Warm-up and measurement on the same connection(s) (ruling B6). Concurrency 1: one
+        client in this process holds one pooled connection for its warm-up and the whole series.
+        Higher concurrency: spread over client processes, each client warming its own connection
+        (measure_in_processes)."""
+        if self.diag is not None:
+            self.diag.begin()
+        try:
+            if concurrency > 1 and self.client_procs > 1:
+                return measure_in_processes(side, fn, args_list, warm_args, concurrency, check,
+                                            self.client_procs)
+            res = await measure(fn, args_list, acquire=side.acquire, concurrency=concurrency,
+                                method=None, check=check, warm_args=warm_args,
+                                min_warm_per_client=MIN_WARM_PER_CLIENT)
+            if res.warmup_failures:
+                raise RuntimeError(f"warm-up of {fn.__name__} failed {res.warmup_failures} checks")
+            return res
+        finally:
+            if self.diag is not None:
+                self.diag.end(f"{side.dbms} {fn.__name__} c={concurrency}")
 
     # -- writes / deletes --------------------------------------------------------------------------
+
+    def _n_writes(self, concurrency: int) -> int:
+        return self.sizes.writes if concurrency == 1 else self.sizes.writes_c16
 
     async def w1_series(self, side, fx, alloc: Allocator, run: int, concurrency: int) -> None:
         started = self._now()
         warm = prepared_batches(self.ds, alloc, self.sizes.write_warmup, stable_seed("W1w", run, concurrency))
-        meas = prepared_batches(self.ds, alloc, self.sizes.writes, stable_seed("W1", run, concurrency))
+        meas = prepared_batches(self.ds, alloc, self._n_writes(concurrency), stable_seed("W1", run, concurrency))
         with RestoreGuard(fx, Prepared(batches=warm + meas)):
             res = await self._timed(side, side.w1, [(b,) for b in meas], concurrency, _always,
                                     [(b,) for b in warm])
@@ -471,7 +532,7 @@ class Runner:
     async def w3_series(self, side, fx, alloc: Allocator, run: int, concurrency: int) -> None:
         started = self._now()
         warm = prepared_batches(self.ds, alloc, self.sizes.write_warmup, stable_seed("W3w", run, concurrency))
-        meas = prepared_batches(self.ds, alloc, self.sizes.writes, stable_seed("W3", run, concurrency))
+        meas = prepared_batches(self.ds, alloc, self._n_writes(concurrency), stable_seed("W3", run, concurrency))
         rng = random.Random(stable_seed("W3-status", run, concurrency))
         to_args = lambda bs: [(b["id"], next_status(b["status"], ALL_STATUSES, rng), 1) for b in bs]  # noqa: E731
         prep = Prepared(batches=warm + meas)
@@ -483,7 +544,7 @@ class Runner:
     async def d1_series(self, side, fx, alloc: Allocator, run: int, concurrency: int) -> None:
         started = self._now()
         warm = prepared_copies(self.ds, alloc, self.sizes.write_warmup, stable_seed("D1w", run, concurrency))
-        meas = prepared_copies(self.ds, alloc, self.sizes.writes, stable_seed("D1", run, concurrency))
+        meas = prepared_copies(self.ds, alloc, self._n_writes(concurrency), stable_seed("D1", run, concurrency))
         prep = Prepared()
         prep.batches = warm.batches + meas.batches
         prep.links = warm.links + meas.links
@@ -504,12 +565,24 @@ class Runner:
                   for i in range(total)]
         parts = []
         with RestoreGuard(fx, Prepared(batches=[b for g in groups for b in g])):
-            for i, group in enumerate(groups):
-                res = await measure(fn, [(group,)], acquire=side.acquire, concurrency=1, method="single")
-                fx.cleanup(Prepared(batches=group))
-                if i >= self.sizes.w2_warmup:
-                    parts.append(res)
+            async with side.pin() as acquire:  # one connection for warm-up and every call (B6)
+                for i, group in enumerate(groups):
+                    res = await self._one_call(side, fn, (group,), acquire, None)
+                    fx.cleanup(Prepared(batches=group))
+                    if i >= self.sizes.w2_warmup:
+                        parts.append(res)
         self._row(side.dbms, "W2", variant, "prepared", 1, run, merge_sequential(parts), started, "verified")
+
+    async def _one_call(self, side, fn, args: tuple, acquire, check) -> SeriesResult:
+        """One timed call of a bulk operation (W2/D2) on the pinned connection, with Redis
+        diagnostics collected around it only (not around the untimed fixture work in between)."""
+        if self.diag is not None:
+            self.diag.begin()
+        try:
+            return await measure(fn, [args], acquire=acquire, concurrency=1, method="single", check=check)
+        finally:
+            if self.diag is not None:
+                self.diag.end(f"{side.dbms} {fn.__name__}")
 
     async def d2_series(self, side, fx, alloc: Allocator, run: int) -> None:
         """Each D2 call deletes exactly one freshly inserted (untimed) group of d2_size lab tests,
@@ -520,16 +593,16 @@ class Runner:
         prep = Prepared()
         parts = []
         with RestoreGuard(fx, prep):
-            for i in range(self.sizes.d2_warmup + self.sizes.d2_ops):
-                tests, cutoff = prepared_due_group(self.ds, alloc, size, stable_seed("D2", run, i))
-                prep.extra_test_ids.extend(t["id"] for t in tests)
-                fx.insert(Prepared(tests=tests))
-                res = await measure(side.d2, [(cutoff,)], acquire=side.acquire, concurrency=1,
-                                    method="single", check=check)
-                if res.failures:
-                    raise RuntimeError(f"{side.dbms} D2 call {i} did not delete exactly {size} tests")
-                if i >= self.sizes.d2_warmup:
-                    parts.append(res)
+            async with side.pin() as acquire:  # one connection for warm-up and every call (B6)
+                for i in range(self.sizes.d2_warmup + self.sizes.d2_ops):
+                    tests, cutoff = prepared_due_group(self.ds, alloc, size, stable_seed("D2", run, i))
+                    prep.extra_test_ids.extend(t["id"] for t in tests)
+                    fx.insert(Prepared(tests=tests))
+                    res = await self._one_call(side, side.d2, (cutoff,), acquire, check)
+                    if res.failures:
+                        raise RuntimeError(f"{side.dbms} D2 call {i} did not delete exactly {size} tests")
+                    if i >= self.sizes.d2_warmup:
+                        parts.append(res)
         self._row(side.dbms, "D2", "base", "prepared", 1, run, merge_sequential(parts), started, "verified")
 
     # -- orchestration ---------------------------------------------------------------------------
@@ -649,35 +722,71 @@ def write_explain_plans(ds: Dataset, out_dir: Path, profile: str, durability: st
                 encoding="utf-8")
 
 
-def reset_redis_diagnostics(client) -> None:
-    client.slowlog_reset()
-    client.execute_command("LATENCY", "RESET")
-    client.config_resetstat()
 
 
-def write_redis_diagnostics(client, path: Path, header: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [header, ""]
-    lines.append(f"# SLOWLOG LEN (slowlog-log-slower-than={client.config_get('slowlog-log-slower-than')['slowlog-log-slower-than']} us)")
-    lines.append(str(client.slowlog_len()))
-    lines.append("# SLOWLOG GET 32")
-    for entry in client.slowlog_get(32):
-        cmd = entry.get("command")
-        if isinstance(cmd, bytes):
-            cmd = cmd.decode(errors="replace")
-        lines.append(f"id={entry.get('id')} duration_us={entry.get('duration')} command={str(cmd)[:160]}")
-    lines.append("# LATENCY LATEST (event, time, latest_ms, max_ms)")
-    for event in client.execute_command("LATENCY", "LATEST") or []:
-        lines.append(" ".join(str(x) for x in event))
-    lines.append("# LATENCY DOCTOR")
-    lines.append(str(client.execute_command("LATENCY", "DOCTOR")))
-    lines.append("# INFO commandstats (server-side time per command)")
-    for name, stats in client.info("commandstats").items():
-        lines.append(f"{name}: {stats}")
-    lines.append("# INFO persistence")
-    for k, v in client.info("persistence").items():
-        lines.append(f"{k}: {v}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+REDIS_DIAG_IGNORED = ("slowlog", "latency", "config", "info", "client", "hello", "ping", "debug")
+
+
+class RedisDiag:
+    """Redis SLOWLOG / LATENCY / commandstats restricted to the measured calls (ruling B6): reset
+    right before each measured part (warm-up + series, or one W2/D2 call), read right after it,
+    and accumulated per run — so fixture traffic (prepared inserts, cleanup, the DEBUG DIGEST
+    restore check) never appears. The harness's own bookkeeping commands (and connection
+    handshakes) are dropped from commandstats."""
+
+    def __init__(self, client) -> None:
+        self.r = client
+        self.windows = 0
+        self.slow: list[tuple[str, dict]] = []
+        self.latency: list[tuple[str, list]] = []
+        self.cmdstats: dict[str, dict[str, int]] = {}
+
+    def begin(self) -> None:
+        self.r.slowlog_reset()
+        self.r.execute_command("LATENCY", "RESET")
+        self.r.config_resetstat()
+
+    def end(self, label: str) -> None:
+        self.windows += 1
+        for entry in self.r.slowlog_get(128):
+            self.slow.append((label, entry))
+        for event in self.r.execute_command("LATENCY", "LATEST") or []:
+            self.latency.append((label, list(event)))
+        for name, stats in self.r.info("commandstats").items():
+            cmd = name.removeprefix("cmdstat_")
+            if cmd.split("|")[0] in REDIS_DIAG_IGNORED:
+                continue
+            acc = self.cmdstats.setdefault(cmd, {"calls": 0, "usec": 0})
+            acc["calls"] += int(stats.get("calls", 0))
+            acc["usec"] += int(stats.get("usec", 0))
+
+    def write(self, path: Path, header: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        threshold = self.r.config_get("slowlog-log-slower-than")["slowlog-log-slower-than"]
+        lines = [header, f"# measured windows: {self.windows} (diagnostics reset before and read after each)", ""]
+        lines.append(f"# SLOWLOG entries during measured calls (slowlog-log-slower-than={threshold} us): {len(self.slow)}")
+        for label, entry in sorted(self.slow, key=lambda x: -int(x[1].get("duration", 0)))[:32]:
+            cmd = entry.get("command")
+            if isinstance(cmd, bytes):
+                cmd = cmd.decode(errors="replace")
+            lines.append(f"[{label}] duration_us={entry.get('duration')} command={str(cmd)[:160]}")
+        lines.append(f"# LATENCY events during measured calls (threshold 1 ms), per series and event: "
+                     f"windows with the event, max_ms ({len(self.latency)} readings)")
+        agg: dict[tuple[str, str], list[int]] = {}
+        for label, event in self.latency:
+            slot = agg.setdefault((label, str(event[0])), [0, 0])
+            slot[0] += 1
+            slot[1] = max(slot[1], int(event[3]))
+        for (label, name), (count, max_ms) in sorted(agg.items()):
+            lines.append(f"[{label}] {name}: windows={count} max_ms={max_ms}")
+        lines.append("# commandstats summed over measured calls (server-side time per command)")
+        for name, acc in sorted(self.cmdstats.items()):
+            per = acc["usec"] / acc["calls"] if acc["calls"] else 0.0
+            lines.append(f"{name}: calls={acc['calls']} usec={acc['usec']} usec_per_call={per:.2f}")
+        lines.append("# INFO persistence (end of run)")
+        for k, v in self.r.info("persistence").items():
+            lines.append(f"{k}: {v}")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _read_load_csv(path: Path) -> list[dict]:
@@ -738,7 +847,7 @@ def _read_csv(path: Path) -> list[dict]:
 
 
 def median_rows(rows: list[dict]) -> list[dict]:
-    medians = median_of_runs(rows, MEDIAN_KEY, METRICS)
+    medians = median_of_runs(rows, MEDIAN_KEY, MEDIAN_METRICS)
     carry: dict[tuple, dict[str, list]] = {}
     for row in rows:
         key = tuple(row[k] for k in MEDIAN_KEY)
@@ -750,7 +859,7 @@ def median_rows(rows: list[dict]) -> list[dict]:
         key = tuple(m[k] for k in MEDIAN_KEY)
         for c in MEDIAN_CARRY:
             m[c] = "/".join(carry[key][c])
-        for metric in METRICS + ("p50_us_min", "p50_us_max"):
+        for metric in MEDIAN_METRICS + ("p50_us_min", "p50_us_max"):
             m[metric] = round(float(m[metric]), 3)
     return medians
 
@@ -760,7 +869,7 @@ def consolidate(results_dir: Path) -> None:
     rows = [r for p in raw for r in _read_csv(p)]
     _write_csv(results_dir / "measurements.csv", MEASUREMENT_FIELDS, rows)
     _write_csv(results_dir / "measurements_median.csv",
-               MEDIAN_KEY + list(METRICS) + ["runs", "p50_us_min", "p50_us_max"] + MEDIAN_CARRY,
+               MEDIAN_KEY + list(MEDIAN_METRICS) + ["runs", "p50_us_min", "p50_us_max"] + MEDIAN_CARRY,
                median_rows(rows))
 
     load_rows, memory_rows = [], []
@@ -882,12 +991,11 @@ def main(argv: list[str] | None = None) -> None:
     for run in range(1, sizes.runs + 1):
         for dbms in dbms_list:
             print(f"== run {run}/{sizes.runs}: {dbms}", flush=True)
-            if dbms == "redis":
-                reset_redis_diagnostics(rcli)
+            runner.diag = RedisDiag(rcli) if dbms == "redis" else None
             asyncio.run(runner.run_dbms(dbms, run, only))
             if dbms == "redis" and not scratch:
-                write_redis_diagnostics(
-                    rcli, results_dir / "redis" / f"redis_{profiles['redis_profile']}_{profiles['durability']}_run{run}.txt",
+                runner.diag.write(
+                    results_dir / "redis" / f"redis_{profiles['redis_profile']}_{profiles['durability']}_run{run}.txt",
                     f"# Redis diagnostics after run {run}: profile={profiles['redis_profile']} "
                     f"durability={profiles['durability']} ({Runner._now()})")
     rcli.close()

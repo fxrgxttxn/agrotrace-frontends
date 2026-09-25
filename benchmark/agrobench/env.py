@@ -38,6 +38,41 @@ def _mem_total_mb() -> float | None:
     return None
 
 
+def _cpu_model() -> str | None:
+    """CPU model as the (shared) kernel reports it — the host CPU under Docker Desktop's VM."""
+    try:
+        with open("/proc/cpuinfo", encoding="ascii", errors="replace") as f:
+            for line in f:
+                if line.startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return None
+
+
+def _disk(path: str) -> dict:
+    """Size/free space and filesystem of the mount holding `path` (the bind-mounted benchmark
+    dir); the DBMS data lives in named Docker volumes on the same Docker VM disk."""
+    out: dict = {"path": path}
+    try:
+        usage = shutil.disk_usage(path)
+        out["total_gb"] = round(usage.total / (1024**3), 2)
+        out["free_gb"] = round(usage.free / (1024**3), 2)
+    except OSError:
+        pass
+    try:
+        best = ""
+        with open("/proc/mounts", encoding="ascii", errors="replace") as f:
+            for line in f:
+                device, mount, fstype = line.split()[:3]
+                if path.startswith(mount) and len(mount) > len(best):
+                    best = mount
+                    out.update({"mount": mount, "fstype": fstype, "device": device})
+    except OSError:
+        pass
+    return out
+
+
 def _disk_free_gb(path: str) -> float | None:
     try:
         return round(shutil.disk_usage(path).free / (1024**3), 2)
@@ -85,13 +120,18 @@ def collect() -> dict:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "host": {
             "os": platform.platform(),
+            "cpu_model": _cpu_model(),
             "cpu_count_visible_to_runner": _cpu_count(),
             "mem_total_mb_visible_to_runner": _mem_total_mb(),
             "disk_free_gb": _disk_free_gb(str(config.BENCH_DIR)),
+            "disk": _disk(str(config.BENCH_DIR)),
         },
         "docker": {
             "docker_version": os.environ.get("DOCKER_VERSION") or None,
             "compose_version": os.environ.get("DOCKER_COMPOSE_VERSION") or None,
+            # `docker info` summary from the host (bench.sh): engine OS, kernel, storage driver,
+            # CPUs and memory of the Docker VM.
+            "engine": os.environ.get("DOCKER_INFO") or None,
         },
         "versions": {
             "python": platform.python_version(),
@@ -99,6 +139,9 @@ def collect() -> dict:
             "redis": _redis_version(),
             "psycopg": _lib_version("psycopg"),
             "redis_py": _lib_version("redis"),
+            "hiredis": _lib_version("hiredis"),
+            "psycopg_binary": _lib_version("psycopg-binary"),
+            "psycopg_pool": _lib_version("psycopg-pool"),
             "numpy": _lib_version("numpy"),
             "matplotlib": _lib_version("matplotlib"),
             "pytest": _lib_version("pytest"),
@@ -124,7 +167,14 @@ def main() -> None:
     results_dir = Path(os.environ.get("RESULTS_DIR", str(config.BENCH_DIR / "results")))
     results_dir.mkdir(parents=True, exist_ok=True)
     data = collect()
-    (results_dir / "env.json").write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    (results_dir / "env.json").write_text(text, encoding="utf-8")
+    # One copy per configuration (fix round 1): `all` brings the stand up four times and the
+    # plain env.json only keeps the last one.
+    p = data["profiles"]
+    per_config = results_dir / "env" / f"env_pg-{p['pg_profile']}_redis-{p['redis_profile']}_{p['durability']}.json"
+    per_config.parent.mkdir(parents=True, exist_ok=True)
+    per_config.write_text(text, encoding="utf-8")
     print(json.dumps(data, indent=2, ensure_ascii=False))
 
 

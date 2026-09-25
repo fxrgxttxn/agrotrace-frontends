@@ -10,31 +10,31 @@ WITH RECURSIVE descendants(id, depth) AS (
     )
     SELECT DISTINCT id FROM descendants
 
-HashAggregate  (cost=835.07..836.29 rows=122 width=8) (actual time=0.033..0.034 rows=2 loops=1)
+HashAggregate  (cost=835.07..836.29 rows=122 width=8) (actual time=0.024..0.025 rows=2 loops=1)
   Group Key: descendants.id
   Batches: 1  Memory Usage: 40kB
   Buffers: shared hit=8
   CTE descendants
-    ->  Recursive Union  (cost=4.30..832.33 rows=122 width=12) (actual time=0.020..0.031 rows=2 loops=1)
+    ->  Recursive Union  (cost=4.30..832.33 rows=122 width=12) (actual time=0.015..0.023 rows=2 loops=1)
           Buffers: shared hit=8
-          ->  Bitmap Heap Scan on batch_links  (cost=4.30..11.62 rows=2 width=12) (actual time=0.019..0.021 rows=2 loops=1)
+          ->  Bitmap Heap Scan on batch_links  (cost=4.30..11.62 rows=2 width=12) (actual time=0.014..0.016 rows=2 loops=1)
                 Recheck Cond: (parent_id = '6570'::smallint)
                 Heap Blocks: exact=2
                 Buffers: shared hit=4
-                ->  Bitmap Index Scan on ix_batch_links_parent  (cost=0.00..4.30 rows=2 width=0) (actual time=0.014..0.015 rows=2 loops=1)
+                ->  Bitmap Index Scan on ix_batch_links_parent  (cost=0.00..4.30 rows=2 width=0) (actual time=0.011..0.012 rows=2 loops=1)
                       Index Cond: (parent_id = '6570'::smallint)
                       Buffers: shared hit=2
-          ->  Nested Loop  (cost=4.30..81.95 rows=12 width=12) (actual time=0.008..0.008 rows=0 loops=1)
+          ->  Nested Loop  (cost=4.30..81.95 rows=12 width=12) (actual time=0.006..0.006 rows=0 loops=1)
                 Buffers: shared hit=4
                 ->  WorkTable Scan on descendants d  (cost=0.00..0.45 rows=7 width=12) (actual time=0.001..0.001 rows=2 loops=1)
                       Filter: (depth < '20'::smallint)
-                ->  Bitmap Heap Scan on batch_links bl  (cost=4.30..11.62 rows=2 width=16) (actual time=0.003..0.003 rows=0 loops=2)
+                ->  Bitmap Heap Scan on batch_links bl  (cost=4.30..11.62 rows=2 width=16) (actual time=0.002..0.002 rows=0 loops=2)
                       Recheck Cond: (parent_id = d.id)
                       Buffers: shared hit=4
-                      ->  Bitmap Index Scan on ix_batch_links_parent  (cost=0.00..4.30 rows=2 width=0) (actual time=0.002..0.002 rows=0 loops=2)
+                      ->  Bitmap Index Scan on ix_batch_links_parent  (cost=0.00..4.30 rows=2 width=0) (actual time=0.001..0.001 rows=0 loops=2)
                             Index Cond: (parent_id = d.id)
                             Buffers: shared hit=4
-  ->  CTE Scan on descendants  (cost=0.00..2.44 rows=122 width=8) (actual time=0.021..0.031 rows=2 loops=1)
+  ->  CTE Scan on descendants  (cost=0.00..2.44 rows=122 width=8) (actual time=0.015..0.023 rows=2 loops=1)
         Buffers: shared hit=8
-Planning Time: 0.107 ms
-Execution Time: 0.142 ms
+Planning Time: 0.073 ms
+Execution Time: 0.116 ms

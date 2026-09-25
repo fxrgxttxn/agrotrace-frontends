@@ -2,21 +2,21 @@
 -- parameters: holder=1353 (most batches: 7)
 SELECT status, count(*) FROM batches WHERE holder_org_id = %s GROUP BY status
 
-GroupAggregate  (cost=28.02..28.12 rows=5 width=16) (actual time=0.078..0.079 rows=4 loops=1)
+GroupAggregate  (cost=28.02..28.12 rows=5 width=16) (actual time=0.060..0.062 rows=4 loops=1)
   Group Key: status
   Buffers: shared hit=10 read=1
-  ->  Sort  (cost=28.02..28.04 rows=7 width=8) (actual time=0.069..0.070 rows=7 loops=1)
+  ->  Sort  (cost=28.02..28.04 rows=7 width=8) (actual time=0.055..0.056 rows=7 loops=1)
         Sort Key: status
         Sort Method: quicksort  Memory: 25kB
         Buffers: shared hit=10 read=1
-        ->  Bitmap Heap Scan on batches  (cost=4.34..27.92 rows=7 width=8) (actual time=0.021..0.045 rows=7 loops=1)
+        ->  Bitmap Heap Scan on batches  (cost=4.34..27.92 rows=7 width=8) (actual time=0.016..0.036 rows=7 loops=1)
               Recheck Cond: (holder_org_id = '1353'::smallint)
               Heap Blocks: exact=6
               Buffers: shared hit=7 read=1
-              ->  Bitmap Index Scan on ix_batches_holder_status_harvested  (cost=0.00..4.34 rows=7 width=0) (actual time=0.017..0.017 rows=7 loops=1)
+              ->  Bitmap Index Scan on ix_batches_holder_status_harvested  (cost=0.00..4.34 rows=7 width=0) (actual time=0.014..0.014 rows=7 loops=1)
                     Index Cond: (holder_org_id = '1353'::smallint)
                     Buffers: shared hit=1 read=1
 Planning:
   Buffers: shared hit=7 read=1
-Planning Time: 0.100 ms
-Execution Time: 0.152 ms
+Planning Time: 0.069 ms
+Execution Time: 0.093 ms

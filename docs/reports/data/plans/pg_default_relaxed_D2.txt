@@ -2,16 +2,16 @@
 -- parameters: due_before=2023-04-01T00:00:00+00:00 (rolled back)
 DELETE FROM lab_tests WHERE due_at < %s
 
-Delete on lab_tests  (cost=16.24..181.06 rows=0 width=0) (actual time=0.861..0.862 rows=0 loops=1)
+Delete on lab_tests  (cost=16.24..181.06 rows=0 width=0) (actual time=0.493..0.493 rows=0 loops=1)
   Buffers: shared hit=1127 read=3
-  ->  Bitmap Heap Scan on lab_tests  (cost=16.24..181.06 rows=1026 width=6) (actual time=0.101..0.487 rows=1024 loops=1)
+  ->  Bitmap Heap Scan on lab_tests  (cost=16.24..181.06 rows=1026 width=6) (actual time=0.066..0.311 rows=1024 loops=1)
         Recheck Cond: (due_at < '2023-04-01 00:00:00+00'::timestamp with time zone)
         Heap Blocks: exact=103
         Buffers: shared hit=103 read=3
-        ->  Bitmap Index Scan on ix_lab_tests_due  (cost=0.00..15.98 rows=1026 width=0) (actual time=0.080..0.080 rows=1024 loops=1)
+        ->  Bitmap Index Scan on ix_lab_tests_due  (cost=0.00..15.98 rows=1026 width=0) (actual time=0.048..0.048 rows=1024 loops=1)
               Index Cond: (due_at < '2023-04-01 00:00:00+00'::timestamp with time zone)
               Buffers: shared read=3
 Planning:
   Buffers: shared hit=3
-Planning Time: 0.079 ms
-Execution Time: 0.918 ms
+Planning Time: 0.045 ms
+Execution Time: 0.522 ms

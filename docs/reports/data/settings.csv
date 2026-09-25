@@ -8,8 +8,8 @@ pg,default,relaxed,random_page_cost,4,4.0,true
 pg,default,relaxed,effective_io_concurrency,1,1,true
 pg,default,relaxed,max_wal_size,1GB,1GB,true
 pg,default,relaxed,synchronous_commit,off,off,true
-pg,default,relaxed,fsync,on,,
-pg,default,relaxed,full_page_writes,on,,
+pg,default,relaxed,fsync,on,on,true
+pg,default,relaxed,full_page_writes,on,on,true
 pg,default,relaxed,wal_level,replica,,
 pg,default,relaxed,wal_sync_method,fdatasync,,
 pg,default,relaxed,max_connections,100,,
@@ -28,8 +28,8 @@ pg,default,strict,random_page_cost,4,4.0,true
 pg,default,strict,effective_io_concurrency,1,1,true
 pg,default,strict,max_wal_size,1GB,1GB,true
 pg,default,strict,synchronous_commit,on,on,true
-pg,default,strict,fsync,on,,
-pg,default,strict,full_page_writes,on,,
+pg,default,strict,fsync,on,on,true
+pg,default,strict,full_page_writes,on,on,true
 pg,default,strict,wal_level,replica,,
 pg,default,strict,wal_sync_method,fdatasync,,
 pg,default,strict,max_connections,100,,
@@ -48,8 +48,8 @@ pg,tuned,relaxed,random_page_cost,1.1,1.1,true
 pg,tuned,relaxed,effective_io_concurrency,200,200,true
 pg,tuned,relaxed,max_wal_size,4GB,4GB,true
 pg,tuned,relaxed,synchronous_commit,off,off,true
-pg,tuned,relaxed,fsync,on,,
-pg,tuned,relaxed,full_page_writes,on,,
+pg,tuned,relaxed,fsync,on,on,true
+pg,tuned,relaxed,full_page_writes,on,on,true
 pg,tuned,relaxed,wal_level,replica,,
 pg,tuned,relaxed,wal_sync_method,fdatasync,,
 pg,tuned,relaxed,max_connections,100,,
@@ -68,8 +68,8 @@ pg,tuned,strict,random_page_cost,1.1,1.1,true
 pg,tuned,strict,effective_io_concurrency,200,200,true
 pg,tuned,strict,max_wal_size,4GB,4GB,true
 pg,tuned,strict,synchronous_commit,on,on,true
-pg,tuned,strict,fsync,on,,
-pg,tuned,strict,full_page_writes,on,,
+pg,tuned,strict,fsync,on,on,true
+pg,tuned,strict,full_page_writes,on,on,true
 pg,tuned,strict,wal_level,replica,,
 pg,tuned,strict,wal_sync_method,fdatasync,,
 pg,tuned,strict,max_connections,100,,

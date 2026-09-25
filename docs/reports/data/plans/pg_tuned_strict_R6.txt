@@ -2,18 +2,18 @@
 -- parameters: holder=1353 (most batches: 7)
 SELECT status, count(*) FROM batches WHERE holder_org_id = %s GROUP BY status
 
-HashAggregate  (cost=9.11..9.16 rows=5 width=16) (actual time=0.048..0.049 rows=4 loops=1)
+HashAggregate  (cost=9.11..9.16 rows=5 width=16) (actual time=0.056..0.057 rows=4 loops=1)
   Group Key: status
   Batches: 1  Memory Usage: 24kB
   Buffers: shared hit=7 read=1
-  ->  Bitmap Heap Scan on batches  (cost=1.44..9.08 rows=7 width=8) (actual time=0.021..0.041 rows=7 loops=1)
+  ->  Bitmap Heap Scan on batches  (cost=1.44..9.08 rows=7 width=8) (actual time=0.029..0.049 rows=7 loops=1)
         Recheck Cond: (holder_org_id = '1353'::smallint)
         Heap Blocks: exact=6
         Buffers: shared hit=7 read=1
-        ->  Bitmap Index Scan on ix_batches_holder_status_harvested  (cost=0.00..1.44 rows=7 width=0) (actual time=0.018..0.018 rows=7 loops=1)
+        ->  Bitmap Index Scan on ix_batches_holder_status_harvested  (cost=0.00..1.44 rows=7 width=0) (actual time=0.024..0.025 rows=7 loops=1)
               Index Cond: (holder_org_id = '1353'::smallint)
               Buffers: shared hit=1 read=1
 Planning:
   Buffers: shared hit=7 read=1
-Planning Time: 0.099 ms
-Execution Time: 0.093 ms
+Planning Time: 0.140 ms
+Execution Time: 0.105 ms

@@ -92,8 +92,9 @@ do_down() {
 
 do_env() {
   load_state
-  export DOCKER_VERSION DOCKER_COMPOSE_VERSION
+  export DOCKER_VERSION DOCKER_COMPOSE_VERSION DOCKER_INFO
   DOCKER_VERSION="$(docker --version)"
+  DOCKER_INFO="$(docker info --format 'os={{.OperatingSystem}}; kernel={{.KernelVersion}}; storage_driver={{.Driver}}; ncpu={{.NCPU}}; mem_bytes={{.MemTotal}}' 2>/dev/null || echo unknown)"
   DOCKER_COMPOSE_VERSION="$(docker compose version --short 2>/dev/null || echo unknown)"
 
   # Actual limits applied to the *running* containers, introspected via `docker inspect` (host has
@@ -118,14 +119,15 @@ do_env() {
 # benchmark/results/ into the committed docs/reports/data/. Runs on the host: bench-runner only
 # mounts benchmark/, not docs/.
 do_publish() {
-  mkdir -p "$PUBLISH_DIR/plans" "$PUBLISH_DIR/redis"
+  mkdir -p "$PUBLISH_DIR/plans" "$PUBLISH_DIR/redis" "$PUBLISH_DIR/env"
   local f
   for f in measurements.csv measurements_median.csv load.csv memory.csv settings.csv env.json run_meta.json; do
     [ -f "$RESULTS_DIR/$f" ] || { echo "bench: publish: $RESULTS_DIR/$f missing — run the benchmark first" >&2; exit 1; }
     cp "$RESULTS_DIR/$f" "$PUBLISH_DIR/$f"
   done
-  rm -f "$PUBLISH_DIR"/plans/*.txt "$PUBLISH_DIR"/redis/*.txt
+  rm -f "$PUBLISH_DIR"/plans/*.txt "$PUBLISH_DIR"/redis/*.txt "$PUBLISH_DIR"/env/*.json
   cp "$RESULTS_DIR"/plans/*.txt "$PUBLISH_DIR/plans/"
+  cp "$RESULTS_DIR"/env/*.json "$PUBLISH_DIR/env/"
   cp "$RESULTS_DIR"/redis/*.txt "$PUBLISH_DIR/redis/"
   echo "bench: published results to $PUBLISH_DIR"
 }
@@ -140,7 +142,7 @@ do_publish() {
 do_all() {
   local started started_iso finished
   started="$(date +%s)"; started_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  rm -rf "$RESULTS_DIR"/raw "$RESULTS_DIR"/plans "$RESULTS_DIR"/redis "$RESULTS_DIR"/settings "$RESULTS_DIR"/load
+  rm -rf "$RESULTS_DIR"/raw "$RESULTS_DIR"/plans "$RESULTS_DIR"/redis "$RESULTS_DIR"/settings \n         "$RESULTS_DIR"/load "$RESULTS_DIR"/env
   rm -f "$RESULTS_DIR"/measurements.csv "$RESULTS_DIR"/measurements_median.csv "$RESULTS_DIR"/load.csv \
         "$RESULTS_DIR"/memory.csv "$RESULTS_DIR"/settings.csv "$RESULTS_DIR"/run_meta.json
   "$SELF" down
