@@ -1,0 +1,27 @@
+# Separate stand for the Angular build (Plan 4 / frontends-on-mocks A1): compose project `agrotrace-angular`, the same
+# nginx image and template as the main gateway, serving frontend-angular/dist at angular-*.localhost (mock mode:
+# http://angular-mock.localhost:8090/) and the design system at /_ds/, on host port 8090. Mock mode needs no API server
+# (the MSW service worker of @agrotrace/mock-api answers /api/v1 in the browser), so the stand has its own network and
+# never joins, creates or restarts anything of the shared `agrotrace` project. Its Playwright one-off runs here too.
+#   ./at.sh fe:gateway angular [up|down]   ·   ./at.sh fe:e2e-smoke angular
+name: agrotrace-angular
+services:
+  gateway-angular:
+    build: { context: ./gateway }
+    image: agrotrace/gateway-angular:dev
+    volumes:
+      - ./frontend-angular/dist:/srv/angular:ro
+      - ./packages/design-system:/srv/ds:ro
+      - ./frontend-angular/stand:/stand:ro
+    # The shared gateway template with `mock` hosts accepted (frontend-angular/stand/mock-host.sh), then the image's
+    # own entrypoint — the shared template itself is not changed by this stand.
+    entrypoint: ['/bin/sh', '/stand/mock-host.sh']
+    environment: { GATEWAY_PORT: '8090' }
+    ports: ['8090:80']
+  playwright-angular:
+    image: mcr.microsoft.com/playwright:v1.48.2-jammy
+    profiles: [tools]
+    working_dir: /repo/frontend-angular
+    volumes: ['.:/repo']
+    ipc: host
+    environment: { CI: '1' }

@@ -1,0 +1,65 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "newProjectRoot": ".",
+  "cli": { "analytics": false, "packageManager": "pnpm" },
+  "projects": {
+    "agrotrace": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "at",
+      "schematics": {},
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "outputPath": { "base": "dist", "browser": "" },
+            "index": "src/index.html",
+            "deployUrl": "/",
+            "browser": "src/main.ts",
+            "tsConfig": "tsconfig.app.json",
+            "polyfills": [],
+            "assets": [],
+            "styles": ["node_modules/@agrotrace/design-system/index.css"],
+            "loader": { ".svg": "text" },
+            "preserveSymlinks": false,
+            "optimization": {
+              "scripts": true,
+              "styles": { "minify": true, "inlineCritical": false },
+              "fonts": false
+            },
+            "subresourceIntegrity": false,
+            "sourceMap": false,
+            "outputHashing": "all",
+            "extractLicenses": false,
+            "budgets": [
+              { "type": "initial", "maximumWarning": "400kb", "maximumError": "1mb" },
+              { "type": "anyComponentStyle", "maximumWarning": "4kb", "maximumError": "8kb" }
+            ]
+          },
+          "configurations": {
+            "production": {},
+            "development": {
+              "optimization": false,
+              "sourceMap": true,
+              "outputHashing": "none",
+              "fileReplacements": [
+                { "replace": "src/app/dev-routes.ts", "with": "src/app/dev-routes.dev.ts" }
+              ]
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": { "proxyConfig": "proxy.conf.json" },
+          "configurations": {
+            "development": { "buildTarget": "agrotrace:build:development" }
+          },
+          "defaultConfiguration": "development"
+        }
+      }
+    }
+  }
+}

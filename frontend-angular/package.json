@@ -1,0 +1,53 @@
+{
+  "name": "@agrotrace/frontend-angular",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgroTrace Angular 18 SPA (Plan 4): standalone components, Angular Router, signal services, the «Поле» design system.",
+  "scripts": {
+    "ng": "ng",
+    "dev": "ng serve --host 0.0.0.0 --port 4200",
+    "build": "node scripts/illustrations.mjs --check && ng build",
+    "illustrations": "node scripts/illustrations.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.spec.json && tsc --noEmit -p e2e"
+  },
+  "dependencies": {
+    "@agrotrace/api-client": "workspace:*",
+    "@agrotrace/design-system": "workspace:*",
+    "@agrotrace/domain": "workspace:*",
+    "@agrotrace/i18n": "workspace:*",
+    "@agrotrace/validation": "workspace:*",
+    "@angular/common": "18.2.14",
+    "@angular/compiler": "18.2.14",
+    "@angular/core": "18.2.14",
+    "@angular/platform-browser": "18.2.14",
+    "@angular/router": "18.2.14",
+    "rxjs": "7.8.1",
+    "tslib": "^2.8.1",
+    "zone.js": "0.14.10"
+  },
+  "devDependencies": {
+    "@analogjs/vite-plugin-angular": "1.10.3",
+    "@analogjs/vitest-angular": "1.10.3",
+    "@angular/animations": "18.2.14",
+    "@angular/build": "18.2.21",
+    "@angular/cli": "18.2.21",
+    "@angular/compiler-cli": "18.2.14",
+    "@angular/platform-browser-dynamic": "18.2.14",
+    "@playwright/test": "1.48.2",
+    "@redocly/openapi-core": "^1.25.11",
+    "@testing-library/angular": "17.3.6",
+    "@testing-library/dom": "10.4.0",
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/user-event": "14.5.2",
+    "@types/node": "^22.9.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "jsdom": "25.0.1",
+    "msw": "2.6.4",
+    "typescript": "~5.5.4",
+    "vite": "5.4.11",
+    "vitest": "^2.1.4"
+  }
+}

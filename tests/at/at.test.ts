@@ -154,7 +154,9 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
 
   it('help lists the fe commands', () => {
     const cmds = sh(['./at', 'help']).out.trim().split('\n');
-    expect(cmds).toEqual(expect.arrayContaining(['fe:build', 'fe:test', 'fe:dev', 'fe:gateway', 'fe:e2e-smoke']));
+    expect(cmds).toEqual(
+      expect.arrayContaining(['fe:build', 'fe:test', 'fe:dev', 'fe:gateway', 'fe:e2e-smoke']),
+    );
   });
 
   it('fe:build / fe:test react run in the tools container', () => {
@@ -183,6 +185,38 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
   it('fe:e2e-smoke react runs Playwright on the shared network against gateway-react', () => {
     expect(plus(sh(['./at', 'fe:e2e-smoke', 'react'], { AT_DRY_RUN: '1' }).out).at(-1)).toBe(
       '+ docker compose run --rm -w //repo/frontend-react playwright npx --no-install playwright test -c e2e/playwright.config.ts',
+    );
+  });
+
+  it('fe:build / fe:test / fe:dev angular run in the tools container', () => {
+    expect(plus(sh(['./at', 'fe:build', 'angular'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-angular build',
+    ]);
+    expect(plus(sh(['./at', 'fe:test', 'angular', '-t', 'shell'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-angular test -t shell',
+    ]);
+    expect(plus(sh(['./at', 'fe:dev', 'angular'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose run --rm -p 4200:4200 tools pnpm --filter @agrotrace/frontend-angular dev',
+    ]);
+  });
+
+  it('fe:gateway angular starts and stops only gateway-angular of project agrotrace-angular (own network, 8090)', () => {
+    expect(plus(sh(['./at', 'fe:gateway', 'angular'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose -f docker-compose.angular-dev.yml up -d --build --wait gateway-angular',
+    ]);
+    expect(plus(sh(['./at', 'fe:gateway', 'angular', 'down'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose -f docker-compose.angular-dev.yml down',
+    ]);
+    const compose = readFileSync(`${REPO}docker-compose.angular-dev.yml`, 'utf8');
+    expect(compose).toMatch(/^name: agrotrace-angular$/m);
+    expect(compose).not.toMatch(/agrotrace_at/);
+    expect(compose).toMatch(/- \.\/frontend-angular\/dist:\/srv\/angular:ro/);
+    expect(compose).toMatch(/'8090:80'/);
+  });
+
+  it('fe:e2e-smoke angular runs Playwright in project agrotrace-angular against gateway-angular', () => {
+    expect(plus(sh(['./at', 'fe:e2e-smoke', 'angular'], { AT_DRY_RUN: '1' }).out).at(-1)).toBe(
+      '+ docker compose -f docker-compose.angular-dev.yml run --rm -w //repo/frontend-angular playwright-angular npx --no-install playwright test -c e2e/playwright.config.ts',
     );
   });
 

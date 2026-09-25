@@ -6,3 +6,4 @@ packages:
   - backend-express
   - tests/*
   - frontend-react
+  - frontend-angular
