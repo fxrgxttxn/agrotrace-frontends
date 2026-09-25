@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> None:
     args.results_dir.mkdir(parents=True, exist_ok=True)
     path = args.results_dir / "dataset.csv"
     with path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
+        w = csv.writer(f, lineterminator="\n")
         w.writerow(["metric", "value"])
         w.writerows(profile(args.data_dir))
     print(f"dataset_profile: {path}")
