@@ -271,6 +271,7 @@ const LOCK_ORDER = [
   'batchDocument',
 ];
 
+const ENVELOPE = JSON.parse(readFileSync(new URL('../events/envelope.schema.json', import.meta.url), 'utf8'));
 const ENTITY_SM = JSON.parse(
   readFileSync(new URL('../rules/entity-state-machines.json', import.meta.url), 'utf8'),
 );
@@ -933,6 +934,54 @@ describe('openapi contract: operations', () => {
     expect(doc.info.description).toMatch(/`batchDocument`/);
   });
 
+  it('R91: getBatchDocuments filters labProtocols by lab-test visibility and qr by QR download rights', () => {
+    const op = ops.find(({ op }) => op.operationId === 'getBatchDocuments')!.op;
+    const d: string = op.description;
+    expect(d).toMatch(/R91/);
+    expect(d).toMatch(/`labProtocols` — только анализы, видимые ему по правилам тега Lab/);
+    expect(d).toMatch(/LAB — только анализы своей лаборатории/);
+    expect(d).toMatch(/`qr` — только если пользователь может скачать QR[^.]*`downloadBatchQr`/);
+    expect(d).toMatch(/иначе null, даже если QR генерировался/);
+    expect(doc.components.schemas.BatchDocuments.description).toMatch(/R91/);
+    const ex = op.responses['200'].content['application/json'].examples;
+    expect(Object.keys(ex)).toEqual(['holder', 'lab']);
+    expect(ex.holder.value.qr).not.toBeNull();
+    expect(ex.lab.value.qr).toBeNull();
+    const labId = ex.lab.value.labProtocols.map((p: Json) => p.lab.id);
+    expect(new Set(labId).size).toBe(1);
+    expect(ex.holder.value.labProtocols.length).toBeGreaterThan(ex.lab.value.labProtocols.length);
+  });
+
+  it('R92: shared Redis residuals — tg:poller compare-and-PEXPIRE, pub:batch verbatim + invalidation list, GETDEL after validation', () => {
+    const d: string = doc.info.description;
+    const row = (key: string) => d.split('\n').find((l) => l.trim().startsWith(`| \`${key}\` |`))!;
+    expect(row('tg:poller')).toMatch(/compare-and-PEXPIRE/);
+    expect(row('tg:poller')).toMatch(/redis\.call\('GET', KEYS\[1\]\) == ARGV\[1\][^|]*PEXPIRE/);
+    const pub = row('pub:batch:{publicCode}');
+    expect(pub).toMatch(/сохранённые байты отдаются как есть/);
+    expect(pub).not.toMatch(/предков|потомков/);
+    for (const opId of [
+      'updateDictionaryEntry',
+      'importDictionary',
+      'uploadProductImage',
+      'updateAdminOrganization',
+      'uploadOrganizationLogo',
+    ])
+      expect(pub).toContain(`\`${opId}\``);
+    expect(row('pwreset:{sha256hex(token)}')).toMatch(/GETDEL[^|]*после проверки тела/);
+    expect(row('invite:{sha256hex(token)}')).toMatch(/GETDEL[^|]*после проверки тела/);
+    const opDesc = (id: string): string => ops.find(({ op }) => op.operationId === id)!.op.description;
+    expect(opDesc('resetPassword')).toMatch(
+      /Сначала тело проверяется по схеме[^.]*не расходуется\), и только затем\s+токен читается `GETDEL`/,
+    );
+    expect(opDesc('acceptInvite')).toMatch(
+      /Сначала тело проверяется по схеме[^.]*и только затем токен читается `GETDEL`/,
+    );
+    expect(opDesc('getPublicBatch')).toMatch(/сохранённые байты как есть/);
+    expect(d).toMatch(/сравниваются по кодовым точкам Unicode[^.]*COLLATE "C"/);
+    expect(opDesc('createBatch')).toMatch(/наименьший `id` \(как текст, по кодовым точкам\)/);
+  });
+
   it('R82: info.description has the shared Redis keys table with exact values and TTLs', () => {
     const d: string = doc.info.description;
     const rows = new Map(
@@ -1051,6 +1100,9 @@ describe('openapi contract: operations', () => {
         check('batch_documents', 'import_status'),
         ENTITY_SM.vsdImport.statuses,
       ],
+      // R92: the outbox writer column and processed_events.backend match the queue event envelope's backend enum.
+      ['outbox_events.backend', check('outbox_events', 'backend'), ENVELOPE.properties.backend.enum],
+      ['processed_events.backend', check('processed_events', 'backend'), ENVELOPE.properties.backend.enum],
     ];
     const bad = pairs
       .filter(([, db, api]) => JSON.stringify(db) !== JSON.stringify(api))

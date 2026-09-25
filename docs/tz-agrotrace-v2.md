@@ -546,8 +546,8 @@ flowchart LR
 | Batches | `GET/POST /batches`, `GET /batches/{id}` | Список, создание сырьевой партии, карточка |
 | Batches | `GET /batches/{id}/graph?depth=2` | Связанные партии |
 | Batches | `GET /batches/{id}/history`, `GET /batches/{id}/path` | История статусов, путь по держателям |
-| Batches | `POST /batches/{id}/qr`, `GET /batches/{id}/qr?format=png\| Batches | `GET /batches/{id}/documents`, `POST /batches/{id}/documents/vsd/retry` | Документы партии (ВСД из «Меркурия», протоколы, QR), повторный импорт ВСД |
-|pdf` | Генерация и скачивание QR |
+| Batches | `POST /batches/{id}/qr`, `GET /batches/{id}/qr?format=png\|pdf` | Генерация и скачивание QR |
+| Batches | `GET /batches/{id}/documents`, `POST /batches/{id}/documents/vsd/retry` | Документы партии (ВСД из «Меркурия», протоколы, QR), повторный импорт ВСД |
 | Batches | `POST /batches/{id}/on-sale`, `POST /batches/{id}/sold` | Выставление в продажу, реализация |
 | Processing | `POST /processing` | Переработка: входы → выходы |
 | Waybills | `GET/POST /waybills`, `GET /waybills/{id}`, `POST /waybills/{id}/send`, `/accept`, `/reject` | Накладные и приёмка |

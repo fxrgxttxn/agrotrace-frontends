@@ -214,7 +214,7 @@
         "subject": "AgroTrace: партия {publicCode} направлена на анализ",
         "body": "Партия {publicCode} ({productName}) направлена на анализ в лабораторию {labName}. Основание: {reason}. Срок выполнения — {dueAt}."
       },
-      "telegram": "🧪 Партия {publicCode} ({productName}) — анализ в «{labName}» до {dueAt}"
+      "telegram": "Партия {publicCode} ({productName}) — анализ в «{labName}» до {dueAt}"
     },
     "LAB_RESULT": {
       "label": "Результат анализа",
@@ -224,7 +224,7 @@
         "subject": "AgroTrace: результат анализа партии {publicCode}",
         "body": "По партии {publicCode} ({productName}) внесены результаты анализа. Заключение: {conclusion}."
       },
-      "telegram": "📋 Партия {publicCode} ({productName}): {conclusion}"
+      "telegram": "Партия {publicCode} ({productName}): {conclusion}"
     },
     "WAYBILL_INCOMING": {
       "label": "Входящая накладная",
@@ -234,7 +234,7 @@
         "subject": "AgroTrace: входящая накладная {number}",
         "body": "Организация {senderName} отправила вам накладную {number} (позиций: {itemsCount}). Проверьте массу и примите или отклоните поставку."
       },
-      "telegram": "🚚 Накладная {number} от {senderName}, позиций: {itemsCount}"
+      "telegram": "Накладная {number} от {senderName}, позиций: {itemsCount}"
     },
     "RECALL": {
       "label": "Отзыв",
@@ -245,7 +245,7 @@
           "subject": "AgroTrace: отзыв партии {publicCode}",
           "body": "Запущен отзыв продукции по исходной партии {publicCode} (основание: {trigger}). Проверьте задачи изъятия своей организации."
         },
-        "telegram": "⚠️ Отзыв партии {publicCode} ({trigger})"
+        "telegram": "Отзыв партии {publicCode} ({trigger})"
       },
       "CLOSED": {
         "title": "Отзыв партии {publicCode} закрыт",
@@ -254,7 +254,7 @@
           "subject": "AgroTrace: отзыв партии {publicCode} закрыт",
           "body": "Отзыв по исходной партии {publicCode} (основание: {trigger}) закрыт: все задачи изъятия подтверждены."
         },
-        "telegram": "✅ Отзыв партии {publicCode} закрыт"
+        "telegram": "Отзыв партии {publicCode} закрыт"
       }
     },
     "RECALL_TASK": {
@@ -266,7 +266,7 @@
           "subject": "AgroTrace: изъять партию {publicCode} до {dueAt}",
           "body": "Партия {publicCode} отозвана. Изымите её и подтвердите изъятие в системе до {dueAt}."
         },
-        "telegram": "⛔ Изъять партию {publicCode} до {dueAt}"
+        "telegram": "Изъять партию {publicCode} до {dueAt}"
       },
       "REASSIGNED": {
         "title": "Задача изъятия партии {publicCode} передана вам",
@@ -275,7 +275,7 @@
           "subject": "AgroTrace: изъять партию {publicCode} до {dueAt}",
           "body": "Получатель отказался от отозванной партии {publicCode}, задача изъятия передана вашей организации. Подтвердите изъятие до {dueAt}."
         },
-        "telegram": "⛔ Задача изъятия партии {publicCode} передана вам, срок — {dueAt}"
+        "telegram": "Задача изъятия партии {publicCode} передана вам, срок — {dueAt}"
       }
     },
     "OVERDUE": {
@@ -286,7 +286,7 @@
         "subject": "AgroTrace: просрочено изъятие партии {publicCode}",
         "body": "Срок изъятия партии {publicCode} истёк {dueAt}, держатель — {holderName}. Задача эскалирована инспектору."
       },
-      "telegram": "⏰ Просрочено изъятие партии {publicCode} ({holderName}), срок был {dueAt}"
+      "telegram": "Просрочено изъятие партии {publicCode} ({holderName}), срок был {dueAt}"
     },
     "COMPLAINT": {
       "label": "Жалоба",
@@ -296,7 +296,7 @@
         "subject": "AgroTrace: жалоба на партию {publicCode}",
         "body": "Поступила жалоба покупателя на продукцию «{productName}» (партия {publicCode}). Рассмотрите её в разделе «Жалобы»."
       },
-      "telegram": "📣 Жалоба на партию {publicCode} ({productName})"
+      "telegram": "Жалоба на партию {publicCode} ({productName})"
     },
     "LAB_OVERDUE": {
       "label": "Просроченная проба",
@@ -306,7 +306,7 @@
         "subject": "AgroTrace: просрочен анализ партии {publicCode}",
         "body": "Лаборатория {labName} не внесла результат анализа партии {publicCode} в срок ({dueAt}). Задача эскалирована."
       },
-      "telegram": "⏰ Анализ партии {publicCode} в «{labName}» просрочен (срок {dueAt})"
+      "telegram": "Анализ партии {publicCode} в «{labName}» просрочен (срок {dueAt})"
     }
   },
   "productCategory": {

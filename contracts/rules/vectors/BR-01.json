@@ -153,6 +153,17 @@
         ]
       },
       "expected": { "ok": false, "until": "2026-09-11", "substance": "Beta" }
+    },
+    {
+      "name": "tie on until - code points, not UTF-16 code units: U+FF21 sorts before U+1D400 (surrogate pair D835 DC00) (R21, R92)",
+      "input": {
+        "shipDate": "2026-09-05",
+        "treatments": [
+          { "substance": "𝐀", "appliedAt": "2026-09-01T00:00:00.000Z", "waitingPeriodDays": 10 },
+          { "substance": "Ａ", "appliedAt": "2026-09-03T00:00:00.000Z", "waitingPeriodDays": 8 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-09-11", "substance": "Ａ" }
     }
   ]
 }

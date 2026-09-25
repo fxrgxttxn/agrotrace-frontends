@@ -114,6 +114,18 @@ gw_test() (
     && { echo "gw:test: the query string of a request leaked into the gateway log"; exit 1; }
   echo "gw:test: access log has no query strings"
 
+  # R92: nor does the error log. nginx's error-log lines carry `request: "GET /path?query …"` and their format is
+  # not configurable, so the level is `crit`: an unreachable backend (react-laravel: no api-laravel container)
+  # logs at `error` and must leave no trace of the query string.
+  echo "$full" | grep -qE '^\s*error_log\s+\S+\s+crit;' \
+    || { echo "gw:test: error_log must be at level crit (its lines include the request line with the query)"; exit 1; }
+  eprobe="at-err-probe-$RANDOM$RANDOM"
+  $T sh -c "curl -s -o /dev/null -H 'Host: react-laravel.localhost' 'http://gateway/api/v1/health/live?sig=${eprobe}&access_token=${eprobe}'"
+  sleep 1
+  $DC logs --since 2m gateway 2>&1 | grep -q "$eprobe" \
+    && { echo "gw:test: the query string of a failed proxied request leaked into the gateway error log"; exit 1; }
+  echo "gw:test: error log has no query strings"
+
   $T pnpm --filter @agrotrace/tests-gateway test
 )
 

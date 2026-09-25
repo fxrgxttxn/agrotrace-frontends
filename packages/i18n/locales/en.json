@@ -214,7 +214,7 @@
         "subject": "AgroTrace: batch {publicCode} sent for lab testing",
         "body": "Batch {publicCode} ({productName}) was sent for testing to {labName}. Reason: {reason}. Due {dueAt}."
       },
-      "telegram": "🧪 Batch {publicCode} ({productName}) — test at \"{labName}\" due {dueAt}"
+      "telegram": "Batch {publicCode} ({productName}) — test at \"{labName}\" due {dueAt}"
     },
     "LAB_RESULT": {
       "label": "Lab result",
@@ -224,7 +224,7 @@
         "subject": "AgroTrace: lab result for batch {publicCode}",
         "body": "Lab results were entered for batch {publicCode} ({productName}). Conclusion: {conclusion}."
       },
-      "telegram": "📋 Batch {publicCode} ({productName}): {conclusion}"
+      "telegram": "Batch {publicCode} ({productName}): {conclusion}"
     },
     "WAYBILL_INCOMING": {
       "label": "Incoming waybill",
@@ -234,7 +234,7 @@
         "subject": "AgroTrace: incoming waybill {number}",
         "body": "{senderName} sent you waybill {number} ({itemsCount} item(s)). Check the masses and accept or reject the delivery."
       },
-      "telegram": "🚚 Waybill {number} from {senderName}, items: {itemsCount}"
+      "telegram": "Waybill {number} from {senderName}, items: {itemsCount}"
     },
     "RECALL": {
       "label": "Recall",
@@ -245,7 +245,7 @@
           "subject": "AgroTrace: recall of batch {publicCode}",
           "body": "A product recall was started from source batch {publicCode} (trigger: {trigger}). Check your organization's seizure tasks."
         },
-        "telegram": "⚠️ Recall of batch {publicCode} ({trigger})"
+        "telegram": "Recall of batch {publicCode} ({trigger})"
       },
       "CLOSED": {
         "title": "Recall of batch {publicCode} closed",
@@ -254,7 +254,7 @@
           "subject": "AgroTrace: recall of batch {publicCode} closed",
           "body": "The recall from source batch {publicCode} (trigger: {trigger}) is closed: every seizure task is confirmed."
         },
-        "telegram": "✅ Recall of batch {publicCode} closed"
+        "telegram": "Recall of batch {publicCode} closed"
       }
     },
     "RECALL_TASK": {
@@ -266,7 +266,7 @@
           "subject": "AgroTrace: seize batch {publicCode} by {dueAt}",
           "body": "Batch {publicCode} is recalled. Seize it and confirm the seizure in the system by {dueAt}."
         },
-        "telegram": "⛔ Seize batch {publicCode} by {dueAt}"
+        "telegram": "Seize batch {publicCode} by {dueAt}"
       },
       "REASSIGNED": {
         "title": "Seizure of batch {publicCode} reassigned to you",
@@ -275,7 +275,7 @@
           "subject": "AgroTrace: seize batch {publicCode} by {dueAt}",
           "body": "The receiver rejected recalled batch {publicCode}; the seizure task is now your organization's. Confirm the seizure by {dueAt}."
         },
-        "telegram": "⛔ Seizure of batch {publicCode} reassigned to you, due {dueAt}"
+        "telegram": "Seizure of batch {publicCode} reassigned to you, due {dueAt}"
       }
     },
     "OVERDUE": {
@@ -286,7 +286,7 @@
         "subject": "AgroTrace: seizure of batch {publicCode} overdue",
         "body": "The seizure of batch {publicCode} was due {dueAt}; holder: {holderName}. The task was escalated to the inspectors."
       },
-      "telegram": "⏰ Seizure of batch {publicCode} overdue ({holderName}), was due {dueAt}"
+      "telegram": "Seizure of batch {publicCode} overdue ({holderName}), was due {dueAt}"
     },
     "COMPLAINT": {
       "label": "Complaint",
@@ -296,7 +296,7 @@
         "subject": "AgroTrace: complaint about batch {publicCode}",
         "body": "A customer complained about \"{productName}\" (batch {publicCode}). Review it under Complaints."
       },
-      "telegram": "📣 Complaint about batch {publicCode} ({productName})"
+      "telegram": "Complaint about batch {publicCode} ({productName})"
     },
     "LAB_OVERDUE": {
       "label": "Lab sample overdue",
@@ -306,7 +306,7 @@
         "subject": "AgroTrace: lab test of batch {publicCode} overdue",
         "body": "{labName} did not enter the lab result for batch {publicCode} by the due date ({dueAt}). The test was escalated."
       },
-      "telegram": "⏰ Lab test of batch {publicCode} at \"{labName}\" overdue (due {dueAt})"
+      "telegram": "Lab test of batch {publicCode} at \"{labName}\" overdue (due {dueAt})"
     }
   },
   "productCategory": {

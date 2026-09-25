@@ -1,21 +1,17 @@
 import { sha256 } from '@noble/hashes/sha256';
 import tr from '../../../contracts/rules/trust-rating.json' with { type: 'json' };
-import {
-  compareDecimalStrings,
-  gramsToKg,
-  kgToGrams,
-  percentToBasisPoints,
-  ratioPercent2,
-} from './decimal';
+import { compareDecimalStrings, gramsToKg, kgToGrams, percentToBasisPoints, ratioPercent2 } from './decimal';
 import { addDaysToDate, utcDate } from './dates';
 import type { BatchStatus } from './state-machine';
+import { compareCodePoints } from './strings';
 
 /**
  * BR-01: a batch cannot ship until every treatment's waiting period has
  * elapsed. If several treatments still block, the one with the latest
  * `until` is reported; on a tie (R21), the substance with the smallest
- * name in Unicode code-point order is reported (plain `<`, not
- * localeCompare, which would sort case-insensitively/locale-dependently).
+ * name in Unicode code-point order is reported (compareCodePoints — not
+ * `<`, which compares UTF-16 code units, and not localeCompare, which is
+ * locale-dependent; R92).
  */
 export function checkWaitingPeriod(i: {
   shipDate: string;
@@ -25,7 +21,11 @@ export function checkWaitingPeriod(i: {
   for (const t of i.treatments) {
     const until = addDaysToDate(utcDate(t.appliedAt), t.waitingPeriodDays);
     if (i.shipDate >= until) continue; // this treatment no longer blocks
-    if (!worst || until > worst.until || (until === worst.until && t.substance < worst.substance)) {
+    if (
+      !worst ||
+      until > worst.until ||
+      (until === worst.until && compareCodePoints(t.substance, worst.substance) < 0)
+    ) {
       worst = { until, substance: t.substance };
     }
   }
@@ -131,10 +131,7 @@ export function checkDiscrepancy(i: {
 }
 
 /** BR-09: farm trust rating recalculation, clamped to [tr.min, tr.max]. */
-export function nextTrustRating(i: {
-  current: number;
-  event: keyof typeof tr.deltas;
-}): { rating: number } {
+export function nextTrustRating(i: { current: number; event: keyof typeof tr.deltas }): { rating: number } {
   return { rating: Math.min(tr.max, Math.max(tr.min, Math.round(i.current + tr.deltas[i.event]))) };
 }
 

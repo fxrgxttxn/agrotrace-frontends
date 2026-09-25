@@ -45,6 +45,17 @@ describe('queue events', () => {
     }
   });
 
+  it('worker concurrency: prefetch 1 per channel, one vsd.import at a time, other types never starved (R92)', () => {
+    const d: string = read('envelope.schema.json').description;
+    expect(d).toMatch(/Worker concurrency \(R92\)/);
+    expect(d).toMatch(/two channels, each with basic\.qos prefetch 1/);
+    expect(d).toMatch(/at most ONE `vsd\.import` handler at a time/);
+    expect(d).toMatch(/basic\.nack requeue=true/);
+    expect(read('vsd.import.schema.json').description).toMatch(
+      /At most one vsd\.import handler runs per worker process[^.]*R92/,
+    );
+  });
+
   it('envelope transport uses the Task 2 RabbitMQ topology and the transactional outbox (R55)', () => {
     const defs = JSON.parse(
       readFileSync(new URL('../../infra/rabbitmq/definitions.json', import.meta.url), 'utf8'),

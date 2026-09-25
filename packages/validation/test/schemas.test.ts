@@ -378,7 +378,7 @@ describe('RegisterOrganizationRequestSchema enforces the INN checksum (R66)', ()
 });
 
 describe('toFieldErrors', () => {
-  it('flattens a nested array path (items.0.massDeclaredKg) to an exact error object', () => {
+  it('flattens a nested array path to the contract form items[0].massDeclaredKg (info.description)', () => {
     const result = V.WaybillCreateSchema.safeParse({
       receiverOrgId: '4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d',
       items: [{ batchId: '1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c', massDeclaredKg: 'not-a-mass' }],
@@ -386,7 +386,7 @@ describe('toFieldErrors', () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(V.toFieldErrors(result.error)).toEqual({
-      'items.0.massDeclaredKg': ['validation.mass.format'],
+      'items[0].massDeclaredKg': ['validation.mass.format'],
     });
   });
 

@@ -1,13 +1,7 @@
 export type { BatchStatus } from './state-machine';
 export { BATCH_STATUSES, canTransition, availableActions } from './state-machine';
 
-export {
-  compareDecimalStrings,
-  kgToGrams,
-  gramsToKg,
-  percentToBasisPoints,
-  ratioPercent2,
-} from './decimal';
+export { compareDecimalStrings, kgToGrams, gramsToKg, percentToBasisPoints, ratioPercent2 } from './decimal';
 
 export {
   utcDate,
@@ -31,3 +25,5 @@ export {
 } from './rules';
 
 export { idempotencyDecision } from './idempotency';
+
+export { compareCodePoints } from './strings';
