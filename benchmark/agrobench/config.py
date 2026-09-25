@@ -10,7 +10,10 @@ way around — this module never talks to a database itself.
 """
 from __future__ import annotations
 
+import json
+import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 BENCH_DIR = Path(__file__).resolve().parent.parent
@@ -171,3 +174,21 @@ def redis_settings_equal(setting: str, actual: str, expected: str) -> bool:
     if setting == "maxmemory":
         return redis_size_to_bytes(actual) == redis_size_to_bytes(expected)
     return str(actual) == str(expected)
+
+
+def current_profiles() -> dict[str, str]:
+    """The live stand's profile/durability, as bench.sh passes them to bench-runner (from the
+    `.env` that `up` wrote — ruling B3)."""
+    return {
+        "pg_profile": os.environ["PG_PROFILE"],
+        "redis_profile": os.environ["REDIS_PROFILE"],
+        "durability": os.environ["DURABILITY"],
+    }
+
+
+def write_load_meta(results_dir: Path, name: str) -> None:
+    """Stamps a loader's result CSV (`<name>.csv`) with the profile/durability it was loaded
+    under, so agrobench.run only ever files load time/size under the configuration they belong
+    to (it refuses a stale load from another configuration)."""
+    meta = {**current_profiles(), "finished_at": datetime.now(timezone.utc).isoformat()}
+    Path(results_dir, f"{name}.meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")

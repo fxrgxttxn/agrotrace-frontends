@@ -1,0 +1,6 @@
+{
+  "started_at": "2026-09-25T09:19:51Z",
+  "finished_at": "2026-09-25T10:36:58Z",
+  "duration_seconds": 4627,
+  "command": "./at.sh bench all"
+}

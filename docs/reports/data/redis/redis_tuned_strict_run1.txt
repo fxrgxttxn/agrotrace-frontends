@@ -1,0 +1,121 @@
+# Redis diagnostics after run 1: profile=tuned durability=strict (2026-09-25T10:06:18+00:00)
+
+# SLOWLOG LEN (slowlog-log-slower-than=10000 us)
+16
+# SLOWLOG GET 32
+id=15 duration_us=343648 command=DEBUG DIGEST
+id=14 duration_us=322990 command=DEBUG DIGEST
+id=13 duration_us=312645 command=DEBUG DIGEST
+id=12 duration_us=315918 command=DEBUG DIGEST
+id=11 duration_us=312635 command=DEBUG DIGEST
+id=10 duration_us=310319 command=DEBUG DIGEST
+id=9 duration_us=333422 command=DEBUG DIGEST
+id=8 duration_us=337686 command=DEBUG DIGEST
+id=7 duration_us=373309 command=DEBUG DIGEST
+id=6 duration_us=308862 command=DEBUG DIGEST
+id=5 duration_us=324610 command=DEBUG DIGEST
+id=4 duration_us=307969 command=DEBUG DIGEST
+id=3 duration_us=358084 command=DEBUG DIGEST
+id=2 duration_us=315087 command=DEBUG DIGEST
+id=1 duration_us=304830 command=DEBUG DIGEST
+id=0 duration_us=399200 command=DEBUG DIGEST
+# LATENCY LATEST (event, time, latest_ms, max_ms)
+aof-write-alone 1790330774 1 1
+aof-write 1790330774 1 1
+aof-write-active-child 1790330748 1 1
+aof-fsync-always 1790330774 10 19
+fork 1790330748 1 1
+command 1790330778 343 399
+# LATENCY DOCTOR
+Dave, I have observed latency spikes in this Redis instance. You don't mind talking about it, do you Dave?
+
+1. aof-write-alone: 160 latency spikes (average 1ms, mean deviation 0ms, period 1.04 sec). Worst all time event 1ms.
+2. aof-write: 160 latency spikes (average 1ms, mean deviation 0ms, period 1.04 sec). Worst all time event 1ms.
+3. aof-write-active-child: 2 latency spikes (average 1ms, mean deviation 0ms, period 46.00 sec). Worst all time event 1ms.
+4. aof-fsync-always: 160 latency spikes (average 7ms, mean deviation 1ms, period 1.02 sec). Worst all time event 19ms.
+5. fork: 4 latency spikes (average 1ms, mean deviation 0ms, period 36.00 sec). Worst all time event 1ms. Fork rate is 16.18 GB/sec (poor).
+6. command: 12 latency spikes (average 336ms, mean deviation 21ms, period 14.92 sec). Worst all time event 399ms.
+
+I have a few advices for you:
+
+- If you are using a virtual machine, consider upgrading it with a faster one using a hypervisior that provides less latency during fork() calls. Xen is known to have poor fork() performance. Even in the context of the same VM provider, certain kinds of instances can execute fork faster than others.
+- Your current Slow Log configuration only logs events that are slower than your configured latency monitor threshold. Please use 'CONFIG SET slowlog-log-slower-than 1000'.
+- Check your Slow Log to understand what are the commands you are running which are too slow to execute. Please check https://redis.io/commands/slowlog for more information.
+- It is strongly advised to use local disks for persistence, especially if you are using AOF. Remote disks provided by platform-as-a-service providers are known to be slow.
+- SSD disks are able to reduce fsync latency, and total time needed for snapshotting and AOF log rewriting (resulting in smaller memory usage). With extremely high write load SSD disks can be a good option. However Redis should perform reasonably with high load using normal disks. Use this advice as a last resort.
+- Mounting ext3/4 filesystems with data=writeback can provide a performance boost compared to data=ordered, however this mode of operation provides less guarantees, and sometimes it can happen that after a hard crash the AOF file will have a half-written command at the end and will require to be repaired before Redis restarts.
+- Assuming from the point of view of data safety this is viable in your environment, you could try to enable the 'no-appendfsync-on-rewrite' option, so that fsync will not be performed while there is a child rewriting the AOF file or producing an RDB file (the moment where there is high disk contention).
+- Your fsync policy is set to 'always'. It is very hard to get good performances with such a setup, if possible try to relax the fsync policy to 'onesec'.
+- Deleting, expiring or evicting (because of maxmemory policy) large objects is a blocking operation. If you have very large objects that are often deleted, expired, or evicted, try to fragment those objects into multiple smaller objects.
+
+# INFO commandstats (server-side time per command)
+cmdstat_get: {'calls': 44000, 'usec': 43979, 'usec_per_call': 1.0, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_zrevrange: {'calls': 44000, 'usec': 66678, 'usec_per_call': 1.52, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_zrem: {'calls': 1467609, 'usec': 752511, 'usec_per_call': 0.51, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_hset: {'calls': 1255097, 'usec': 2384401, 'usec_per_call': 1.9, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_hgetall: {'calls': 321389, 'usec': 668114, 'usec_per_call': 2.08, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_evalsha: {'calls': 495002, 'usec': 2891293, 'usec_per_call': 5.84, 'rejected_calls': 0, 'failed_calls': 2}
+cmdstat_debug: {'calls': 16, 'usec': 5281214, 'usec_per_call': 330075.88, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_lrem: {'calls': 1010000, 'usec': 761139, 'usec_per_call': 0.75, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_exec: {'calls': 2200, 'usec': 26083, 'usec_per_call': 11.86, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_slowlog|get: {'calls': 1, 'usec': 21, 'usec_per_call': 21.0, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_slowlog|len: {'calls': 1, 'usec': 1, 'usec_per_call': 1.0, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_config|get: {'calls': 1, 'usec': 8, 'usec_per_call': 8.0, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_config|resetstat: {'calls': 1, 'usec': 45, 'usec_per_call': 45.0, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_ping: {'calls': 113, 'usec': 80, 'usec_per_call': 0.71, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_client|setinfo: {'calls': 578, 'usec': 416, 'usec_per_call': 0.72, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_hget: {'calls': 2708609, 'usec': 881618, 'usec_per_call': 0.33, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_zrangebyscore: {'calls': 2020, 'usec': 196254, 'usec_per_call': 97.16, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_dbsize: {'calls': 16, 'usec': 17, 'usec_per_call': 1.06, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_smembers: {'calls': 690200, 'usec': 339648, 'usec_per_call': 0.49, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_zscore: {'calls': 2200, 'usec': 1908, 'usec_per_call': 0.87, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_script|load: {'calls': 3, 'usec': 237, 'usec_per_call': 79.0, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_exists: {'calls': 448800, 'usec': 93954, 'usec_per_call': 0.21, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_sadd: {'calls': 4558, 'usec': 2021, 'usec_per_call': 0.44, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_latency|doctor: {'calls': 1, 'usec': 707, 'usec_per_call': 707.0, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_latency|latest: {'calls': 1, 'usec': 5, 'usec_per_call': 5.0, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_del: {'calls': 2159297, 'usec': 598356, 'usec_per_call': 0.28, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_set: {'calls': 226600, 'usec': 107922, 'usec_per_call': 0.48, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_srem: {'calls': 2279, 'usec': 2257, 'usec_per_call': 0.99, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_zadd: {'calls': 1467609, 'usec': 1446666, 'usec_per_call': 0.99, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_hincrby: {'calls': 457600, 'usec': 282794, 'usec_per_call': 0.62, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_multi: {'calls': 2200, 'usec': 660, 'usec_per_call': 0.3, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_lrange: {'calls': 270600, 'usec': 88827, 'usec_per_call': 0.33, 'rejected_calls': 0, 'failed_calls': 0}
+cmdstat_rpush: {'calls': 1012209, 'usec': 812055, 'usec_per_call': 0.8, 'rejected_calls': 0, 'failed_calls': 0}
+# INFO persistence
+loading: 0
+async_loading: 0
+current_cow_peak: 0
+current_cow_size: 0
+current_cow_size_age: 0
+current_fork_perc: 0.0
+current_save_keys_processed: 0
+current_save_keys_total: 0
+rdb_changes_since_last_save: 16269127
+rdb_bgsave_in_progress: 0
+rdb_last_save_time: 1790330341
+rdb_last_bgsave_status: ok
+rdb_last_bgsave_time_sec: -1
+rdb_current_bgsave_time_sec: -1
+rdb_saves: 0
+rdb_last_cow_size: 0
+rdb_last_load_keys_expired: 0
+rdb_last_load_keys_loaded: 86960
+aof_enabled: 1
+aof_rewrite_in_progress: 0
+aof_rewrite_scheduled: 0
+aof_last_rewrite_time_sec: 0
+aof_current_rewrite_time_sec: -1
+aof_last_bgrewrite_status: ok
+aof_rewrites: 11
+aof_rewrites_consecutive_failures: 0
+aof_last_write_status: ok
+aof_last_cow_size: 5419008
+module_fork_in_progress: 0
+module_fork_last_cow_size: 0
+aof_current_size: 42664370
+aof_base_size: 8275422
+aof_pending_rewrite: 0
+aof_buffer_length: 0
+aof_pending_bio_fsync: 0
+aof_delayed_fsync: 0

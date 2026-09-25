@@ -14,6 +14,8 @@ benchmark/results/*.csv
 benchmark/results/*.json
 benchmark/data/
 benchmark/.bench-state
+benchmark/.env
+benchmark/results/*/
 db/.schema.sql.*
 __pycache__/
 .venv/

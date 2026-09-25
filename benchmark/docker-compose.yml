@@ -1,4 +1,9 @@
 name: agrotrace-bench
+# PG_PROFILE, REDIS_PROFILE, DURABILITY, PG_SYNCHRONOUS_COMMIT and REDIS_APPENDFSYNC have no
+# defaults here on purpose (ruling B3): `./at.sh bench up` writes them to benchmark/.env, which
+# compose reads for interpolation, so every invocation (bench.sh or a raw `docker compose -p
+# agrotrace-bench -f benchmark/docker-compose.yml ...`) sees the profile that is actually up; with
+# no .env compose fails fast instead of recreating the DBMS containers in some default profile.
 services:
   # PostgreSQL 16 side of the benchmark (spec §13). Config file picked by PG_PROFILE
   # (default|tuned, benchmark/pg/*.conf); PG_SYNCHRONOUS_COMMIT overrides the durability-relevant
@@ -12,10 +17,10 @@ services:
       POSTGRES_PASSWORD: bench
       POSTGRES_DB: bench
     volumes:
-      - ./pg/${PG_PROFILE:-default}.conf:/etc/postgresql/postgresql.conf:ro
+      - ./pg/${PG_PROFILE:?PG_PROFILE not set, run ./at.sh bench up first (ruling B3)}.conf:/etc/postgresql/postgresql.conf:ro
       - pgdata:/var/lib/postgresql/data
     command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf",
-              "-c", "synchronous_commit=${PG_SYNCHRONOUS_COMMIT:-on}"]
+              "-c", "synchronous_commit=${PG_SYNCHRONOUS_COMMIT:?PG_SYNCHRONOUS_COMMIT not set, run ./at.sh bench up first (ruling B3)}"]
     # Resource limits identical to bench-redis (spec §13, Task 1) — also recorded in
     # results/env.json (agrobench/config.py:RESOURCE_LIMITS mirrors these two numbers).
     cpus: "2"
@@ -30,10 +35,10 @@ services:
   bench-redis:
     image: redis:7.4-alpine
     volumes:
-      - ./redis/${REDIS_PROFILE:-default}.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./redis/${REDIS_PROFILE:?REDIS_PROFILE not set, run ./at.sh bench up first (ruling B3)}.conf:/usr/local/etc/redis/redis.conf:ro
       - redisdata:/data
     command: ["redis-server", "/usr/local/etc/redis/redis.conf",
-              "--appendonly", "yes", "--appendfsync", "${REDIS_APPENDFSYNC:-everysec}"]
+              "--appendonly", "yes", "--appendfsync", "${REDIS_APPENDFSYNC:?REDIS_APPENDFSYNC not set, run ./at.sh bench up first (ruling B3)}"]
     # Resource limits identical to bench-postgres (spec §13, Task 1).
     cpus: "2"
     mem_limit: "4g"
@@ -53,9 +58,9 @@ services:
       PGPASSWORD: bench
       PGDATABASE: bench
       REDIS_URL: redis://bench-redis:6379/0
-      PG_PROFILE: ${PG_PROFILE:-default}
-      REDIS_PROFILE: ${REDIS_PROFILE:-default}
-      DURABILITY: ${DURABILITY:-relaxed}
+      PG_PROFILE: ${PG_PROFILE:?PG_PROFILE not set, run ./at.sh bench up first (ruling B3)}
+      REDIS_PROFILE: ${REDIS_PROFILE:?REDIS_PROFILE not set, run ./at.sh bench up first (ruling B3)}
+      DURABILITY: ${DURABILITY:?DURABILITY not set, run ./at.sh bench up first (ruling B3)}
       DOCKER_VERSION: ${DOCKER_VERSION:-}
       DOCKER_COMPOSE_VERSION: ${DOCKER_COMPOSE_VERSION:-}
       # Actual per-container resource limits, introspected by bench.sh via `docker inspect`

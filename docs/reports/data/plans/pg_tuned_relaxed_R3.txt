@@ -1,0 +1,18 @@
+-- R3 EXPLAIN (ANALYZE, BUFFERS), PostgreSQL profile=tuned durability=relaxed
+-- parameters: holder=7656 status=Approved (the pair with most batches: 6)
+SELECT id, public_code, product, origin_org_id, holder_org_id, kind, mass_kg, status, harvested_at, version FROM batches WHERE holder_org_id = %s AND status = %s ORDER BY harvested_at DESC, id DESC LIMIT %s
+
+Limit  (cost=1.78..4.88 rows=3 width=83) (actual time=0.121..0.122 rows=6 loops=1)
+  Buffers: shared hit=18 read=2
+  ->  Incremental Sort  (cost=1.78..4.88 rows=3 width=83) (actual time=0.120..0.120 rows=6 loops=1)
+        Sort Key: harvested_at DESC, id DESC
+        Presorted Key: harvested_at
+        Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 25kB  Peak Memory: 25kB
+        Buffers: shared hit=18 read=2
+        ->  Index Scan using ix_batches_holder_status_harvested on batches  (cost=0.29..4.74 rows=3 width=83) (actual time=0.048..0.069 rows=6 loops=1)
+              Index Cond: ((holder_org_id = '7656'::smallint) AND ((status)::text = 'Approved'::text))
+              Buffers: shared hit=9 read=2
+Planning:
+  Buffers: shared hit=160 read=2
+Planning Time: 0.730 ms
+Execution Time: 0.155 ms

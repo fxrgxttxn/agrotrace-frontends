@@ -245,6 +245,7 @@ def main(argv: list[str] | None = None) -> None:
 
     stats = load(args.data_dir)
     _write_results(stats, args.results_dir)
+    config.write_load_meta(args.results_dir, "load_redis")
     print(json.dumps(stats, indent=2, default=str))
 
 

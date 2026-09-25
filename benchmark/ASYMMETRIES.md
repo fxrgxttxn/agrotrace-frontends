@@ -80,3 +80,44 @@ guarantee the way one PostgreSQL statement does). This is intentional: spec §13
 pipeline of W1s", not an atomic bulk-load transaction, and W2's actual ids are always freshly
 allocated by the caller, never touched by any other concurrent writer, so partial application on a
 crash is recoverable the same way it would be for any interrupted bulk load (retry the remainder).
+
+## Measurement harness (Task 4): what is the same, what cannot be
+
+Identical for both DBMS: the same Python process layout, the same asyncio call shape
+(`await op(conn, *args)` timed with `perf_counter_ns`, `agrobench/measure.py`), the same key
+sequences (a function of the generated CSVs, query, distribution and phase only —
+`agrobench/workload.py:read_args`), the same warm-up (1000 calls, same distribution, same Zipf hot
+set), the same prepared records (fresh `Allocator` per DBMS and run, so ids/timestamps match
+exactly), the same restore-and-verify step after every write/delete series, and the same client
+topology: concurrency 1 = one asyncio client in the parent process; concurrency 16 = 8 client
+processes x 2 asyncio clients, 16 connections in total (`agrobench/run.py:CLIENT_PROCS`).
+
+What differs, because the drivers differ:
+
+- **Connection pool use.** A PostgreSQL client checks one connection out of its
+  `AsyncConnectionPool` for the whole series (psycopg has no per-statement pool checkout);
+  redis-py's asyncio client checks a connection out of its `BlockingConnectionPool` per command
+  (that is how redis-py pools work). Both pools are filled before the series starts, so neither
+  side pays for connection setup inside a measurement.
+- **Prepared statements** exist only on the PostgreSQL side (psycopg prepares a statement
+  server-side from its 5th execution on a connection; the 1000-call warm-up guarantees every
+  pooled connection is past that). Redis has no equivalent; its closest analogue — Lua scripts
+  called by SHA (`EVALSHA`) instead of full text — is used for R5-lua, W3 and D1. The
+  `variant=unprepared` rows (PostgreSQL, concurrency 1, uniform) measure the same reads with
+  prepared statements disabled, so the report can show what that optimisation is worth.
+- **Round trips per logical call** differ where the data model forces it (R2, R3, R4, R5-bfs
+  need 2+ dependent Redis round trips; each is one SQL statement) — this is part of what is being
+  compared, not a harness artefact.
+- **Restore mechanics.** PostgreSQL prepared rows are removed by id range and the three touched
+  tables are `VACUUM ANALYZE`d (untimed) after each series, so dead tuples from one series never
+  land in the next one's numbers; Redis prepared records are removed with the D1 script and the
+  touched `stats:org:*` hashes are restored from a snapshot (HINCRBY -1 leaves a "0" field where
+  none existed before). Both then prove full-content equality with the pre-series fingerprint.
+
+Known biases that apply to both and are reported rather than hidden: every latency includes the
+Docker bridge network hop and Python/asyncio client time (`client_cpu_cores` per series shows how
+much CPU the client used — around 0.7 of a core per client process at concurrency 1); both DBMS
+containers are capped at 2 CPUs, so at concurrency 16 CPU-heavy PostgreSQL queries (R4, R5) hit
+the CFS quota and show multi-millisecond p99 throttling stalls; and nothing else on the host is
+stopped for the run (other compose projects keep running), which is why every configuration is
+measured three times and the median reported alongside the min/max p50 across runs.

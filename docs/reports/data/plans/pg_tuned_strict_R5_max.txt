@@ -1,0 +1,35 @@
+-- R5_max EXPLAIN (ANALYZE, BUFFERS), PostgreSQL profile=tuned durability=strict
+-- parameters: batch=917 (largest descendant set: 22), max_depth=20
+WITH RECURSIVE descendants(id, depth) AS (
+        SELECT child_id, 1 FROM batch_links WHERE parent_id = %s
+        UNION
+        SELECT bl.child_id, d.depth + 1
+        FROM batch_links bl
+        JOIN descendants d ON bl.parent_id = d.id
+        WHERE d.depth < %s
+    )
+    SELECT DISTINCT id FROM descendants
+
+HashAggregate  (cost=562.48..564.48 rows=200 width=8) (actual time=0.204..0.207 rows=22 loops=1)
+  Group Key: descendants.id
+  Batches: 1  Memory Usage: 40kB
+  Buffers: shared hit=60 read=8
+  CTE descendants
+    ->  Recursive Union  (cost=0.29..555.84 rows=295 width=12) (actual time=0.039..0.194 rows=22 loops=1)
+          Buffers: shared hit=60 read=8
+          ->  Index Scan using ix_batch_links_parent on batch_links  (cost=0.29..6.75 rows=5 width=12) (actual time=0.038..0.060 rows=5 loops=1)
+                Index Cond: (parent_id = '917'::smallint)
+                Buffers: shared hit=5 read=2
+          ->  Nested Loop  (cost=0.29..54.61 rows=29 width=12) (actual time=0.008..0.026 rows=3 loops=5)
+                Buffers: shared hit=55 read=6
+                ->  WorkTable Scan on descendants d  (cost=0.00..1.12 rows=17 width=12) (actual time=0.000..0.000 rows=4 loops=5)
+                      Filter: (depth < '20'::smallint)
+                ->  Index Scan using ix_batch_links_parent on batch_links bl  (cost=0.29..3.12 rows=2 width=16) (actual time=0.004..0.005 rows=1 loops=22)
+                      Index Cond: (parent_id = d.id)
+                      Buffers: shared hit=55 read=6
+  ->  CTE Scan on descendants  (cost=0.00..5.90 rows=295 width=8) (actual time=0.040..0.197 rows=22 loops=1)
+        Buffers: shared hit=60 read=8
+Planning:
+  Buffers: shared hit=52 read=2
+Planning Time: 0.359 ms
+Execution Time: 0.310 ms
