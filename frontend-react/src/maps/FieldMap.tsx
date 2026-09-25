@@ -118,19 +118,20 @@ function MapCanvas({ fields, label }: { fields: MapField[]; label: string }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- redrawn when the outlines change, not on every new array
   }, [shape, theme]);
-  return (
-    <div
-      className="at-graph__canvas"
-      role="img"
-      aria-label={failed ? t('maps.failed') : label}
-      ref={el}
-    ></div>
-  );
+  if (failed)
+    return (
+      <div className="at-graph__canvas">
+        <p role="alert" style={{ margin: 0, padding: 'var(--sp-5)' }}>
+          {t('maps.failed')}
+        </p>
+      </div>
+    );
+  return <div className="at-graph__canvas" role="img" aria-label={label} ref={el}></div>;
 }
 
 /** The map of `fields` (nothing when there is no key or no outline). */
 export function FieldMap({ fields }: { fields: MapField[] }) {
-  const { full, wide, open, close, opener, closer } = useFullscreen();
+  const { full, wide, open, close, opener, closer, block } = useFullscreen();
   const withOutline = fields.filter((f) => f.geometry);
   if (!mapsKey() || withOutline.length === 0) return null;
   const label = t('maps.fields', { names: withOutline.map((f) => f.name).join(', ') });
@@ -141,7 +142,7 @@ export function FieldMap({ fields }: { fields: MapField[] }) {
       </Button>
     );
   return (
-    <div className="at-graph" data-fullscreen={full ? '' : undefined}>
+    <div ref={block} className="at-graph" data-fullscreen={full ? '' : undefined}>
       <MapCanvas fields={withOutline} label={label} />
       {full && (
         <div className="at-graph__toolbar">

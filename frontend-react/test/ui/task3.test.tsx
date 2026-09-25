@@ -5,7 +5,10 @@ import { PageToolbar } from '../../src/ui';
 import { graphElements, graphStyle, kebab, type BatchGraph } from '../../src/graph/elements';
 import { boundsOf, FieldMap } from '../../src/maps/FieldMap';
 import { normalizeDecimal } from '../../src/app/forms';
-import { parseGeometry } from '../../src/pages/fields';
+import { parseGeometry, prettyGeometry } from '../../src/pages/fields';
+import { sanitizeParams } from '../../src/app/listState';
+import { momentCheck, momentWire } from '../../src/app/MomentInput';
+import { localToInstant } from '../../src/app/dates';
 import { contractExample } from '../msw/fromContract';
 import { canonical, canonicalHtml, readmeBlock } from './readme';
 
@@ -192,5 +195,66 @@ describe('form helpers', () => {
     expect(parseGeometry('{"type":"Point","coordinates":[1,2]}')).toEqual({ ok: false });
     expect(parseGeometry('null')).toEqual({ ok: false });
     expect(parseGeometry('{')).toEqual({ ok: false });
+  });
+});
+
+describe('review round 1 helpers', () => {
+  it('sanitizeParams keeps what the list accepts, and other parameters of the screen', () => {
+    const spec = {
+      sort: ['massKg'],
+      enums: { kind: ['RAW'], status: ['OnTest', 'Approved'] },
+      uuids: ['orgId'],
+      dates: ['from'],
+      texts: ['q'],
+    };
+    const out = sanitizeParams(
+      new URLSearchParams(
+        'sort=massKg,desc&kind=X&status=OnTest&status=OnTest&status=Nope&orgId=1&from=2026-02-30&q=a&tab=docs&page=2',
+      ),
+      spec,
+    );
+    expect([...out].map(([k, v]) => `${k}=${v}`).sort()).toEqual([
+      'page=2',
+      'q=a',
+      'sort=massKg,desc',
+      'status=OnTest',
+      'tab=docs',
+    ]);
+    expect(sanitizeParams(new URLSearchParams('page=1&sort=x,asc'), spec).toString()).toBe('');
+  });
+
+  it('a moment: local date + time → UTC instant; the edited instant is kept; not after now; time required', () => {
+    const at = localToInstant('2026-07-18', '06:15')!;
+    expect(at).toBe(new Date('2026-07-18T06:15:00').toISOString().replace('.000Z', 'Z'));
+    expect(momentWire({ date: '2026-07-18', time: '06:15', original: null })).toBe(at);
+    const original = new Date('2026-07-18T06:15:42').toISOString();
+    expect(momentWire({ date: '2026-07-18', time: '06:15', original })).toBe(original);
+    expect(momentWire({ date: null, time: '06:15', original: null })).toBeUndefined();
+    expect(momentCheck({ date: '2026-07-18', time: '', original: null }, 'd', 't')).toEqual({
+      t: 'validation.required',
+    });
+    expect(
+      momentCheck({ date: '2026-07-18', time: '06:15', original: null }, 'd', 't', Date.parse(at) - 1),
+    ).toEqual({
+      d: 'validation.date.future',
+    });
+    expect(
+      momentCheck({ date: '2026-07-18', time: '06:15', original: null }, 'd', 't', Date.parse(at)),
+    ).toEqual({});
+  });
+
+  it('the outline is shown pretty-printed, one position per line', () => {
+    const p = {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [39, 45.5],
+          [-39.1, 45],
+        ],
+      ],
+    };
+    expect(prettyGeometry(p)).toBe(
+      '{\n  "type": "Polygon",\n  "coordinates": [\n    [\n      [39, 45.5],\n      [-39.1, 45]\n    ]\n  ]\n}',
+    );
   });
 });

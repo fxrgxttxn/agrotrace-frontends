@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import userEvent from '@testing-library/user-event';
 import { server } from '../setup';
-import { contractExample, contractResponse } from '../msw/fromContract';
+import { API_BASE, contractExample, contractResponse } from '../msw/fromContract';
 import { asMe, dictionaries, pageOf, problem, toastText } from '../msw/data';
 import { renderApp } from '../app/renderApp';
 
@@ -126,6 +127,7 @@ describe('/batches/new', () => {
     await userEvent.selectOptions(screen.getByLabelText('Продукт'), 'Пшеница озимая');
     await userEvent.type(screen.getByLabelText('Масса'), '12480,5');
     await userEvent.type(screen.getByLabelText('Дата уборки'), '18.07.2026');
+    fireEvent.change(screen.getByLabelText('Время уборки'), { target: { value: '06:15' } });
   }
 
   it('registers a raw batch and says what the risk model decided (lab test: reason)', async () => {
@@ -144,7 +146,7 @@ describe('/batches/new', () => {
       fieldId: '2e4a6c8e-0b2d-4f6a-8c0e-2b4d6f8a0c2e',
       productId: '7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d',
       massKg: '12480.500',
-      harvestedAt: '2026-07-18T00:00:00Z',
+      harvestedAt: new Date('2026-07-18T06:15:00').toISOString().replace('.000Z', 'Z'),
     });
     expect(toastText('polite')).toContain(
       'Партия AT-2026-000123 зарегистрирована и направлена на анализ: Пестициды за последние 30 дней',
@@ -269,7 +271,10 @@ describe('/batches/:id', () => {
     expect(rows).toHaveLength(2);
     expect(within(rows[0]!).getByText('Эта партия')).toBeInTheDocument();
     expect(within(rows[1]!).getByText('AT-2026-000457')).toBeInTheDocument();
-    expect(within(rows[1]!).queryByRole('link')).toBeNull();
+    expect(within(rows[1]!).getByRole('link', { name: 'AT-2026-000457' })).toHaveAttribute(
+      'href',
+      '/p/AT-2026-000457',
+    );
     expect(within(rows[1]!).getByText(/нет доступа/)).toBeInTheDocument();
     expect(within(rows[1]!).getByText('Производная, уровень 1')).toBeInTheDocument();
     const openGraph = screen.getByRole('button', { name: 'Открыть граф' });
@@ -403,5 +408,171 @@ describe('/batches/:id', () => {
     await open(`/batches/${BATCH_ID}`, 'Партия');
     expect(await screen.findByText('Партии нет или она вам недоступна.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'К списку партий' })).toHaveAttribute('href', '/batches');
+  });
+});
+
+describe('review round 1', () => {
+  const A = '11111111-1111-4111-8111-111111111111';
+  const B = '22222222-2222-4222-8222-222222222222';
+  const notFoundVsd = {
+    id: '4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e',
+    importStatus: 'NOT_FOUND',
+    document: null,
+    attempts: 1,
+    requestedAt: '2026-07-19T07:30:00Z',
+    updatedAt: '2026-07-19T07:30:03Z',
+  };
+  const docsWith = (vsd: unknown) => ({
+    ...(contractExample('getBatchDocuments', 200, 'holder').body as Record<string, unknown>),
+    vsd,
+  });
+
+  it('?fieldId= of a field that is not the first: the field shown is the field sent', async () => {
+    const f = contractExample('getField').body as Record<string, unknown>;
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      dictionaries(),
+      contractResponse('listFields', {
+        body: pageOf([
+          { ...f, id: A, name: 'Альфа' },
+          { ...f, id: B, name: 'Бета' },
+        ]),
+      }),
+      contractResponse('createBatch', { onRequest: async (r) => void (body = await r.json()) }),
+    );
+    await open(`/batches/new?fieldId=${B}`, 'Новая партия');
+    const select = (await screen.findByLabelText('Поле')) as HTMLSelectElement;
+    expect(select.value).toBe(B);
+    expect(select.selectedOptions[0]!.textContent).toBe('Бета');
+    await userEvent.selectOptions(screen.getByLabelText('Продукт'), 'Пшеница озимая');
+    await userEvent.type(screen.getByLabelText('Масса'), '10');
+    await userEvent.type(screen.getByLabelText('Дата уборки'), '18.07.2026');
+    await userEvent.click(screen.getByRole('button', { name: 'Зарегистрировать партию' }));
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(body!.fieldId).toBe(B);
+  });
+
+  it('invalid URL parameters are dropped (sort, enums, dates, ids, page) and never sent', async () => {
+    let q: URLSearchParams | null = null;
+    server.use(
+      dictionaries(),
+      contractResponse('listBatches', { onRequest: (r) => void (q = new URL(r.url).searchParams) }),
+    );
+    const { router } = await open(
+      '/batches?sort=foo,asc&kind=BAD&holder=zzz&status=Nope&status=OnTest&from=2026-13-45&productId=1&page=-3',
+      'Партии',
+    );
+    await screen.findByRole('link', { name: 'AT-2026-000123' });
+    expect([...q!.keys()].sort()).toEqual(['page', 'size', 'status']);
+    expect(q!.getAll('status')).toEqual(['OnTest']);
+    await waitFor(() => expect(router.state.location.search).toBe('?status=OnTest'));
+  });
+
+  it('several statuses from a link: the select says «Несколько (2)»; the production date sorts', async () => {
+    const seen: URLSearchParams[] = [];
+    server.use(
+      dictionaries(),
+      contractResponse('listBatches', { onRequest: (r) => void seen.push(new URL(r.url).searchParams) }),
+    );
+    await open('/batches?status=OnTest&status=Approved', 'Партии');
+    await screen.findByRole('link', { name: 'AT-2026-000123' });
+    await openFilters();
+    const select = screen.getByLabelText('Статус') as HTMLSelectElement;
+    expect(select.selectedOptions[0]!.textContent).toBe('Несколько (2)');
+    await userEvent.click(screen.getByRole('button', { name: 'Дата производства' }));
+    await waitFor(() => expect(seen.at(-1)!.get('sort')).toBe('harvestedAt,asc'));
+  });
+
+  it('a date filter that came back with the URL (back/forward) survives a blur', async () => {
+    server.use(dictionaries());
+    const { router } = await open('/batches', 'Партии');
+    await screen.findByRole('link', { name: 'AT-2026-000123' });
+    await router.navigate('/batches?from=2026-07-01');
+    await openFilters();
+    const from = screen.getByLabelText('Произведена с');
+    await waitFor(() => expect(from).toHaveValue('01.07.2026'));
+    await userEvent.click(from);
+    await userEvent.tab();
+    expect(new URLSearchParams(router.state.location.search).get('from')).toBe('2026-07-01');
+  });
+
+  it('a list 400 offers «Сбросить фильтры»', async () => {
+    server.use(
+      dictionaries(),
+      contractResponse('listBatches', {
+        status: 400,
+        body: problem(400, 'VALIDATION', { errors: { q: ['validation.maxLength'] } }),
+        once: true,
+      }),
+    );
+    const { router } = await open('/batches?q=x', 'Партии');
+    await userEvent.click(await screen.findByRole('button', { name: 'Сбросить фильтры' }));
+    await waitFor(() => expect(router.state.location.search).toBe(''));
+  });
+
+  it('VSD PENDING: the card asks again until the import is done', async () => {
+    server.use(
+      contractResponse('getBatchDocuments', {
+        body: docsWith({ ...notFoundVsd, importStatus: 'PENDING' }),
+        once: true,
+      }),
+      contractResponse('getBatchDocuments'),
+    );
+    await open(`/batches/${BATCH_ID}?tab=docs`, 'AT-2026-000123');
+    expect(await screen.findByText('Запрашивается в Меркурии')).toBeInTheDocument();
+    // The default answer has no VSD: the card goes when the import is no longer pending.
+    await waitFor(() => expect(screen.queryByText('Запрашивается в Меркурии')).toBeNull(), { timeout: 6000 });
+  });
+
+  it('VSD retry: a network failure keeps the Idempotency-Key; a 429 counts down on the button', async () => {
+    const keys: (string | null)[] = [];
+    server.use(
+      contractResponse('getBatchDocuments', { body: docsWith(notFoundVsd) }),
+      http.post(
+        `${API_BASE}/batches/:id/documents/vsd/retry`,
+        ({ request }) => {
+          keys.push(request.headers.get('Idempotency-Key'));
+          return HttpResponse.error();
+        },
+        { once: true },
+      ),
+      contractResponse('retryBatchVsdImport', {
+        status: 429,
+        headers: { 'Retry-After': '2' },
+        once: true,
+        onRequest: (r) => void keys.push(r.headers.get('Idempotency-Key')),
+      }),
+    );
+    await open(`/batches/${BATCH_ID}?tab=docs`, 'AT-2026-000123');
+    await userEvent.click(await screen.findByRole('button', { name: 'Повторить импорт' }));
+    await waitFor(() => expect(keys).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Повторить импорт' })).not.toHaveAttribute('aria-busy'),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Повторить импорт' }));
+    await waitFor(() => expect(keys).toHaveLength(2));
+    expect(keys[1]).toBe(keys[0]);
+    expect(await screen.findByRole('button', { name: /^Повторить через [12] с$/ })).toBeDisabled();
+  });
+
+  it('graph full screen makes the rest inert; the table shows the mass of each link and public links', async () => {
+    await open(`/batches/${BATCH_ID}?tab=graph`, 'AT-2026-000123');
+    const rows = (await screen.findAllByRole('row')).slice(1);
+    expect(within(rows[1]!).getByText('10 000,000')).toBeInTheDocument();
+    expect(within(rows[1]!).getByRole('link', { name: 'AT-2026-000457' })).toHaveAttribute(
+      'href',
+      '/p/AT-2026-000457',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Открыть граф' }));
+    const block = (await screen.findByRole('img', { name: /^Граф партии/ })).closest('.at-graph')!;
+    const heading = document.querySelector('h1.at-page__title')!;
+    expect(heading.closest('[inert]')).not.toBeNull();
+    expect(block.closest('[inert]')).toBeNull();
+    // The tab panel around it (tabindex 0) is out of the tab order meanwhile.
+    expect(document.getElementById('panel-graph')).toHaveAttribute('tabindex', '-1');
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(document.querySelector('[inert]')).toBeNull());
+    expect(document.getElementById('panel-graph')).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('button', { name: 'Открыть граф' })).toHaveFocus();
   });
 });

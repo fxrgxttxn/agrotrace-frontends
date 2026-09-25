@@ -77,15 +77,19 @@ export function wireSchema<F>(
   precheck?: (values: F) => Record<string, string>,
 ) {
   return z.custom<F>().transform((values, ctx) => {
+    // Form checks and the shared schema both report (one message per field, the form check first).
     const early = Object.entries(precheck?.(values) ?? {});
+    const marked = new Set(early.map(([path]) => path));
     for (const [path, message] of early) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
-    if (early.length) return z.NEVER;
     const wire = toWire(values) as Record<string, unknown>;
     const body = Object.fromEntries(Object.entries(wire).filter(([, v]) => v !== '' && v !== undefined));
     const res = shared.safeParse(body);
-    if (res.success) return res.data as unknown;
-    for (const issue of res.error.issues)
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: issue.path.slice(0, 1), message: issue.message });
+    if (res.success && early.length === 0) return res.data as unknown;
+    for (const issue of res.success ? [] : res.error.issues) {
+      const path = issue.path.slice(0, 1);
+      if (marked.has(String(path[0]))) continue;
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: issue.message });
+    }
     return z.NEVER;
   });
 }

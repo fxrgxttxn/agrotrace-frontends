@@ -13,6 +13,7 @@ import {
   formatLocalTime,
   formatBytes,
   formatDecimal,
+  formatLocalDate,
   problemMessage,
 } from '../src/index.js';
 
@@ -266,5 +267,13 @@ describe('formatDecimal', () => {
     expect(formatDecimal('12480.500', 'ru')).toBe('12 480,500');
     expect(formatDecimal('12480.500', 'en')).toBe('12,480.500');
     expect(formatDecimal('7', 'ru')).toBe('7');
+  });
+});
+
+describe('formatLocalDate', () => {
+  it('the viewer’s calendar day of an instant', () => {
+    expect(formatLocalDate('2026-09-24T22:10:00Z', 'ru', 'Europe/Moscow')).toBe('25.09.2026');
+    expect(formatLocalDate('2026-09-24T22:10:00Z', 'en', 'UTC')).toBe('09/24/2026');
+    expect(formatLocalDate('soon', 'ru')).toBe('soon');
   });
 });

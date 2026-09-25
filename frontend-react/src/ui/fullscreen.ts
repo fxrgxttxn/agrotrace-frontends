@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const WIDE = '(min-width: 768px)';
 
@@ -23,6 +23,32 @@ export function useFullscreen() {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [full]);
+  // While full screen, everything else of the page is `inert` (README «Граф», ruling F11): Tab cannot leave the
+  // block and screen readers do not read what it covers.
+  const block = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!full || !block.current) return;
+    const made: Element[] = [];
+    for (let el: Element | null = block.current; el && el !== document.body; el = el.parentElement)
+      for (const sib of el.parentElement?.children ?? [])
+        if (sib !== el && !sib.hasAttribute('inert') && sib.tagName !== 'SCRIPT') {
+          sib.setAttribute('inert', '');
+          made.push(sib);
+        }
+    // Ancestors cannot be inert; a focusable one (the tab panel, `tabindex="0"`) leaves the tab order meanwhile.
+    const unfocused: [Element, string][] = [];
+    for (let el = block.current.parentElement; el && el !== document.body; el = el.parentElement) {
+      const ti = el.getAttribute('tabindex');
+      if (ti !== null && Number(ti) >= 0) {
+        unfocused.push([el, ti]);
+        el.setAttribute('tabindex', '-1');
+      }
+    }
+    return () => {
+      made.forEach((e) => e.removeAttribute('inert'));
+      unfocused.forEach(([e, ti]) => e.setAttribute('tabindex', ti));
+    };
+  }, [full]);
   // Focus: on the close button when opened, back on the opening button when closed.
   const opener = useRef<HTMLButtonElement>(null);
   const closer = useRef<HTMLButtonElement>(null);
@@ -32,7 +58,7 @@ export function useFullscreen() {
     else if (wasFull.current) opener.current?.focus();
     wasFull.current = full;
   }, [full]);
-  return { full, wide, open, close, opener, closer };
+  return { full, wide, open, close, opener, closer, block };
 }
 
 /** Changes when the colour theme does (the `data-theme` switch or the system scheme): the node colours are read from

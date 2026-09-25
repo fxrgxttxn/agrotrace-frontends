@@ -3,18 +3,34 @@ import { Button } from './Button';
 import { Card } from './Display';
 import { Empty } from './Illustration';
 
-/** A list or card area that failed to load: what failed, one «Повторить» button (spec §10.1: error = what and what to
- * do). */
-export function LoadFailed({ text, busy, onRetry }: { text: string; busy?: boolean; onRetry: () => void }) {
+/** A list or card area that failed to load: what failed and one button (spec §10.1: error = what and what to do).
+ * With `onReset` (the server rejected the list's filters, 400) the button resets them instead of retrying. */
+export function LoadFailed({
+  text,
+  busy,
+  onRetry,
+  onReset,
+}: {
+  text: string;
+  busy?: boolean;
+  onRetry: () => void;
+  onReset?: () => void;
+}) {
   return (
     <Card>
       <Empty
         art="empty-search"
-        text={text}
+        text={onReset ? t('filters.invalid') : text}
         action={
-          <Button variant="primary" busy={busy} onClick={onRetry}>
-            {t('action.retry')}
-          </Button>
+          onReset ? (
+            <Button variant="primary" onClick={onReset}>
+              {t('filters.reset')}
+            </Button>
+          ) : (
+            <Button variant="primary" busy={busy} onClick={onRetry}>
+              {t('action.retry')}
+            </Button>
+          )
         }
       />
     </Card>

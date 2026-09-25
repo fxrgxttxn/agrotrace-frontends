@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { formatLocalDate, formatLocalDateTime } from '@agrotrace/i18n';
 import userEvent from '@testing-library/user-event';
 import { server } from '../setup';
 import { contractExample, contractResponse } from '../msw/fromContract';
@@ -42,7 +43,7 @@ describe('/fields', () => {
     const row = link.closest('tr')!;
     expect(within(row).getByText('Краснодарский край')).toBeInTheDocument();
     expect(within(row).getByText('124,50')).toBeInTheDocument();
-    expect(within(row).getByText('02.06.2026')).toBeInTheDocument();
+    expect(within(row).getByText(formatLocalDate('2026-06-02T07:00:00Z', 'ru'))).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Хозяйство' })).toBeNull();
     expect(screen.getAllByRole('link', { name: 'Добавить поле' })[0]).toHaveAttribute('href', '/fields/new');
     expect(query!.get('page')).toBe('1');
@@ -152,7 +153,7 @@ describe('/fields/new', () => {
       contractResponse('createField', { onRequest: async (r) => void (body = await r.json()) }),
     );
     const { router } = await open('/fields/new', 'Новое поле');
-    await userEvent.type(screen.getByLabelText('Название'), 'Участок «Восточный-3»');
+    await userEvent.type(await screen.findByLabelText('Название'), 'Участок «Восточный-3»');
     await userEvent.type(screen.getByLabelText('Площадь, га'), '124,5');
     await userEvent.selectOptions(screen.getByLabelText('Регион'), 'Краснодарский край');
     await userEvent.click(screen.getByRole('button', { name: 'Добавить поле' }));
@@ -179,7 +180,7 @@ describe('/fields/new', () => {
       }),
     );
     await open('/fields/new', 'Новое поле');
-    await userEvent.type(screen.getByLabelText('Название'), 'Северное');
+    await userEvent.type(await screen.findByLabelText('Название'), 'Северное');
     await userEvent.type(screen.getByLabelText('Площадь, га'), '10');
     await userEvent.selectOptions(screen.getByLabelText('Регион'), 'Владимирская область');
     const outline = screen.getByLabelText('Контур, GeoJSON');
@@ -222,7 +223,7 @@ describe('/fields/new', () => {
       }),
     );
     await open('/fields/new', 'Новое поле');
-    await userEvent.type(screen.getByLabelText('Название'), 'Северное');
+    await userEvent.type(await screen.findByLabelText('Название'), 'Северное');
     await userEvent.type(screen.getByLabelText('Площадь, га'), '10');
     await userEvent.selectOptions(screen.getByLabelText('Регион'), 'Владимирская область');
     await userEvent.click(screen.getByRole('button', { name: 'Добавить поле' }));
@@ -248,10 +249,13 @@ describe('/fields/:id', () => {
     const rows = (await screen.findAllByRole('row')).slice(1);
     expect(rows).toHaveLength(2);
     expect(within(rows[0]!).getByText('1,500 л/га')).toBeInTheDocument();
-    // Waiting period: 30 days after 02.06.2026.
-    expect(within(rows[0]!).getByText('02.07.2026')).toBeInTheDocument();
+    // Moments in the viewer's time; waiting period: 30 days after the treatment.
+    expect(within(rows[0]!).getByText(formatLocalDateTime('2026-06-02T07:00:00Z', 'ru'))).toBeInTheDocument();
+    expect(within(rows[0]!).getByText(formatLocalDateTime('2026-07-02T07:00:00Z', 'ru'))).toBeInTheDocument();
     expect(
-      within(rows[0]!).getByRole('button', { name: 'Изменить обработку: Хлорпирифос, 02.06.2026' }),
+      within(rows[0]!).getByRole('button', {
+        name: `Изменить обработку: Хлорпирифос, ${formatLocalDate('2026-06-02T07:00:00Z', 'ru')}`,
+      }),
     ).toBeInTheDocument();
     expect(within(rows[1]!).queryByRole('button')).toBeNull();
     expect(screen.getByRole('link', { name: 'Зарегистрировать партию' })).toHaveAttribute(
@@ -260,7 +264,7 @@ describe('/fields/:id', () => {
     );
   });
 
-  it('records a treatment: dose «1,5» → "1.500", the date as its UTC midnight', async () => {
+  it('records a treatment: dose «1,5» → "1.500", local date and time → the UTC instant', async () => {
     let body: Record<string, unknown> | null = null;
     server.use(
       dictionaries(),
@@ -273,19 +277,20 @@ describe('/fields/:id', () => {
     await userEvent.type(within(dialog).getByLabelText('Доза'), '1,5');
     await userEvent.selectOptions(within(dialog).getByLabelText('Единица дозы'), 'кг/га');
     await userEvent.type(within(dialog).getByLabelText('Дата обработки'), '02.06.2026');
+    fireEvent.change(within(dialog).getByLabelText('Время обработки'), { target: { value: '09:30' } });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Записать обработку' }));
     await waitFor(() => expect(body).not.toBeNull());
     expect(body).toEqual({
       substanceId: '9e1f3a5b-7c9d-4e0f-a2b4-c6d8e0f2a4b6',
       dose: '1.500',
       doseUnit: 'кг/га',
-      appliedAt: '2026-06-02T00:00:00Z',
+      appliedAt: new Date('2026-06-02T09:30:00').toISOString().replace('.000Z', 'Z'),
     });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(toastText('polite')).toContain('Обработка записана');
   });
 
-  it('an edit keeps the recorded instant when the date is unchanged; a closed window (403) says until when', async () => {
+  it('an edit keeps the recorded instant when date and time are unchanged; a closed window (403) says until when (server params)', async () => {
     let body: Record<string, unknown> | null = null;
     const until = future();
     server.use(
@@ -306,7 +311,9 @@ describe('/fields/:id', () => {
     expect(body!.appliedAt).toBe('2026-06-02T07:00:00Z');
     expect(body!.dose).toBe('2.000');
     await waitFor(() =>
-      expect(toastText()).toMatch(/^Изменить обработку можно было до .+: прошло 24 часа с её записи$/),
+      expect(toastText()).toBe(
+        `Изменить обработку можно было до ${formatLocalDateTime('2026-06-03T15:20:00Z', 'ru')}: прошло 24 часа с её записи`,
+      ),
     );
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
@@ -359,5 +366,99 @@ describe('/fields/:id', () => {
     await open(`/fields/${FIELD_ID}`, 'Поле');
     expect(await screen.findByText('Поля нет или оно вам недоступно.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'К списку полей' })).toHaveAttribute('href', '/fields');
+  });
+});
+
+describe('review round 1: URL state, focus, outline import', () => {
+  it('parameters the list does not accept are dropped from the URL and never sent', async () => {
+    let query: URLSearchParams | null = null;
+    server.use(
+      dictionaries(),
+      contractResponse('listFields', { onRequest: (r) => void (query = new URL(r.url).searchParams) }),
+    );
+    const { router } = await open(
+      '/fields?sort=bogus,asc&regionCode=bad!&organizationId=xyz&page=0&q=вост',
+      'Поля',
+    );
+    await screen.findByRole('link', { name: 'Участок «Восточный-3»' });
+    expect(query!.has('sort')).toBe(false);
+    expect(query!.has('regionCode')).toBe(false);
+    expect(query!.get('page')).toBe('1');
+    expect(query!.get('q')).toBe('вост');
+    await waitFor(() => expect(router.state.location.search).toBe('?q=%D0%B2%D0%BE%D1%81%D1%82'));
+  });
+
+  it('a list 400 offers «Сбросить фильтры»; a page past the end goes to the last page', async () => {
+    server.use(
+      dictionaries(),
+      contractResponse('listFields', {
+        status: 400,
+        body: problem(400, 'VALIDATION', { errors: { q: ['validation.maxLength'] } }),
+        once: true,
+      }),
+    );
+    const { router } = await open('/fields?q=x', 'Поля');
+    expect(await screen.findByText('Список нельзя показать с такими фильтрами.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Сбросить фильтры' }));
+    await waitFor(() => expect(router.state.location.search).toBe(''));
+    expect(await screen.findByRole('link', { name: 'Участок «Восточный-3»' })).toBeInTheDocument();
+
+    const pages: string[] = [];
+    server.use(
+      contractResponse('listFields', {
+        body: pageOf([], 25, 9),
+        once: true,
+        onRequest: (r) => void pages.push(new URL(r.url).searchParams.get('page')!),
+      }),
+    );
+    router.navigate('/fields?page=9');
+    await waitFor(() => expect(new URLSearchParams(router.state.location.search).get('page')).toBe('2'));
+    expect(screen.queryByText('Полей пока нет.')).toBeNull();
+  });
+
+  it('a focused «Изменить» that disappears hands the focus to «Записать обработку»', async () => {
+    server.use(
+      dictionaries(),
+      contractResponse('listFieldTreatments', {
+        body: pageOf([treatment({ editableUntil: future() })]),
+        once: true,
+      }),
+      contractResponse('listFieldTreatments', { body: pageOf([treatment()]) }),
+      contractResponse('updateTreatment', { status: 403 }),
+    );
+    await open(`/fields/${FIELD_ID}`, 'Участок «Восточный-3»');
+    await userEvent.click(await screen.findByRole('button', { name: /^Изменить обработку/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Изменить обработку' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Сохранить' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Изменить обработку/ })).toBeNull());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Записать обработку' })).toHaveFocus());
+  });
+
+  it('a .geojson file is read into the outline field, pretty-printed', async () => {
+    server.use(dictionaries());
+    await open('/fields/new', 'Новое поле');
+    const polygon = {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [39, 45],
+          [39.1, 45],
+          [39.1, 45.1],
+          [39, 45],
+        ],
+      ],
+    };
+    const file = new File(
+      [JSON.stringify({ type: 'Feature', properties: {}, geometry: polygon })],
+      'north.geojson',
+      {
+        type: 'application/geo+json',
+      },
+    );
+    await userEvent.upload(await screen.findByLabelText('Файл контура'), file);
+    const outline = screen.getByLabelText('Контур, GeoJSON') as HTMLTextAreaElement;
+    await waitFor(() => expect(outline.value).toContain('"type": "Polygon"'));
+    expect(outline.value).toContain('[39, 45]');
+    expect(JSON.parse(outline.value)).toEqual(polygon);
   });
 });

@@ -15,7 +15,7 @@ export interface GraphView {
 export function mountGraph(
   container: HTMLElement,
   graph: BatchGraph,
-  onOpen: (id: string) => void,
+  onOpen: (node: { id: string; publicCode: string; accessible: boolean }) => void,
 ): GraphView {
   if (!registered) {
     cytoscape.use(dagre);
@@ -40,7 +40,13 @@ export function mountGraph(
     boxSelectionEnabled: false,
     autoungrabify: true,
   });
-  cy.on('tap', 'node[?accessible]', (e) => onOpen(e.target.id() as string));
+  cy.on('tap', 'node', (e) =>
+    onOpen({
+      id: e.target.id() as string,
+      publicCode: e.target.data('label') as string,
+      accessible: e.target.data('accessible') as boolean,
+    }),
+  );
   const center = () => ({ x: container.clientWidth / 2, y: container.clientHeight / 2 });
   return {
     zoom: (factor) => cy.zoom({ level: cy.zoom() * factor, renderedPosition: center() }),

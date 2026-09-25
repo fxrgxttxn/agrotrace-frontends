@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
 
 export interface TabDef {
   id: string;
@@ -23,6 +23,17 @@ export function Tabs({
   panel: (id: string) => ReactNode;
 }) {
   const refs = useRef(new Map<string, HTMLButtonElement>());
+  // A narrow tab row scrolls sideways: the selected tab (e.g. `?tab=docs` at 360 px) is scrolled into the row's view,
+  // horizontally only (the page itself does not jump).
+  useEffect(() => {
+    const tab = refs.current.get(selected);
+    const row = tab?.parentElement;
+    if (!tab || !row) return;
+    const t0 = tab.getBoundingClientRect();
+    const r0 = row.getBoundingClientRect();
+    if (t0.left < r0.left) row.scrollLeft -= r0.left - t0.left;
+    else if (t0.right > r0.right) row.scrollLeft += t0.right - r0.right;
+  }, [selected]);
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const i = tabs.findIndex((tab) => tab.id === selected);
     const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];

@@ -1,5 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
-import { DEMO_PASSWORD, horizontalOverflow, quietStream, signIn, unexpected, watch } from './helpers';
+import {
+  DEMO_PASSWORD,
+  focusStaysIn,
+  horizontalOverflow,
+  quietStream,
+  signIn,
+  unexpected,
+  watch,
+} from './helpers';
 
 // Task 3 screens on the demo world (seed, docs/demo-accounts.md): fields and the treatment journal of «КФХ Петров»,
 // registration of a raw batch with the risk-model outcome, the registry filters in the URL, the batch card tabs and
@@ -48,7 +56,10 @@ test('FARMER: fields, a field with its journal, a treatment, a new batch with th
   const dialog = page.getByRole('dialog', { name: 'Записать обработку' });
   await dialog.getByLabel('Препарат').selectOption({ index: 1 });
   await dialog.getByLabel('Доза').fill('0,5');
-  const today = new Date().toISOString().slice(0, 10).split('-').reverse().join('.');
+  const now = new Date();
+  const today = [now.getDate(), now.getMonth() + 1, now.getFullYear()]
+    .map((n) => String(n).padStart(2, '0'))
+    .join('.');
   await dialog.getByLabel('Дата обработки').fill(today);
   await dialog.getByRole('button', { name: 'Записать обработку' }).click();
   await expect(dialog).toBeHidden();
@@ -58,7 +69,8 @@ test('FARMER: fields, a field with its journal, a treatment, a new batch with th
 
   await page.getByRole('link', { name: 'Зарегистрировать партию' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Новая партия' })).toBeVisible();
-  await expect(page.getByLabel('Поле')).not.toHaveValue('');
+  // The field the link came from is the one shown (and sent).
+  await expect(page.getByLabel('Поле').locator('option:checked')).toHaveText('Низинное');
   await page.getByLabel('Продукт').selectOption({ index: 1 });
   await page.getByLabel('Масса').fill('1500');
   await page.getByLabel('Дата уборки').fill(today);
@@ -119,6 +131,7 @@ test('360 px: the graph opens full screen and closes with Esc', async ({ page })
   await page.getByRole('tab', { name: 'Граф' }).click();
   await page.getByRole('button', { name: 'Открыть граф' }).click();
   await expect(page.locator('.at-graph[data-fullscreen] canvas').first()).toBeVisible();
+  await focusStaysIn(page, '.at-graph[data-fullscreen]');
   await page.screenshot({ path: `${SHOTS}/graph-fullscreen-360.png`, animations: 'disabled' });
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Открыть граф' })).toBeFocused();

@@ -1,15 +1,16 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
-import { enumLabel, formatDate, formatDecimal, formatLocalDateTime } from '@agrotrace/i18n';
+import { enumLabel, formatDecimal, formatLocalDate, formatLocalDateTime } from '@agrotrace/i18n';
 import { FieldInputSchema, TreatmentInputSchema } from '@agrotrace/validation';
 import { call, errorText, errorTone, useFormAlert } from '../app/api';
-import { addDays, dateToInstant, todayUtc } from '../app/dates';
+import { addDays } from '../app/dates';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
-import { useListParams } from '../app/listState';
+import { isBadListQuery, useListParams, type ListSpec } from '../app/listState';
+import { momentCheck, momentDefaults, MomentInput, momentWire } from '../app/MomentInput';
 import { OrgPicker } from '../app/OrgPicker';
 import { useMe, useSession } from '../app/session';
 import { useNow } from '../app/useNow';
@@ -22,10 +23,10 @@ import {
   CardBody,
   CardFacts,
   CardHeader,
-  DateInput,
   Dialog,
   Empty,
   Field,
+  FileField,
   Input,
   InputGroup,
   LoadFailed,
@@ -37,23 +38,33 @@ import {
   Textarea,
   useToast,
   type Column,
+  type FileItem,
 } from '../ui';
 
 // Fields (FR-PROD-01) and their treatment journal (FR-PROD-02). FARMER manages the fields of the farm; INSPECTOR and
 // ADMIN read the fields of every farm (organization filter). List state (search, region, organization, sort, page)
-// lives in the URL. The map (Yandex Maps) is drawn only when the build has a key; the table is always there.
+// lives in the URL (sanitized, F11). The map (Yandex Maps) is drawn only when the build has a key; the table is always
+// there. Moments (treatment time) are entered in local time and shown in local time (F7, F11).
 
 type FieldT = Schemas['Field'];
 type Treatment = Schemas['Treatment'];
 const SIZE = 20;
 const GAP = { display: 'grid', gap: 'var(--sp-5)' } as const;
 
+const FIELDS_SPEC: ListSpec = {
+  sort: ['name', 'areaHa', 'lastTreatmentAt', 'createdAt'],
+  patterns: { regionCode: /^[0-9A-Z-]{1,8}$/ },
+  uuids: ['organizationId'],
+  texts: ['q'],
+};
+const TREATMENTS_SPEC: ListSpec = { sort: ['appliedAt', 'createdAt'] };
+
 /** How a form is laid out: on a page (submit under the fields) or in a dialog (submit in the action row). */
 type Wrap = (form: ReactNode, submit: ReactNode) => ReactNode;
 const onPage: Wrap = (form, submit) => (
   <>
     {form}
-    <div style={{ marginTop: 'var(--sp-5)' }}>{submit}</div>
+    {submit && <div style={{ marginTop: 'var(--sp-5)' }}>{submit}</div>}
   </>
 );
 
@@ -66,7 +77,7 @@ function useViewer() {
   };
 }
 
-const dateOrDash = (iso: string | null) => (iso ? formatDate(iso, LOCALE) : '—');
+const dateOrDash = (iso: string | null) => (iso ? formatLocalDate(iso, LOCALE) : '—');
 const sortParam = (s: { field: string; dir: string } | null) => (s ? { sort: `${s.field},${s.dir}` } : {});
 const notFound = (e: unknown) => e instanceof ApiProblem && e.status === 404;
 /** Client errors are answers, not outages: no automatic retries. */
@@ -77,7 +88,7 @@ const retryTransient = (n: number, e: unknown) => !(e instanceof ApiProblem && e
 export function FieldsPage() {
   const { api } = useSession();
   const { farmer, overseer } = useViewer();
-  const list = useListParams('/fields');
+  const list = useListParams('/fields', FIELDS_SPEC);
   const q = list.get('q');
   const regionCode = list.get('regionCode');
   const organizationId = overseer ? list.get('organizationId') : '';
@@ -106,6 +117,11 @@ export function FieldsPage() {
   });
   const items = query.data?.items ?? [];
   const filtered = Boolean(q || regionCode || organizationId);
+  const { clampPage } = list;
+  useEffect(() => {
+    if (query.data && query.data.items.length === 0 && query.data.total > 0)
+      clampPage(query.data.total, SIZE);
+  }, [query.data, clampPage]);
 
   const columns: Column<FieldT>[] = [
     {
@@ -142,9 +158,14 @@ export function FieldsPage() {
   const content = () => {
     if (!query.data && query.isError)
       return (
-        <LoadFailed text={t('fields.failed')} busy={query.isFetching} onRetry={() => void query.refetch()} />
+        <LoadFailed
+          text={t('fields.failed')}
+          busy={query.isFetching}
+          onRetry={() => void query.refetch()}
+          onReset={isBadListQuery(query.error) ? list.reset : undefined}
+        />
       );
-    if (!query.data) return <AreaLoading />;
+    if (!query.data || (items.length === 0 && query.data.total > 0)) return <AreaLoading />;
     if (items.length === 0)
       return (
         <Card>
@@ -153,10 +174,7 @@ export function FieldsPage() {
               art="empty-search"
               text={t('empty.search')}
               action={
-                <Button
-                  variant="primary"
-                  onClick={() => list.set({ q: null, regionCode: null, organizationId: null })}
-                >
+                <Button variant="primary" onClick={list.reset}>
                   {t('filters.reset')}
                 </Button>
               }
@@ -260,6 +278,8 @@ interface FieldValues {
   geometry: string;
 }
 const FIELD_FIELDS = ['name', 'areaHa', 'regionCode', 'geometry'] as const;
+/** Largest outline file read into the form (1000 positions × 10 rings of GeoJSON fit well below it). */
+const GEOJSON_MAX_BYTES = 1024 * 1024;
 
 /** GeoJSON text → a Polygon geometry (a bare geometry, a Feature, or a collection of one Feature); `''` → null. */
 export function parseGeometry(text: string): { ok: true; value: unknown } | { ok: false } {
@@ -273,6 +293,21 @@ export function parseGeometry(text: string): { ok: true; value: unknown } | { ok
   } catch {
     return { ok: false };
   }
+}
+
+/** Text of a chosen file (FileReader: every browser, and jsdom). */
+function readText(file: File): Promise<string | null> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+    reader.onerror = () => resolve(null);
+    reader.readAsText(file);
+  });
+}
+
+/** A polygon as the outline field shows it: pretty-printed, one position per line. */
+export function prettyGeometry(geometry: unknown): string {
+  return JSON.stringify(geometry, null, 2).replace(/\[\s+(-?[\d.]+),\s+(-?[\d.]+)\s+\]/g, '[$1, $2]');
 }
 
 const fieldSchema = wireSchema<FieldValues>(
@@ -297,25 +332,48 @@ function valuesOf(f?: FieldT): FieldValues {
     name: f?.name ?? '',
     areaHa: f ? f.areaHa.replace('.', ',') : '',
     regionCode: f?.region.code ?? '',
-    geometry: f?.geometry ? JSON.stringify(f.geometry) : '',
+    geometry: f?.geometry ? prettyGeometry(f.geometry) : '',
   };
 }
 
-function FieldForm({
-  id,
-  field,
-  submitLabel,
-  onSaved,
-  wrap = onPage,
-}: {
+interface FieldFormProps {
   id: string;
   field?: FieldT;
   submitLabel: string;
   onSaved: (f: FieldT) => void;
   wrap?: Wrap;
-}) {
-  const { api } = useSession();
+}
+
+/** The form is built once the regions are there: a select rendered before its options would show one value while
+ * the form holds another. */
+function FieldForm(props: FieldFormProps) {
   const regions = useDictionary('regions');
+  const wrap = props.wrap ?? onPage;
+  if (!regions.data)
+    return wrap(
+      regions.isError ? (
+        <LoadFailed
+          text={t('fields.failed')}
+          busy={regions.isFetching}
+          onRetry={() => void regions.refetch()}
+        />
+      ) : (
+        <AreaLoading blocks={1} />
+      ),
+      null,
+    );
+  return <FieldFormReady {...props} wrap={wrap} regions={regions.data} />;
+}
+
+function FieldFormReady({
+  id,
+  field,
+  submitLabel,
+  onSaved,
+  wrap,
+  regions,
+}: FieldFormProps & { wrap: Wrap; regions: Schemas['RegionEntry'][] }) {
+  const { api } = useSession();
   const { form, alert, wait, fail } = useSchemaForm<FieldValues>(
     fieldSchema,
     valuesOf(field),
@@ -323,6 +381,8 @@ function FieldForm({
     fieldAlias,
   );
   const [busy, setBusy] = useState(false);
+  const [file, setFile] = useState<FileItem[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
   const submit = form.handleSubmit(async (values) => {
     const body = values as unknown as Schemas['FieldInput'];
     alert.clear();
@@ -338,6 +398,25 @@ function FieldForm({
       setBusy(false);
     }
   });
+  // A `.geojson` file is read into the outline field (pretty-printed when it holds a polygon), where it can be checked.
+  const importFile = async (files: File[]) => {
+    const f = files[0];
+    if (!f) return;
+    setFileError(null);
+    const text = f.size <= GEOJSON_MAX_BYTES ? await readText(f) : null;
+    if (text === null) {
+      setFile([]);
+      setFileError(t('fields.geometryUnreadable'));
+      return;
+    }
+    const parsed = parseGeometry(text);
+    form.setValue('geometry', parsed.ok && parsed.value ? prettyGeometry(parsed.value) : text, {
+      shouldDirty: true,
+    });
+    setFile([{ key: f.name, name: f.name, sizeText: `${Math.max(1, Math.round(f.size / 1024))} КБ` }]);
+    if (parsed.ok) form.clearErrors('geometry');
+    else form.setError('geometry', { type: 'file', message: 'fields.geometryInvalid' });
+  };
   return wrap(
     <form id={id} noValidate onSubmit={(e) => void submit(e)} style={FORM_GRID}>
       <Field id={`${id}-name`} label={t('field.name')} error={errorOf(form, 'name')}>
@@ -356,7 +435,7 @@ function FieldForm({
           <option value="" disabled>
             {t('ui.choose')}
           </option>
-          {(regions.data ?? (field ? [field.region] : [])).map((r) => (
+          {regions.map((r) => (
             <option key={r.code} value={r.code}>
               {r.name}
             </option>
@@ -364,8 +443,24 @@ function FieldForm({
         </Select>
       </Field>
       <Field id={`${id}-geometry`} label={t('fields.geometry')} error={errorOf(form, 'geometry')}>
-        <Textarea rows={4} spellCheck={false} {...form.register('geometry')} />
+        <Textarea
+          className="at-textarea at-mono"
+          rows={6}
+          spellCheck={false}
+          placeholder={'{\n  "type": "Polygon",\n  "coordinates": [[[39.01, 45.04], …, [39.01, 45.04]]]\n}'}
+          {...form.register('geometry')}
+        />
       </Field>
+      <FileField
+        id={`${id}-geometry-file`}
+        label={t('fields.geometryFile')}
+        accept=".geojson,.json,application/geo+json,application/json"
+        hint={t('fields.geometryFileHint')}
+        files={file}
+        onFiles={(files) => void importFile(files)}
+        onRemove={() => setFile([])}
+        error={fileError}
+      />
     </form>,
     <Submit busy={busy} wait={wait} form={id}>
       {submitLabel}
@@ -402,6 +497,8 @@ export function FieldNewPage() {
 
 export function FieldPage() {
   const { id = '' } = useParams();
+  // Loaded with the page: the edit dialog is mounted once, with its choices.
+  const regions = useDictionary('regions');
   const { api } = useSession();
   const { farmer, overseer } = useViewer();
   const navigate = useNavigate();
@@ -467,6 +564,11 @@ export function FieldPage() {
             </ButtonLink>
             <Button
               onClick={() => {
+                if (!regions.data && regions.isError) {
+                  toast.push({ tone: 'danger', text: t('fields.regionsFailed') });
+                  void regions.refetch();
+                  return;
+                }
                 setEditKey((k) => k + 1);
                 setDialog('edit');
               }}
@@ -508,7 +610,7 @@ export function FieldPage() {
           <Treatments field={field} farmer={farmer} />
         </div>
       )}
-      {field && (
+      {field && regions.data && (
         <FieldForm
           key={editKey}
           id="field-edit"
@@ -564,18 +666,26 @@ export function FieldPage() {
 
 function Treatments({ field, farmer }: { field: FieldT; farmer: boolean }) {
   const { api } = useSession();
-  const list = useListParams(`/fields/${field.id}`);
+  // Loaded before a dialog opens: the dialog is mounted once, with its choices (its opener gets the focus back).
+  const substances = useDictionary('substances');
+  const list = useListParams(`/fields/${field.id}`, TREATMENTS_SPEC);
   const now = useNow();
   const queryClient = useQueryClient();
   const toast = useToast();
   // The dialog stays mounted while it closes (the native close returns the focus to the button that opened it).
   const [editing, setEditingState] = useState<{ tr?: Treatment; key: number; open: boolean } | null>(null);
-  const setEditing = (target: Treatment | 'new' | null) =>
+  const setEditing = (target: Treatment | 'new' | null) => {
+    if (target !== null && !substances.data && substances.isError) {
+      toast.push({ tone: 'danger', text: t('treatments.substancesFailed') });
+      void substances.refetch();
+      return;
+    }
     setEditingState((cur) =>
       target === null
         ? cur && { ...cur, open: false }
         : { tr: target === 'new' ? undefined : target, key: (cur?.key ?? 0) + 1, open: true },
     );
+  };
   const sort = list.sort;
 
   const query = useQuery({
@@ -590,11 +700,39 @@ function Treatments({ field, farmer }: { field: FieldT; farmer: boolean }) {
     retry: retryTransient,
   });
   const items = query.data?.items ?? [];
+  const { clampPage } = list;
+  useEffect(() => {
+    if (query.data && query.data.items.length === 0 && query.data.total > 0)
+      clampPage(query.data.total, SIZE);
+  }, [query.data, clampPage]);
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['treatments', field.id] });
     void queryClient.invalidateQueries({ queryKey: ['field', field.id] });
     void queryClient.invalidateQueries({ queryKey: ['fields'] });
   };
+
+  // A focused «Изменить» that disappears (its 24 h window closed) would drop the focus to the page: it goes to
+  // «Записать обработку» (or the card title) instead.
+  const card = useRef<HTMLDivElement>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const lastFocus = useRef<Element | null>(null);
+  useEffect(() => {
+    const el = card.current;
+    if (!el) return;
+    const on = (e: FocusEvent) => (lastFocus.current = e.target as Element);
+    el.addEventListener('focus', on, true);
+    return () => el.removeEventListener('focus', on, true);
+  }, []);
+  useEffect(() => {
+    const last = lastFocus.current;
+    if (!last || last.isConnected) return;
+    // (Browsers move the focus to the body; jsdom keeps the removed element as active.)
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    lastFocus.current = null;
+    const title = card.current?.querySelector<HTMLElement>('.at-card__title');
+    (addButton.current ?? title)?.focus();
+  });
 
   // The edit window (FR-PROD-02) is the contract's `editableUntil`, inclusive; the button goes when it passes.
   const editable = (tr: Treatment) => farmer && now <= Date.parse(tr.editableUntil);
@@ -620,18 +758,28 @@ function Treatments({ field, farmer }: { field: FieldT; farmer: boolean }) {
       key: 'applied',
       header: t('field.appliedAt'),
       sortField: 'appliedAt',
-      cell: (tr) => formatDate(tr.appliedAt, LOCALE),
+      cell: (tr) => formatLocalDateTime(tr.appliedAt, LOCALE),
     },
     {
       key: 'wait',
       header: t('treatments.waitUntil'),
-      cell: (tr) => formatDate(addDays(tr.appliedAt, tr.substance.waitingPeriodDays), LOCALE),
+      cell: (tr) => formatLocalDateTime(addDays(tr.appliedAt, tr.substance.waitingPeriodDays), LOCALE),
     },
   ];
 
   const body = () => {
     if (!query.data && query.isError)
-      return (
+      return isBadListQuery(query.error) ? (
+        <Empty
+          art="empty-search"
+          text={t('filters.invalid')}
+          action={
+            <Button variant="primary" onClick={list.reset}>
+              {t('filters.reset')}
+            </Button>
+          }
+        />
+      ) : (
         <Empty
           art="empty-search"
           text={t('treatments.failed')}
@@ -642,7 +790,7 @@ function Treatments({ field, farmer }: { field: FieldT; farmer: boolean }) {
           }
         />
       );
-    if (!query.data) return <AreaLoading blocks={1} />;
+    if (!query.data || (items.length === 0 && query.data.total > 0)) return <AreaLoading blocks={1} />;
     if (items.length === 0)
       return (
         <Empty
@@ -679,7 +827,7 @@ function Treatments({ field, farmer }: { field: FieldT; farmer: boolean }) {
                       size="s"
                       aria-label={t('treatments.editOf', {
                         substance: tr.substance.name,
-                        date: formatDate(tr.appliedAt, LOCALE),
+                        date: formatLocalDate(tr.appliedAt, LOCALE),
                       })}
                       title={t('treatments.editableUntil', {
                         time: formatLocalDateTime(tr.editableUntil, LOCALE),
@@ -698,38 +846,41 @@ function Treatments({ field, farmer }: { field: FieldT; farmer: boolean }) {
   };
 
   return (
-    <Card>
-      <CardHeader title={t('treatments.title')}>
-        {farmer && items.length > 0 && (
-          <Button icon="plus" onClick={() => setEditing('new')}>
-            {t('treatments.add')}
-          </Button>
+    <div ref={card}>
+      <Card>
+        <CardHeader title={t('treatments.title')}>
+          {farmer && items.length > 0 && (
+            <Button ref={addButton} icon="plus" onClick={() => setEditing('new')}>
+              {t('treatments.add')}
+            </Button>
+          )}
+        </CardHeader>
+        <CardBody>{body()}</CardBody>
+        {editing !== null && substances.data && (
+          <TreatmentFormReady
+            substances={substances.data}
+            key={editing.key}
+            open={editing.open}
+            fieldId={field.id}
+            treatment={editing.tr}
+            onClose={() => setEditing(null)}
+            onSaved={(created) => {
+              setEditing(null);
+              refresh();
+              toast.push({ tone: 'ok', text: t(created ? 'treatments.created' : 'treatments.saved') });
+            }}
+            onClosedWindow={(until) => {
+              setEditing(null);
+              refresh();
+              toast.push({
+                tone: 'danger',
+                text: t('treatments.editClosed', { time: formatLocalDateTime(until, LOCALE) }),
+              });
+            }}
+          />
         )}
-      </CardHeader>
-      <CardBody>{body()}</CardBody>
-      {editing !== null && (
-        <TreatmentForm
-          key={editing.key}
-          open={editing.open}
-          fieldId={field.id}
-          treatment={editing.tr}
-          onClose={() => setEditing(null)}
-          onSaved={(created) => {
-            setEditing(null);
-            refresh();
-            toast.push({ tone: 'ok', text: t(created ? 'treatments.created' : 'treatments.saved') });
-          }}
-          onClosedWindow={(tr) => {
-            setEditing(null);
-            refresh();
-            toast.push({
-              tone: 'danger',
-              text: t('treatments.editClosed', { time: formatLocalDateTime(tr.editableUntil, LOCALE) }),
-            });
-          }}
-        />
-      )}
-    </Card>
+      </Card>
+    </div>
   );
 }
 
@@ -738,49 +889,55 @@ interface TreatmentValues {
   dose: string;
   doseUnit: string;
   appliedAt: string | null;
-  /** The recorded instant: kept as it is while its date is not changed (an edit keeps the time of day). */
+  appliedTime: string;
+  /** The recorded instant: kept as it is while its date and time are not changed. */
   original: string | null;
 }
-const TREATMENT_FIELDS = ['substanceId', 'dose', 'doseUnit', 'appliedAt'] as const;
+const TREATMENT_FIELDS = ['substanceId', 'dose', 'doseUnit', 'appliedAt', 'appliedTime'] as const;
 const DOSE_UNITS = ['л/га', 'мл/га', 'кг/га', 'г/га'] as const;
 
-const treatmentSchema = wireSchema<TreatmentValues>(TreatmentInputSchema, (v) => ({
-  substanceId: v.substanceId,
-  dose: normalizeDecimal(v.dose, 3),
-  doseUnit: v.doseUnit,
-  appliedAt:
-    v.appliedAt === null
-      ? undefined
-      : v.original && v.original.slice(0, 10) === v.appliedAt
-        ? v.original
-        : dateToInstant(v.appliedAt),
-}));
+const moment = (v: TreatmentValues) => ({ date: v.appliedAt, time: v.appliedTime, original: v.original });
+const treatmentSchema = wireSchema<TreatmentValues>(
+  TreatmentInputSchema,
+  (v) => ({
+    substanceId: v.substanceId,
+    dose: normalizeDecimal(v.dose, 3),
+    doseUnit: v.doseUnit,
+    appliedAt: momentWire(moment(v)),
+  }),
+  (v) => momentCheck(moment(v), 'appliedAt', 'appliedTime'),
+);
 
-function TreatmentForm({
+interface TreatmentFormProps {
+  open: boolean;
+  fieldId: string;
+  treatment?: Treatment;
+  onClose: () => void;
+  onSaved: (created: boolean) => void;
+  /** 403 EDIT_WINDOW_CLOSED: until when it could be edited (the server's `params.editableUntil`). */
+  onClosedWindow: (editableUntil: string) => void;
+}
+
+function TreatmentFormReady({
   open,
   fieldId,
   treatment,
   onClose,
   onSaved,
   onClosedWindow,
-}: {
-  open: boolean;
-  fieldId: string;
-  treatment?: Treatment;
-  onClose: () => void;
-  onSaved: (created: boolean) => void;
-  onClosedWindow: (tr: Treatment) => void;
-}) {
+  substances,
+}: TreatmentFormProps & { substances: Schemas['Substance'][] }) {
   const { api } = useSession();
-  const substances = useDictionary('substances');
+  const at = momentDefaults(treatment?.appliedAt);
   const { form, alert, wait, fail } = useSchemaForm<TreatmentValues>(
     treatmentSchema,
     {
       substanceId: treatment?.substance.id ?? '',
       dose: treatment ? treatment.dose.replace('.', ',') : '',
       doseUnit: treatment?.doseUnit ?? 'л/га',
-      appliedAt: treatment ? treatment.appliedAt.slice(0, 10) : null,
-      original: treatment?.appliedAt ?? null,
+      appliedAt: at.date,
+      appliedTime: at.time,
+      original: at.original,
     },
     TREATMENT_FIELDS,
   );
@@ -803,15 +960,20 @@ function TreatmentForm({
         e instanceof ApiProblem &&
         e.status === 403 &&
         e.params?.reason === 'EDIT_WINDOW_CLOSED'
-      )
-        onClosedWindow(treatment);
-      else fail(e);
+      ) {
+        const until = e.params.editableUntil;
+        onClosedWindow(typeof until === 'string' ? until : treatment.editableUntil);
+      } else fail(e);
     } finally {
       setBusy(false);
     }
   });
-  const appliedAt = form.watch('appliedAt');
   const label = treatment ? t('action.save') : t('treatments.add');
+  // A substance that left the dictionary still names the edited record.
+  const options =
+    treatment && !substances.some((s) => s.id === treatment.substance.id)
+      ? [treatment.substance, ...substances]
+      : substances;
   return (
     <Dialog
       open={open}
@@ -834,7 +996,7 @@ function TreatmentForm({
             <option value="" disabled>
               {t('ui.choose')}
             </option>
-            {(substances.data ?? (treatment ? [treatment.substance] : [])).map((s) => (
+            {options.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
@@ -853,16 +1015,14 @@ function TreatmentForm({
             ))}
           </Select>
         </Field>
-        <Field id="treatment-date" label={t('field.appliedAt')} error={errorOf(form, 'appliedAt')}>
-          <DateInput
-            value={appliedAt}
-            max={todayUtc()}
-            onChange={(iso) => form.setValue('appliedAt', iso, { shouldDirty: true })}
-            onValidate={(err) =>
-              err ? form.setError('appliedAt', { type: 'date', message: err }) : form.clearErrors('appliedAt')
-            }
-          />
-        </Field>
+        <MomentInput
+          form={form}
+          id="treatment"
+          dateName="appliedAt"
+          timeName="appliedTime"
+          dateLabel={t('field.appliedAt')}
+          timeLabel={t('treatments.time')}
+        />
       </form>
     </Dialog>
   );

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { horizontalOverflow } from './helpers';
+import { focusStaysIn, horizontalOverflow } from './helpers';
 import { stand } from './stand';
 
 // Screenshots of the Task 3 screens on the contract-example stand (no backend: ./stand.ts answers the API with the
@@ -150,6 +150,8 @@ async function shots(page: Page, name: string, ready: () => Promise<void>) {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
       await ready();
+      // A theme switch redraws the graph (new canvas): let it settle.
+      await page.waitForTimeout(400);
       await page.evaluate(() => document.fonts.ready);
       expect(await horizontalOverflow(page), `${name} ${width}`).toBeLessThanOrEqual(0);
       await page.screenshot({
@@ -175,7 +177,9 @@ test('fields, a field, new field', async ({ page }) => {
   await page.goto('/fields');
   await shots(page, 'fields', () => expect(page.getByRole('link', { name: 'Низинное' })).toBeVisible());
   await page.goto(`/fields/${uuid(1)}`);
-  await shots(page, 'field', () => expect(page.getByRole('cell', { name: 'Хлорпирифос Пестицид' })).toBeVisible());
+  await shots(page, 'field', () =>
+    expect(page.getByRole('cell', { name: 'Хлорпирифос Пестицид' })).toBeVisible(),
+  );
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole('button', { name: 'Записать обработку' }).click();
   await shots(page, 'treatment-dialog', () => expect(page.getByRole('dialog')).toBeVisible());
@@ -202,6 +206,7 @@ test('batches, new batch, batch card tabs', async ({ page }) => {
   await page.goto('/batches/1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c?tab=graph');
   await page.getByRole('button', { name: 'Открыть граф' }).click();
   await expect(page.locator('.at-graph[data-fullscreen] canvas').first()).toBeVisible();
+  await focusStaysIn(page, '.at-graph[data-fullscreen]');
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${SHOTS}/graph-fullscreen-360-light.png`, animations: 'disabled' });
   await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));

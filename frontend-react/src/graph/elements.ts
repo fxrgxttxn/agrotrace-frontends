@@ -61,7 +61,11 @@ export function graphStyle(graph: BatchGraph, color: (token: string) => string) 
       },
     })),
     { selector: 'node[?root]', style: { 'border-width': 3, 'border-color': color('--c-ink') } },
-    { selector: 'node[!accessible]', style: { 'border-style': 'dashed', opacity: 0.8 } },
+    // Dashed outline in --c-line-strong (≥ 3 : 1 to the surface in both themes, WCAG 1.4.11); no fading.
+    {
+      selector: 'node[!accessible]',
+      style: { 'border-style': 'dashed', 'border-width': 2, 'border-color': color('--c-line-strong') },
+    },
     {
       selector: 'edge',
       style: {

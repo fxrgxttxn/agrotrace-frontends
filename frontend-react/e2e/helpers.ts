@@ -191,3 +191,18 @@ export async function quietStream(context: BrowserContext): Promise<void> {
     }),
   );
 }
+
+/** Tab `times` times: the focus is only ever inside `selector` (a full-screen block, the rest inert) or out of the page. */
+export async function focusStaysIn(page: Page, selector: string, times = 6): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await page.keyboard.press('Tab');
+    const inside = await page.evaluate((sel) => {
+      // Past the last control the focus leaves the document for the browser (body is active), as with a native modal
+      // dialog; it must never land on the page behind the block.
+      const a = document.activeElement;
+      return !a || a === document.body || Boolean(document.querySelector(sel)?.contains(a));
+    }, selector);
+    const where = await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 160) ?? '');
+    expect(inside, `Tab ${i + 1} left ${selector}: ${where}`).toBe(true);
+  }
+}

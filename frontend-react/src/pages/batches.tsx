@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, matchPath, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiProblem, newIdempotencyKey, withVariant, type Schemas } from '@agrotrace/api-client';
@@ -8,17 +8,18 @@ import {
   formatBytes,
   formatDate,
   formatDecimal,
+  formatLocalDate,
   formatLocalDateTime,
   formatMass,
 } from '@agrotrace/i18n';
 import { BatchCreateSchema } from '@agrotrace/validation';
 import { canAccess } from '../app/access';
-import { call, errorText, errorTone } from '../app/api';
-import { dateToInstant, todayUtc } from '../app/dates';
+import { call, errorText, errorTone, retryAfterOf, useCountdown } from '../app/api';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
-import { useListParams } from '../app/listState';
+import { isBadListQuery, useListParams, type ListSpec } from '../app/listState';
+import { momentCheck, momentDefaults, MomentInput, momentWire } from '../app/MomentInput';
 import { OrgPicker } from '../app/OrgPicker';
 import { CABINET_ROUTES } from '../app/routes';
 import { useMe, useSession } from '../app/session';
@@ -67,6 +68,16 @@ const GAP = { display: 'grid', gap: 'var(--sp-5)' } as const;
 const retryTransient = (n: number, e: unknown) => !(e instanceof ApiProblem && e.status < 500) && n < 2;
 const notFound = (e: unknown) => e instanceof ApiProblem && e.status === 404;
 const producedOf = (b: BatchItem) => b.harvestedAt ?? b.producedAt;
+
+const BATCHES_SPEC: ListSpec = {
+  sort: ['publicCode', 'massKg', 'updatedAt', 'harvestedAt', 'producedAt'],
+  enums: { status: BATCH_STATUSES, kind: ['RAW', 'DERIVED'], holder: ['me'], origin: ['me'] },
+  uuids: ['productId', 'orgId'],
+  dates: ['from', 'to'],
+  texts: ['q'],
+};
+/** Value of the status select while the URL holds several statuses. */
+const SEVERAL = '__several';
 
 /** Status group of spec §10.3 (timeline markers). */
 export const STATUS_TONE: Record<BatchStatus, Tone> = {
@@ -121,7 +132,7 @@ function Org({ org }: { org: Schemas['OrganizationRef'] }) {
 export function BatchesPage() {
   const { api } = useSession();
   const { farmer, overseer, participant } = useViewer();
-  const list = useListParams('/batches');
+  const list = useListParams('/batches', BATCHES_SPEC);
   const products = useDictionary('products');
   const q = list.get('q');
   const status = list.params.getAll('status');
@@ -164,6 +175,13 @@ export function BatchesPage() {
     retry: retryTransient,
   });
   const items = query.data?.items ?? [];
+  const { clampPage } = list;
+  useEffect(() => {
+    if (query.data && query.data.items.length === 0 && query.data.total > 0)
+      clampPage(query.data.total, SIZE);
+  }, [query.data, clampPage]);
+  // One production-date column: RAW batches sort by harvest, DERIVED by release (x-sort has both).
+  const producedSort = kind === 'DERIVED' ? 'producedAt' : 'harvestedAt';
 
   const columns: Column<BatchItem>[] = [
     {
@@ -185,9 +203,10 @@ export function BatchesPage() {
     {
       key: 'produced',
       header: t('batches.producedOn'),
+      sortField: producedSort,
       cell: (b) => {
         const at = producedOf(b);
-        return at ? formatDate(at, LOCALE) : '—';
+        return at ? formatLocalDate(at, LOCALE) : '—';
       },
     },
     {
@@ -198,25 +217,19 @@ export function BatchesPage() {
     },
   ];
 
-  const reset = () =>
-    list.set({
-      q: null,
-      status: null,
-      productId: null,
-      kind: null,
-      holder: null,
-      origin: null,
-      orgId: null,
-      from: null,
-      to: null,
-    });
+  const reset = list.reset;
 
   const content = () => {
     if (!query.data && query.isError)
       return (
-        <LoadFailed text={t('batches.failed')} busy={query.isFetching} onRetry={() => void query.refetch()} />
+        <LoadFailed
+          text={t('batches.failed')}
+          busy={query.isFetching}
+          onRetry={() => void query.refetch()}
+          onReset={isBadListQuery(query.error) ? reset : undefined}
+        />
       );
-    if (!query.data) return <AreaLoading />;
+    if (!query.data || (items.length === 0 && query.data.total > 0)) return <AreaLoading />;
     if (items.length === 0)
       return (
         <Card>
@@ -258,6 +271,7 @@ export function BatchesPage() {
             { value: 'publicCode,asc', label: t('batches.sort.code') },
             { value: 'massKg,desc', label: t('batches.sort.massDesc') },
             { value: 'massKg,asc', label: t('batches.sort.massAsc') },
+            { value: `${producedSort},desc`, label: t('batches.sort.producedDesc') },
           ]}
         />
         <Pagination page={list.page} size={SIZE} total={query.data.total} hrefFor={list.hrefFor} />
@@ -288,10 +302,16 @@ export function BatchesPage() {
           <>
             <Field id="filter-status" label={t('batches.status')}>
               <Select
-                value={status.length === 1 ? status[0] : ''}
+                value={status.length === 1 ? status[0] : status.length > 1 ? SEVERAL : ''}
                 onChange={(e) => list.set({ status: e.target.value })}
               >
                 <option value="">{t('filters.any')}</option>
+                {/* Several statuses come only from a link (e.g. a dashboard); the select says so. */}
+                {status.length > 1 && (
+                  <option value={SEVERAL} disabled>
+                    {t('filters.several', { count: status.length })}
+                  </option>
+                )}
                 {BATCH_STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {enumLabel(t, 'BatchStatus', s)}
@@ -382,6 +402,10 @@ function DateFilter({
   onChange: (iso: string | null) => void;
 }) {
   const latest = useRef<string | null>(value || null);
+  // The URL can change without typing (back/forward, «Сбросить фильтры»): what the field holds follows it.
+  useEffect(() => {
+    latest.current = value || null;
+  }, [value]);
   const [error, setError] = useState<string | null>(null);
   return (
     <Field id={id} label={label} error={error ? t(error) : null}>
@@ -409,22 +433,27 @@ interface BatchValues {
   productId: string;
   massKg: string;
   harvestedAt: string | null;
+  harvestTime: string;
+  original: string | null;
 }
-const BATCH_FIELDS = ['fieldId', 'productId', 'massKg', 'harvestedAt'] as const;
+const BATCH_FIELDS = ['fieldId', 'productId', 'massKg', 'harvestedAt', 'harvestTime'] as const;
 
-const batchSchema = wireSchema<BatchValues>(BatchCreateSchema, (v) => ({
-  fieldId: v.fieldId,
-  productId: v.productId,
-  massKg: normalizeDecimal(v.massKg, 3),
-  harvestedAt: v.harvestedAt === null ? undefined : dateToInstant(v.harvestedAt),
-}));
+const harvest = (v: BatchValues) => ({ date: v.harvestedAt, time: v.harvestTime, original: v.original });
+const batchSchema = wireSchema<BatchValues>(
+  BatchCreateSchema,
+  (v) => ({
+    fieldId: v.fieldId,
+    productId: v.productId,
+    massKg: normalizeDecimal(v.massKg, 3),
+    harvestedAt: momentWire(harvest(v)),
+  }),
+  (v) => momentCheck(harvest(v), 'harvestedAt', 'harvestTime'),
+);
 
+/** `/batches/new`: the form is built only when its choices (the farm's fields, the products) are there — a select
+ * rendered before its options would show one field while the form holds another (`?fieldId=`). */
 export function BatchNewPage() {
   const { api } = useSession();
-  const [params] = useSearchParams();
-  const navigate = useNavigate();
-  const toast = useToast();
-  const queryClient = useQueryClient();
   const products = useDictionary('products');
   const fields = useQuery({
     queryKey: ['fields', 'all'],
@@ -432,9 +461,61 @@ export function BatchNewPage() {
       call<Schemas['FieldPage']>(api.GET('/fields', { params: { query: { size: 100, sort: 'name,asc' } } })),
     retry: retryTransient,
   });
+  const failed = (!fields.data && fields.isError) || (!products.data && products.isError);
+  return (
+    <Page title={t('page.batchNew')}>
+      {fields.data && fields.data.items.length === 0 ? (
+        <Card>
+          <Empty
+            art="empty-fields"
+            text={t('empty.fields')}
+            action={
+              <ButtonLink variant="primary" to="/fields/new">
+                {t('fields.add')}
+              </ButtonLink>
+            }
+          />
+        </Card>
+      ) : failed ? (
+        <LoadFailed
+          text={t('batches.formFailed')}
+          busy={fields.isFetching || products.isFetching}
+          onRetry={() => {
+            void fields.refetch();
+            void products.refetch();
+          }}
+        />
+      ) : fields.data && products.data ? (
+        <BatchNewForm
+          fields={fields.data.items}
+          products={products.data.filter((p) => p.category !== 'PROCESSED')}
+        />
+      ) : (
+        <AreaLoading />
+      )}
+    </Page>
+  );
+}
+
+function BatchNewForm({ fields, products }: { fields: Schemas['Field'][]; products: Schemas['Product'][] }) {
+  const { api } = useSession();
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const wanted = params.get('fieldId') ?? '';
+  const at = momentDefaults(null);
   const { form, alert, wait, fail } = useSchemaForm<BatchValues>(
     batchSchema,
-    { fieldId: params.get('fieldId') ?? '', productId: '', massKg: '', harvestedAt: null },
+    {
+      // Only a field of this farm is preselected; another id in the URL leaves the choice to the person.
+      fieldId: fields.some((f) => f.id === wanted) ? wanted : '',
+      productId: '',
+      massKg: '',
+      harvestedAt: at.date,
+      harvestTime: at.time,
+      original: null,
+    },
     BATCH_FIELDS,
   );
   const [busy, setBusy] = useState(false);
@@ -467,95 +548,59 @@ export function BatchNewPage() {
       setBusy(false);
     }
   });
-  const harvestedAt = form.watch('harvestedAt');
-
-  if (fields.data && fields.data.items.length === 0)
-    return (
-      <Page title={t('page.batchNew')}>
-        <Card>
-          <Empty
-            art="empty-fields"
-            text={t('empty.fields')}
-            action={
-              <ButtonLink variant="primary" to="/fields/new">
-                {t('fields.add')}
-              </ButtonLink>
-            }
-          />
-        </Card>
-      </Page>
-    );
-  if (!fields.data && fields.isError)
-    return (
-      <Page title={t('page.batchNew')}>
-        <LoadFailed
-          text={t('fields.failed')}
-          busy={fields.isFetching}
-          onRetry={() => void fields.refetch()}
-        />
-      </Page>
-    );
 
   return (
-    <Page title={t('page.batchNew')}>
-      <Card style={{ maxWidth: '40rem' }}>
-        <CardBody>
-          <form id="batch-new" noValidate onSubmit={(e) => void submit(e)} style={FORM_GRID}>
-            <Field id="batch-field" label={t('field.fieldId')} error={errorOf(form, 'fieldId')}>
-              <Select {...form.register('fieldId')}>
-                <option value="" disabled>
-                  {t('ui.choose')}
+    <Card style={{ maxWidth: '40rem' }}>
+      <CardBody>
+        <form id="batch-new" noValidate onSubmit={(e) => void submit(e)} style={FORM_GRID}>
+          <Field id="batch-field" label={t('field.fieldId')} error={errorOf(form, 'fieldId')}>
+            <Select {...form.register('fieldId')}>
+              <option value="" disabled>
+                {t('ui.choose')}
+              </option>
+              {fields.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
                 </option>
-                {(fields.data?.items ?? []).map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field id="batch-product" label={t('field.productId')} error={errorOf(form, 'productId')}>
-              <Select {...form.register('productId')}>
-                <option value="" disabled>
-                  {t('ui.choose')}
+              ))}
+            </Select>
+          </Field>
+          <Field id="batch-product" label={t('field.productId')} error={errorOf(form, 'productId')}>
+            <Select {...form.register('productId')}>
+              <option value="" disabled>
+                {t('ui.choose')}
+              </option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
-                {(products.data ?? [])
-                  .filter((p) => p.category !== 'PROCESSED')
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-              </Select>
-            </Field>
-            <Field id="batch-mass" label={t('batches.massValue')} error={errorOf(form, 'massKg')}>
-              <InputGroup
-                suffix={t('unit.kg')}
-                inputMode="decimal"
-                autoComplete="off"
-                {...form.register('massKg')}
-              />
-            </Field>
-            <Field id="batch-harvested" label={t('field.harvestedAt')} error={errorOf(form, 'harvestedAt')}>
-              <DateInput
-                value={harvestedAt}
-                max={todayUtc()}
-                onChange={(iso) => form.setValue('harvestedAt', iso, { shouldDirty: true })}
-                onValidate={(err) =>
-                  err
-                    ? form.setError('harvestedAt', { type: 'date', message: err })
-                    : form.clearErrors('harvestedAt')
-                }
-              />
-            </Field>
-            <div>
-              <Submit busy={busy} wait={wait}>
-                {t('action.createBatch')}
-              </Submit>
-            </div>
-          </form>
-        </CardBody>
-      </Card>
-    </Page>
+              ))}
+            </Select>
+          </Field>
+          <Field id="batch-mass" label={t('batches.massValue')} error={errorOf(form, 'massKg')}>
+            <InputGroup
+              suffix={t('unit.kg')}
+              inputMode="decimal"
+              autoComplete="off"
+              {...form.register('massKg')}
+            />
+          </Field>
+          <MomentInput
+            form={form}
+            id="batch-harvested"
+            dateName="harvestedAt"
+            timeName="harvestTime"
+            dateLabel={t('field.harvestedAt')}
+            timeLabel={t('batches.harvestTime')}
+          />
+          <div>
+            <Submit busy={busy} wait={wait}>
+              {t('action.createBatch')}
+            </Submit>
+          </div>
+        </form>
+      </CardBody>
+    </Card>
   );
 }
 
@@ -699,11 +744,11 @@ function BatchSummary({ batch, fieldLink }: { batch: Batch; fieldLink: boolean }
         ]
       : []),
     batch.harvestedAt
-      ? { key: 'date', term: t('batches.harvestedAt'), value: formatDate(batch.harvestedAt, LOCALE) }
+      ? { key: 'date', term: t('batches.harvestedAt'), value: formatLocalDateTime(batch.harvestedAt, LOCALE) }
       : {
           key: 'date',
           term: t('batches.producedAt'),
-          value: batch.producedAt ? formatDate(batch.producedAt, LOCALE) : '—',
+          value: batch.producedAt ? formatLocalDateTime(batch.producedAt, LOCALE) : '—',
         },
     { key: 'kind', term: t('batches.kind'), value: enumLabel(t, 'BatchKind', batch.kind) },
     ...(batch.kind === 'RAW'
@@ -810,8 +855,11 @@ function PathTab({ id }: { id: string }) {
             key: `${i}`,
             at: s.from,
             atText: s.to
-              ? t('batches.period', { from: formatDate(s.from, LOCALE), to: formatDate(s.to, LOCALE) })
-              : t('batches.since', { date: formatDate(s.from, LOCALE) }),
+              ? t('batches.period', {
+                  from: formatLocalDate(s.from, LOCALE),
+                  to: formatLocalDate(s.to, LOCALE),
+                })
+              : t('batches.since', { date: formatLocalDate(s.from, LOCALE) }),
             title: s.org.name,
             meta: (
               <>
@@ -855,6 +903,7 @@ function GraphTab({ batch }: { batch: Batch }) {
       <TabFailed text={t('graph.failed')} busy={query.isFetching} onRetry={() => void query.refetch()} />
     );
   if (!query.data) return <AreaLoading blocks={1} />;
+  const graph = query.data;
   const relation = (n: GraphNode) =>
     n.depth === 0
       ? t('graph.root')
@@ -869,12 +918,19 @@ function GraphTab({ batch }: { batch: Batch }) {
       cell: (n) =>
         n.accessible && n.id !== batch.id ? (
           <TablePrimary to={`/batches/${n.id}?tab=graph`} code={n.publicCode} sub={n.product.name} />
-        ) : (
+        ) : n.accessible ? (
           <span className="at-table__primary">
             <span className="at-mono">{n.publicCode}</span>
+            <span className="at-table__sub">{n.product.name}</span>
+          </span>
+        ) : (
+          // Outside the viewer's scope (4.2): only the public page of the batch can be opened.
+          <span className="at-table__primary">
+            <a className="at-mono" href={`/p/${n.publicCode}`}>
+              {n.publicCode}
+            </a>
             <span className="at-table__sub">
-              {n.product.name}
-              {!n.accessible && `, ${t('graph.noAccess').toLocaleLowerCase('ru')}`}
+              {n.product.name}, {t('graph.noAccess').toLocaleLowerCase('ru')}
             </span>
           </span>
         ),
@@ -882,6 +938,17 @@ function GraphTab({ batch }: { batch: Batch }) {
     { key: 'status', header: t('batches.status'), status: true, cell: (n) => <Chip status={n.status} /> },
     { key: 'holder', header: t('batches.holder'), cell: (n) => n.holder.name },
     { key: 'link', header: t('graph.link'), cell: relation },
+    {
+      key: 'used',
+      header: t('graph.used'),
+      numeric: true,
+      cell: (n) => {
+        // The mass that went along the link towards this batch (a source's into its child, a derived one's from its
+        // parent); several links — their sum is not shown, each is on its own edge.
+        const edge = graph.edges.find((e) => (n.depth < 0 ? e.parent === n.id : e.child === n.id));
+        return n.depth !== 0 && edge ? formatDecimal(edge.massUsedKg, LOCALE) : '—';
+      },
+    },
   ];
   return (
     <div style={GAP}>
@@ -1008,7 +1075,9 @@ function DocsTab({ batch }: { batch: Batch }) {
     refetchInterval: (q) => (q.state.data?.vsd?.importStatus === 'PENDING' ? 3000 : false),
   });
   const [retrying, setRetrying] = useState(false);
-  // One key per intended retry: a repeat after a network failure is the same request (BR-11).
+  const [wait, startWait] = useCountdown();
+  // One key per intended retry (BR-11): a repeat after a network failure, a 5xx or a 429 is the same request and keeps
+  // the key; a definite answer (2xx, other 4xx) ends the intent.
   const idempotency = useRef<string | null>(null);
 
   const holder =
@@ -1027,7 +1096,8 @@ function DocsTab({ batch }: { batch: Batch }) {
       queryClient.setQueryData<Schemas['BatchDocuments']>(key, (d) => (d ? { ...d, vsd } : d));
       toast.push({ tone: 'ok', text: t('documents.retried') });
     } catch (e) {
-      if (e instanceof ApiProblem) {
+      if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
+      else if (e instanceof ApiProblem && e.status < 500) {
         idempotency.current = null;
         if (e.status === 409) void queryClient.invalidateQueries({ queryKey: key });
       }
@@ -1102,8 +1172,8 @@ function DocsTab({ batch }: { batch: Batch }) {
           </CardBody>
           {holder && (vsd.importStatus === 'NOT_FOUND' || vsd.importStatus === 'FAILED') && (
             <CardFooter>
-              <Button variant="primary" busy={retrying} onClick={() => void retry()}>
-                {t('documents.retry')}
+              <Button variant="primary" busy={retrying} disabled={wait > 0} onClick={() => void retry()}>
+                {wait > 0 ? t('auth.retryIn', { seconds: wait }) : t('documents.retry')}
               </Button>
             </CardFooter>
           )}
@@ -1125,7 +1195,7 @@ function DocsTab({ batch }: { batch: Batch }) {
                         {enumLabel(t, 'LabConclusion', p.conclusion)}
                       </Chip>
                     )}
-                    {p.completedAt && formatDate(p.completedAt, LOCALE)}
+                    {p.completedAt && formatLocalDate(p.completedAt, LOCALE)}
                   </span>
                   <span>
                     <ButtonAnchor size="s" icon="file-pdf" href={p.file.url} download={p.file.originalName}>

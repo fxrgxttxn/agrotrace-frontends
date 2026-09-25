@@ -481,7 +481,9 @@
     "toggle": "Filters",
     "selected": ", selected:",
     "reset": "Reset filters",
-    "any": "All"
+    "any": "All",
+    "several": "Several ({count})",
+    "invalid": "The list cannot be shown with these filters."
   },
   "maps": {
     "open": "Open map",
@@ -506,7 +508,11 @@
     "treatments": "Treatments",
     "geometry": "Outline, GeoJSON",
     "geometryInvalid": "Paste GeoJSON with a Polygon outline",
+    "geometryFile": "Outline file",
+    "geometryFileHint": "GeoJSON (.geojson) with a Polygon outline, up to 1 MB",
+    "geometryUnreadable": "The file was not read: GeoJSON up to 1 MB is needed",
     "noGeometry": "Not set",
+    "regionsFailed": "The regions did not load — try again",
     "edit": "Edit",
     "editTitle": "Edit field",
     "delete": "Delete",
@@ -532,9 +538,11 @@
     "editOf": "Edit treatment: {substance}, {date}",
     "dose": "Dose",
     "waitUntil": "Waiting period until",
+    "time": "Treatment time",
     "editableUntil": "Editable until {time}",
     "editClosed": "The treatment could be edited until {time}: 24 hours have passed since it was recorded",
     "created": "Treatment recorded",
+    "substancesFailed": "The substances did not load — try again",
     "saved": "Treatment saved",
     "empty": "No treatments yet.",
     "failed": "Treatments did not load."
@@ -544,7 +552,8 @@
       "updated": "Recently updated",
       "code": "Batch code",
       "massDesc": "Mass, largest first",
-      "massAsc": "Mass, smallest first"
+      "massAsc": "Mass, smallest first",
+      "producedDesc": "Production date, newest first"
     },
     "search": "Search batches",
     "searchPlaceholder": "Batch code",
@@ -560,6 +569,7 @@
     "field": "Field",
     "harvestedAt": "Harvest date",
     "producedAt": "Production date",
+    "harvestTime": "Harvest time",
     "test": "Lab test",
     "status": "Status",
     "from": "Produced from",
@@ -570,6 +580,7 @@
     "toList": "To the batches",
     "createdTest": "Batch {code} registered and sent to the lab: {reason}",
     "createdNoTest": "Batch {code} registered and approved: no lab test needed",
+    "formFailed": "Fields and products did not load.",
     "noLab": "The risk model requires a lab test, but no laboratory is active. Register the batch later",
     "tabs": "Batch {code}",
     "tab": {
@@ -599,6 +610,7 @@
     "up": "Source, level {level}",
     "down": "Derived, level {level}",
     "noAccess": "No access",
+    "used": "Used, kg",
     "failed": "The graph did not load."
   },
   "labTests": {

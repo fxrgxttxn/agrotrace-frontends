@@ -104,3 +104,10 @@ export function formatDecimal(value: string, locale: Locale): string {
   const grouped = groupThousands(intPart, locale === 'ru' ? NBSP : ',');
   return decPart === undefined ? grouped : `${grouped}${locale === 'ru' ? ',' : '.'}${decPart}`;
 }
+
+/** Only the date of `formatLocalDateTime` (the viewer's calendar day of an instant). */
+export function formatLocalDate(iso: string, locale: Locale, timeZone?: string): string {
+  const p = localParts(iso, timeZone);
+  if (!p) return iso;
+  return locale === 'ru' ? `${p.day}.${p.month}.${p.year}` : `${p.month}/${p.day}/${p.year}`;
+}

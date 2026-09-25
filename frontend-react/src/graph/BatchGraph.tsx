@@ -13,7 +13,7 @@ import type { GraphView } from './cytoscape';
 // screen readers, links) by the page.
 
 export function BatchGraphView({ graph, code }: { graph: Graph; code: string }) {
-  const { full, wide, open, close, opener, closer } = useFullscreen();
+  const { full, wide, open, close, opener, closer, block } = useFullscreen();
   const view = useRef<GraphView | null>(null);
 
   const up = graph.nodes.filter((n) => n.depth < 0).length;
@@ -27,7 +27,7 @@ export function BatchGraphView({ graph, code }: { graph: Graph; code: string }) 
       </Button>
     );
   return (
-    <div className="at-graph" data-fullscreen={full ? '' : undefined}>
+    <div ref={block} className="at-graph" data-fullscreen={full ? '' : undefined}>
       <GraphCanvas
         graph={graph}
         label={t('graph.label', { code, up, down })}
@@ -97,9 +97,11 @@ function GraphCanvas({
     import('./cytoscape').then(
       ({ mountGraph }) => {
         if (cancelled || !el.current) return;
-        view.current = mountGraph(el.current, graph, (id) => {
+        view.current = mountGraph(el.current, graph, (node) => {
           opened.current();
-          navigate(`/batches/${id}?tab=graph`);
+          // A batch outside the viewer's scope has only its public page (the QR page, a document of its own).
+          if (node.accessible) navigate(`/batches/${node.id}?tab=graph`);
+          else window.location.assign(`/p/${node.publicCode}`);
         });
       },
       () => !cancelled && setFailed(true),
@@ -111,12 +113,13 @@ function GraphCanvas({
     };
   }, [graph, navigate, view, theme]);
 
-  return (
-    <div
-      className="at-graph__canvas"
-      role="img"
-      aria-label={failed ? t('graph.failed') : label}
-      ref={el}
-    ></div>
-  );
+  if (failed)
+    return (
+      <div className="at-graph__canvas">
+        <p role="alert" style={{ margin: 0, padding: 'var(--sp-5)' }}>
+          {t('graph.failed')}
+        </p>
+      </div>
+    );
+  return <div className="at-graph__canvas" role="img" aria-label={label} ref={el}></div>;
 }
