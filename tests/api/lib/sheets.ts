@@ -3,6 +3,7 @@
  * it (`;`, RFC 4180 quotes, CRLF or LF, optional BOM), XLSX workbooks written by exceljs (a test-side dependency, the
  * same library a backend may read them with — the files are standard OOXML) and a plain ZIP that is no workbook.
  */
+import { deflateRawSync } from 'node:zlib';
 import ExcelJS from 'exceljs';
 import { crc32 } from './files.js';
 
@@ -45,34 +46,42 @@ export async function xlsx(sheets: { name: string; rows: (CellValue[] | null)[] 
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-/** A valid ZIP archive (stored, no compression) of `files` — e.g. a ZIP that is not an XLSX workbook. */
-export function zip(files: { name: string; data: string }[]): Buffer {
+/**
+ * A ZIP archive of `files` — stored, or deflated when `declared` is given, with that uncompressed size written into the
+ * headers (a lie when it differs from the data: a decompression bomb).
+ */
+export function zip(files: { name: string; data: string | Buffer; declared?: number }[]): Buffer {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
   for (const f of files) {
     const name = Buffer.from(f.name, 'utf8');
-    const data = Buffer.from(f.data, 'utf8');
+    const data = typeof f.data === 'string' ? Buffer.from(f.data, 'utf8') : f.data;
     const crc = crc32(data);
+    const deflated = f.declared !== undefined;
+    const body = deflated ? deflateRawSync(data) : data;
+    const size = f.declared ?? data.length;
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(deflated ? 8 : 0, 8);
     local.writeUInt32LE(crc, 14);
-    local.writeUInt32LE(data.length, 18);
-    local.writeUInt32LE(data.length, 22);
+    local.writeUInt32LE(body.length, 18);
+    local.writeUInt32LE(size, 22);
     local.writeUInt16LE(name.length, 26);
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
     central.writeUInt16LE(20, 4);
     central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(deflated ? 8 : 0, 10);
     central.writeUInt32LE(crc, 16);
-    central.writeUInt32LE(data.length, 20);
-    central.writeUInt32LE(data.length, 24);
+    central.writeUInt32LE(body.length, 20);
+    central.writeUInt32LE(size, 24);
     central.writeUInt16LE(name.length, 28);
     central.writeUInt32LE(offset, 42);
-    locals.push(local, name, data);
+    locals.push(local, name, body);
     centrals.push(central, name);
-    offset += 30 + name.length + data.length;
+    offset += 30 + name.length + body.length;
   }
   const cd = Buffer.concat(centrals);
   const end = Buffer.alloc(22);
@@ -82,4 +91,37 @@ export function zip(files: { name: string; data: string }[]): Buffer {
   end.writeUInt32LE(cd.length, 12);
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, cd, end]);
+}
+
+const NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+/** A hand-written workbook: `rows` is the first sheet's `<sheetData>` XML; `extra` entries are appended. */
+export function workbookXml(
+  rows: string,
+  extra: { name: string; data: string | Buffer; declared?: number }[] = [],
+): Buffer {
+  return zip([
+    {
+      name: '[Content_Types].xml',
+      data: '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>',
+    },
+    {
+      name: 'xl/workbook.xml',
+      data: `<workbook xmlns="${NS}" xmlns:r="${R_NS}"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    },
+    {
+      name: 'xl/_rels/workbook.xml.rels',
+      data: `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R_NS}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+    },
+    {
+      name: 'xl/styles.xml',
+      data: `<styleSheet xmlns="${NS}"><cellXfs count="2"><xf/><xf/></cellXfs></styleSheet>`,
+    },
+    {
+      name: 'xl/worksheets/sheet1.xml',
+      data: `<worksheet xmlns="${NS}"><sheetData>${rows}</sheetData></worksheet>`,
+    },
+    ...extra,
+  ]);
 }

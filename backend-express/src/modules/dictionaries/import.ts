@@ -188,8 +188,9 @@ export async function importDictionary(
   p: Principal,
   name: DictName,
   bytes: Buffer,
+  signal?: AbortSignal,
 ): Promise<ImportReport> {
-  const sheet = await readSheet(bytes);
+  const sheet = await readSheet(bytes, { signal });
   const columns = IMPORT_COLUMNS[name];
   const header = sheet.header;
   if (!header || header.length !== columns.length || header.some((h, i) => h !== columns[i]))

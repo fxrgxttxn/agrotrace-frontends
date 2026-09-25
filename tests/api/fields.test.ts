@@ -294,6 +294,20 @@ describe('createField / getField / updateField / deleteField', () => {
       regionCode: ['33', '50'],
       geometry: [SQUARE, null],
     });
+    // The same values again: no change — no audit row (AuditEntry, P23).
+    const same = await updateField(client, field.id, {
+      name: 'Переименовано',
+      areaHa: '99.99',
+      regionCode: '50',
+    });
+    expect(same.status, same.text).toBe(200);
+    expect(await auditEntries({ action: 'updateField', entityId: field.id })).toHaveLength(1);
+    // Geometry compares by content, whatever the key order of the body.
+    const withShape = await updateField(client, field.id, fieldBody());
+    expect(withShape.status).toBe(200);
+    const reordered = { coordinates: SQUARE.coordinates, type: 'Polygon' };
+    expect((await updateField(client, field.id, fieldBody({ geometry: reordered }))).status).toBe(200);
+    expect(await auditEntries({ action: 'updateField', entityId: field.id })).toHaveLength(2);
     expectErrors(await updateField(client, field.id, { name: 'X', areaHa: '1.00', regionCode: '00' }), {
       regionCode: ['validation.notFound'],
     });

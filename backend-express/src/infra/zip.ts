@@ -26,7 +26,7 @@ export class ZipError extends Error {
   }
 }
 
-interface CentralEntry {
+export interface CentralEntry {
   name: string;
   method: number;
   flags: number;
@@ -82,11 +82,13 @@ export function zipDirectory(b: Buffer, limits: ZipLimits): CentralEntry[] {
   return out;
 }
 
-/** Inflates the entries `wanted` (by name) — each bounded by its declared size — in directory order. */
-export function unzip(b: Buffer, limits: ZipLimits, wanted: (name: string) => boolean): ZipEntry[] {
+/**
+ * Inflates EVERY entry — each bounded by its declared size, so an entry nobody reads cannot hide a bomb either (P24)
+ * — and returns those `keep` names, in directory order.
+ */
+export function unzip(b: Buffer, limits: ZipLimits, keep: (name: string) => boolean): ZipEntry[] {
   const out: ZipEntry[] = [];
   for (const e of zipDirectory(b, limits)) {
-    if (!wanted(e.name)) continue;
     if (e.flags & 0x1) throw new ZipError('invalid'); // encrypted
     const p = e.localOffset;
     if (p + 30 > b.length || b.readUInt32LE(p) !== LOCAL) throw new ZipError('invalid');
@@ -108,7 +110,7 @@ export function unzip(b: Buffer, limits: ZipLimits, wanted: (name: string) => bo
     } else throw new ZipError('invalid');
     if (data.length > e.size) throw new ZipError('tooLarge');
     if (data.length !== e.size || crc32(data) !== e.crc) throw new ZipError('invalid');
-    out.push({ name: e.name, data });
+    if (keep(e.name)) out.push({ name: e.name, data });
   }
   return out;
 }

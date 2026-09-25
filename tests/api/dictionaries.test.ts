@@ -18,7 +18,7 @@ import { expectErrors, expectProblem } from './lib/expect.js';
 import { apiPath, fileIdOf, fixture, multipart, pngOfSize, upload, webpSize } from './lib/files.js';
 import { freshHead, platformAdmin, registerOrg } from './lib/fixtures.js';
 import { closeRedis, redis } from './lib/redis.js';
-import { csv, IMPORT_ALLOWED, IMPORT_MAX_BYTES, xlsx, zip } from './lib/sheets.js';
+import { csv, IMPORT_ALLOWED, IMPORT_MAX_BYTES, workbookXml, xlsx, zip } from './lib/sheets.js';
 
 afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
@@ -1000,8 +1000,45 @@ describe('importDictionary: XLSX', () => {
     });
   });
 
-  it('P23 limits (the rest are backend unit tests): a 65th cell in a row → 415 {reason: workbook-too-large}', async () => {
+  it('P23/P24 limits (the rest are backend unit tests): 65 <c> in a row, a cell in column 65, an unread bomb → 415', async () => {
     const client = await admin();
+    const tooLarge = { allowed: IMPORT_ALLOWED, reason: 'workbook-too-large' };
+    const col = (n: number) => {
+      let s = '';
+      for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+      return s;
+    };
+    const header =
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>code</t></is></c><c r="B1" t="inlineStr"><is><t>name</t></is></c></row>';
+    // Cells are `<c>` elements: styled empty ones count (2 valued + 63 styled = 65).
+    const styled = `${header}<row r="2"><c r="A2" t="inlineStr"><is><t>R1</t></is></c><c r="B2" t="inlineStr"><is><t>n</t></is></c>${Array.from({ length: 63 }, (_, i) => `<c r="${col(i + 3)}2" s="1"/>`).join('')}</row>`;
+    expectProblem(
+      await importFile(client, 'regions', workbookXml(styled), 's.xlsx'),
+      415,
+      'UNSUPPORTED_MEDIA_TYPE',
+      tooLarge,
+    );
+    // A single cell, but in column 65 (BM).
+    const far = `${header}<row r="2"><c r="BM2"><v>1</v></c></row>`;
+    expectProblem(
+      await importFile(client, 'regions', workbookXml(far), 'f.xlsx'),
+      415,
+      'UNSUPPORTED_MEDIA_TYPE',
+      tooLarge,
+    );
+    // A bomb in an entry the import never reads: 64 MiB of zeros declared as 10 bytes.
+    const bomb = workbookXml(header, [
+      { name: 'x/bomb.bin', data: Buffer.alloc(64 * 1024 * 1024), declared: 10 },
+    ]);
+    expectProblem(
+      await importFile(client, 'regions', bomb, 'b.xlsx'),
+      415,
+      'UNSUPPORTED_MEDIA_TYPE',
+      tooLarge,
+    );
+    // 64 cells (up to column BL) are fine: here only a header, so nothing is imported.
+    const ok = await importFile(client, 'regions', workbookXml(header), 'o.xlsx');
+    expect(ok.body).toEqual({ created: 0, updated: 0, unchanged: 0, errors: [] });
     const wide = await xlsx([
       { name: 'Лист1', rows: [['code', 'name'], Array.from({ length: 65 }, () => 'x')] },
     ]);
