@@ -5,3 +5,4 @@
 *.woff2 binary
 *.ps1 text eol=crlf
 *.cmd text eol=crlf
+*.pdf binary

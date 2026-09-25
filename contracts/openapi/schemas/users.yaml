@@ -50,6 +50,7 @@ TelegramCode:
     botUsername:
       type: string
       pattern: '^[A-Za-z0-9_]{5,32}$'
+      description: Имя бота без `@` — значение `TELEGRAM_BOT_USERNAME` конфигурации развёртывания (P14).
   example:
     code: K7M2Q9XA
     expiresAt: '2026-09-24T08:45:00Z'
@@ -199,8 +200,8 @@ UserInvite:
     Приглашение сотрудника (FR-IAM-02): создаётся пользователь со статусом INVITED и отправляется письмо
     со ссылкой-токеном. `organizationId` задаёт только ADMIN (иначе 400); руководитель приглашает в свою организацию.
     Роли должны соответствовать типу организации (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB,
-    RETAILER→RETAILER, AUTHORITY→INSPECTOR, PLATFORM→ADMIN), иначе 400 VALIDATION (`errors.roles`).
-    Занятый email — 400 VALIDATION (`errors.email: [validation.email.taken]`).
+    RETAILER→RETAILER, AUTHORITY→INSPECTOR, PLATFORM→ADMIN): набор ролей — ровно роль типа организации, иначе 400
+    VALIDATION `errors.roles: [validation.notAllowed]` (P14). Занятый email — 400 VALIDATION (`errors.email: [validation.email.taken]`).
   required: [email, fullName, roles, isOrgAdmin]
   additionalProperties: false
   properties:
@@ -231,8 +232,10 @@ UserPatch:
     через `POST /auth/accept-invite` — любое изменение `status` у пользователя INVITED даёт 409 INVALID_TRANSITION
     (`params.from`, `params.to`); `status`, равный текущему, — без изменений (200). Роли должны соответствовать
     типу организации пользователя (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB, RETAILER→RETAILER,
-    AUTHORITY→INSPECTOR, PLATFORM→ADMIN), иначе 400 VALIDATION (`errors.roles`). Изменить собственные роли,
-    признак руководителя или статус нельзя — 400 VALIDATION.
+    AUTHORITY→INSPECTOR, PLATFORM→ADMIN): набор ролей — ровно роль типа организации, иначе 400 VALIDATION
+    `errors.roles: [validation.notAllowed]` (P14). Изменить собственные роли, признак руководителя или статус нельзя:
+    каждое из этих полей, присутствующее в теле запроса к самому себе (даже с текущим значением), — 400 VALIDATION
+    `errors.<поле>: [validation.notAllowed]` (P14).
   minProperties: 1
   additionalProperties: false
   properties:

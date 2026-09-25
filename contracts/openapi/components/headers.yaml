@@ -49,8 +49,8 @@ CacheControl:
   example: private, max-age=0, must-revalidate
 ContentDisposition:
   description: >-
-    Всегда `inline; filename="<ascii>"; filename*=UTF-8''<pct>`, где имя = базовое имя `originalName` без
-    расширения + `.` + расширение отдаваемого MIME (image/webp → webp, image/svg+xml → svg, image/png → png,
+    Всегда `inline; filename="<ascii>"; filename*=UTF-8''<pct>`, где имя = `originalName` без последнего
+    расширения (часть от последней точки, если точка не первый символ, P14; сам `originalName` — уже базовое имя без сегментов пути, P17) + `.` + расширение отдаваемого MIME (image/webp → webp, image/svg+xml → svg, image/png → png,
     application/pdf → pdf, xlsx → xlsx). `<ascii>` — то же имя, в котором символы вне печатного ASCII,
     `"` и `\` заменены на `_`; `<pct>` — имя в UTF-8, закодированное по RFC 5987.
   schema:

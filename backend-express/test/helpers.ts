@@ -47,6 +47,7 @@ export const testConfig = {
   SMTP_FROM: 'AgroTrace <noreply@agrotrace.local>',
   DADATA_URL: 'http://dadata.invalid/party',
   DADATA_TIMEOUT_MS: 3000,
+  TELEGRAM_BOT_USERNAME: 'agrotrace_bot',
   RATE_LIMIT_OVERRIDES: {},
   HEALTH_TIMEOUT_MS: 200,
   SHUTDOWN_TIMEOUT_MS: 100,

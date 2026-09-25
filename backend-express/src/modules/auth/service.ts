@@ -20,12 +20,13 @@ import type { Container } from '../../container.js';
 import { withTx } from '../../db/tx.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
 import { hitRateLimit } from '../../http/rate-limit.js';
-import { issueAccessToken, ACCESS_TTL_SEC, type Principal, type RoleCode } from '../../security/jwt.js';
+import { issueAccessToken, ACCESS_TTL_SEC, type Principal } from '../../security/jwt.js';
 import { dummyVerify, hashPassword, verifyPassword } from '../../security/passwords.js';
 import { newOpaqueToken, sha256hex } from '../../security/tokens.js';
 import { generateTotpSecret, matchStep, otpauthUrl } from '../../security/totp.js';
 import { auditDiff, auditService, SECRET } from '../audit/service.js';
 import { loadMe, type MeView } from '../me/view.js';
+import { ROLE_OF_TYPE } from '../users/roles.js';
 import { registrationIdentity } from './registration.js';
 import {
   createRefreshToken,
@@ -44,14 +45,6 @@ const PWRESET_TTL_SEC = 3600;
 const ru = createT('ru');
 const iso = (d: Date) => d.toISOString();
 const nowSec = () => Math.floor(Date.now() / 1000);
-
-const ROLE_OF_TYPE: Record<string, RoleCode> = {
-  FARM: 'FARMER',
-  PROCESSOR: 'PROCESSOR',
-  LAB: 'LAB',
-  RETAILER: 'RETAILER',
-  AUTHORITY: 'INSPECTOR',
-};
 
 export interface Session {
   accessToken: string;
@@ -426,6 +419,15 @@ export function authService(c: Container) {
 
       try {
         return await withTx(db, async (tx) => {
+          // FOR KEY SHARE (P23): a region deleted since the check above → 400, never a foreign-key 500; a delete
+          // that starts now waits and then sees this organization (REFERENCE_IN_USE).
+          const regionKept = await tx
+            .selectFrom('regions')
+            .select('id')
+            .where('id', '=', region!.id)
+            .forKeyShare()
+            .executeTakeFirst();
+          if (!regionKept) throw validationProblem({ regionCode: ['validation.notFound'] });
           const o = await tx
             .insertInto('organizations')
             .values({

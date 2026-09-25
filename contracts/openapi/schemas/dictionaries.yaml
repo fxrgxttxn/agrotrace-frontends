@@ -317,7 +317,8 @@ ImportReport:
     `unchanged` — совпавшие со строкой справочника, `errors` — отклонённые строки файла (не применены), в порядке
     строк, затем колонок. `row` — номер строки файла с 1 (строка 1 — заголовок), `column` — имя колонки из заголовка
     или null (ошибка строки целиком), `message` — ключ i18n (`validation.required`, `validation.pattern`,
-    `validation.notFound`, `validation.duplicate`, `validation.max`, `validation.import.columns`).
+    `validation.notFound`, `validation.duplicate`, `validation.max`, `validation.maxLength`, `validation.enum`,
+    `validation.import.columns`); ошибки одной строки — в порядке колонок заголовка (P23).
   required: [created, updated, unchanged, errors]
   additionalProperties: false
   properties:

@@ -113,7 +113,9 @@ PayloadTooLarge:
 UnsupportedMediaType:
   description: >-
     Тип файла, определённый по сигнатуре содержимого, не допускается
-    (UNSUPPORTED_MEDIA_TYPE, `params.allowed`; п. 8.6).
+    (UNSUPPORTED_MEDIA_TYPE, `params.allowed`; п. 8.6), либо содержимое не декодируется как тип, указанный
+    сигнатурой (P14); SVG, превышающий пределы сложности, или не принятый в очередь санитизации либо не
+    обработанный за срок, — с `params.reason` = `svg-too-complex` (P18).
   headers:
     X-Request-Id:
       $ref: './headers.yaml#/XRequestId'
