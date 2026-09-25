@@ -6,7 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { expect } from 'vitest';
 import { api, ApiClient } from './client.js';
 import { expectContract } from './contract.js';
-import { fixtureWrite } from './db.js';
+import { loginAs } from './auth.js';
 import { linkToken, waitForMails } from './mail.js';
 
 export type RegistrableType = 'FARM' | 'PROCESSOR' | 'LAB' | 'RETAILER' | 'AUTHORITY';
@@ -86,13 +86,31 @@ export async function registerOrg(
   };
 }
 
-/**
- * Makes a registered organization ACTIVE.
- * TODO(Task 4): replace with approveOrganization (POST /admin/organizations/{id}/approve as ADMIN) once it exists;
- * until then the state is set directly (lib/db.ts fixtureWrite).
- */
+let admin: Promise<ApiClient> | null = null;
+
+/** A signed-in platform ADMIN (head), shared by the fixtures of one test file. */
+export function platformAdmin(): Promise<ApiClient> {
+  admin ??= loginAs('ADMIN', { head: true });
+  return admin;
+}
+
+/** Makes a registered organization ACTIVE: approveOrganization (POST /admin/organizations/{id}/approve) as ADMIN. */
 export async function activateOrg(organizationId: string): Promise<void> {
-  await fixtureWrite(`UPDATE organizations SET status = 'ACTIVE' WHERE id = $1`, [organizationId]);
+  const res = await (await platformAdmin()).post(`/admin/organizations/${organizationId}/approve`);
+  await expectContract(res, 'approveOrganization');
+  expect(res.status, res.text).toBe(200);
+  expect(res.body.status).toBe('ACTIVE');
+}
+
+/** updateAdminOrganization (PATCH /admin/organizations/{id}) as ADMIN; asserts 200. */
+export async function setOrgStatus(
+  organizationId: string,
+  status: 'ACTIVE' | 'REJECTED' | 'SUSPENDED',
+): Promise<void> {
+  const res = await (await platformAdmin()).patch(`/admin/organizations/${organizationId}`, { status });
+  await expectContract(res, 'updateAdminOrganization');
+  expect(res.status, res.text).toBe(200);
+  expect(res.body.status).toBe(status);
 }
 
 /** A new active organization of `type` and its head; `client` is anonymous (log in with `login`). */

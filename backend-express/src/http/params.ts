@@ -89,6 +89,51 @@ export class QueryReader {
     return s;
   }
 
+  /** A string with the contract's `maxLength` (code points). */
+  text(name: string, maxLength: number): string | undefined {
+    const s = this.string(name);
+    if (s === undefined) return undefined;
+    if (codePointLength(s) > maxLength) return this.add(name, 'validation.maxLength');
+    return s;
+  }
+
+  /** A string matching `pattern` (the contract's `pattern`, e.g. RegionCode) — otherwise `validation.pattern`. */
+  matching(name: string, pattern: RegExp): string | undefined {
+    const s = this.string(name);
+    if (s === undefined) return undefined;
+    if (!pattern.test(s)) return this.add(name, 'validation.pattern');
+    return s;
+  }
+
+  /** `type: boolean` — exactly `true` or `false`. */
+  bool(name: string): boolean | undefined {
+    const s = this.string(name);
+    if (s === undefined) return undefined;
+    if (s !== 'true' && s !== 'false') return this.add(name, 'validation.type');
+    return s === 'true';
+  }
+
+  /** `format: date` — a real calendar date `YYYY-MM-DD`. */
+  date(name: string): string | undefined {
+    const s = this.string(name);
+    if (s === undefined) return undefined;
+    if (!isCalendarDate(s)) return this.add(name, 'validation.date.format');
+    return s;
+  }
+
+  /** `DateFrom`/`DateTo` (UTC dates, inclusive): `from` after `to` → `errors.from: [validation.range]`. */
+  dateRange(): { from?: string; to?: string } {
+    const from = this.date('from');
+    const to = this.date('to');
+    if (from !== undefined && to !== undefined && from > to) this.add('from', 'validation.range');
+    return { from, to };
+  }
+
+  /** A filter this caller or this request may not use (R51): present → `validation.<name>.notAllowed`. */
+  notAllowed(name: string): void {
+    if (this.has(name)) this.errors[name] = [`validation.${name}.notAllowed`];
+  }
+
   /** `Page`, `Size` (1…100, default 20) and `Sort` against the operation's `x-sort`. */
   page(xSort: { fields: readonly string[]; default: string }): { page: number; size: number; sort: Sort } {
     const page = this.int('page', 1, null, 1) ?? 1;
@@ -108,6 +153,18 @@ export class QueryReader {
     if (Object.keys(this.errors).length > 0) throw validationProblem(this.errors);
   }
 }
+
+/** `YYYY-MM-DD` naming a day that exists (2026-02-30 does not). */
+export function isCalendarDate(s: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  const d = new Date(0);
+  d.setUTCFullYear(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return d.toISOString().slice(0, 10) === s;
+}
+
+/** The first instant after the UTC day `date` (the exclusive upper bound of an inclusive `to`). */
+export const dayAfter = (date: string): Date => new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000);
 
 function parseSort(s: string): Sort {
   const [field, dir] = s.split(',');

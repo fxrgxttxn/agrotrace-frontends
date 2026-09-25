@@ -20,6 +20,7 @@ import { RASTER_TYPES, type SniffedType } from '../../infra/images.js';
 import { publicFileUrl } from '../../infra/file-urls.js';
 import type { Principal } from '../../security/jwt.js';
 import { auditDiff, auditService } from '../audit/service.js';
+import { dropPublicPages, organizationPageCodes } from '../public/cache.js';
 import {
   fileAuditView,
   fileRef,
@@ -214,17 +215,9 @@ export function organizationsService(c: Container) {
             entityId: o.logo_file_id,
             diff: { deletedAt: [null, now.toISOString()] },
           });
-        const pages = await sql<{ public_code: string }>`
-          SELECT b.public_code FROM batches b WHERE b.origin_org_id = ${orgId}
-          UNION
-          SELECT b.public_code FROM waybills w
-            JOIN waybill_items wi ON wi.waybill_id = w.id
-            JOIN batches b ON b.id = wi.batch_id
-           WHERE w.receiver_org_id = ${orgId} AND w.status = 'ACCEPTED'`.execute(tx);
-        return pages.rows.map((r) => r.public_code);
+        return organizationPageCodes(tx, orgId);
       });
-      for (let i = 0; i < codes.length; i += 500)
-        await c.redis.del(...codes.slice(i, i + 500).map((code) => `pub:batch:${code}`));
+      await dropPublicPages(c.redis, codes);
       return fileRef(c.fileUrls, {
         id: file.row.id,
         kind: 'LOGO',

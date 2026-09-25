@@ -20,6 +20,7 @@
     "argon2": "^0.41.1",
     "busboy": "^1.6.0",
     "dompurify": "^3.2.0",
+    "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "ioredis": "^5.4.2",
     "jose": "^5.9.6",

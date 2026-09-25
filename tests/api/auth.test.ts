@@ -2,9 +2,9 @@
  * Auth (contracts/openapi/paths/auth.yaml): login order R31, lockout, 2FA R35, refresh rotation/grace/reuse R32/R40,
  * logout, password reset and invitations (R82 keys), registration (R29/R66), rate limits R30, Bearer auth.
  *
- * Fixture writes (lib/db.ts fixtureWrite) are used only for states no API produces yet — organization approval
- * (Task 4), a user back to INVITED or blocked with a live refresh token — or clocks too long to wait for (a 15-minute lockout); each site
- * says which. Redis keys are touched only in the formats the contract fixes (info.description "Shared Redis keys").
+ * Fixture writes (lib/db.ts fixtureWrite) are used only for states no API produces — a user back to INVITED or
+ * blocked with a live refresh token — or clocks too long to wait for (a 15-minute lockout); each site says which.
+ * Organizations are approved and suspended through the admin API (lib/fixtures.ts). Redis keys are touched only in the formats the contract fixes (info.description "Shared Redis keys").
  */
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -23,6 +23,7 @@ import {
   PASSWORD,
   randomInn,
   registerOrg,
+  setOrgStatus,
   uniqueEmail,
 } from './lib/fixtures.js';
 import { linkToken, mailsTo, waitForMails } from './lib/mail.js';
@@ -160,10 +161,6 @@ async function setUserStatus(email: string, status: 'ACTIVE' | 'BLOCKED' | 'INVI
   expect(res.status, res.text).toBe(200);
   expect(res.body.status).toBe(status);
 }
-
-// TODO(Task 4): suspend through updateAdminOrganization once it exists.
-const setOrgStatus = (id: string, status: string) =>
-  fixtureWrite(`UPDATE organizations SET status = $2 WHERE id = $1`, [id, status]);
 
 // ── login ────────────────────────────────────────────────────────────────────────────────────────────────────────
 

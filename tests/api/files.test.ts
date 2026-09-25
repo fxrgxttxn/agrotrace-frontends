@@ -33,6 +33,16 @@ const UUID0 = '00000000-0000-4000-8000-000000000000';
 const PRIVATE = 'private, max-age=0, must-revalidate';
 const PUBLIC = 'public, max-age=86400';
 
+/** The file id of a seeded product photo, from listDictionary (products.imageUrl). */
+async function productPhoto(client: ApiClient): Promise<{ id: string }> {
+  const res = await client.get('/dictionaries/products', { query: { size: 100 } });
+  await expectContract(res, 'listDictionary');
+  expect(res.status, res.text).toBe(200);
+  const withImage = (res.body.items as { imageUrl: string | null }[]).find((p) => p.imageUrl !== null);
+  if (!withImage) throw new Error('no seeded product has a photo');
+  return { id: fileIdOf(withImage.imageUrl!) };
+}
+
 /** A fresh head with an uploaded avatar: { client, fileId, url (signed), originalName }. */
 async function withAvatar(originalName = 'Портрет «Петров» 2026.png') {
   const { client, user } = await freshHead('FARM');
@@ -67,10 +77,7 @@ describe('downloadFile — Bearer', () => {
 
   it('logos and product photos are served to any role; an unknown file → 404; malformed id/variant → 400', async () => {
     const lab = await loginAs('LAB', { head: false });
-    // TODO(Task 5): take the product image URL from the dictionaries API once it exists.
-    const [product] = await query<{ id: string }>(
-      `SELECT image_file_id AS id FROM products WHERE image_file_id IS NOT NULL AND deleted_at IS NULL LIMIT 1`,
-    );
+    const product = await productPhoto(lab);
     const photo = await download(lab, `/files/${product!.id}`);
     expect(photo.status, photo.text).toBe(200);
     expect(photo.contentType).toBe('image/webp');
@@ -251,9 +258,7 @@ describe('downloadPublicFile', () => {
     expect(cached.status).toBe(304);
     expect(cached.headers.get('cache-control')).toBe(PUBLIC);
 
-    const [product] = await query<{ id: string }>(
-      `SELECT image_file_id AS id FROM products WHERE image_file_id IS NOT NULL AND deleted_at IS NULL LIMIT 1`,
-    );
+    const product = await productPhoto(lab);
     const photo = await api().get(`/public/files/${product!.id}`, { query: { variant: 96 } });
     await expectContract(photo, 'downloadPublicFile');
     expect(photo.contentType).toBe('image/webp');

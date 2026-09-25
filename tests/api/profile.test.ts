@@ -10,7 +10,8 @@ import { demoUser, loginAs, type Role } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
 import { API_BACKEND } from './lib/env.js';
-import { closeDb, fixtureWrite, query } from './lib/db.js';
+import { auditEntries } from './lib/audit.js';
+import { closeDb, fixtureWrite } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
 import {
   apiPath,
@@ -57,11 +58,14 @@ async function fetchSigned(url: string, variant?: 96 | 480) {
   return res;
 }
 
-const auditRows = (action: string, entityId: string) =>
-  query<{ entity_type: string; diff: Record<string, [unknown, unknown]>; backend: string; actor_id: string }>(
-    `SELECT entity_type, diff, backend, actor_id FROM audit_log WHERE action = $1 AND entity_id = $2 ORDER BY id`,
-    [action, entityId],
-  );
+/** The audit rows of `action` on one entity (listAuditLog), oldest first. */
+const auditRows = async (action: string, entityId: string) =>
+  (await auditEntries({ action, entityId })).map((r) => ({
+    entity_type: r.entityType,
+    diff: r.diff,
+    backend: r.backend,
+    actor_id: r.actor?.id ?? null,
+  }));
 
 describe('x-roles ANY: every role reaches the profile; no token → 401', () => {
   it.each(ROLES)('%s: getMe, getMyChannels', async (role) => {
@@ -263,10 +267,11 @@ describe('uploadMyAvatar', () => {
     expect(webpSize(small.bytes)).toEqual({ width: 96, height: 48 });
     expect(small.headers.get('etag')).toBe(`"${sha256hex(small.bytes)}"`);
 
-    const audit = await query<{ entity_type: string; entity_id: string; diff: Record<string, unknown> }>(
-      `SELECT entity_type, entity_id, diff FROM audit_log WHERE action = 'uploadMyAvatar' AND actor_id = $1 ORDER BY id`,
-      [user.id],
-    );
+    const audit = (await auditEntries({ action: 'uploadMyAvatar', actorId: user.id })).map((r) => ({
+      entity_type: r.entityType,
+      entity_id: r.entityId,
+      diff: r.diff,
+    }));
     expect(audit.map((a) => a.entity_type).sort()).toEqual(['file', 'user']);
     const userRow = audit.find((a) => a.entity_type === 'user')!;
     expect(userRow.entity_id).toBe(user.id);
@@ -383,10 +388,13 @@ describe('uploadMyAvatar', () => {
     const gone = await fetchSigned(first.body.url);
     expectProblem(gone, 404, 'NOT_FOUND');
     expect((await fetchSigned(second.body.url)).status).toBe(200);
-    const [row] = await query<{ deleted_at: Date | null }>(`SELECT deleted_at FROM files WHERE id = $1`, [
-      first.body.id,
-    ]);
-    expect(row!.deleted_at).not.toBeNull();
+    // The replaced file's soft delete is in the audit log of the second upload.
+    const deletion = (await auditEntries({ action: 'uploadMyAvatar', entityId: first.body.id })).filter(
+      (r) => r.diff.deletedAt,
+    );
+    expect(deletion).toHaveLength(1);
+    expect(deletion[0]!.diff.deletedAt![0]).toBeNull();
+    expect(deletion[0]!.diff.deletedAt![1]).toEqual(expect.any(String));
   });
 });
 

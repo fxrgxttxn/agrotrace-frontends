@@ -8,7 +8,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { demoUser, loginAs, type Role } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
-import { closeDb, query } from './lib/db.js';
+import { auditEntries } from './lib/audit.js';
+import { closeDb } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
 import { fixture, sha256hex, upload, webpSize } from './lib/files.js';
 import {
@@ -237,11 +238,8 @@ describe('inviteUser', () => {
       expect(signedIn.status, signedIn.text).toBe(200);
       expect(signedIn.body.user).toMatchObject({ fullName: 'Сидорова А. В.', roles: [ROLE_OF_TYPE[type]] });
 
-      const [audit] = await query<{ entity_type: string; diff: Record<string, unknown> }>(
-        `SELECT entity_type, diff FROM audit_log WHERE action = 'inviteUser' AND entity_id = $1`,
-        [res.body.id],
-      );
-      expect(audit).toMatchObject({ entity_type: 'user' });
+      const [audit] = await auditEntries({ action: 'inviteUser', entityId: res.body.id });
+      expect(audit).toMatchObject({ entityType: 'user' });
       expect(audit!.diff).toMatchObject({
         email: [null, email.toLowerCase()],
         status: [null, 'INVITED'],
@@ -390,10 +388,7 @@ describe('updateUser', () => {
     expect(active.body.status).toBe('ACTIVE');
     expect((await login(api(), emp.email, PASSWORD)).status).toBe(200);
 
-    const audit = await query<{ diff: Record<string, unknown> }>(
-      `SELECT diff FROM audit_log WHERE action = 'updateUser' AND entity_id = $1 ORDER BY id`,
-      [emp.id],
-    );
+    const audit = await auditEntries({ action: 'updateUser', entityId: emp.id });
     expect(audit.map((a) => a.diff)).toEqual([
       { status: ['ACTIVE', 'BLOCKED'] },
       { status: ['BLOCKED', 'ACTIVE'] },

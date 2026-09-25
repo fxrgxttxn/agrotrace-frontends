@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { loginAs, type Role } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
+import { auditEntries } from './lib/audit.js';
 import { closeDb, fixtureWrite, query } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
 import {
@@ -222,11 +223,11 @@ describe('uploadOrganizationLogo', () => {
     await expectContract(pub, 'downloadPublicFile');
     expect(pub.bytes.equals(small.bytes)).toBe(true);
 
-    const audit = await query<{ entity_type: string; entity_id: string; diff: Record<string, unknown> }>(
-      `SELECT entity_type, entity_id, diff FROM audit_log WHERE action = 'uploadOrganizationLogo' AND actor_id = $1
-        ORDER BY id`,
-      [user.id],
-    );
+    const audit = (await auditEntries({ action: 'uploadOrganizationLogo', actorId: user.id })).map((r) => ({
+      entity_type: r.entityType,
+      entity_id: r.entityId,
+      diff: r.diff,
+    }));
     expect(audit.map((a) => a.entity_type).sort()).toEqual(['file', 'organization']);
     expect(audit.find((a) => a.entity_type === 'organization')).toMatchObject({
       entity_id: org.organizationId,

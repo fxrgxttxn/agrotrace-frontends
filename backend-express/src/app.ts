@@ -16,7 +16,10 @@ import {
   rejectEmptySegments,
 } from './http/problem.js';
 import { backendHeader, requestId } from './http/request-id.js';
+import { adminRouter } from './modules/admin/routes.js';
+import { auditRouter } from './modules/audit/routes.js';
 import { authRouter } from './modules/auth/routes.js';
+import { dictionariesRouter } from './modules/dictionaries/routes.js';
 import { docsRouter } from './modules/docs/routes.js';
 import { filesRouter, publicFilesRouter } from './modules/files/routes.js';
 import { healthRouter } from './modules/health/routes.js';
@@ -62,6 +65,9 @@ export function createApp(c: Container): Express {
   api.use(organizationsRouter(c));
   api.use(filesRouter(c));
   api.use(publicFilesRouter(c));
+  api.use(dictionariesRouter(c));
+  api.use(adminRouter(c));
+  api.use(auditRouter(c));
   app.use('/api/v1', api);
 
   app.use(notFoundHandler());

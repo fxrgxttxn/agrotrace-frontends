@@ -73,7 +73,7 @@ const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   return c >>> 0;
 });
 
-function crc32(buf: Buffer): number {
+export function crc32(buf: Buffer): number {
   let c = 0xffffffff;
   for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff]! ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
