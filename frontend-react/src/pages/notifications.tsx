@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, matchPath, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ApiNotification, NotificationPage, UnreadCount } from '@agrotrace/api-client';
 import { formatLocalDateTime, notificationMessage } from '@agrotrace/i18n';
 import { canAccess, type Viewer } from '../app/access';
 import { applyProblem, call, useFormAlert } from '../app/api';
-import { t } from '../app/i18n';
+import { LOCALE, t } from '../app/i18n';
 import { CABINET_ROUTES } from '../app/routes';
 import { useMe, useSession } from '../app/session';
 import { useSetUnread, useUnread } from '../app/sse';
@@ -71,6 +71,8 @@ export function NotificationsPage() {
   const tab: Tab = params.get('tab') === 'unread' ? 'unread' : 'all';
   const page = Math.max(1, Math.floor(Number(params.get('page'))) || 1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // A selection belongs to the rows on screen: another page or tab starts empty.
+  useEffect(() => setSelected(new Set()), [tab, page]);
   const [marking, setMarking] = useState<'ids' | 'all' | null>(null);
   const alert = useFormAlert();
 
@@ -101,12 +103,22 @@ export function NotificationsPage() {
     setParams(id === 'unread' ? { tab: 'unread' } : {});
   };
 
+  // «Прочитать все» means all: up to the newest notification of the viewer, not of this page (`seq,desc`: the first
+  // item of page 1 of «Все»; asked for when another page or tab is on screen).
+  const newestSeq = async (): Promise<number> => {
+    if (tab === 'all' && page === 1 && items[0]) return items[0].seq;
+    const first = await call<NotificationPage>(
+      api.GET('/notifications', { params: { query: { page: 1, size: 1, sort: 'seq,desc' } } }),
+    );
+    return first.items[0]?.seq ?? Math.max(...items.map((n) => n.seq));
+  };
+
   const mark = async (kind: 'ids' | 'all') => {
     if (kind === 'all' && items.length === 0) return;
     alert.clear();
-    const body = kind === 'ids' ? { ids: [...selected] } : { upToSeq: Math.max(...items.map((n) => n.seq)) };
     setMarking(kind);
     try {
+      const body = kind === 'ids' ? { ids: [...selected] } : { upToSeq: await newestSeq() };
       const res = await call<UnreadCount>(api.POST('/notifications/read', { body }));
       setUnread(res.count);
       setSelected(new Set());
@@ -146,7 +158,7 @@ export function NotificationsPage() {
     {
       key: 'createdAt',
       header: t('notifications.received'),
-      cell: (n) => <time dateTime={n.createdAt}>{formatLocalDateTime(n.createdAt, 'ru')}</time>,
+      cell: (n) => <time dateTime={n.createdAt}>{formatLocalDateTime(n.createdAt, LOCALE)}</time>,
     },
   ];
 

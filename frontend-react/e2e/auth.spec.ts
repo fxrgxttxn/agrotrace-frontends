@@ -291,6 +291,8 @@ test.describe('with the live API', () => {
     await shoot(page, 'forbidden', 'Нет доступа');
     await page.goto('/nowhere');
     await shoot(page, 'not-found', 'Страница не найдена');
+    await page.goto('/invite/0123456789abcdef0123');
+    await shoot(page, 'invite-signed-in', 'Приглашение');
     await signOut(page);
   });
 });

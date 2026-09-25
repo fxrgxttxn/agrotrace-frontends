@@ -366,6 +366,20 @@ describe('/password/reset/:token', () => {
 });
 
 describe('/invite/:token', () => {
+  it('signed in as someone else: says so and offers to sign out, staying on the link', async () => {
+    const { router } = renderApp(`/invite/${TOKEN}`);
+    expect(
+      await screen.findByText(
+        'Вы вошли как Петров Иван Сергеевич. Приглашение — для другой учётной записи: выйдите, чтобы принять его.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('ФИО')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Выйти' }));
+    expect(await screen.findByLabelText('ФИО')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/invite/${TOKEN}`);
+    expect(alertText() + politeText()).toBe('');
+  });
+
   async function open() {
     guest();
     const utils = renderApp(`/invite/${TOKEN}`);
@@ -501,7 +515,7 @@ describe('/register', () => {
       contractResponse('registerOrganization', {
         status: 400,
         body: problem(400, 'VALIDATION', {
-          errors: { inn: ['validation.inn.taken'], 'admin.email': ['validation.email.taken'] },
+          errors: { 'admin.email': ['validation.email.taken'], inn: ['validation.inn.taken'] },
         }),
       }),
     );
@@ -511,6 +525,8 @@ describe('/register', () => {
       expect(screen.getByLabelText('ИНН')).toHaveAccessibleDescription('ИНН уже зарегистрирован'),
     );
     expect(screen.getByLabelText('Email')).toHaveAccessibleDescription('Email уже зарегистрирован');
+    // focus goes to the first invalid field of the form (ИНН), whatever the order of the answer
+    expect(document.activeElement).toBe(screen.getByLabelText('ИНН'));
   });
 
   it('regions that fail to load can be retried', async () => {
@@ -524,6 +540,7 @@ describe('/register', () => {
     renderApp('/register');
     const retry = await screen.findByRole('button', { name: 'Повторить' }, { timeout: 8000 });
     expect(screen.getByText('Регионы не загрузились — повторите')).toBeInTheDocument();
+    expect(screen.getByLabelText('Регион')).not.toHaveAttribute('aria-invalid');
     fail = false;
     await userEvent.click(retry);
     expect(await screen.findByRole('option', { name: 'Краснодарский край' })).toBeInTheDocument();

@@ -25,7 +25,7 @@ import {
 } from '@agrotrace/validation';
 import { call } from '../app/api';
 import { errorOf, FORM_GRID, Submit, useSchemaForm } from '../app/forms';
-import { t } from '../app/i18n';
+import { LOCALE, t } from '../app/i18n';
 import { AuthLayout } from '../app/layouts';
 import { useSession } from '../app/session';
 import {
@@ -77,7 +77,7 @@ export function LoginPage() {
       signIn(data);
     } catch (e) {
       if (isProblem(e, 'ACCOUNT_LOCKED') && typeof e.params?.lockedUntil === 'string')
-        alert.show(t('auth.lockedUntil', { time: formatLocalTime(e.params.lockedUntil, 'ru') }));
+        alert.show(t('auth.lockedUntil', { time: formatLocalTime(e.params.lockedUntil, LOCALE) }));
       else fail(e);
     }
   });
@@ -294,6 +294,21 @@ function ResetForm({ token, onDead }: { token: string; onDead: () => void }) {
 export function InvitePage() {
   const { token } = useParams();
   const [dead, setDead] = useState(!tokenLooksValid(token));
+  const { state, signOut } = useSession();
+  // Signed in as someone else: the invitation is for another account — sign out here and stay on the link.
+  if (state.status === 'authenticated')
+    return (
+      <AuthLayout title={t('page.invite')}>
+        <Outcome
+          text={t('auth.inviteSignedIn', { name: state.me.fullName })}
+          action={
+            <Button variant="primary" icon="logout" onClick={() => void signOut(`/invite/${token ?? ''}`)}>
+              {t('action.logout')}
+            </Button>
+          }
+        />
+      </AuthLayout>
+    );
   return (
     <AuthLayout title={t('page.invite')}>
       {dead || !token ? (
@@ -397,7 +412,7 @@ export function RegisterPage() {
       </AuthLayout>
     );
 
-  const regionError = errorOf(form, 'regionCode') ?? (regions.isError ? t('auth.regionsFailed') : undefined);
+  const regionError = errorOf(form, 'regionCode');
 
   return (
     <Page title={t('page.register')} main style={{ maxWidth: '40rem' }}>
@@ -435,7 +450,8 @@ export function RegisterPage() {
                 </Select>
               </Field>
               {regions.isError && (
-                <div>
+                <div style={LINKS}>
+                  <p role="alert">{t('auth.regionsFailed')}</p>
                   <Button size="s" busy={regions.isFetching} onClick={() => void regions.refetch()}>
                     {t('action.retry')}
                   </Button>

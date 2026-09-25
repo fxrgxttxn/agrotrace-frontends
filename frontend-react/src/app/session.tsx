@@ -81,8 +81,8 @@ export interface Session {
   store: TokenStore;
   /** Installs a successful login (`POST /auth/login` or `/auth/2fa/verify`). */
   signIn: (result: LoginSuccess) => void;
-  /** `POST /auth/logout`, clears the session here and in the other tabs. */
-  signOut: () => Promise<void>;
+  /** `POST /auth/logout`, clears the session here and in the other tabs, then goes to `to` (default `/login`). */
+  signOut: (to?: string) => Promise<void>;
   /** Reloads `/me` (after a profile change). */
   reloadMe: () => Promise<void>;
   /** Installs a profile the API just returned (`PATCH /me`). */
@@ -206,16 +206,19 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     [store],
   );
 
-  const signOut = useCallback(async () => {
-    try {
-      await api.POST('/auth/logout');
-    } catch {
-      // Even when the server is unreachable the local session ends; the cookie expires on its own.
-    }
-    endLocally(true);
-    channel.current?.postMessage({ type: 'logout' });
-    navigate('/login', { replace: true });
-  }, [api, endLocally, navigate]);
+  const signOut = useCallback(
+    async (to = '/login') => {
+      try {
+        await api.POST('/auth/logout');
+      } catch {
+        // Even when the server is unreachable the local session ends; the cookie expires on its own.
+      }
+      endLocally(true);
+      channel.current?.postMessage({ type: 'logout' });
+      navigate(to, { replace: true });
+    },
+    [api, endLocally, navigate],
+  );
 
   const reloadMe = useCallback(async () => {
     dispatch({ type: 'authenticated', me: await loadMe() });

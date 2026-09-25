@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
 import { server } from '../setup';
-import { contractExample, contractResponse } from '../msw/fromContract';
+import { API_BASE, contractExample, contractResponse } from '../msw/fromContract';
 import { FakeEventSource, renderApp } from '../app/renderApp';
 
 // /notifications on the contract's MSW handlers: listNotifications (pages, unread filter), markNotificationsRead
@@ -152,6 +153,39 @@ describe('/notifications', () => {
     await screen.findByRole('link', { name: 'Изъять партию AT-2026-000040' });
     await userEvent.click(screen.getByRole('button', { name: 'Отметить все прочитанными' }));
     await waitFor(() => expect(body).toEqual({ upToSeq: 40 }));
+  });
+
+  it('«mark all read» away from the first page still marks everything (asks for the newest seq)', async () => {
+    let body: unknown;
+    server.use(
+      http.get(`${API_BASE}/notifications`, ({ request }) => {
+        const q = new URL(request.url).searchParams;
+        if (q.get('size') === '1' && q.get('page') === '1' && !q.has('isRead'))
+          return HttpResponse.json({ ...pageOf([note(77)], 45, 1), size: 1 });
+        return HttpResponse.json(pageOf([note(9)], 45, 2));
+      }),
+      contractResponse('markNotificationsRead', {
+        body: { count: 0 },
+        onRequest: async (r) => void (body = await r.json()),
+      }),
+    );
+    await open('/notifications?tab=unread&page=2');
+    await screen.findByRole('link', { name: 'Изъять партию AT-2026-000009' });
+    await userEvent.click(screen.getByRole('button', { name: 'Отметить все прочитанными' }));
+    await waitFor(() => expect(body).toEqual({ upToSeq: 77 }));
+  });
+
+  it('the selection is cleared on another page', async () => {
+    server.use(contractResponse('listNotifications', { body: pageOf([note(12)], 45, 1) }));
+    await open();
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: 'Выбрать «Изъять партию AT-2026-000012»' }),
+    );
+    expect(screen.getByRole('button', { name: 'Отметить прочитанным' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('link', { name: '2' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Отметить прочитанным' })).not.toBeInTheDocument(),
+    );
   });
 
   it('400 of mark-read (an id that is gone) is shown as the message', async () => {

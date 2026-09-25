@@ -54,6 +54,11 @@ export function errorText(e: unknown): string {
       const text = t(key);
       if (text !== key) return text;
     }
+    if (e.status === 429) return t('auth.rateLimited', { seconds: retryAfterOf(e) });
+    if (e.code === 'VALIDATION' && e.errors) {
+      const texts = Object.values(e.errors).flatMap((keys) => (keys[0] ? [t(keys[0])] : []));
+      if (texts.length) return texts.join('. ');
+    }
     return problemMessage(e, t);
   }
   return t('errors.BACKEND_UNAVAILABLE');
@@ -112,17 +117,21 @@ export interface ApplyOptions<F extends FieldValues> {
 export function applyProblem<F extends FieldValues>(e: unknown, o: ApplyOptions<F>): void {
   if (e instanceof ApiProblem && e.code === 'VALIDATION' && e.errors) {
     const rest: string[] = [];
-    let first = true;
+    const fields = (o.fields ?? []) as readonly string[];
+    const marked = new Set<string>();
     for (const [path, keys] of Object.entries(e.errors)) {
       const key = keys[0];
       if (!key) continue;
-      if (o.form && ((o.fields ?? []) as readonly string[]).includes(path)) {
-        o.form.setError(path as Path<F>, { type: 'server', message: key }, { shouldFocus: first });
-        first = false;
+      if (o.form && fields.includes(path)) {
+        o.form.setError(path as Path<F>, { type: 'server', message: key });
+        marked.add(path);
       } else rest.push(t(key));
     }
+    // Focus the first invalid field in the order of the form (`fields` is listed in DOM order), not of the answer.
+    const firstField = fields.find((f) => marked.has(f));
+    if (o.form && firstField) o.form.setFocus(firstField as Path<F>);
     if (rest.length) o.alert(rest.join('. '));
-    else if (first) o.alert(errorText(e));
+    else if (!firstField) o.alert(errorText(e));
     return;
   }
   if (e instanceof ApiProblem && e.status === 429) {
@@ -132,4 +141,9 @@ export function applyProblem<F extends FieldValues>(e: unknown, o: ApplyOptions<
     return;
   }
   o.alert(errorText(e));
+}
+
+/** A rate limit is a wait, not a failure: attention tone; everything else is an error. */
+export function errorTone(e: unknown): 'danger' | 'attention' {
+  return e instanceof ApiProblem && e.status === 429 ? 'attention' : 'danger';
 }

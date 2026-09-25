@@ -14,9 +14,9 @@ import {
   TwoFactorSetupRequestSchema,
   type TwoFactorSetupRequest,
 } from '@agrotrace/validation';
-import { call, errorText, useFormAlert } from '../app/api';
+import { call, errorText, errorTone, retryAfterOf, useCountdown, useFormAlert } from '../app/api';
 import { errorOf, FORM_GRID, Submit, useSchemaForm } from '../app/forms';
-import { t } from '../app/i18n';
+import { LOCALE, t } from '../app/i18n';
 import { useMe, useSession } from '../app/session';
 import { ThemeSwitch } from '../shell/ThemeSwitch';
 import {
@@ -163,7 +163,7 @@ const TYPE_NAMES: Record<string, string> = {
 
 const typesText = (types: readonly unknown[]) =>
   types.map((m) => TYPE_NAMES[String(m)] ?? String(m)).join(', ');
-const tooLargeText = (max: number) => t('files.tooLarge', { max: formatBytes(max, 'ru') });
+const tooLargeText = (max: number) => t('files.tooLarge', { max: formatBytes(max, LOCALE) });
 
 interface Picked {
   file: File;
@@ -212,7 +212,7 @@ function AvatarCard({ me }: { me: Me }) {
       else if (e instanceof ApiProblem && e.code === 'VALIDATION' && e.errors?.file?.[0])
         error = t(e.errors.file[0]);
       if (error) setPicked((p) => (p ? { ...p, error } : p));
-      else alert.show(errorText(e));
+      else alert.show(errorText(e), errorTone(e));
     } finally {
       setBusy(null);
     }
@@ -226,7 +226,7 @@ function AvatarCard({ me }: { me: Me }) {
       await reloadMe();
       toast.push({ tone: 'ok', text: t('profile.avatarDeleted') });
     } catch (e) {
-      alert.show(errorText(e));
+      alert.show(errorText(e), errorTone(e));
     } finally {
       setBusy(null);
     }
@@ -237,7 +237,7 @@ function AvatarCard({ me }: { me: Me }) {
         {
           key: 'avatar',
           name: picked.file.name,
-          sizeText: picked.error ?? formatBytes(picked.file.size, 'ru'),
+          sizeText: picked.error ?? formatBytes(picked.file.size, LOCALE),
           error: Boolean(picked.error),
           previewUrl: picked.error ? undefined : picked.url,
           kind: picked.error ? (TYPE_NAMES[picked.file.type] ?? '') : undefined,
@@ -300,6 +300,13 @@ function ChannelsCard() {
   });
   const linked = channels.data?.telegramLinked ?? false;
 
+  // The code is void at `expiresAt`: stop watching and offer a new one.
+  useEffect(() => {
+    if (!code) return;
+    const timer = setTimeout(() => setCode(null), Math.max(0, Date.parse(code.expiresAt) - Date.now()));
+    return () => clearTimeout(timer);
+  }, [code]);
+
   useEffect(() => {
     if (code && linked) {
       setCode(null);
@@ -315,7 +322,7 @@ function ChannelsCard() {
       queryClient.setQueryData(CHANNELS_KEY, data);
     } catch (e) {
       const key = e instanceof ApiProblem ? (e.errors?.telegram?.[0] ?? e.errors?.email?.[0]) : undefined;
-      alert.show(key ? t(key) : errorText(e));
+      alert.show(key ? t(key) : errorText(e), errorTone(e));
     } finally {
       setSaving(false);
     }
@@ -327,7 +334,7 @@ function ChannelsCard() {
     try {
       setCode(await call<TelegramCode>(api.POST('/me/telegram-code')));
     } catch (e) {
-      alert.show(errorText(e));
+      alert.show(errorText(e), errorTone(e));
     } finally {
       setCodeBusy(false);
     }
@@ -338,7 +345,16 @@ function ChannelsCard() {
     <Card>
       <CardHeader title={t('profile.channels')} />
       <CardBody>
-        {!data ? (
+        {!data && channels.isError ? (
+          <div style={FORM_GRID}>
+            <p>{t('profile.channelsFailed')}</p>
+            <div>
+              <Button busy={channels.isFetching} onClick={() => void channels.refetch()}>
+                {t('action.retry')}
+              </Button>
+            </div>
+          </div>
+        ) : !data ? (
           <div aria-busy="true" style={FORM_GRID}>
             <span className="at-skeleton" data-shape="text" style={{ width: '60%' }}></span>
             <span className="at-skeleton" data-shape="text" style={{ width: '40%' }}></span>
@@ -362,7 +378,7 @@ function ChannelsCard() {
             {code ? (
               <div style={FORM_GRID}>
                 <p>{t('profile.telegramCode', { bot: code.botUsername, code: code.code })}</p>
-                <p>{t('profile.telegramUntil', { time: formatLocalTime(code.expiresAt, 'ru') })}</p>
+                <p>{t('profile.telegramUntil', { time: formatLocalTime(code.expiresAt, LOCALE) })}</p>
                 <div style={ROW}>
                   <ButtonAnchor
                     variant="primary"
@@ -407,6 +423,9 @@ function TwoFactorCard({ me }: { me: Me }) {
     ['code'],
   );
 
+  // A 429 on the start step waits on its own button.
+  const [startWait, startStartWait] = useCountdown();
+
   const alreadyOn = async () => {
     setPending(null);
     await reloadMe();
@@ -422,7 +441,10 @@ function TwoFactorCard({ me }: { me: Me }) {
       else await alreadyOn();
     } catch (e) {
       if (e instanceof ApiProblem && e.status === 409) await alreadyOn();
-      else fail(e);
+      else if (e instanceof ApiProblem && e.status === 429) {
+        startStartWait(retryAfterOf(e));
+        alert.show(errorText(e), errorTone(e));
+      } else alert.show(errorText(e), errorTone(e));
     } finally {
       setStarting(false);
     }
@@ -457,8 +479,8 @@ function TwoFactorCard({ me }: { me: Me }) {
       </CardHeader>
       {!me.totpEnabled && !pending && (
         <CardFooter>
-          <Button busy={starting} onClick={() => void start()}>
-            {t('profile.setup')}
+          <Button busy={starting} disabled={startWait > 0} onClick={() => void start()}>
+            {startWait > 0 ? t('auth.retryIn', { seconds: startWait }) : t('profile.setup')}
           </Button>
         </CardFooter>
       )}

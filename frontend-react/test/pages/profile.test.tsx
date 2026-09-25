@@ -187,6 +187,27 @@ describe('avatar', () => {
     await waitFor(() => expect(avatar.getByLabelText('Файл')).toHaveAccessibleDescription(text));
   });
 
+  it('upload 429 says when to retry', async () => {
+    server.use(contractResponse('uploadMyAvatar', { status: 429, headers: { 'Retry-After': '12' } }));
+    await openProfile();
+    const avatar = within(card('Аватар'));
+    await userEvent.upload(avatar.getByLabelText('Файл'), png());
+    await userEvent.click(avatar.getByRole('button', { name: 'Загрузить' }));
+    await waitFor(() => expect(politeText()).toBe('Слишком много попыток — повторите через 12 с'));
+  });
+
+  it.each([
+    [403, {}, 'alert', 'Недостаточно прав для этого действия'],
+    [429, { headers: { 'Retry-After': '3' } }, 'polite', 'Слишком много попыток — повторите через 3 с'],
+  ])('removing: %s is shown, the avatar stays', async (status, extra, region, text) => {
+    server.use(contractResponse('deleteMyAvatar', { status, ...extra }));
+    await openProfile();
+    const avatar = within(card('Аватар'));
+    await userEvent.click(avatar.getByRole('button', { name: 'Удалить аватар' }));
+    await waitFor(() => expect(region === 'alert' ? alertText() : politeText()).toBe(text));
+    expect(avatar.getByRole('button', { name: 'Удалить аватар' })).toBeInTheDocument();
+  });
+
   it('removes the current avatar', async () => {
     let deleted = false;
     server.use(contractResponse('deleteMyAvatar', { onRequest: () => void (deleted = true) }));
@@ -229,6 +250,12 @@ describe('notification channels', () => {
     server.use(
       contractResponse('getMyChannels', { body: { email: true, telegram: false, telegramLinked: false } }),
     );
+    const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString().replace(/\.\d+Z$/, 'Z');
+    server.use(
+      contractResponse('createTelegramCode', {
+        body: { code: 'K7M2Q9XA', expiresAt, botUsername: 'agrotrace_bot' },
+      }),
+    );
     await openProfile();
     const channels = within(card('Каналы уведомлений'));
     expect(await channels.findByRole('switch', { name: 'Telegram' })).toBeDisabled();
@@ -236,13 +263,67 @@ describe('notification channels', () => {
     expect(
       await channels.findByText('Отправьте боту @agrotrace_bot команду /start K7M2Q9XA'),
     ).toBeInTheDocument();
-    expect(
-      channels.getByText(`Код действует до ${formatLocalTime('2026-09-24T08:45:00Z', 'ru')}`),
-    ).toBeInTheDocument();
+    expect(channels.getByText(`Код действует до ${formatLocalTime(expiresAt, 'ru')}`)).toBeInTheDocument();
     expect(channels.getByRole('link', { name: 'Открыть Telegram' })).toHaveAttribute(
       'href',
       'https://t.me/agrotrace_bot?start=K7M2Q9XA',
     );
+  });
+
+  it('at expiresAt the code disappears and polling stops; a new code can be asked for', async () => {
+    let polls = 0;
+    const expiresAt = new Date(Date.now() + 1500).toISOString().replace(/\.\d+Z$/, 'Z');
+    server.use(
+      contractResponse('getMyChannels', {
+        body: { email: true, telegram: false, telegramLinked: false },
+        onRequest: () => void polls++,
+      }),
+      contractResponse('createTelegramCode', {
+        body: { code: 'K7M2Q9XA', expiresAt, botUsername: 'agrotrace_bot' },
+      }),
+    );
+    await openProfile();
+    const channels = within(card('Каналы уведомлений'));
+    await userEvent.click(await channels.findByRole('button', { name: 'Привязать Telegram' }));
+    await channels.findByText('Отправьте боту @agrotrace_bot команду /start K7M2Q9XA');
+    expect(
+      await channels.findByRole('button', { name: 'Привязать Telegram' }, { timeout: 3000 }),
+    ).toBeInTheDocument();
+    expect(channels.queryByText(/^Код действует до/)).not.toBeInTheDocument();
+    const after = polls;
+    await new Promise((r) => setTimeout(r, 5500));
+    expect(polls).toBe(after);
+  }, 15000);
+
+  it('channels that fail to load show a message with a retry', async () => {
+    server.use(contractResponse('getMyChannels', { status: 403, once: true }));
+    await openProfile();
+    const channels = within(card('Каналы уведомлений'));
+    expect(await channels.findByText('Каналы уведомлений не загрузились.')).toBeInTheDocument();
+    await userEvent.click(channels.getByRole('button', { name: 'Повторить' }));
+    expect(await channels.findByRole('switch', { name: 'Email' })).toBeInTheDocument();
+  });
+
+  it('429 of a channel switch says when to retry', async () => {
+    server.use(
+      contractResponse('getMyChannels', { body: { email: true, telegram: false, telegramLinked: true } }),
+      contractResponse('updateMyChannels', { status: 429, headers: { 'Retry-After': '8' } }),
+    );
+    await openProfile();
+    await userEvent.click(await within(card('Каналы уведомлений')).findByRole('switch', { name: 'Email' }));
+    await waitFor(() => expect(politeText()).toBe('Слишком много попыток — повторите через 8 с'));
+  });
+
+  it('429 of the link code says when to retry', async () => {
+    server.use(
+      contractResponse('getMyChannels', { body: { email: true, telegram: false, telegramLinked: false } }),
+      contractResponse('createTelegramCode', { status: 429, headers: { 'Retry-After': '4' } }),
+    );
+    await openProfile();
+    await userEvent.click(
+      await within(card('Каналы уведомлений')).findByRole('button', { name: 'Привязать Telegram' }),
+    );
+    await waitFor(() => expect(politeText()).toBe('Слишком много попыток — повторите через 4 с'));
   });
 
   it('400 telegram.notLinked is shown as the form message', async () => {
@@ -342,6 +423,31 @@ describe('two-factor authentication', () => {
     const tfa = within(card('Двухфакторная аутентификация'));
     await userEvent.click(tfa.getByRole('button', { name: 'Настроить' }));
     expect(await tfa.findByText('Включена')).toBeInTheDocument();
+  });
+
+  it.each([
+    [400, {}, 'alert', 'Обязательное поле. Недопустимый формат'],
+    [403, {}, 'alert', 'Недостаточно прав для этого действия'],
+  ])('start step %s is shown as the message', async (status, extra, region, text) => {
+    server.use(asMe({ roles: ['ADMIN'] }), contractResponse('setupTwoFactor', { status, ...extra }));
+    await openProfile();
+    const tfa = within(card('Двухфакторная аутентификация'));
+    await userEvent.click(tfa.getByRole('button', { name: 'Настроить' }));
+    await waitFor(() => expect(region === 'alert' ? alertText() : politeText()).toBe(text));
+    expect(tfa.getByRole('button', { name: 'Настроить' })).toBeEnabled();
+  });
+
+  it('start step 429: the «Настроить» button counts down', async () => {
+    server.use(
+      asMe({ roles: ['ADMIN'] }),
+      contractResponse('setupTwoFactor', { status: 429, headers: { 'Retry-After': '2' } }),
+    );
+    await openProfile();
+    const tfa = within(card('Двухфакторная аутентификация'));
+    await userEvent.click(tfa.getByRole('button', { name: 'Настроить' }));
+    expect(await tfa.findByRole('button', { name: 'Повторить через 2 с' })).toBeDisabled();
+    expect(politeText()).toBe('Слишком много попыток — повторите через 2 с');
+    expect(await tfa.findByRole('button', { name: 'Настроить' }, { timeout: 3500 })).toBeEnabled();
   });
 
   it('a code that is not 6 digits is refused before the API', async () => {
