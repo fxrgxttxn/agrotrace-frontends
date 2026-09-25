@@ -20,6 +20,8 @@ import pytest
 import redis
 
 from agrobench import load_pg, load_redis, run
+from agrobench.queries import pg as pgq
+from agrobench.queries import pg_async as pga
 from agrobench.generate import generate, write_csv
 from agrobench.workload import (
     PREP_ID_BASE, Allocator, DatasetNotRestored, PgFixtures, Prepared, RedisFixtures, RestoreGuard,
@@ -293,3 +295,92 @@ def test_pg_concurrency_1_warm_up_and_series_share_one_backend(loaded):
     assert len(set(pids)) == 1 and len(pids) == 220  # 20 warm-up + 200 measured, one backend
     assert len(set(pinned)) == 1
     assert res.ops == 200
+
+
+# ---------------------------------------------------------------------------------------------
+# Review round 2: regression tests for the two B6 guarantees that had none
+# ---------------------------------------------------------------------------------------------
+
+_W2D2_PIDS: list[int] = []
+
+
+async def _w2_probe(conn, batches):
+    _W2D2_PIDS.append(await _backend_pid(conn))
+    await pga.w2_insert_batches_copy(conn, batches)
+
+
+async def _d2_probe(conn, cutoff):
+    _W2D2_PIDS.append(await _backend_pid(conn))
+    return await pga.d2_delete_tests_due_before(conn, cutoff)
+
+
+class _ProbePgSide(run.PgSide):
+    d2 = staticmethod(_d2_probe)
+
+
+def test_runner_w2_d2_loops_run_every_warm_up_and_measured_call_on_one_backend(loaded, tmp_path):
+    """Runner.w2_series / d2_series (warm-up calls + measured calls, untimed fixture work in
+    between) must stay on one PostgreSQL backend — unpinned, the FIFO pool of 16 rotates."""
+    sizes = run.Sizes(runs=1, w2_warmup=3, w2_ops=4, w2_size=50, d2_warmup=3, d2_ops=4, d2_size=20)
+    runner = run.Runner(loaded, sizes, tmp_path, profiles=_profiles(), dbms_list=["pg"], log=lambda _m: None)
+    runner.live = _live()
+
+    async def body():
+        side = _ProbePgSide()
+        await side.open()
+        fx = PgFixtures()
+        try:
+            alloc = Allocator(loaded)
+            _W2D2_PIDS.clear()
+            await runner.w2_series(side, fx, alloc, 1, "copy", _w2_probe)
+            w2 = list(_W2D2_PIDS)
+            _W2D2_PIDS.clear()
+            await runner.d2_series(side, fx, alloc, 1)
+            return w2, list(_W2D2_PIDS)
+        finally:
+            fx.close()
+            await side.close()
+
+    w2, d2 = asyncio.run(body())
+    assert len(w2) == 7 and len(set(w2)) == 1, w2
+    assert len(d2) == 7 and len(set(d2)) == 1, d2
+    assert [r["n"] for r in runner.rows] == [4, 4]
+
+
+_R1_MARK = "FROM batches WHERE id = $1"
+
+
+async def _prepared_probe(conn, batch_id, phase):
+    """Before running R1, records which backend this is and whether R1 is already server-side
+    prepared on it; then runs R1 exactly as the harness does."""
+    cur = await conn.execute(
+        "SELECT pg_backend_pid(), EXISTS (SELECT 1 FROM pg_prepared_statements "
+        "WHERE position(%s in statement) > 0)", (_R1_MARK,))
+    pid, prepared = await cur.fetchone()
+    cur = await conn.execute(pgq.R1_SQL, (batch_id,))
+    await cur.fetchone()
+    await conn.execute("INSERT INTO bench_probe_log VALUES (%s, %s, %s)", (pid, phase, prepared))
+
+
+def test_concurrency_16_measures_only_on_warmed_connections_with_prepared_statements(loaded):
+    """measure_in_processes (8 processes x 2 clients): every measured call must run on a backend
+    that did warm-up calls itself, with the measured statement already prepared there."""
+    with psycopg.connect(autocommit=True) as conn:
+        conn.execute("DROP TABLE IF EXISTS bench_probe_log")
+        conn.execute("CREATE TABLE bench_probe_log (pid int, phase text, prepared bool)")
+    try:
+        ids = [int(b["id"]) for b in loaded.batches]
+        warm = [(ids[i % len(ids)], "w") for i in range(160)]
+        meas = [(ids[i % len(ids)], "m") for i in range(800)]
+        res = run.measure_in_processes(run.PgSide(), _prepared_probe, meas, warm, 16, None, 8)
+        assert res.ops == 800
+        with psycopg.connect() as conn:
+            rows = conn.execute("SELECT pid, phase, prepared FROM bench_probe_log").fetchall()
+    finally:
+        with psycopg.connect(autocommit=True) as conn:
+            conn.execute("DROP TABLE IF EXISTS bench_probe_log")
+    warmed = {pid for pid, phase, _ in rows if phase == "w"}
+    measured = [(pid, prepared) for pid, phase, prepared in rows if phase == "m"]
+    assert len(measured) == 800 and len(warmed) == 16
+    assert {pid for pid, _ in measured} <= warmed
+    assert sum(1 for _, prepared in measured if not prepared) == 0

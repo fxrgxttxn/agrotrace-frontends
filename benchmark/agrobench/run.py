@@ -724,14 +724,18 @@ def write_explain_plans(ds: Dataset, out_dir: Path, profile: str, durability: st
 
 
 
-REDIS_DIAG_IGNORED = ("slowlog", "latency", "config", "info", "client", "hello", "ping", "debug")
+# Harness bookkeeping, not workload: diagnostics itself, connection handshakes, and SCRIPT LOAD
+# (the fixtures' script cache warm-up; the measured Lua calls show up as evalsha).
+REDIS_DIAG_IGNORED = ("slowlog", "latency", "config", "info", "client", "hello", "ping", "debug", "script")
 
 
 class RedisDiag:
     """Redis SLOWLOG / LATENCY / commandstats restricted to the measured calls (ruling B6): reset
     right before each measured part (warm-up + series, or one W2/D2 call), read right after it,
     and accumulated per run — so fixture traffic (prepared inserts, cleanup, the DEBUG DIGEST
-    restore check) never appears. The harness's own bookkeeping commands (and connection
+    restore check) never appears. Note: a window covers the series' warm-up calls too (they run
+    inside measure(), on the same connections, right before the timed calls), so commandstats
+    counts include them — same workload commands, roughly +10% calls for reads. The harness's own bookkeeping commands (and connection
     handshakes) are dropped from commandstats."""
 
     def __init__(self, client) -> None:

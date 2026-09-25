@@ -5,8 +5,8 @@
     "cpu_model": "AMD Ryzen 7 7700 8-Core Processor",
     "cpu_count_visible_to_runner": 16,
     "mem_total_mb_visible_to_runner": 31647.6,
-    "disk_free_gb": 610.6,
-    "disk": {
+    "bench_mount_disk_free_gb": 610.6,
+    "bench_mount_disk": {
       "path": "/bench",
       "total_gb": 930.49,
       "free_gb": 610.6,
@@ -48,5 +48,23 @@
       "cpus": 2.0,
       "mem_mb": 4096.0
     }
+  },
+  "db_data_disk": {
+    "docker_root_dir": "/var/lib/docker",
+    "postgres": {
+      "device": "/dev/sdd",
+      "fstype": "ext4",
+      "total_gb": 1006.85,
+      "used_gb": 28.97,
+      "free_gb": 926.67
+    },
+    "redis": {
+      "device": "/dev/sdd",
+      "fstype": "ext4",
+      "total_gb": 1006.85,
+      "used_gb": 28.97,
+      "free_gb": 926.67
+    },
+    "note": "captured after the run (review round 2) with ./at.sh bench env on the same stand; the run itself predates this field"
   }
 }

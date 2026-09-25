@@ -64,6 +64,9 @@ services:
       DOCKER_VERSION: ${DOCKER_VERSION:-}
       DOCKER_COMPOSE_VERSION: ${DOCKER_COMPOSE_VERSION:-}
       DOCKER_INFO: ${DOCKER_INFO:-}
+      DOCKER_ROOT_DIR: ${DOCKER_ROOT_DIR:-}
+      PG_DATA_DF: ${PG_DATA_DF:-}
+      REDIS_DATA_DF: ${REDIS_DATA_DF:-}
       # Actual per-container resource limits, introspected by bench.sh via `docker inspect`
       # (env.py has no docker socket) — see benchmark/bench.sh:do_env.
       PG_LIMITS_CPUS: ${PG_LIMITS_CPUS:-}

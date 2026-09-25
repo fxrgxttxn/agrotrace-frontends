@@ -111,6 +111,14 @@ do_env() {
   PG_LIMITS_MEM_BYTES="$(docker inspect "$pg_cid" --format '{{.HostConfig.Memory}}')"
   REDIS_LIMITS_CPUS="$(docker inspect "$rd_cid" --format '{{.HostConfig.NanoCpus}}')"
   REDIS_LIMITS_MEM_BYTES="$(docker inspect "$rd_cid" --format '{{.HostConfig.Memory}}')"
+  # Filesystem that actually holds each DBMS's data (its named volume inside the Docker VM), as
+  # `df -kT` sees it from inside the container — env.json's host.disk only describes the /bench
+  # bind mount the runner sees (review round 2).
+  export PG_DATA_DF REDIS_DATA_DF DOCKER_ROOT_DIR
+  # "df " / "root " prefixes: Git Bash rewrites env values that start with "/" as Windows paths.
+  PG_DATA_DF="df $(MSYS_NO_PATHCONV=1 docker exec "$pg_cid" df -kT /var/lib/postgresql/data | tail -1)"
+  REDIS_DATA_DF="df $(MSYS_NO_PATHCONV=1 docker exec "$rd_cid" df -kT /data | tail -1)"
+  DOCKER_ROOT_DIR="root $(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo unknown)"
 
   $DC run --rm bench-runner python -m agrobench.env
 }
@@ -142,7 +150,8 @@ do_publish() {
 do_all() {
   local started started_iso finished
   started="$(date +%s)"; started_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  rm -rf "$RESULTS_DIR"/raw "$RESULTS_DIR"/plans "$RESULTS_DIR"/redis "$RESULTS_DIR"/settings \n         "$RESULTS_DIR"/load "$RESULTS_DIR"/env
+  rm -rf "$RESULTS_DIR"/raw "$RESULTS_DIR"/plans "$RESULTS_DIR"/redis "$RESULTS_DIR"/settings \
+         "$RESULTS_DIR"/load "$RESULTS_DIR"/env
   rm -f "$RESULTS_DIR"/measurements.csv "$RESULTS_DIR"/measurements_median.csv "$RESULTS_DIR"/load.csv \
         "$RESULTS_DIR"/memory.csv "$RESULTS_DIR"/settings.csv "$RESULTS_DIR"/run_meta.json
   "$SELF" down

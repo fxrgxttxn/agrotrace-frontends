@@ -73,6 +73,23 @@ def _disk(path: str) -> dict:
     return out
 
 
+def _df_line(env_name: str) -> dict | None:
+    """Parses one `df -kT` data line (device, fstype, 1K-blocks, used, available, use%, mount)
+    passed in by bench.sh from inside a DBMS container."""
+    line = os.environ.get(env_name, "").removeprefix("df ").split()  # prefix: see bench.sh
+    if len(line) < 7:
+        return None
+    device, fstype, total_k, used_k, avail_k = line[:5]
+    try:
+        return {
+            "device": device, "fstype": fstype,
+            "total_gb": round(int(total_k) / 1024**2, 2), "used_gb": round(int(used_k) / 1024**2, 2),
+            "free_gb": round(int(avail_k) / 1024**2, 2),
+        }
+    except ValueError:
+        return {"raw": " ".join(line)}
+
+
 def _disk_free_gb(path: str) -> float | None:
     try:
         return round(shutil.disk_usage(path).free / (1024**3), 2)
@@ -123,8 +140,17 @@ def collect() -> dict:
             "cpu_model": _cpu_model(),
             "cpu_count_visible_to_runner": _cpu_count(),
             "mem_total_mb_visible_to_runner": _mem_total_mb(),
-            "disk_free_gb": _disk_free_gb(str(config.BENCH_DIR)),
-            "disk": _disk(str(config.BENCH_DIR)),
+            # The /bench bind mount as the runner sees it (where results/ and data/ CSVs live) —
+            # NOT where the DBMS keep their data; that is db_data_disk below.
+            "bench_mount_disk_free_gb": _disk_free_gb(str(config.BENCH_DIR)),
+            "bench_mount_disk": _disk(str(config.BENCH_DIR)),
+        },
+        # Filesystem holding each DBMS's data: its named Docker volume inside the Docker VM, as `df`
+        # sees it from inside the container (passed in by bench.sh), plus the engine's data-root.
+        "db_data_disk": {
+            "docker_root_dir": os.environ.get("DOCKER_ROOT_DIR", "").removeprefix("root ") or None,
+            "postgres": _df_line("PG_DATA_DF"),
+            "redis": _df_line("REDIS_DATA_DF"),
         },
         "docker": {
             "docker_version": os.environ.get("DOCKER_VERSION") or None,
