@@ -322,7 +322,7 @@ def scaling(d: rt.Data, out_dir: Path) -> Path:
 def memory(d: rt.Data, out_dir: Path) -> Path:
     """PG size per table (data + indexes), Redis MEMORY USAGE per key type, and totals (MB)."""
     p, dur = "tuned", "strict"
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4.2), gridspec_kw={"width_ratios": [4, 5, 4]})
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.2), gridspec_kw={"width_ratios": [4, 5, 5]})
     ax = axes[0]
     for i, t in enumerate(rt.PG_TABLES):
         data = float(d.memory("pg", p, dur, t, "table_bytes")) / 1e6
@@ -350,20 +350,23 @@ def memory(d: rt.Data, out_dir: Path) -> Path:
     _style(ax)
 
     ax = axes[2]
+    tables = sum(float(d.memory("pg", p, dur, t, "total_relation_size_bytes")) for t in rt.PG_TABLES)
     totals = [
-        ("PG: база целиком", float(d.memory("pg", p, dur, "__database__", "total_bytes")), PG),
+        ("PG: 4 таблицы с индексами", tables, PG),
+        ("PG: база целиком (с каталогом)", float(d.memory("pg", p, dur, "__database__", "total_bytes")), PG_LIGHT),
+        ("Redis: used_memory_dataset", float(d.memory("redis", p, dur, "__instance__", "used_memory_dataset")), REDIS),
         ("Redis: used_memory", float(d.memory("redis", p, dur, "__instance__", "used_memory")), REDIS),
-        ("Redis: dataset", float(d.memory("redis", p, dur, "__instance__", "used_memory_dataset")), REDIS),
         ("Redis: RSS процесса", float(d.memory("redis", p, dur, "__instance__", "used_memory_rss")), REDIS),
     ]
     for i, (_label, v, color) in enumerate(totals):
         ax.barh(i, v / 1e6, height=0.5, color=color, zorder=3)
-        ax.text(v / 1e6, i, " " + rt.fmt_num(v / 1e6, 1), va="center", ha="left", color=INK_2, fontsize=8)
+        note = "" if i == 0 else f" ({rt.fmt_num(v / tables, 2)}×)"
+        ax.text(v / 1e6, i, " " + rt.fmt_num(v / 1e6, 1) + note, va="center", ha="left", color=INK_2, fontsize=8)
     ax.set_yticks(range(len(totals)), [t[0] for t in totals])
     _invert_once(ax)
-    ax.set_title("Итого", loc="left")
+    ax.set_title("Итого (× — к таблицам PG с индексами)", loc="left")
     ax.set_xlabel("МБ")
-    ax.set_xlim(0, max(v for _l, v, _c in totals) / 1e6 * 1.18)
+    ax.set_xlim(0, max(v for _l, v, _c in totals) / 1e6 * 1.45)
     ax.xaxis.set_major_formatter(_num())
     _style(ax)
     _title(fig, "Объём данных: 10 000 записей каждой сущности (конфигурация «оптимизированная», «строгий»)", 1.03)

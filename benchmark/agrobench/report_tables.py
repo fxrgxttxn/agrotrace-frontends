@@ -8,9 +8,14 @@ block is typed by hand: `python -m agrobench.report_tables` rewrites all blocks,
 
 - every block is exactly what the script generates from the data now (a hand edit fails),
 - every number in a generated table exists in that block's source files (as written there, or
-  rounded / scaled by 10^-3 or 10^-6 for µs -> ms and bytes -> MB),
+  rounded / scaled by 10^-3, 10^-6 or 100 for µs -> ms, bytes -> MB and shares -> %), or is a
+  value the block's builder derived from them through `Data.derive` (sums, ratios, per-op CPU)
+  — the checker re-runs the builder, so a derived number is recomputed from the data, not trusted,
 - no table outside a generated block carries numbers (code spans and row labels aside),
-- every decimal number quoted in the prose appears in some generated block.
+- every number in the prose that is a result rather than a structural label — any number with a
+  decimal comma, a thousands group, a `%` or a `×`, and any other integer >= 100 — appears as a
+  whole token in some generated block. Method constants that are not in the data (warm-up sizes,
+  pipeline chunk sizes) are written as code (`1000`) and are not checked.
 
 Numbers are formatted the Russian way: decimal comma, no-break space between thousands.
 """
@@ -100,6 +105,13 @@ class Data:
     def __init__(self, root: Path | str):
         self.root = Path(root)
         self._cache: dict[str, object] = {}
+        self.derived: set[str] = set()
+
+    def derive(self, value: float) -> float:
+        """Registers a number computed from source values (sum, ratio, per-op CPU) so the checker
+        accepts its formatted forms in the block being built; returns it unchanged."""
+        self.derived |= _float_forms(value)
+        return value
 
     def text(self, name: str) -> str:
         if name not in self._cache:
@@ -127,6 +139,23 @@ class Data:
                     r["distribution"], r["concurrency"]) == want:
                 return r
         raise ReportError(f"no median row for {want}")
+
+    def run_range(self, dbms: str, profile: str, durability: str, query: str, variant: str,
+                  distribution: str, concurrency: int, metric: str) -> tuple[float, float]:
+        """Min and max of `metric` across the runs (measurements.csv, one row per run)."""
+        want = (dbms, profile, durability, query, variant, distribution, str(concurrency))
+        values = [float(r[metric]) for r in self.csv("measurements.csv")
+                  if (r["dbms"], r["profile"], r["durability"], r["query"], r["variant"],
+                      r["distribution"], r["concurrency"]) == want]
+        if not values:
+            raise ReportError(f"no per-run rows for {want}")
+        return min(values), max(values)
+
+    def dataset(self, metric: str) -> float:
+        for r in self.csv("dataset.csv"):
+            if r["metric"] == metric:
+                return float(r["value"])
+        raise ReportError(f"no dataset metric {metric}")
 
     def memory(self, dbms: str, profile: str, durability: str, obj: str, metric: str) -> str:
         for r in self.csv("memory.csv"):
@@ -183,6 +212,12 @@ READ_RUNS = [(label, q, dbms, v) for label, q, pv, rv in READS
 WRITES = ("W1", "W3", "D1")
 
 
+def ops_spread(d: Data, key: tuple, row: dict) -> str:
+    """Median ops/s with the min–max ops/s of the three runs (per-run rows, measurements.csv)."""
+    lo, hi = d.run_range(*key, "ops_s")
+    return f"{ops(row['ops_s'])} ({ops(lo)}{DASH}{ops(hi)})"
+
+
 def _reads(profile: str) -> Callable[[Data], str]:
     def build(d: Data) -> str:
         rows = []
@@ -190,14 +225,28 @@ def _reads(profile: str) -> Callable[[Data], str]:
             cells = [label]
             for dbms, v in (("pg", pv), ("redis", rv)):
                 if v is None:
-                    cells += ["—", "—"]
+                    cells += ["—"] * 4
                     continue
-                r = d.median(dbms, profile, "strict", q, v, "uniform", 1)
-                cells += [spread_us(r), us(r["p95_us"])]
+                key = (dbms, profile, "strict", q, v, "uniform", 1)
+                r = d.median(*key)
+                cells += [spread_us(r), us(r["p95_us"]), us(r["p99_us"]), ops_spread(d, key, r)]
             rows.append(cells)
-        return md_table(["Запрос", "PG p50, мкс (мин–макс)", "PG p95, мкс",
-                         "Redis p50, мкс (мин–макс)", "Redis p95, мкс"], rows)
+        return md_table(["Запрос", "PG p50, мкс (мин–макс)", "PG p95, мкс", "PG p99, мкс", "PG оп/с (мин–макс)",
+                         "Redis p50, мкс (мин–макс)", "Redis p95, мкс", "Redis p99, мкс",
+                         "Redis оп/с (мин–макс)"], rows)
     return build
+
+
+def _reads_pg_configs(d: Data) -> str:
+    """PostgreSQL read p50 in all four configurations: shows the host noise across columns."""
+    rows = []
+    for label, q, pv, _ in READS:
+        if pv is None:
+            continue
+        rows.append([label] + [spread_us(d.median("pg", p, dur, q, pv, "uniform", 1))
+                               for p in PROFILES for dur in DURABILITIES])
+    return md_table(["Запрос (PostgreSQL, 1 клиент)"] + [f"{PROFILE_RU[p]}, {DUR_RU[dur]}"
+                                                         for p in PROFILES for dur in DURABILITIES], rows)
 
 
 def _reads_zipf(d: Data) -> str:
@@ -214,12 +263,32 @@ def _reads_zipf(d: Data) -> str:
 def _reads_c16(d: Data) -> str:
     rows = []
     for label, q, dbms, v in READ_RUNS:
-        r = d.median(dbms, "tuned", "strict", q, v, "uniform", 16)
+        key = (dbms, "tuned", "strict", q, v, "uniform", 16)
+        r = d.median(*key)
         rows.append([f"{label} · {DBMS_RU[dbms]}", us(r["p50_us"]), us(r["mean_us"]), us(r["p99_us"]),
-                     ops(r["ops_s"]), fmt_num(float(r["effective_concurrency"]), 2),
+                     ops_spread(d, key, r), fmt_num(float(r["effective_concurrency"]), 2),
                      fmt_num(float(r["client_cpu_cores"]), 2)])
-    return md_table(["Запрос · СУБД", "p50, мкс", "среднее, мкс", "p99, мкс", "оп/с",
+    return md_table(["Запрос · СУБД", "p50, мкс", "среднее, мкс", "p99, мкс", "оп/с (мин–макс)",
                      "эффективный параллелизм", "CPU клиента, ядер"], rows)
+
+
+def _client_cpu(d: Data) -> str:
+    """Client CPU per operation = client_cpu_cores / ops_s (µs of client CPU per call)."""
+    rows = []
+    for label, q, pv, rv in READS:
+        cells = [label]
+        for c in (1, 16):
+            for dbms, v in (("pg", pv), ("redis", rv)):
+                if v is None:
+                    cells += ["—", "—"]
+                    continue
+                r = d.median(dbms, "tuned", "strict", q, v, "uniform", c)
+                cores = float(r["client_cpu_cores"])
+                per_op = d.derive(cores / float(r["ops_s"]) * 1e6)
+                cells += [fmt_num(cores, 2), fmt_num(per_op, 1)]
+        rows.append(cells)
+    return md_table(["Запрос", "1 клиент: PG, ядер", "PG, мкс CPU/оп", "Redis, ядер", "Redis, мкс CPU/оп",
+                     "16 клиентов: PG, ядер", "PG, мкс CPU/оп", "Redis, ядер", "Redis, мкс CPU/оп"], rows)
 
 
 def _optimization(d: Data) -> str:
@@ -229,10 +298,11 @@ def _optimization(d: Data) -> str:
         for p in PROFILES:
             cells.append(spread_us(d.median(dbms, p, "strict", q, v, "uniform", 1)))
         for p in PROFILES:
-            cells.append(ops(d.median(dbms, p, "strict", q, v, "uniform", 16)["ops_s"]))
+            key = (dbms, p, "strict", q, v, "uniform", 16)
+            cells.append(ops_spread(d, key, d.median(*key)))
         rows.append(cells)
     return md_table(["Запрос · СУБД", "p50 при 1 клиенте, мкс: по умолчанию", "оптимизированная",
-                     "оп/с при 16 клиентах: по умолчанию", "оптимизированная"], rows)
+                     "оп/с при 16 клиентах (мин–макс): по умолчанию", "оптимизированная"], rows)
 
 
 def _prepared(d: Data) -> str:
@@ -242,11 +312,12 @@ def _prepared(d: Data) -> str:
             continue
         cells = [label if q != "R5" else "R5 (WITH RECURSIVE)"]
         for p in PROFILES:
-            cells.append(us(d.median("pg", p, "strict", q, pv, "uniform", 1)["p50_us"]))
-            cells.append(us(d.median("pg", p, "strict", q, "unprepared", "uniform", 1)["p50_us"]))
+            prep = float(d.median("pg", p, "strict", q, pv, "uniform", 1)["p50_us"])
+            unprep = float(d.median("pg", p, "strict", q, "unprepared", "uniform", 1)["p50_us"])
+            cells += [us(prep), us(unprep), fmt_num(d.derive(unprep / prep), 2) + "×"]
         rows.append(cells)
-    return md_table(["Запрос", "по умолчанию: подготовленный", "по умолчанию: без подготовки",
-                     "оптимизированная: подготовленный", "оптимизированная: без подготовки"], rows)
+    return md_table(["Запрос", "по умолчанию: подготовленный", "без подготовки", "без / с подготовкой",
+                     "оптимизированная: подготовленный", "без подготовки", "без / с подготовкой"], rows)
 
 
 def _writes(profile: str) -> Callable[[Data], str]:
@@ -257,11 +328,13 @@ def _writes(profile: str) -> Callable[[Data], str]:
                 for dbms in ("pg", "redis"):
                     cells = [f"{q} · {c} · {DBMS_RU[dbms]}"]
                     for dur in DURABILITIES:
-                        r = d.median(dbms, profile, dur, q, "base", "prepared", c)
-                        cells += [spread_us(r), us(r["mean_us"]), ops(r["ops_s"])]
+                        key = (dbms, profile, dur, q, "base", "prepared", c)
+                        r = d.median(*key)
+                        cells += [spread_us(r), us(r["mean_us"]), us(r["p99_us"]), ops_spread(d, key, r)]
                     rows.append(cells)
-        return md_table(["Запрос · клиентов · СУБД", "строгий: p50, мкс (мин–макс)", "среднее, мкс", "оп/с",
-                         "ослабленный: p50, мкс (мин–макс)", "среднее, мкс", "оп/с"], rows)
+        return md_table(["Запрос · клиентов · СУБД", "строгий: p50, мкс (мин–макс)", "среднее, мкс", "p99, мкс",
+                         "оп/с (мин–макс)", "ослабленный: p50, мкс (мин–макс)", "среднее, мкс", "p99, мкс",
+                         "оп/с (мин–макс)"], rows)
     return build
 
 
@@ -357,6 +430,63 @@ def _memory_redis(d: Data) -> str:
     return md_table(["Ключ", "ключей", "MEMORY USAGE, байт на ключ (выборка)", "оценка, МБ"], rows)
 
 
+def _memory_compare(d: Data) -> str:
+    """Like-for-like size: the four PG tables with their indexes (sum of pg_total_relation_size)
+    against Redis memory; ratios to that PG sum."""
+    p, dur = "tuned", "strict"
+    tables = d.derive(sum(float(d.memory("pg", p, dur, t, "total_relation_size_bytes")) for t in PG_TABLES))
+    database = float(d.memory("pg", p, dur, "__database__", "total_bytes"))
+    catalog = d.derive(database - tables)
+    items = [
+        ("PostgreSQL: четыре таблицы с индексами (сумма pg_total_relation_size)", tables),
+        ("PostgreSQL: системный каталог и прочее (база минус таблицы)", catalog),
+        ("PostgreSQL: база целиком (pg_database_size)", database),
+        ("Redis: used_memory_dataset", float(d.memory("redis", p, dur, "__instance__", "used_memory_dataset"))),
+        ("Redis: used_memory", float(d.memory("redis", p, dur, "__instance__", "used_memory"))),
+        ("Redis: RSS процесса", float(d.memory("redis", p, dur, "__instance__", "used_memory_rss"))),
+    ]
+    rows = [[label, mb(v), fmt_num(d.derive(v / tables), 2) + "×"] for label, v in items]
+    return md_table(["Что (оптимизированная, строгий)", "МБ", "к таблицам PG с индексами"], rows)
+
+
+def _dataset(d: Data) -> str:
+    """Generator targets (spec §13.4) next to what the loaded data actually contains."""
+    batches, tests, derived_n = d.dataset("rows_batches"), d.dataset("rows_lab_tests"), d.dataset("batches_derived")
+
+    def share(n: float, total: float) -> str:
+        return fmt_num(d.derive(n / total * 100), 1) + "%"
+
+    def target(v: float) -> str:
+        return fmt_num(d.derive(v * 100), 0) + "%"
+
+    raw_spec = d.dataset("spec_raw_share")
+    rows = [
+        ["сырьевые партии (RAW)", target(raw_spec), fmt_num(d.dataset("batches_raw"), 0),
+         share(d.dataset("batches_raw"), batches)],
+        ["производные партии (DERIVED)", target(d.derive(1 - raw_spec)), fmt_num(derived_n, 0),
+         share(derived_n, batches)],
+    ]
+    for status in ("Approved", "Accepted", "OnSale"):
+        rows.append([f"статус {status}", target(d.dataset(f"spec_status_share_{status}")),
+                     fmt_num(d.dataset(f"status_{status}"), 0), share(d.dataset(f"status_{status}"), batches)])
+    others = [r["metric"] for r in d.csv("dataset.csv")
+              if r["metric"].startswith("status_") and r["metric"][7:] not in ("Approved", "Accepted", "OnSale")]
+    other_n = d.derive(sum(d.dataset(m) for m in others))
+    spec_named = sum(d.dataset(f"spec_status_share_{s}") for s in ("Approved", "Accepted", "OnSale"))
+    rows.append([f"прочие статусы ({fmt_num(d.derive(len(others)), 0)} шт., поровну)", target(d.derive(1 - spec_named)),
+                 fmt_num(other_n, 0), share(other_n, batches)])
+    rows.append(["анализы с итогом FAIL", target(d.dataset("spec_fail_share")),
+                 fmt_num(d.dataset("lab_tests_fail"), 0), share(d.dataset("lab_tests_fail"), tests)])
+    for k in (1, 2, 3, 4):
+        n = d.dataset(f"derived_with_{k}_parents")
+        rows.append([f"производные с {k} родител{'ем' if k == 1 else 'ями'}", "1–4, равновероятно",
+                     fmt_num(n, 0), share(n, derived_n)])
+    rows.append(["рёбер графа (batch_links)", "—", fmt_num(d.dataset("rows_batch_links"), 0), "—"])
+    rows.append(["наибольшая глубина графа, рёбер", f"до {fmt_num(d.dataset('spec_max_depth'), 0)}",
+                 fmt_num(d.dataset("max_depth"), 0), "—"])
+    return md_table(["Показатель", "по ТЗ / генератору", "в данных", "доля в данных"], rows)
+
+
 def _memory_totals(d: Data) -> str:
     rows = []
     for p in PROFILES:
@@ -439,6 +569,8 @@ def _diag_file(profile: str, durability: str, run: int) -> str:
 
 
 def _redis_fsync(d: Data) -> str:
+    """LATENCY `aof-fsync-always` per series: measured windows that had the event, and its max ms.
+    A window is the whole warm-up + series for W1/W3/D1, one call (warm-up included) for W2/D2."""
     rows = []
     for label, series in REDIS_DIAG_SERIES:
         cells = [label]
@@ -446,10 +578,17 @@ def _redis_fsync(d: Data) -> str:
             text = d.text(_diag_file("tuned", "strict", run))
             m = re.search(rf"^\[redis {re.escape(series)}\] aof-fsync-always: windows=(\d+) max_ms=(\d+)$",
                           text, re.M)
-            cells.append(m.group(2) if m else "—")
+            cells += [m.group(1), m.group(2)] if m else ["—", "—"]
         rows.append(cells)
-    return md_table(["Серия (Redis, оптимизированная, строгий)", "прогон 1: макс. мс", "прогон 2: макс. мс",
-                     "прогон 3: макс. мс"], rows)
+    return md_table(["Серия (Redis, оптимизированная, строгий)", "прогон 1: окон с событием", "макс. мс",
+                     "прогон 2: окон", "макс. мс", "прогон 3: окон", "макс. мс"], rows)
+
+
+def _redis_fsync_relaxed(d: Data) -> str:
+    """Same diagnostics in the relaxed mode: number of `aof-fsync-always` lines per run."""
+    rows = [["событий aof-fsync-always в LATENCY, оптимизированная, ослабленный"]
+            + [str(d.text(_diag_file("tuned", "relaxed", run)).count("aof-fsync-always")) for run in (1, 2, 3)]]
+    return md_table(["Диагностика Redis", "прогон 1", "прогон 2", "прогон 3"], rows)
 
 
 def _redis_commands(d: Data) -> str:
@@ -465,7 +604,7 @@ def _redis_commands(d: Data) -> str:
 
 
 PLAN_BLOCKS = [("R3", "default"), ("R3", "tuned"), ("R4", "default"), ("R4", "tuned"),
-               ("R5_max", "tuned"), ("D1", "tuned")]
+               ("R5_max", "default"), ("R5_max", "tuned"), ("D1", "default"), ("D1", "tuned")]
 
 
 def _plan_file(query: str, profile: str) -> str:
@@ -483,25 +622,33 @@ def _plan(query: str, profile: str) -> Callable[[Data], str]:
 
 _REDIS_DIAG = tuple(_diag_file("tuned", "strict", r) for r in (1, 2, 3))
 
+_MED = ("measurements_median.csv",)
+_MED_RUNS = ("measurements_median.csv", "measurements.csv")
+
 BLOCKS: dict[str, Block] = {
     "stand": Block(("env.json", "run_meta.json"), _stand),
     "entities": Block(("memory.csv",), _entities),
+    "dataset": Block(("dataset.csv",), _dataset),
     "settings": Block(("settings.csv",), _settings),
     "durability": Block(("settings.csv",), _durability),
     "load": Block(("load.csv",), _load),
     "memory_pg": Block(("memory.csv",), _memory_pg),
     "memory_redis": Block(("memory.csv",), _memory_redis),
     "memory_totals": Block(("memory.csv",), _memory_totals),
-    "reads_default": Block(("measurements_median.csv",), _reads("default")),
-    "reads_tuned": Block(("measurements_median.csv",), _reads("tuned")),
-    "reads_zipf": Block(("measurements_median.csv",), _reads_zipf),
-    "reads_c16": Block(("measurements_median.csv",), _reads_c16),
-    "optimization": Block(("measurements_median.csv",), _optimization),
-    "prepared": Block(("measurements_median.csv",), _prepared),
-    "writes_tuned": Block(("measurements_median.csv",), _writes("tuned")),
-    "writes_default": Block(("measurements_median.csv",), _writes("default")),
-    "bulk": Block(("measurements_median.csv",), _bulk),
+    "memory_compare": Block(("memory.csv",), _memory_compare),
+    "reads_default": Block(_MED_RUNS, _reads("default")),
+    "reads_tuned": Block(_MED_RUNS, _reads("tuned")),
+    "reads_pg_configs": Block(_MED, _reads_pg_configs),
+    "reads_zipf": Block(_MED, _reads_zipf),
+    "reads_c16": Block(_MED_RUNS, _reads_c16),
+    "client_cpu": Block(_MED, _client_cpu),
+    "optimization": Block(_MED_RUNS, _optimization),
+    "prepared": Block(_MED, _prepared),
+    "writes_tuned": Block(_MED_RUNS, _writes("tuned")),
+    "writes_default": Block(_MED_RUNS, _writes("default")),
+    "bulk": Block(_MED, _bulk),
     "redis_fsync": Block(_REDIS_DIAG, _redis_fsync),
+    "redis_fsync_relaxed": Block(tuple(_diag_file("tuned", "relaxed", r) for r in (1, 2, 3)), _redis_fsync_relaxed),
     "redis_commands": Block(_REDIS_DIAG, _redis_commands),
     **{f"plan_{q}_{p}": Block((_plan_file(q, p),), _plan(q, p)) for q, p in PLAN_BLOCKS},
 }
@@ -558,7 +705,11 @@ def render(text: str, data: Data, blocks: dict[str, Block] | None = None) -> str
 # ---------------------------------------------------------------------------------------------
 
 _NUM_RE = re.compile(r"(?<![\w.,])\d+(?: \d{3})*(?:[.,]\d+)?")
-_DECIMAL_RE = re.compile(r"(?<![\w.,])\d+(?: \d{3})*,\d+")
+# A prose number: grouped (regular or no-break space) or plain digits, optional decimal comma,
+# optional % or ×. Whole tokens only: not glued to letters, digits, dots or commas on either side.
+_PROSE_RE = re.compile(r"(?<![\w.,])(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:,\d+)?(?: ?%|×)?(?!\w|[.,]\d)")
+_LINK_TARGET_RE = re.compile(r"\]\([^)]*\)")
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
 _RAW_RE = re.compile(r"\d+(?:\.\d+)?")
 _CODE_SPAN_RE = re.compile(r"`[^`]*`")
 _SEPARATOR_RE = re.compile(r"^\|[\s:|-]+\|$")
@@ -590,13 +741,12 @@ def table_numbers(text: str) -> list[str]:
     return [n for cell in _table_value_cells(text) for n in _NUM_RE.findall(cell)]
 
 
+def _float_forms(v: float) -> set[str]:
+    return {fmt_num(v * scale, digits) for scale in (1, 1e-3, 1e-6, 100) for digits in range(4)}
+
+
 def _forms(token: str) -> set[str]:
-    forms = {token, token.replace(".", ",")}
-    v = float(token)
-    for scale in (1, 1e-3, 1e-6):
-        for digits in range(4):
-            forms.add(fmt_num(v * scale, digits))
-    return forms
+    return {token, token.replace(".", ",")} | _float_forms(float(token))
 
 
 def _leaves(obj) -> Iterable[str]:
@@ -652,10 +802,11 @@ def verify(text: str, data: Data, blocks: dict[str, Block] | None = None) -> lis
         outside.append(text[pos:s.start])
         pos = s.stop
         block = blocks[s.name]
+        data.derived = set()
         if body != "\n" + block.build(data) + "\n":
             problems.append(f"block {s.name} differs from what report_tables generates now "
                             "(edited by hand or data changed: run python -m agrobench.report_tables)")
-        allowed = source_numbers(data, block.sources)
+        allowed = source_numbers(data, block.sources) | data.derived
         for n in table_numbers(body):
             if n not in allowed:
                 problems.append(f"block {s.name}: {n} not in {', '.join(block.sources)}")
@@ -664,13 +815,25 @@ def verify(text: str, data: Data, blocks: dict[str, Block] | None = None) -> lis
     for cell in _table_value_cells(rest):
         for n in _NUM_RE.findall(cell):
             problems.append(f"number {n} in a table outside the generated blocks")
-    in_blocks = "\n".join(generated)
+    in_blocks = {_norm(t) for t in _PROSE_RE.findall("\n".join(generated))}
     prose = "\n".join(line for line in rest.splitlines() if not line.lstrip().startswith("|"))
-    prose = _CODE_SPAN_RE.sub("", prose)
-    for n in _DECIMAL_RE.findall(prose):
-        if n not in in_blocks:
-            problems.append(f"prose number {n} does not appear in any generated table")
+    prose = _COMMENT_RE.sub("", _LINK_TARGET_RE.sub("", _CODE_SPAN_RE.sub("", prose)))
+    for token in _PROSE_RE.findall(prose):
+        if _checked(token) and _norm(token) not in in_blocks:
+            problems.append(f"prose number {token.strip()} does not appear in any generated table")
     return problems
+
+
+def _norm(token: str) -> str:
+    return token.strip().replace(" ", NBSP).replace(NBSP + "%", "%")
+
+
+def _checked(token: str) -> bool:
+    """Results, not labels: decimals, thousands groups, percentages, ratios, integers >= 100."""
+    t = _norm(token)
+    if any(ch in t for ch in (",", NBSP, "%", "×")):
+        return True
+    return int(t) >= 100
 
 
 def main(argv: list[str] | None = None) -> int:

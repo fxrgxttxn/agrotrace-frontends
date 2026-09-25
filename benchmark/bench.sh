@@ -25,7 +25,7 @@ PUBLISH_DIR="../docs/reports/data"
 cmd="${1:-help}"; shift || true
 
 usage() {
-  echo "usage: ./at.sh bench <up|down|env|test|lint|gen|load|run|plot|report|publish|all> [args]" >&2
+  echo "usage: ./at.sh bench <up|down|env|test|lint|gen|profile|load|run|plot|report|publish|all> [args]" >&2
   echo "       ./at.sh bench up [pg_profile:default|tuned] [redis_profile:default|tuned] [durability:strict|relaxed]" >&2
   exit 2
 }
@@ -129,7 +129,7 @@ do_env() {
 do_publish() {
   mkdir -p "$PUBLISH_DIR/plans" "$PUBLISH_DIR/redis" "$PUBLISH_DIR/env"
   local f
-  for f in measurements.csv measurements_median.csv load.csv memory.csv settings.csv env.json run_meta.json; do
+  for f in measurements.csv measurements_median.csv load.csv memory.csv settings.csv dataset.csv env.json run_meta.json; do
     [ -f "$RESULTS_DIR/$f" ] || { echo "bench: publish: $RESULTS_DIR/$f missing — run the benchmark first" >&2; exit 1; }
     cp "$RESULTS_DIR/$f" "$PUBLISH_DIR/$f"
   done
@@ -153,10 +153,11 @@ do_all() {
   rm -rf "$RESULTS_DIR"/raw "$RESULTS_DIR"/plans "$RESULTS_DIR"/redis "$RESULTS_DIR"/settings \
          "$RESULTS_DIR"/load "$RESULTS_DIR"/env
   rm -f "$RESULTS_DIR"/measurements.csv "$RESULTS_DIR"/measurements_median.csv "$RESULTS_DIR"/load.csv \
-        "$RESULTS_DIR"/memory.csv "$RESULTS_DIR"/settings.csv "$RESULTS_DIR"/run_meta.json
+        "$RESULTS_DIR"/memory.csv "$RESULTS_DIR"/settings.csv "$RESULTS_DIR"/run_meta.json "$RESULTS_DIR"/dataset.csv
   "$SELF" down
   "$SELF" up default default relaxed
   "$SELF" gen
+  "$SELF" profile
   local profile dur
   for profile in default tuned; do
     for dur in strict relaxed; do
@@ -184,6 +185,8 @@ case "$cmd" in
   test) load_state; $DC run --rm bench-runner python -m pytest tests "$@" ;;
   lint) load_state; $DC run --rm bench-runner python -m ruff check agrobench tests "$@" ;;
   gen)  load_state; $DC run --rm bench-runner python -m agrobench.generate "$@" ;;
+  # Summary of the generated CSVs (shares, parents, depth) for the report: results/dataset.csv.
+  profile) load_state; $DC run --rm --no-deps bench-runner python -m agrobench.dataset_profile "$@" ;;
   # PostgreSQL first (COPY -> indexes -> ANALYZE), then Redis (pipeline load, then durability
   # mode restored) — independent datastores, order between the two does not matter otherwise.
   load)

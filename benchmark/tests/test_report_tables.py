@@ -171,3 +171,77 @@ def test_published_report_contains_every_block_and_verifies_against_the_csv():
     for name in rt.BLOCKS:
         assert rt.begin(name) in report, name
     assert rt.verify(report, rt.Data(rt.DATA_DIR), rt.BLOCKS) == []
+
+
+# ---------------------------------------------------------------------------------------------
+# fix round 1: derived values, per-run spread, stricter prose check
+# ---------------------------------------------------------------------------------------------
+
+@pytest.fixture
+def derived(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    _write_csv(data / "m.csv", ["k", "v"], [["a", "7.913472"], ["b", "14.928688"]])
+
+    def build(d: rt.Data) -> str:
+        a, b = (float(r["v"]) for r in d.csv("m.csv"))
+        return rt.md_table(["Что", "Отношение"], [["b/a", rt.fmt_num(d.derive(b / a), 2) + "×"]])
+
+    blocks = {"ratio": rt.Block(sources=("m.csv",), build=build)}
+    report = rt.begin("ratio") + "\n" + rt.end("ratio") + "\n"
+    return data, blocks, rt.render(report, rt.Data(data), blocks)
+
+
+def test_derived_values_are_recomputed_by_the_checker(derived):
+    data, blocks, report = derived
+    assert "| b/a | 1,89× |" in report
+    assert rt.verify(report, rt.Data(data), blocks) == []
+    problems = rt.verify(report.replace("1,89×", "1,99×"), rt.Data(data), blocks)
+    assert any("1,99" in p and "not in" in p for p in problems)
+
+
+def _prose_problems(tiny, prose: str) -> list[str]:
+    data, blocks, report = tiny
+    out = rt.render(report, rt.Data(data), blocks)
+    return [p for p in rt.verify(out + "\n" + prose + "\n", rt.Data(data), blocks) if "prose" in p]
+
+
+def test_prose_decimals_must_match_whole_tokens(tiny):
+    assert _prose_problems(tiny, "Задержка 143,4 мкс.") == []
+    assert _prose_problems(tiny, "Задержка 43,4 мкс.")  # a substring of 143,4 is not enough
+
+
+def test_prose_grouped_integers_percentages_ratios_and_big_integers_are_checked(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    _write_csv(data / "m.csv", ["v"], [["68332"], ["45"], ["734"], ["1.89"]])
+
+    def build(d: rt.Data) -> str:
+        return rt.md_table(["x", "y"], [["a", "68" + NB + "332"], ["b", "45%"], ["c", "734"], ["d", "1,89×"]])
+
+    blocks = {"b": rt.Block(sources=("m.csv",), build=build)}
+    report = rt.render(rt.begin("b") + "\n" + rt.end("b") + "\n", rt.Data(data), blocks)
+
+    def problems(prose):
+        return [p for p in rt.verify(report + prose + "\n", rt.Data(data), blocks) if "prose" in p]
+
+    ok = f"Redis: 68 332 и 68{NB}332 оп/с, доля 45%, 734 оп/с, в 1,89× больше; 16 клиентов, R1, `98 332`."
+    assert problems(ok) == []
+    for bad in ("98 332 оп/с", "доля 55%", "735 оп/с", "в 1,88× больше"):
+        assert problems(bad), bad
+
+
+def test_run_range_reads_min_and_max_across_runs_from_the_per_run_csv():
+    d = rt.Data(rt.DATA_DIR)
+    lo, hi = d.run_range("pg", "tuned", "strict", "R1", "base", "uniform", 16, "ops_s")
+    runs = [float(r["ops_s"]) for r in d.csv("measurements.csv")
+            if (r["dbms"], r["profile"], r["durability"], r["query"], r["variant"], r["distribution"],
+                r["concurrency"]) == ("pg", "tuned", "strict", "R1", "base", "uniform", "16")]
+    assert len(runs) == 3 and (lo, hi) == (min(runs), max(runs))
+
+
+def test_client_cpu_table_divides_client_cores_by_ops():
+    table = rt.BLOCKS["client_cpu"].build(rt.Data(rt.DATA_DIR))
+    r1 = next(line for line in table.splitlines() if line.startswith("| R1 "))
+    # tuned/strict/uniform R1 c=1: pg 0.665 cores / 5149.84 ops/s = 129.1 µs; redis 0.753 / 6468.11 = 116.4.
+    assert "129,1" in r1 and "116,4" in r1
