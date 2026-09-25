@@ -552,7 +552,12 @@ describe('recalls', () => {
   });
 
   it('the open recall recalled every downstream batch that could move, and the FAIL test links it (R57)', async () => {
-    const [open] = await q(`SELECT * FROM recalls WHERE status = 'OPEN' AND trigger = 'LAB'`);
+    // Two OPEN LAB recalls exist: #1 (M3 control test, the >24 h old one with the downstream graph) and #3
+    // (barley2, R88 M8, no downstream). Without ORDER BY the first row depends on the plan the planner picks
+    // from the table statistics (partial index on source_batch_id → #3 first; seq scan → #1 first).
+    const [open] = await q(
+      `SELECT * FROM recalls WHERE status = 'OPEN' AND trigger = 'LAB' ORDER BY opened_at LIMIT 1`,
+    );
     const down = await q(
       `WITH RECURSIVE down AS (SELECT child_batch_id AS id FROM batch_links WHERE parent_batch_id = $1
          UNION SELECT l.child_batch_id FROM batch_links l JOIN down d ON l.parent_batch_id = d.id)
@@ -565,7 +570,9 @@ describe('recalls', () => {
       if (MOVABLE.includes(d.status_before)) expect(['Recalled', 'WrittenOff']).toContain(d.status);
       else expect(d.status).toBe(d.status_before);
     }
-    const [fail] = await q(`SELECT * FROM lab_tests WHERE conclusion = 'FAIL'`);
+    const [fail] = await q(`SELECT * FROM lab_tests WHERE conclusion = 'FAIL' AND batch_id = $1`, [
+      open!.source_batch_id,
+    ]);
     expect(fail!.recall_id).toBe(open!.id);
     expect(open!.lab_test_id).toBe(fail!.id);
   });
