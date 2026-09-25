@@ -12,6 +12,7 @@ assert_redis_invariants after each of its own writes/deletes).
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import redis
@@ -23,6 +24,9 @@ from agrobench.queries.redis_invariants import assert_redis_invariants
 
 SCALE = 500
 SEED = 4104
+# See test_query_equivalence.py's _PREPARED_EPOCH: fix round 1, Important 3 -- prepared records
+# must keep harvested_at unique, same as the generator does.
+_PREPARED_EPOCH = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
 
 @pytest.fixture(scope="module")
@@ -54,7 +58,8 @@ def _new_batch(bid: int, holder_org_id: int, origin_org_id: int, status: str = "
         "kind": "RAW",
         "mass_kg": "3.250",
         "status": status,
-        "harvested_at": "2025-07-01T00:00:00+00:00",
+        # Unique per id (fix round 1, Important 3 -- see test_query_equivalence.py's _PREPARED_EPOCH).
+        "harvested_at": (_PREPARED_EPOCH + timedelta(seconds=bid)).isoformat(),
         "version": 1,
     }
 
@@ -183,4 +188,45 @@ def test_planted_code_index_drift_is_caught_then_clears(dataset, r):
         assert_redis_invariants(r)
 
     r.set(code_key, original)
+    assert_redis_invariants(r)
+
+
+def test_planted_dangling_link_is_caught_then_clears(dataset, r):
+    """Fix round 1, Minor 9: a link:*:* hash referencing a batch that doesn't exist. The children/
+    parents-set comparisons alone wouldn't necessarily catch this (a link hash with no matching
+    children/parents-set entries is *also* a mismatch, but this specifically proves the dedicated
+    referential-integrity check fires, by planting a dangling link whose *sets* are consistent)."""
+    a = dataset.batches[8]["id"]
+    missing_child = 999_996
+    link_key = f"link:{a}:{missing_child}"
+
+    r.sadd(f"batch:{a}:children", str(missing_child))
+    r.hset(link_key, mapping={"mass_used_kg": "1.000", "link_type": "PROCESSING",
+                               "created_at": "2025-06-01T00:00:00+00:00"})
+    with pytest.raises(AssertionError, match="missing child"):
+        assert_redis_invariants(r)
+
+    r.srem(f"batch:{a}:children", str(missing_child))
+    r.delete(link_key)
+    assert_redis_invariants(r)
+
+
+def test_planted_dangling_test_is_caught_then_clears(dataset, r):
+    """Fix round 1, Minor 9: a test:* hash whose batch_id points at a batch that doesn't exist.
+    (tests:by_due is kept consistent with this planted test so the referential-integrity error is
+    not lost among unrelated ones -- the batch:{missing}:tests mismatch this also necessarily
+    triggers, since no batch means no tests list for it to belong to, is expected and fine.)"""
+    orphan_test_key = "test:999995"
+    due_at = "2025-08-01T00:00:00+00:00"
+    r.hset(orphan_test_key, mapping={
+        "batch_id": "999994", "lab_org_id": str(dataset.organizations[0]["id"]),
+        "reason": "PLANNED", "conclusion": "PASS", "value": "1.0000",
+        "due_at": due_at,
+    })
+    r.zadd("tests:by_due", {"999995": redis_keys.to_score(due_at)})
+    with pytest.raises(AssertionError, match="missing batch"):
+        assert_redis_invariants(r)
+
+    r.delete(orphan_test_key)
+    r.zrem("tests:by_due", "999995")
     assert_redis_invariants(r)

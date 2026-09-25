@@ -40,6 +40,12 @@ def org_held_key(org_id) -> str:
 
 
 def org_held_status_key(org_id, status: str) -> str:
+    """Score is harvested_at (`to_score`). Invariant (fix round 1, Important 3): harvested_at must
+    be unique per holder -- ZSET members with an equal score fall back to *lexicographic* string
+    order ("10" < "9"), not numeric id order, so a tie here would make R3's "newest first" order
+    diverge from PostgreSQL's `ORDER BY harvested_at DESC, id DESC` for no reason a caller could
+    predict. agrobench.generate enforces this globally (see generate()); anything that inserts
+    batches outside the generator (W1/W2 callers, including test fixtures) must keep it too."""
     return f"org:{org_id}:held:{status}"
 
 

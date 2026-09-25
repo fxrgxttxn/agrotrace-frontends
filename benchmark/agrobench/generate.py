@@ -142,6 +142,19 @@ def generate(scale: int, seed: int) -> GenResult:
             "due_at": (EPOCH + timedelta(days=rng.randint(0, 900))).isoformat(),
         })
 
+    # Invariant (fix round 1, Important 3): harvested_at must be unique per holder so R3's "newest
+    # first" order is unambiguous in both DBMS without a tie-break -- PostgreSQL's `ORDER BY
+    # harvested_at DESC` has no natural total order on ties, and Redis's ZSET breaks score ties by
+    # *lexicographic* member string, not numeric id ("10" sorts before "9"), so two batches with
+    # the same holder+status+harvested_at would legitimately order differently between the two
+    # DBMS. `t` is a single counter shared across all batches (strictly increasing every
+    # iteration), which makes harvested_at unique *globally* -- a stronger guarantee than
+    # per-holder, checked here so a future change to this loop can't silently weaken it.
+    harvested_ats = [b["harvested_at"] for b in batches]
+    assert len(set(harvested_ats)) == len(harvested_ats), (
+        "generated harvested_at values must be globally unique (see comment above)"
+    )
+
     return GenResult(organizations, batches, batch_links, lab_tests)
 
 

@@ -1,8 +1,10 @@
 """Recomputes every Redis secondary structure (spec §13.3: code, held, held:status, stats,
 children/parents, link hashes, tests list, tests:by_due) from the primary hashes (batch:*, test:*)
-and the link:*:* edge hashes, then compares against what is actually stored. Used after every
-write/delete in the equivalence tests (Review Focus 2) and by test_redis_invariants.py to prove
-the checker itself catches a planted inconsistency.
+and the link:*:* edge hashes, then compares against what is actually stored. Also checks
+referential integrity (fix round 1, Minor 9): every link:*:* hash's parent/child and every test's
+batch_id must point at a batch that still exists. Used after every write/delete in the equivalence
+tests (Review Focus 2) and by test_redis_invariants.py to prove the checker itself catches a
+planted inconsistency.
 
 A full keyspace SCAN is the one place in this benchmark that's allowed: everywhere else (spec
 §13.6 "отказ от KEYS") is about not paying SCAN/KEYS cost on a *measured* query path; this is a
@@ -93,6 +95,21 @@ def assert_redis_invariants(r) -> None:
     batches: dict[str, dict] = {bid: r.hgetall(key) for key, bid in by_kind["batch"]}
     tests: dict[str, dict] = {tid: r.hgetall(key) for key, tid in by_kind["test"]}
     links: set[tuple[str, str]] = {(p, c) for _, p, c in by_kind["link"]}
+
+    # --- referential integrity (fix round 1, Minor 9): no link or test left pointing at a batch
+    # that no longer exists. A half-applied D1 (e.g. the neighbour-edge cleanup running but the
+    # batch hash itself surviving, or vice versa) would show up here even when every *other* check
+    # above happens to still balance (e.g. a dangling link:*:* hash whose parent/child sets were
+    # already cleaned up correctly wouldn't be caught by the children/parents comparisons alone). ---
+    for parent, child in sorted(links):
+        if parent not in batches:
+            errors.append(f"link:{parent}:{child} references missing parent batch:{parent}")
+        if child not in batches:
+            errors.append(f"link:{parent}:{child} references missing child batch:{child}")
+
+    for tid, t in sorted(tests.items()):
+        if t["batch_id"] not in batches:
+            errors.append(f"test:{tid} references missing batch:{t['batch_id']}")
 
     # --- expected, recomputed purely from the primary data above ---
     expected_code: dict[str, str] = {}

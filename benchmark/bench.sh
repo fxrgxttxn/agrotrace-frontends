@@ -12,7 +12,7 @@ DURABILITY_FILE="durability.conf"
 cmd="${1:-help}"; shift || true
 
 usage() {
-  echo "usage: ./at.sh bench <up|down|env|test|gen|load|run|plot|report|all> [args]" >&2
+  echo "usage: ./at.sh bench <up|down|env|test|lint|gen|load|run|plot|report|all> [args]" >&2
   echo "       ./at.sh bench up [pg_profile:default|tuned] [redis_profile:default|tuned] [durability:strict|relaxed]" >&2
   exit 2
 }
@@ -85,6 +85,7 @@ case "$cmd" in
   down) $DC down --volumes "$@"; rm -f "$STATE_FILE" ;;
   env)  do_env ;;
   test) load_state; $DC run --rm bench-runner python -m pytest tests "$@" ;;
+  lint) load_state; $DC run --rm bench-runner python -m ruff check agrobench tests "$@" ;;
   gen)  load_state; $DC run --rm bench-runner python -m agrobench.generate "$@" ;;
   # PostgreSQL first (COPY -> indexes -> ANALYZE), then Redis (pipeline load, then durability
   # mode restored) — independent datastores, order between the two does not matter otherwise.

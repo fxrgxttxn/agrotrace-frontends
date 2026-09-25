@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import os
 from collections import defaultdict
-from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import psycopg
@@ -31,6 +32,11 @@ from agrobench.queries.redis_invariants import assert_redis_invariants
 SCALE = 500
 SEED = 2026
 ALL_STATUSES = list(STATUS_SHARE) + OTHER_STATUSES
+# Base instant for synthetic test batches' harvested_at, offset by id (seconds) so every call to
+# _new_batch below gets a distinct timestamp by construction -- fix round 1, Important 3: prepared
+# records must keep the same "unique harvested_at" invariant the generator enforces (see
+# agrobench.generate and redis_keys.org_held_status_key), or R3's order would be ambiguous.
+_PREPARED_EPOCH = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
 
 @pytest.fixture(scope="module")
@@ -164,6 +170,35 @@ def test_r3_result_is_sorted_newest_first_and_capped(dataset, pg_conn):
     assert rows == sorted(rows, key=lambda x: x["harvested_at"], reverse=True)
 
 
+def test_r3_caps_at_50_with_over_50_candidates_and_matches(dataset, pg_conn, r):
+    """Regression guard (fix round 1, Important 2): at --scale 500 no (holder, status) combination
+    in the generated data naturally has more than 50 batches, so a missing/off-by-one LIMIT would
+    never surface in the broad R3 test above. Insert 60 fresh batches for one (holder, status) pair
+    with distinct timestamps (the R3 tie-break invariant, see agrobench.generate) and confirm both
+    DBMS cap at exactly 50, in the same order, and agree on *which* 50 (the 50 most recent)."""
+    holder_id = dataset.batches[4]["holder_org_id"]
+    origin_id = dataset.organizations[0]["id"]
+    status = "OnTest"
+    batches = [_new_batch(310_000 + i, holder_id, origin_id, status=status) for i in range(60)]
+
+    pgq.w2_insert_batches_multirow(pg_conn, batches)
+    rq.w2_insert_batches(r, batches)
+
+    pg_rows = pgq.r3_holder_batches_by_status(pg_conn, holder_id, status)
+    r_rows = rq.r3_holder_batches_by_status(r, holder_id, status)
+    assert len(pg_rows) == 50
+    assert len(r_rows) == 50
+    assert [x["id"] for x in pg_rows] == [x["id"] for x in r_rows]
+    for pg_b, r_b in zip(pg_rows, r_rows):
+        assert_batches_equal(pg_b, r_b, f"r3 over-50 holder {holder_id} status {status}")
+
+    # All 60 inserted batches are far newer (2025) than anything the generator produced (~2023),
+    # so the top 50 by harvested_at among *all* of this holder's OnTest batches are exactly the 50
+    # newest of our 60 -- regardless of how many older OnTest batches this holder already had.
+    expected_ids = {b["id"] for b in sorted(batches, key=lambda x: x["harvested_at"], reverse=True)[:50]}
+    assert {x["id"] for x in pg_rows} == expected_ids
+
+
 def test_r4_batch_with_holder_and_tests_matches_for_every_batch(dataset, pg_conn, r):
     for b in dataset.batches:
         pg_res = pgq.r4_batch_with_holder_and_tests(pg_conn, b["id"])
@@ -201,27 +236,102 @@ def test_r5_descendants_match_for_every_batch_both_redis_variants(dataset, pg_co
     )
 
 
-def test_r5_shared_descendant_in_a_diamond_is_reported_once(dataset, pg_conn, r):
-    """A concrete DAG shape check (Review Focus 1): find a batch reachable from a common ancestor
-    via at least two distinct parents (a 'diamond') and confirm it's counted exactly once by all
-    three implementations, at depth > 1 from the ancestor."""
-    parents_of: dict[int, list[int]] = defaultdict(list)
+def _children_map(dataset) -> dict[int, list[int]]:
+    children: dict[int, list[int]] = defaultdict(list)
     for link in dataset.batch_links:
-        parents_of[link["child_id"]].append(link["parent_id"])
+        children[link["parent_id"]].append(link["child_id"])
+    return children
 
-    diamond_child = next((c for c, ps in parents_of.items() if len(ps) >= 2), None)
-    assert diamond_child is not None, "test data has no batch with >= 2 parents to use as a diamond"
-    ancestor = parents_of[diamond_child][0]
-    # ancestor's parent (if any) is a depth-2-from-it ancestor whose descendant set must still
-    # contain diamond_child exactly once even though multiple paths lead to it.
-    grandparents = parents_of.get(ancestor)
-    probe = grandparents[0] if grandparents else ancestor
+
+def _bfs_descendant_set(children_map: dict[int, list[int]], start: int, max_depth: int) -> set[int]:
+    visited = {start}
+    frontier = [start]
+    depth = 0
+    result: set[int] = set()
+    while frontier and depth < max_depth:
+        next_frontier = []
+        for node in frontier:
+            for child in children_map.get(node, ()):
+                if child not in visited:
+                    visited.add(child)
+                    next_frontier.append(child)
+                    result.add(child)
+        frontier = next_frontier
+        depth += 1
+    return result
+
+
+def test_r5_shared_descendant_in_a_diamond_is_reported_once(dataset, pg_conn, r):
+    """Fix round 1, Minor 8: a *synthetic, verified* diamond, not one merely assumed to exist in
+    generated data. `probe` has two children (mid_a, mid_b), both of which independently link to
+    `shared` -- two genuinely distinct 2-hop paths, confirmed by directly checking each sub-path
+    before trusting the 3-way equivalence check below. All ids are fresh (>= 330000), so this
+    cannot coincide with or be confused for anything in the generated dataset."""
+    holder_id = dataset.batches[0]["holder_org_id"]
+    origin_id = dataset.organizations[0]["id"]
+    probe, mid_a, mid_b, shared = 330_001, 330_002, 330_003, 330_004
+    for bid in (probe, mid_a, mid_b, shared):
+        b = _new_batch(bid, holder_id, origin_id)
+        pgq.w1_insert_batch(pg_conn, b)
+        rq.w1_insert_batch(r, b)
+
+    def link_pg(parent: int, child: int) -> None:
+        with pg_conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO batch_links (parent_id, child_id, mass_used_kg, link_type, created_at) "
+                "VALUES (%s,%s,%s,%s,%s)",
+                (parent, child, 1.0, "PROCESSING", "2025-06-01T00:00:00+00:00"),
+            )
+
+    def link_redis(parent: int, child: int) -> None:
+        r.sadd(f"batch:{parent}:children", str(child))
+        r.sadd(f"batch:{child}:parents", str(parent))
+        r.hset(f"link:{parent}:{child}", mapping={
+            "mass_used_kg": "1.000", "link_type": "PROCESSING",
+            "created_at": "2025-06-01T00:00:00+00:00",
+        })
+
+    for parent, child in [(probe, mid_a), (probe, mid_b), (mid_a, shared), (mid_b, shared)]:
+        link_pg(parent, child)
+        link_redis(parent, child)
+
+    # Verify the diamond is real: two genuinely distinct 1-hop paths into `shared`, both present.
+    assert pgq.r5_descendants(pg_conn, mid_a, max_depth=1) == {shared}
+    assert pgq.r5_descendants(pg_conn, mid_b, max_depth=1) == {shared}
 
     pg_set = pgq.r5_descendants(pg_conn, probe, max_depth=20)
     redis_bfs_set = rq.r5_descendants(r, probe, max_depth=20)
     redis_lua_set = rq.r5_descendants_lua(r, probe, max_depth=20)
-    assert diamond_child in pg_set
-    assert pg_set == redis_bfs_set == redis_lua_set
+    # Exactly {mid_a, mid_b, shared} -- `shared` must appear once, not be missing, not be doubled
+    # (doubling isn't representable in the returned `set[int]` itself, but a buggy visited-check
+    # could still under- or over-prune the traversal around the merge point).
+    assert pg_set == redis_bfs_set == redis_lua_set == {mid_a, mid_b, shared}
+
+
+@pytest.mark.parametrize("max_depth", [1, 2, 3, 5])
+def test_r5_descendants_match_at_various_max_depth(dataset, pg_conn, r, max_depth):
+    """Regression guard (fix round 1, Important 2): all previous R5 coverage used max_depth=20,
+    which the generated DAG (depth <= 12) never actually truncates -- a depth-off-by-one bug in
+    any of the three implementations could survive unnoticed. `probe` is chosen (deterministically,
+    from the real dataset) so its descendant-set size strictly grows across 1, 2, 3, 5 -- i.e. this
+    max_depth value provably changes the result on this data, not just in theory."""
+    children_map = _children_map(dataset)
+    probe = None
+    for b in dataset.batches:
+        bid = b["id"]
+        sizes = [len(_bfs_descendant_set(children_map, bid, d)) for d in (1, 2, 3, 5)]
+        if sizes[0] < sizes[1] < sizes[2] < sizes[3]:
+            probe = bid
+            break
+    assert probe is not None, (
+        "test data has no batch whose descendant-set size strictly grows across max_depth "
+        "1, 2, 3, 5 -- this regression guard would be vacuous"
+    )
+
+    pg_set = pgq.r5_descendants(pg_conn, probe, max_depth=max_depth)
+    redis_bfs_set = rq.r5_descendants(r, probe, max_depth=max_depth)
+    redis_lua_set = rq.r5_descendants_lua(r, probe, max_depth=max_depth)
+    assert pg_set == redis_bfs_set == redis_lua_set == _bfs_descendant_set(children_map, probe, max_depth)
 
 
 def test_r6_status_counts_match_for_every_org(dataset, pg_conn, r):
@@ -240,7 +350,10 @@ def test_r6_status_counts_match_for_every_org(dataset, pg_conn, r):
 # W1: insert
 # ---------------------------------------------------------------------------
 
-def _new_batch(bid: int, holder_org_id: int, origin_org_id: int, status: str = "Created") -> dict:
+def _new_batch(
+    bid: int, holder_org_id: int, origin_org_id: int, status: str = "Created",
+    harvested_at: str | None = None,
+) -> dict:
     return {
         "id": bid,
         "public_code": f"BENCH-NEW-{bid:08d}",
@@ -250,7 +363,9 @@ def _new_batch(bid: int, holder_org_id: int, origin_org_id: int, status: str = "
         "kind": "RAW",
         "mass_kg": "12.500",
         "status": status,
-        "harvested_at": "2025-06-01T00:00:00+00:00",
+        # Unique per id by default (see _PREPARED_EPOCH above) -- callers that need a specific
+        # timestamp (e.g. to land a batch in the past relative to a D2 cutoff) can still pass one.
+        "harvested_at": harvested_at or (_PREPARED_EPOCH + timedelta(seconds=bid)).isoformat(),
         "version": 1,
     }
 
@@ -306,6 +421,32 @@ def test_w2_multirow_variant_matches_redis_pipeline(dataset, pg_conn, r):
         r_b = rq.r1_batch_by_id(r, b["id"])
         assert_batches_equal(pg_b, r_b, f"w2 multirow batch {b['id']}")
     assert_redis_invariants(r)
+
+
+def test_w2_multirow_variant_handles_10000_rows(dataset, pg_conn):
+    """Regression guard (fix round 1, Critical 1): a literal `VALUES (...), (...), ...` list binds
+    10 params/row, so a 10 000-row batch needs 100 000 bound parameters -- past PostgreSQL's 65535
+    per-statement limit (it starts failing around row 6554). `w2_insert_batches_multirow` now uses
+    `INSERT ... SELECT FROM unnest(...)`, which stays at exactly 10 array parameters regardless of
+    row count. PostgreSQL-only: this is a PG-specific statement-shape bug, not a cross-DBMS one."""
+    holder_id = dataset.batches[3]["holder_org_id"]
+    origin_id = dataset.organizations[0]["id"]
+    n = 10_000
+    batches = [_new_batch(300_000 + i, holder_id, origin_id) for i in range(n)]
+
+    pgq.w2_insert_batches_multirow(pg_conn, batches)
+
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM batches WHERE id >= 300000 AND id < 310000")
+        assert cur.fetchone()[0] == n
+
+    # Spot-check full content on a sample, not just the count.
+    for b in (batches[0], batches[n // 2], batches[-1]):
+        pg_b = pgq.r1_batch_by_id(pg_conn, b["id"])
+        assert pg_b is not None
+        assert pg_b["public_code"] == b["public_code"]
+        assert _dec(pg_b["mass_kg"]) == _dec(b["mass_kg"])
+        assert pg_b["status"] == b["status"]
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +547,56 @@ def test_d1_delete_batch_cascades_and_matches(dataset, pg_conn, r):
 def test_d1_missing_batch_returns_false_both(pg_conn, r):
     assert pgq.d1_delete_batch(pg_conn, 999_997) is False
     assert rq.d1_delete_batch(r, 999_997) is False
+
+
+def test_d1_concurrent_delete_exactly_one_success_both_dbms(dataset):
+    """Regression guard (fix round 1, Critical 5): PG's D1 used to pre-check existence with a
+    separate SELECT, then unconditionally return True after issuing its deletes -- so two
+    concurrent callers targeting the same batch both got True, even though only one of them could
+    have actually removed the row. 16 concurrent callers against the same batch must yield exactly
+    one True in each DBMS. Each thread opens its own connection (PG/Redis connections aren't meant
+    to be shared across threads)."""
+    holder_id = 1
+    origin_id = 1
+    pg_target = 320_001
+    redis_target = 320_002
+
+    with psycopg.connect(autocommit=True) as setup_conn:
+        pgq.w1_insert_batch(setup_conn, _new_batch(pg_target, holder_id, origin_id))
+    setup_client = redis.Redis.from_url(os.environ["REDIS_URL"], decode_responses=True, socket_connect_timeout=5)
+    try:
+        rq.w1_insert_batch(setup_client, _new_batch(redis_target, holder_id, origin_id))
+    finally:
+        setup_client.close()
+
+    def run_pg(_i: int) -> bool:
+        with psycopg.connect(autocommit=True) as conn:
+            return pgq.d1_delete_batch(conn, pg_target)
+
+    def run_redis(_i: int) -> bool:
+        client = redis.Redis.from_url(os.environ["REDIS_URL"], decode_responses=True, socket_connect_timeout=5)
+        try:
+            return rq.d1_delete_batch(client, redis_target)
+        finally:
+            client.close()
+
+    n = 16
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        pg_results = list(pool.map(run_pg, range(n)))
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        redis_results = list(pool.map(run_redis, range(n)))
+
+    assert sum(1 for x in pg_results if x is True) == 1, pg_results
+    assert sum(1 for x in redis_results if x is True) == 1, redis_results
+    assert all(x is False or x is True for x in pg_results)
+
+    with psycopg.connect(autocommit=True) as check_conn:
+        assert pgq.r1_batch_by_id(check_conn, pg_target) is None
+    check_client = redis.Redis.from_url(os.environ["REDIS_URL"], decode_responses=True, socket_connect_timeout=5)
+    try:
+        assert rq.r1_batch_by_id(check_client, redis_target) is None
+    finally:
+        check_client.close()
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,25 @@ _R5_LUA = (_LUA_DIR / "r5_descendants.lua").read_text(encoding="utf-8")
 _W3_LUA = (_LUA_DIR / "w3_update_status.lua").read_text(encoding="utf-8")
 _D1_LUA = (_LUA_DIR / "d1_delete_batch.lua").read_text(encoding="utf-8")
 
+# One redis-py Script object per script (fix round 1, Minor 6), not a fresh `EVAL <full text>` on
+# every call: `Script.__call__(..., client=conn)` tries `EVALSHA` first and only falls back to
+# `EVAL` (which also (re)caches the SHA server-side) on a `NOSCRIPT` miss, so after the first call
+# from *any* connection to this Redis server, every later call -- from this or any other
+# connection to the same server -- sends only the SHA, not the script body. `register_script()`
+# itself makes no network call (it just computes the SHA1 client-side and wraps the text), so
+# creating it lazily off whatever `conn` happens to make the first call is safe; `client=conn` on
+# every invocation makes the *call* use whichever connection the caller actually passed in, not
+# whichever one happened to register it first.
+_scripts: dict[str, object] = {}
+
+
+def _script(conn, name: str, text: str):
+    script = _scripts.get(name)
+    if script is None:
+        script = conn.register_script(text)
+        _scripts[name] = script
+    return script
+
 BATCH_FIELDS = [
     "public_code", "product", "origin_org_id", "holder_org_id", "kind", "mass_kg", "status",
     "harvested_at", "version",
@@ -145,8 +164,10 @@ def r5_descendants(conn, batch_id, max_depth: int = 20) -> set[int]:
 
 
 def r5_descendants_lua(conn, batch_id, max_depth: int = 20) -> set[int]:
-    """Variant 2 (spec §13.5): the same BFS run server-side in one round trip."""
-    result = conn.eval(_R5_LUA, 0, str(batch_id), str(max_depth))
+    """Variant 2 (spec §13.5): the same BFS run server-side in one round trip (EVALSHA, see
+    `_script` above)."""
+    script = _script(conn, "r5", _R5_LUA)
+    result = script(args=[str(batch_id), str(max_depth)], client=conn)
     return {int(x) for x in result}
 
 
@@ -187,10 +208,13 @@ def w1_insert_batch(conn, batch: dict) -> None:
 
 
 def w2_insert_batches(conn, batches: list[dict]) -> None:
-    """Pipeline of W1s (spec §13.5). Not one MULTI over the whole batch: that would serialize
-    thousands of writes behind a single transaction for no correctness benefit here (every batch
-    gets a fresh id nothing else touches concurrently) and is not what "pipeline of W1s" asks for;
-    flushed every CHUNK commands like load_redis.py's bulk loader."""
+    """Pipeline of W1s (spec §13.5): a single non-transactional pipeline (`transaction=False`, no
+    `MULTI`/`EXEC`), flushed every CHUNK *batches* (fix round 1, Minor 7 -- each batch queues five
+    commands, so this is every 5*CHUNK individual commands, unlike load_redis.py's bulk loader,
+    which counts individual commands directly because it interleaves several different record
+    types in one flush window). Not one MULTI over the whole call: that would serialize thousands
+    of writes behind a single transaction for no correctness benefit here (every batch gets a
+    fresh id nothing else touches concurrently) and is not what "pipeline of W1s" asks for."""
     pipe = conn.pipeline(transaction=False)
     pending = 0
     for batch in batches:
@@ -204,14 +228,21 @@ def w2_insert_batches(conn, batches: list[dict]) -> None:
 
 
 def w3_update_status(conn, batch_id, new_status: str, expected_version: int) -> bool:
-    """Lua: version check, `HSET`, move between held:status zsets, `HINCRBY` stats (spec §13.5)."""
-    return bool(conn.eval(_W3_LUA, 0, str(batch_id), new_status, str(expected_version)))
+    """Lua: version check, `HSET`, move between held:status zsets, `HINCRBY` stats (spec §13.5;
+    EVALSHA, see `_script` above)."""
+    script = _script(conn, "w3", _W3_LUA)
+    return bool(script(args=[str(batch_id), new_status, str(expected_version)], client=conn))
 
 
 def d1_delete_batch(conn, batch_id) -> bool:
     """Lua: delete the hash, every index, every neighbour's edge back, and every lab test on this
-    batch (spec §13.5)."""
-    return bool(conn.eval(_D1_LUA, 0, str(batch_id)))
+    batch (spec §13.5; EVALSHA, see `_script` above). Already concurrency-correct without any
+    extra care: Redis executes a Lua script as one atomic, uninterruptible unit relative to every
+    other client, so two concurrent callers targeting the same batch can never both observe
+    `EXISTS batch:{id}` as true -- exactly one script invocation deletes it and returns 1, every
+    other one returns 0."""
+    script = _script(conn, "d1", _D1_LUA)
+    return bool(script(args=[str(batch_id)], client=conn))
 
 
 def d2_delete_tests_due_before(conn, due_before) -> int:
