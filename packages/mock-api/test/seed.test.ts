@@ -13,6 +13,7 @@ const cfg = (now: number): MockConfig => ({
   secret: 'test',
   telegramBot: 'agrotrace_bot',
   onMail: () => undefined,
+  blobs: null,
 });
 
 describe('seed world', () => {

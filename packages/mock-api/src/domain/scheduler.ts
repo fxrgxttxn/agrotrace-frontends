@@ -3,13 +3,14 @@
  * ESCALATED, LAB_OVERDUE to the lab heads and inspectors) and `recall-task-overdue` (OPEN past `dueAt` → OVERDUE,
  * OVERDUE to the holder and inspectors). Both run as system operations (audit `system.*`, actor null).
  */
+import { canEntityTransition } from './transitions.js';
 import type { Store } from '../store/store.js';
 import { notify } from './notify.js';
 
 export function runSchedulers(store: Store): void {
   const now = store.now();
   const dueTests = store.t.lab_tests.filter(
-    (t) => (t.status === 'QUEUED' || t.status === 'SAMPLED') && t.deleted_at === null && now > Date.parse(t.due_at),
+    (t) => canEntityTransition('labTest', t.status, 'ESCALATED', 'system') && t.deleted_at === null && now > Date.parse(t.due_at),
   );
   for (const t of dueTests)
     store.run('system.labTestEscalate', null, () => {
@@ -26,7 +27,7 @@ export function runSchedulers(store: Store): void {
         dueAt: t.due_at,
       });
     });
-  const dueTasks = store.t.recall_tasks.filter((t) => t.status === 'OPEN' && now > Date.parse(t.due_at));
+  const dueTasks = store.t.recall_tasks.filter((t) => canEntityTransition('recallTask', t.status, 'OVERDUE', 'system') && now > Date.parse(t.due_at));
   for (const task of dueTasks)
     store.run('system.recallTaskOverdue', null, () => {
       store.touch('recallTask', task);

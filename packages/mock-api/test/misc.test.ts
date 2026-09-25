@@ -1,6 +1,7 @@
 /** Contract table freshness, the validator itself, rate limits, schedulers, persistence, generated files. */
 import { writeFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { operationTable } from '../scripts/contract-table.js';
 import { OPERATIONS } from '../src/contract/operations.generated.js';
@@ -9,6 +10,7 @@ import { readXlsx, writeXlsx } from '../src/lib/xlsx.js';
 import { contractErrors } from './helpers/client.js';
 import { nodeAssetLoader } from './helpers/assets.js';
 
+const webp = new Uint8Array(readFileSync(new URL('../assets/seed/avatars/avatar-1-96.webp', import.meta.url)));
 const T0 = Date.parse('2026-10-14T10:00:00Z');
 const req = (path: string, init: RequestInit & { json?: unknown; token?: string } = {}) =>
   new Request(`http://localhost/api/v1${path}`, {
@@ -63,37 +65,86 @@ describe('schedulers', () => {
   });
 });
 
-describe('persistence', () => {
-  it('a Storage snapshot restores the state (incl. uploads and the cookie jar) after a "reload"', async () => {
+describe('one backend per origin (FM3)', () => {
+  const memoryStorage = () => {
     const data = new Map<string, string>();
-    const storage = {
-      getItem: (k: string) => data.get(k) ?? null,
-      setItem: (k: string, v: string) => void data.set(k, v),
-      removeItem: (k: string) => void data.delete(k),
-    } as Storage;
-    const a = createMockApi({ now: () => T0, loadAsset: nodeAssetLoader, persist: storage });
-    const login = await (await a.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }))).json();
-    const f = await a.handle(req('/fields', { method: 'POST', token: login.accessToken, json: { name: 'Сохранённое поле', areaHa: '1.00', regionCode: '33' } }));
-    expect(f.status).toBe(201);
-    await new Promise((r) => setTimeout(r, 10));
-    a.dispose();
-    const size = data.get('agrotrace-mock-api')!.length;
-    expect(size).toBeLessThan(4_000_000);
+    return {
+      data,
+      storage: {
+        getItem: (k: string) => data.get(k) ?? null,
+        setItem: (k: string, v: string) => void data.set(k, v),
+        removeItem: (k: string) => void data.delete(k),
+      } as Storage,
+    };
+  };
+  const memoryBlobs = () => {
+    const m = new Map<string, Uint8Array>();
+    return { m, blobs: { get: async (k: string) => m.get(k), put: async (k: string, v: Uint8Array) => void m.set(k, v), clear: async () => m.clear() } };
+  };
 
-    const b = createMockApi({ now: () => T0, loadAsset: nodeAssetLoader, persist: storage });
+  it('tabs share the session (cookie jar), logout, data, uploads, GET side effects and reset', async () => {
+    let t = T0;
+    const { storage, data } = memoryStorage();
+    const { blobs, m } = memoryBlobs();
+    const opts = { now: () => t, loadAsset: nodeAssetLoader, persist: storage, blobStore: blobs };
+    const a = createMockApi(opts);
+    await a.ready;
+    const b = createMockApi(opts);
     await b.ready;
-    expect(b.store.t.fields.some((x) => x.name === 'Сохранённое поле')).toBe(true);
-    const refreshed = await b.handle(req('/auth/refresh', { method: 'POST' }));
-    expect(refreshed.status).toBe(200);
-    const protocol = b.store.t.files.find((x) => x.kind === 'LAB_PROTOCOL')!;
-    expect(protocol.content.type === 'bytes' && protocol.content.data.length).toBeGreaterThan(1000);
-    await b.reset();
-    expect(data.has('agrotrace-mock-api')).toBe(false);
-    expect(b.store.t.fields.some((x) => x.name === 'Сохранённое поле')).toBe(false);
+    expect(b.store.t.batches.length).toBe(a.store.t.batches.length);
+
+    const login = await (await a.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }))).json();
+    // A new tab restores the session through the shared refresh cookie.
+    const inB = await b.handle(req('/auth/refresh', { method: 'POST' }));
+    expect(inB.status).toBe(200);
+    const bToken = (await inB.json()).accessToken as string;
+
+    const f = await a.handle(req('/fields', { method: 'POST', token: login.accessToken, json: { name: 'Общее поле', areaHa: '1.00', regionCode: '33' } }));
+    expect(f.status).toBe(201);
+    const list = await (await b.handle(req('/fields?size=100', { token: bToken }))).json();
+    expect(list.items.some((x: { name: string }) => x.name === 'Общее поле')).toBe(true);
+
+    const form = new FormData();
+    form.set('file', new File([webp], 'a.webp'));
+    const up = await (await a.handle(req('/me/avatar', { method: 'PUT', token: login.accessToken, body: form }))).json();
+    expect(m.has(up.id)).toBe(true);
+    expect(data.get('agrotrace-mock-api')!).not.toContain(Buffer.from(webp).toString('base64').slice(0, 40));
+    const img = await b.handle(req(up.url.replace('/api/v1', '')));
+    expect(new Uint8Array(await img.arrayBuffer())).toEqual(webp);
+
+    // A GET in A runs the schedulers; B sees the escalations without writing anything itself.
+    t += 8 * 86_400_000;
+    await a.handle(req('/health/live'));
+    const overdue = await (await b.handle(req('/recall-tasks?status=OVERDUE&size=100', { token: (await (await b.handle(req('/auth/login', { method: 'POST', json: { email: 'inspector@agrotrace.test', password: DEMO_PASSWORD } }))).json()).accessToken }))).json();
+    expect(overdue.total).toBeGreaterThan(3);
+
+    // Logout in A revokes the refresh cookie of B.
+    await a.handle(req('/auth/logout', { method: 'POST' }));
+    expect((await b.handle(req('/auth/refresh', { method: 'POST' }))).status).toBe(401);
+
+    await a.reset();
+    expect(m.size).toBe(0);
+    const again = await (await b.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }))).json();
+    const after = await (await b.handle(req('/fields?size=100', { token: again.accessToken }))).json();
+    expect(after.items.some((x: { name: string }) => x.name === 'Общее поле')).toBe(false);
+    a.dispose();
     b.dispose();
   });
-});
 
+  it('a storage failure (quota) is reported, never silent, and the request still answers', async () => {
+    const quota = { getItem: () => null, setItem: () => { throw new DOMException('quota', 'QuotaExceededError'); }, removeItem: () => undefined } as unknown as Storage;
+    const errors: unknown[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void errors.push(args));
+    const api = createMockApi({ now: () => T0, loadAsset: nodeAssetLoader, persist: quota, blobStore: null });
+    await api.ready;
+    const r = await api.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }));
+    expect(r.status).toBe(200);
+    expect(api.persistError).toBeInstanceOf(DOMException);
+    expect(errors.length).toBeGreaterThan(0);
+    spy.mockRestore();
+    api.dispose();
+  });
+});
 describe('generated files', () => {
   it('XLSX written by the mock reads back; a seeded protocol and a report PDF are written for a visual check', async () => {
     const x = writeXlsx([{ name: 'Лист', header: ['name', 'type', 'waitingPeriodDays'], rows: [[{ t: 'text', v: 'Пр & <тест>' }, { t: 'text', v: 'PESTICIDE' }, { t: 'int', v: 12 }]] }]);

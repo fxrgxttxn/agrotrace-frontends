@@ -94,6 +94,8 @@ export class Store {
   seq: Sequences = { batch: 0, waybill: 0, notification: 0, audit: 0, id: 0 };
   /** The mock browser's cookie jar (`at_refresh`), used when the request carries no Cookie header. */
   cookies = new Map<string, string>();
+  /** X-Request-Id of the request being handled (written into audit rows). */
+  requestId: string | null = null;
   private op: Operation | null = null;
   private byId = new Map<TableName, Map<string, Row>>();
 
@@ -310,7 +312,7 @@ export class Store {
       diff: a.diff,
       ip: a.actorId ? '127.0.0.1' : null,
       backend: 'express',
-      request_id: null,
+      request_id: a.actorId === null && a.action.startsWith('system.') ? null : this.requestId,
       created_at: a.at ?? this.nowIso(),
     });
   }

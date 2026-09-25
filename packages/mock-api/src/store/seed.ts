@@ -5,17 +5,17 @@
  * text (`agrotrace-demo`), protocol and QR files are rendered by the mock's PDF/PNG writers (same layout, the QR
  * encodes the mock's `publicBaseUrl`), audit rows carry backend `seed` as there.
  */
-import organizations from '../../../../db/seed/data/organizations.json' with { type: 'json' };
-import users from '../../../../db/seed/data/users.json' with { type: 'json' };
-import products from '../../../../db/seed/data/products.json' with { type: 'json' };
-import substances from '../../../../db/seed/data/substances.json' with { type: 'json' };
-import indicators from '../../../../db/seed/data/indicators.json' with { type: 'json' };
-import norms from '../../../../db/seed/data/norms.json' with { type: 'json' };
-import fields from '../../../../db/seed/data/fields.json' with { type: 'json' };
-import type { SeedData } from '../../../../db/seed/src/data.js';
-import { uuid } from '../../../../db/seed/src/ids.js';
-import { runScenario } from '../../../../db/seed/src/scenario.js';
-import { auditDiff as seedAuditDiff, World, type Row } from '../../../../db/seed/src/world.js';
+import organizations from '@agrotrace/seed/data/organizations.json' with { type: 'json' };
+import users from '@agrotrace/seed/data/users.json' with { type: 'json' };
+import products from '@agrotrace/seed/data/products.json' with { type: 'json' };
+import substances from '@agrotrace/seed/data/substances.json' with { type: 'json' };
+import indicators from '@agrotrace/seed/data/indicators.json' with { type: 'json' };
+import norms from '@agrotrace/seed/data/norms.json' with { type: 'json' };
+import fields from '@agrotrace/seed/data/fields.json' with { type: 'json' };
+import type { SeedData } from '@agrotrace/seed/src/data.js';
+import { uuid } from '@agrotrace/seed/src/ids.js';
+import { runScenario } from '@agrotrace/seed/src/scenario.js';
+import { auditDiff as seedAuditDiff, World, type Row } from '@agrotrace/seed/src/world.js';
 import type { MockConfig } from '../config.js';
 import { iso } from '../lib/time.js';
 import { SEED_IMAGES } from '../seed/assets.generated.js';

@@ -418,6 +418,9 @@ importers:
       '@agrotrace/domain':
         specifier: workspace:*
         version: link:../domain
+      '@agrotrace/seed':
+        specifier: workspace:*
+        version: link:../../db/seed
       '@agrotrace/validation':
         specifier: workspace:*
         version: link:../validation
@@ -440,9 +443,6 @@ importers:
       '@agrotrace/api-client':
         specifier: workspace:*
         version: link:../api-client
-      '@agrotrace/seed':
-        specifier: workspace:*
-        version: link:../../db/seed
       '@redocly/openapi-core':
         specifier: ^1.25.11
         version: 1.34.20(supports-color@10.2.2)

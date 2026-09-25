@@ -1,13 +1,17 @@
 /**
- * Multipart uploads (п. 8.6): the `file` field (missing → 400 `errors.file: [validation.required]`), the size limit
- * (inclusive, → 413 FILE_TOO_LARGE `{maxBytes}`), the type by signature (→ 415 `{allowed}`). Raster images get their
- * WebP 96/480 variants from the browser's canvas (OffscreenCanvas + createImageBitmap) when it can encode WebP;
- * otherwise (Node, Safari) the original is served as is. SVG logos are stripped of scripts, event handlers and
- * external references (a regular-expression sanitizer, not DOMPurify).
+ * Multipart uploads — «Загрузка файлов (P14)» of the contract, in its order:
+ * 400 form (not multipart / no or empty `file` → `validation.required`; a second `file` → `validation.duplicate`; any
+ * other part → `validation.unknownField`; a base name over 255 code points → `validation.maxLength`; an unparseable
+ * multipart body → `_root: validation.invalid`) → 413 (inclusive limit) → the entity's own checks (404/403, the
+ * caller's `entity` callback) → 415 by signature, content that does not decode as its signature, SVG rules (P15/P18).
+ * Raster images get WebP 96/480 variants (never enlarged) from the browser's canvas when it can encode WebP;
+ * otherwise (Node, Safari) the original is served.
  */
+import { codePointLength } from '@agrotrace/validation';
 import type { Ctx } from '../http/context.js';
 import { ApiError, validation } from '../http/problem.js';
 import { sniff } from './files.js';
+import { sanitizeSvg } from './svg.js';
 
 export const RASTER_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -15,61 +19,99 @@ export interface Upload {
   name: string;
   mime: string;
   bytes: Uint8Array;
+  /** WebP variants of a raster image (when the runtime can make them). */
+  variants?: Record<string, Uint8Array>;
 }
 
-export async function readUpload(ctx: Ctx, maxBytes: number, allowed: readonly string[]): Promise<Upload> {
-  const form = await ctx.form();
-  const file = form.get('file');
-  const extra = [...form.keys()].filter((k) => k !== 'file');
-  if (extra.length > 0) throw validation(Object.fromEntries(extra.map((k) => [k, ['validation.unknownField']])));
-  if (file === null || typeof file === 'string') throw validation({ file: ['validation.required'] });
-  if (file.size > maxBytes) throw new ApiError(413, 'FILE_TOO_LARGE', { params: { maxBytes } });
-  const bytes = new Uint8Array(await file.arrayBuffer());
+/** The base name: every path segment up to the last `/` or `\` dropped (P17). */
+export const baseName = (name: string): string => name.split(/[\\/]/).pop() ?? '';
+
+async function formOf(ctx: Ctx): Promise<FormData> {
+  const type = ctx.request.headers.get('Content-Type') ?? '';
+  if (!/^multipart\/form-data\b/i.test(type)) throw validation({ file: ['validation.required'] });
+  try {
+    return await ctx.request.formData();
+  } catch {
+    throw validation({ _root: ['validation.invalid'] });
+  }
+}
+
+/** The single `file` part of a multipart body, after the form (400) and size (413) checks. */
+export async function readFilePart(ctx: Ctx, maxBytes: number): Promise<File> {
+  const form = await formOf(ctx);
+  const errors: Record<string, string[]> = {};
+  for (const k of new Set(form.keys())) if (k !== 'file') errors[k] = ['validation.unknownField'];
+  const parts = form.getAll('file');
+  const file = parts[0];
+  if (file === undefined || typeof file === 'string' || file.size === 0) errors.file = ['validation.required'];
+  else if (parts.length > 1) errors.file = ['validation.duplicate'];
+  else if (codePointLength(baseName(file.name || 'file')) > 255) errors.file = ['validation.maxLength'];
+  if (Object.keys(errors).length > 0) throw validation(errors);
+  const f = file as File;
+  if (f.size > maxBytes) throw new ApiError(413, 'FILE_TOO_LARGE', { params: { maxBytes } });
+  return f;
+}
+
+export async function readUpload(
+  ctx: Ctx,
+  maxBytes: number,
+  allowed: readonly string[],
+  entity: () => void = () => undefined,
+): Promise<Upload> {
+  const f = await readFilePart(ctx, maxBytes);
+  entity();
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  const unsupported = (reason?: string) =>
+    new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', { params: { allowed: [...allowed], ...(reason && { reason }) } });
   const mime = sniff(bytes);
-  if (mime === null || !allowed.includes(mime))
-    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', { params: { allowed: [...allowed] } });
-  const name = (file as File).name || 'file';
-  return { name: name.split(/[\\/]/).pop() || 'file', mime, bytes: mime === 'image/svg+xml' ? sanitizeSvg(bytes) : bytes };
+  if (mime === null || !allowed.includes(mime)) throw unsupported();
+  const name = baseName(f.name || 'file') || 'file';
+  if (mime === 'image/svg+xml') {
+    const clean = sanitizeSvg(bytes);
+    if (!clean.ok) throw unsupported(clean.tooComplex ? 'svg-too-complex' : undefined);
+    return { name, mime, bytes: new TextEncoder().encode(clean.svg) };
+  }
+  if (RASTER_TYPES.includes(mime)) {
+    const variants = await rasterVariants(bytes, mime);
+    if (variants === null) throw unsupported();
+    return { name, mime, bytes, ...(variants && { variants }) };
+  }
+  return { name, mime, bytes };
 }
 
-export function sanitizeSvg(bytes: Uint8Array): Uint8Array {
-  let s = new TextDecoder().decode(bytes);
-  s = s
-    .replace(/<script[\s\S]*?<\/script\s*>/gi, '')
-    .replace(/<script[^>]*\/>/gi, '')
-    .replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, '')
-    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\s(xlink:)?href\s*=\s*("(?!#)[^"]*"|'(?!#)[^']*')/gi, '');
-  return new TextEncoder().encode(s);
+interface Canvasish {
+  getContext(type: '2d'): { drawImage(img: unknown, x: number, y: number, w: number, h: number): void } | null;
+  convertToBlob(o: { type: string; quality: number }): Promise<Blob>;
 }
 
-/** WebP 96 and 480 px on the longer side (never enlarged), or undefined when the runtime cannot encode WebP. */
-export async function rasterVariants(bytes: Uint8Array, mime: string): Promise<Record<string, Uint8Array> | undefined> {
+/**
+ * WebP 96 and 480 px on the longer side, never enlarged; undefined — the runtime cannot encode WebP (the original is
+ * served); null — the content does not decode as an image (a forged signature, a broken image, > 40 megapixels).
+ */
+export async function rasterVariants(bytes: Uint8Array, mime: string): Promise<Record<string, Uint8Array> | undefined | null> {
   const g = globalThis as unknown as {
-    OffscreenCanvas?: new (w: number, h: number) => {
-      getContext(type: '2d'): { drawImage(img: unknown, x: number, y: number, w: number, h: number): void } | null;
-      convertToBlob(o: { type: string; quality: number }): Promise<Blob>;
-    };
+    OffscreenCanvas?: new (w: number, h: number) => Canvasish;
     createImageBitmap?: (b: Blob) => Promise<{ width: number; height: number; close(): void }>;
   };
   if (!g.OffscreenCanvas || !g.createImageBitmap) return undefined;
+  let bitmap: { width: number; height: number; close(): void };
   try {
-    const bitmap = await g.createImageBitmap(new Blob([bytes], { type: mime }));
-    const out: Record<string, Uint8Array> = {};
-    for (const size of [96, 480]) {
-      const scale = Math.min(1, size / Math.max(bitmap.width, bitmap.height));
-      const w = Math.max(1, Math.round(bitmap.width * scale));
-      const h = Math.max(1, Math.round(bitmap.height * scale));
-      const canvas = new g.OffscreenCanvas(w, h);
-      canvas.getContext('2d')?.drawImage(bitmap, 0, 0, w, h);
-      const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.8 });
-      if (blob.type !== 'image/webp') return undefined;
-      out[String(size)] = new Uint8Array(await blob.arrayBuffer());
-    }
-    bitmap.close();
-    return out;
+    bitmap = await g.createImageBitmap(new Blob([bytes], { type: mime }));
   } catch {
-    // Not decodable as an image: the signature was forged.
-    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', { params: { allowed: RASTER_TYPES } });
+    return null;
   }
+  if (bitmap.width * bitmap.height > 40_000_000) return null;
+  const out: Record<string, Uint8Array> = {};
+  for (const size of [96, 480]) {
+    const scale = Math.min(1, size / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = new g.OffscreenCanvas(w, h);
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, w, h);
+    const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.8 });
+    if (blob.type !== 'image/webp') return undefined;
+    out[String(size)] = new Uint8Array(await blob.arrayBuffer());
+  }
+  bitmap.close();
+  return out;
 }

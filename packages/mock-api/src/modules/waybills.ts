@@ -2,6 +2,7 @@
  * Waybills (paths/waybills.yaml, R4): DRAFT → send (BR-01, BR-06) → SENT → accept (BR-06, BR-07) | reject (R50 task
  * reassignment); DRAFT may be deleted. Check orders are the operations' own.
  */
+import { canBatchTransition, canEntityTransition } from '../domain/transitions.js';
 import { checkDiscrepancy, checkWaitingPeriod, compareCodePoints, compareDecimalStrings } from '@agrotrace/domain';
 import { WaybillAcceptSchema, WaybillCreateSchema, WaybillRejectSchema } from '@agrotrace/validation';
 import { massWire, parseBody } from '../http/body.js';
@@ -29,8 +30,8 @@ export function waybillItems(m: Mock, w: WaybillRow): { item: WaybillItemRow; ba
 function actions(p: Principal, w: WaybillRow): string[] {
   const out: string[] = [];
   const has = (...r: string[]) => p.roles.some((x) => r.includes(x));
-  if (w.status === 'DRAFT' && w.sender_org_id === p.orgId && has('FARMER', 'PROCESSOR')) out.push('send', 'delete');
-  if (w.status === 'SENT' && w.receiver_org_id === p.orgId && has('PROCESSOR', 'RETAILER')) out.push('accept', 'reject');
+  if (canEntityTransition('waybill', w.status, 'SENT') && w.sender_org_id === p.orgId && has('FARMER', 'PROCESSOR')) out.push('send', 'delete');
+  if (canEntityTransition('waybill', w.status, 'ACCEPTED') && w.receiver_org_id === p.orgId && has('PROCESSOR', 'RETAILER')) out.push('accept', 'reject');
   return out;
 }
 
@@ -175,7 +176,7 @@ export const waybillsHandlers: Record<string, Handler> = {
     const w = visibleWaybill(ctx, id);
     if (w.sender_org_id !== p.orgId) throw forbidden({ reason: 'NOT_SENDER' }, 'Not the waybill sender');
     if (w.version !== version) throw versionConflict(w.version);
-    if (w.status !== 'DRAFT') throw invalidTransition({ from: w.status, to: 'DELETED' });
+    if (!canEntityTransition('waybill', w.status, 'DELETED')) throw invalidTransition({ from: w.status, to: 'DELETED' });
     ctx.store.touch('waybill', w);
     ctx.store.patch(w, { deleted_at: ctx.store.nowIso() });
     return noContent();
@@ -189,14 +190,14 @@ export const waybillsHandlers: Record<string, Handler> = {
     const s = ctx.store;
     if (w.sender_org_id !== p.orgId) throw forbidden({ reason: 'NOT_SENDER' }, 'Not the waybill sender');
     if (w.version !== version) throw versionConflict(w.version);
-    if (w.status !== 'DRAFT') throw invalidTransition({ from: w.status, to: 'SENT' });
+    if (!canEntityTransition('waybill', w.status, 'SENT')) throw invalidTransition({ from: w.status, to: 'SENT' });
     const shipDate = s.nowIso().slice(0, 10);
     const items = waybillItems(ctx, w);
     for (const { batch } of items) {
       if (batch.holder_org_id !== p.orgId) throw forbidden({ reason: 'NOT_HOLDER', publicCode: batch.public_code }, 'Not the batch holder');
       if (batch.status === 'Blocked' || batch.status === 'Recalled')
         throw businessRule('BR-06', { publicCode: batch.public_code, status: batch.status });
-      if (batch.status !== 'Approved' && batch.status !== 'Accepted')
+      if (!canBatchTransition(batch.status, 'InTransit'))
         throw invalidTransition({ from: batch.status, to: 'InTransit', publicCode: batch.public_code });
       if (batch.kind === 'RAW') {
         const treatments = s.t.treatments
@@ -232,7 +233,7 @@ export const waybillsHandlers: Record<string, Handler> = {
     const s = ctx.store;
     if (w.receiver_org_id !== p.orgId) throw forbidden({ reason: 'NOT_RECEIVER' }, 'Not the waybill receiver');
     if (w.version !== version) throw versionConflict(w.version);
-    if (w.status !== 'SENT') throw invalidTransition({ from: w.status, to: 'ACCEPTED' });
+    if (!canEntityTransition('waybill', w.status, 'ACCEPTED')) throw invalidTransition({ from: w.status, to: 'ACCEPTED' });
     const items = waybillItems(ctx, w);
     const byBatch = new Map(input.items.map((i) => [i.batchId.toLowerCase(), i]));
     if (byBatch.size !== input.items.length || byBatch.size !== items.length || items.some(({ batch }) => !byBatch.has(batch.id)))
@@ -240,7 +241,7 @@ export const waybillsHandlers: Record<string, Handler> = {
     for (const { item, batch } of items) {
       if (batch.status === 'Blocked' || batch.status === 'Recalled')
         throw businessRule('BR-06', { publicCode: batch.public_code, status: batch.status });
-      if (batch.status !== 'InTransit') throw invalidTransition({ from: batch.status, to: 'Accepted', publicCode: batch.public_code });
+      if (!canBatchTransition(batch.status, 'Accepted')) throw invalidTransition({ from: batch.status, to: 'Accepted', publicCode: batch.public_code });
       const a = byBatch.get(batch.id)!;
       const d = checkDiscrepancy({ declaredKg: item.mass_declared_kg, actualKg: a.massActualKg });
       if ('percent' in d && d.actRequired && a.discrepancyAct === undefined)
@@ -267,18 +268,18 @@ export const waybillsHandlers: Record<string, Handler> = {
     const s = ctx.store;
     if (w.receiver_org_id !== p.orgId) throw forbidden({ reason: 'NOT_RECEIVER' }, 'Not the waybill receiver');
     if (w.version !== version) throw versionConflict(w.version);
-    if (w.status !== 'SENT') throw invalidTransition({ from: w.status, to: 'REJECTED' });
+    if (!canEntityTransition('waybill', w.status, 'REJECTED')) throw invalidTransition({ from: w.status, to: 'REJECTED' });
     s.touch('waybill', w);
     s.patch(w, { status: 'REJECTED', reject_reason: input.reason, version: w.version + 1, updated_at: s.nowIso() });
     for (const { batch } of waybillItems(ctx, w)) {
-      if (batch.status === 'InTransit') {
+      if (canBatchTransition(batch.status, 'Approved') && batch.status === 'InTransit') {
         transition(s, batch, 'Approved', 'WAYBILL_REJECTED', p.userId);
         continue;
       }
       // Recalled in transit (R50): the open task of the receiver goes to the sender.
       for (const task of s.t.recall_tasks) {
         if (task.batch_id !== batch.id || task.holder_org_id !== w.receiver_org_id) continue;
-        if (task.status !== 'OPEN' && task.status !== 'OVERDUE') continue;
+        if (!canEntityTransition('recallTask', task.status, 'CONFIRMED')) continue;
         s.touch('recallTask', task);
         s.patch(task, { holder_org_id: w.sender_org_id, version: task.version + 1, updated_at: s.nowIso() });
         notify(s, 'RECALL_TASK', { orgs: [w.sender_org_id] }, {

@@ -30,6 +30,8 @@ export async function sendFile(ctx: Ctx, f: FileRow, variant: 96 | 480, cache: s
       ETag: etag,
       'Cache-Control': cache,
       'X-Content-Type-Options': 'nosniff',
+      // Defence in depth for an SVG opened directly (as the Express backend): no script, no external loads.
+      ...(served.mime === 'image/svg+xml' && { 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox" }),
     },
   });
 }
@@ -66,21 +68,28 @@ function canRead(ctx: Ctx, p: Principal, f: FileRow): boolean {
 
 export const filesHandlers: Record<string, Handler> = {
   downloadFile(ctx) {
+    const sp = ctx.url.searchParams;
+    const signed = sp.has('exp') || sp.has('sig');
+    if (signed) {
+      // P14/P17: the signature is checked first; a malformed or missing exp/sig (or id) is a bad signature — 403.
+      const exps = sp.getAll('exp');
+      const sigs = sp.getAll('sig');
+      const rawId = (ctx.params.id ?? '').toLowerCase();
+      const ok =
+        exps.length === 1 &&
+        sigs.length === 1 &&
+        /^[1-9]\d{0,11}$/.test(exps[0]!) &&
+        /^[0-9a-f]{64}$/.test(sigs[0]!) &&
+        verifySignature(ctx.cfg, rawId, Number(exps[0]), sigs[0]!);
+      if (!ok) throw new ApiError(403, 'FORBIDDEN', { title: 'Invalid or expired signature' });
+    }
     const id = uuidParam(ctx.params.id);
     const q = ctx.query();
     q.enumOf('variant', ['96', '480'] as const);
-    const hasExp = q.has('exp');
-    const hasSig = q.has('sig');
-    const exp = q.int('exp', 0, null);
-    const sig = q.matching('sig', /^[0-9a-f]{64}$/);
     q.done();
     const f = liveFile(ctx.store, id);
-    if (hasExp || hasSig) {
-      if (!hasExp || !hasSig || !verifySignature(ctx.cfg, id, exp!, sig!))
-        throw new ApiError(403, 'FORBIDDEN', { title: 'Invalid or expired signature' });
-      if (!f) throw notFound();
-    } else if (!f || !canRead(ctx, ctx.user(), f)) throw notFound();
-    return sendFile(ctx, f!, variantOf(ctx), CACHE_PRIVATE);
+    if (!f || (!signed && !canRead(ctx, ctx.user(), f))) throw notFound();
+    return sendFile(ctx, f, variantOf(ctx), CACHE_PRIVATE);
   },
 
   downloadPublicFile(ctx) {

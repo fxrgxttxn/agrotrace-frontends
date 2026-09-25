@@ -37,7 +37,16 @@ interface Stream {
 export class EventHub {
   private readonly streams = new Set<Stream>();
 
-  constructor(private readonly store: Store) {
+  constructor(private readonly current: () => Store) {
+    this.attach(current());
+  }
+
+  private get store(): Store {
+    return this.current();
+  }
+
+  /** Delivers the notifications of `store` (called again whenever the state is replaced: reset, another tab). */
+  attach(store: Store): void {
     onNotification(store, (row) => {
       for (const s of this.streams)
         if (s.userId === row.user_id) {
@@ -49,6 +58,14 @@ export class EventHub {
 
   unread(userId: string): string {
     return `event: unread\ndata: ${JSON.stringify({ count: unreadCount(this.store, userId) })}\n\n`;
+  }
+
+  /** Pushes the notifications another tab created (seq above `afterSeq`) and every open stream's counter. */
+  deliverFrom(afterSeq: number): void {
+    for (const row of this.store.t.notifications.filter((n) => n.seq > afterSeq).sort((a, b) => a.seq - b.seq))
+      for (const s of this.streams)
+        if (s.userId === row.user_id) s.send(`id: ${row.seq}\nevent: notification\ndata: ${JSON.stringify(notificationView(row))}\n\n`);
+    for (const s of this.streams) s.send(this.unread(s.userId));
   }
 
   pushUnread(userId: string): void {
@@ -157,8 +174,9 @@ export function notificationsHandlers(hub: EventHub): Record<string, Handler> {
       const header = ctx.request.headers.get('Last-Event-ID');
       const query = ctx.url.searchParams.get('lastEventId');
       const raw = header ?? query;
-      if (raw !== null && !/^\d+$/.test(raw)) throw validation({ [header !== null ? 'Last-Event-ID' : 'lastEventId']: ['validation.pattern'] });
-      return hub.open(p.userId, p.exp, raw === null ? null : Number(raw), () => ctx.store.now());
+      // The operation declares no 400: a value that is not a sequence number is treated as absent.
+      const lastSeq = raw !== null && /^\d{1,15}$/.test(raw) ? Number(raw) : null;
+      return hub.open(p.userId, p.exp, lastSeq, () => ctx.store.now());
     },
   };
 }

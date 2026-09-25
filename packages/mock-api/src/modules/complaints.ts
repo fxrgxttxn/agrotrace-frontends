@@ -1,9 +1,10 @@
 /** Complaints (paths/complaints.yaml, БП-6): INSPECTOR reviews and decides (REJECT, LAB_TEST, RECALL). */
+import { canEntityTransition } from '../domain/transitions.js';
 import { ComplaintDecisionSchema, ComplaintReviewRequestSchema } from '@agrotrace/validation';
 import { parseBody } from '../http/body.js';
 import { json, type Ctx, type Handler } from '../http/context.js';
 import { inDateRange, paginate, uuidParam } from '../http/params.js';
-import { invalidTransition, notFound, validation } from '../http/problem.js';
+import { ApiError, invalidTransition, notFound, validation } from '../http/problem.js';
 import { insertLabTest, runRecallEngine } from '../domain/production.js';
 import { contains, sortBy } from '../lib/sort.js';
 import type { Mock } from '../runtime.js';
@@ -68,7 +69,7 @@ export const complaintsHandlers: Record<string, Handler> = {
     const body = await ctx.json(true);
     if (body !== undefined) parseBody(ComplaintReviewRequestSchema, body);
     const c = liveComplaint(ctx, id);
-    if (c.status !== 'NEW') throw invalidTransition({ from: c.status, to: 'IN_REVIEW' });
+    if (!canEntityTransition('complaint', c.status, 'IN_REVIEW')) throw invalidTransition({ from: c.status, to: 'IN_REVIEW' });
     ctx.store.touch('complaint', c);
     ctx.store.patch(c, { status: 'IN_REVIEW', inspector_id: p.userId, updated_at: ctx.store.nowIso() });
     return json(200, complaintView(ctx, c));
@@ -78,19 +79,26 @@ export const complaintsHandlers: Record<string, Handler> = {
     const p = ctx.user();
     const id = uuidParam(ctx.params.id);
     const raw = await ctx.json();
-    // `labOrgId` only with LAB_TEST, `blockUpstream` only with RECALL (contract wording of the errors).
+    // `labOrgId` only with LAB_TEST, `blockUpstream` only with RECALL (contract wording), reported together with
+    // every other error of the body in one 400.
+    const pre: Record<string, string[]> = {};
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
       const r = raw as Record<string, unknown>;
-      const errors: Record<string, string[]> = {};
-      if ('labOrgId' in r && r.decision !== 'LAB_TEST' && typeof r.decision === 'string') errors.labOrgId = ['validation.notAllowed'];
-      if ('blockUpstream' in r && r.decision !== 'RECALL' && typeof r.decision === 'string') errors.blockUpstream = ['validation.notAllowed'];
-      if (r.decision === 'LAB_TEST' && !('labOrgId' in r)) errors.labOrgId = ['validation.required'];
-      if (Object.keys(errors).length > 0) throw validation(errors);
+      if ('labOrgId' in r && r.decision !== 'LAB_TEST' && typeof r.decision === 'string') pre.labOrgId = ['validation.notAllowed'];
+      if ('blockUpstream' in r && r.decision !== 'RECALL' && typeof r.decision === 'string') pre.blockUpstream = ['validation.notAllowed'];
+      if (r.decision === 'LAB_TEST' && !('labOrgId' in r)) pre.labOrgId = ['validation.required'];
     }
-    const input = parseBody(ComplaintDecisionSchema, raw);
+    let input;
+    try {
+      input = parseBody(ComplaintDecisionSchema, raw);
+    } catch (e) {
+      if (e instanceof ApiError && e.extras.errors) throw validation({ ...e.extras.errors, ...pre });
+      throw e;
+    }
+    if (Object.keys(pre).length > 0) throw validation(pre);
     const s = ctx.store;
     const c = liveComplaint(ctx, id);
-    if (c.status === 'DECIDED') throw invalidTransition({ from: 'DECIDED', to: 'DECIDED' });
+    if (!canEntityTransition('complaint', c.status, 'DECIDED')) throw invalidTransition({ from: c.status, to: 'DECIDED' });
     let lab;
     if (input.decision === 'LAB_TEST') {
       lab = s.get('organizations', input.labOrgId.toLowerCase());

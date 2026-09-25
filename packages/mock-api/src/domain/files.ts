@@ -100,6 +100,12 @@ export interface Served {
   bytes: () => Promise<Uint8Array>;
 }
 
+async function blobOf(cfg: MockConfig, key: string): Promise<Uint8Array> {
+  const b = await cfg.blobs?.get(key);
+  if (!b) throw new Error(`file bytes ${key} are missing from the blob store`);
+  return b;
+}
+
 /** The representation served for `variant`: the WebP variant of a raster image, otherwise the stored file. */
 export function servedRepresentation(cfg: MockConfig, f: FileRow, variant: 96 | 480): Served {
   const v = f.variants[String(variant)];
@@ -110,14 +116,18 @@ export function servedRepresentation(cfg: MockConfig, f: FileRow, variant: 96 | 
       sha256: v.sha256,
       size: v.size,
       bytes: async () =>
-        c.type === 'bytes' ? c.variants![String(variant)]! : cfg.loadAsset(c.variants![String(variant)]!),
+        c.type === 'bytes'
+          ? c.variants![String(variant)]!
+          : c.type === 'blob'
+            ? blobOf(cfg, `${f.id}:${variant}`)
+            : cfg.loadAsset(c.variants![String(variant)]!),
     };
   }
   return {
     mime: f.mime,
     sha256: f.sha256,
     size: f.size_bytes,
-    bytes: async () => (c.type === 'bytes' ? c.data : cfg.loadAsset(c.url!)),
+    bytes: async () => (c.type === 'bytes' ? c.data : c.type === 'blob' ? blobOf(cfg, f.id) : cfg.loadAsset(c.url!)),
   };
 }
 

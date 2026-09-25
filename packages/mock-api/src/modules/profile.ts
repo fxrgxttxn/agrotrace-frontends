@@ -4,7 +4,7 @@ import { parseBody } from '../http/body.js';
 import { json, noContent, type Ctx, type Handler } from '../http/context.js';
 import { ApiError, validation } from '../http/problem.js';
 import { fileRef, insertBytesFile, softDeleteFile } from '../domain/files.js';
-import { RASTER_TYPES, rasterVariants, readUpload } from '../domain/uploads.js';
+import { RASTER_TYPES, readUpload } from '../domain/uploads.js';
 import { randomBytes } from '../lib/crypto.js';
 import { iso } from '../lib/time.js';
 import type { UserRow } from '../store/types.js';
@@ -39,7 +39,7 @@ export const profileHandlers: Record<string, Handler> = {
   async uploadMyAvatar(ctx) {
     const u = me(ctx);
     const up = await readUpload(ctx, AVATAR_MAX_BYTES, RASTER_TYPES);
-    const variants = await rasterVariants(up.bytes, up.mime);
+    const variants = up.variants;
     const file = insertBytesFile(ctx.store, {
       kind: 'AVATAR',
       originalName: up.name,

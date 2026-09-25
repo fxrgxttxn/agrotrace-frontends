@@ -3,6 +3,7 @@
  * and version, new batches with codes from the sequence, lab assignment (BR-03, least-loaded ACTIVE lab of the field's
  * region, else of all), the VSD import worker (R81) and the recall engine (tag Recalls, steps 1–7).
  */
+import { sourcesOf } from './transitions.js';
 import {
   addWorkingDays,
   canTransition,
@@ -22,7 +23,8 @@ import type { BatchDocumentRow, BatchRow, LabTestRow, OrganizationRow, RecallRow
 import { notify } from './notify.js';
 import { recalculateRating } from './rating.js';
 
-export const LAB_OPEN = new Set(['QUEUED', 'SAMPLED', 'ESCALATED']);
+/** Lab tests whose results can still be submitted (entity-state-machines.json `labTest` → DONE). */
+export const LAB_OPEN: ReadonlySet<string> = new Set(sourcesOf('labTest', 'DONE'));
 export const RECALL_REASON_LAB = 'Превышение нормативов по результатам лабораторного анализа';
 
 export function transition(store: Store, b: BatchRow, to: BatchStatus, reason: string, byUserId: string | null): void {
@@ -224,7 +226,7 @@ export function runRecallEngine(
       depth: mb.depth,
       status_before: before,
     });
-    if (['Processed', 'Sold', 'WrittenOff', 'Recalled'].includes(before)) continue;
+    if (!canTransition({ from: before, to: 'Recalled' }).allowed) continue;
     transition(store, mb.batch, 'Recalled', 'RECALLED', a.actorId);
     let holder = mb.batch.holder_org_id;
     if (before === 'InTransit') {

@@ -1,4 +1,5 @@
 /** Batches (paths/batches.yaml): list, registration (BR-03), card, graph, history, path, QR, documents, sale. */
+import { canBatchTransition, canEntityTransition } from '../domain/transitions.js';
 import { requiresLabTest } from '@agrotrace/domain';
 import { BatchCreateSchema, QrRequestSchema } from '@agrotrace/validation';
 import { parseBody, WIRE_MASS } from '../http/body.js';
@@ -90,7 +91,8 @@ export const batchesHandlers: Record<string, Handler> = {
       field_id: field!.id,
       kind: 'RAW',
       mass_kg: input.massKg,
-      harvested_at: input.harvestedAt.replace(/\.\d+Z$/, 'Z'),
+      // Kept to the millisecond, as the Express backend stores and writes it (timestamptz → toISOString).
+      harvested_at: new Date(input.harvestedAt).toISOString(),
       produced_at: null,
       test_required: false,
       test_reason: 'NONE',
@@ -313,7 +315,7 @@ export const batchesHandlers: Record<string, Handler> = {
     if (b.holder_org_id !== p.orgId) throw forbidden({ reason: 'NOT_HOLDER' }, 'Not the batch holder');
     const doc = ctx.store.t.batch_documents.find((d) => d.batch_id === b.id && d.kind === 'VSD');
     if (!doc) throw notFound();
-    if (doc.import_status !== 'NOT_FOUND' && doc.import_status !== 'FAILED')
+    if (!canEntityTransition('vsdImport', doc.import_status, 'PENDING', 'retryBatchVsdImport'))
       throw invalidTransition({ from: doc.import_status, to: 'PENDING' });
     ctx.store.touch('batchDocument', doc);
     ctx.store.patch(doc, { import_status: 'PENDING', attempts: 0, last_error: null, updated_at: ctx.store.nowIso() });
@@ -329,18 +331,18 @@ export const batchesHandlers: Record<string, Handler> = {
     return response;
   },
 
-  putBatchOnSale: (ctx) => saleTransition(ctx, 'Accepted', 'OnSale', 'ON_SALE'),
-  markBatchSold: (ctx) => saleTransition(ctx, 'OnSale', 'Sold', 'SOLD'),
+  putBatchOnSale: (ctx) => saleTransition(ctx, 'OnSale', 'ON_SALE'),
+  markBatchSold: (ctx) => saleTransition(ctx, 'Sold', 'SOLD'),
 };
 
-function saleTransition(ctx: Ctx, from: BatchStatus, to: BatchStatus, reason: string): Response {
+function saleTransition(ctx: Ctx, to: BatchStatus, reason: string): Response {
   const p = ctx.user();
   const id = uuidParam(ctx.params.id);
   const version = ifMatch(ctx.request);
   const b = visibleBatch(ctx, id);
   if (b.holder_org_id !== p.orgId) throw forbidden({ reason: 'NOT_HOLDER' }, 'Not the batch holder');
   if (b.version !== version) throw versionConflict(b.version);
-  if (b.status !== from) throw invalidTransition({ from: b.status, to });
+  if (!canBatchTransition(b.status, to)) throw invalidTransition({ from: b.status, to });
   transition(ctx.store, b, to, reason, p.userId);
   return json(200, batchView(ctx, p, b));
 }

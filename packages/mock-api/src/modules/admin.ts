@@ -1,10 +1,10 @@
 /** Administration (paths/admin.yaml, audit.yaml): organizations and applications, the audit log. */
 import { compareCodePoints } from '@agrotrace/domain';
 import { OrganizationAdminPatchSchema } from '@agrotrace/validation';
-import states from '../../../../contracts/rules/entity-state-machines.json' with { type: 'json' };
+import { canEntityTransition } from '../domain/transitions.js';
 import { parseBody } from '../http/body.js';
 import { json, type Handler } from '../http/context.js';
-import { inDateRange, paginate, uuidParam } from '../http/params.js';
+import { inDateRange, isUuid, paginate, uuidParam } from '../http/params.js';
 import { invalidTransition, notFound, validation } from '../http/problem.js';
 import { contains, sortBy } from '../lib/sort.js';
 import type { Mock } from '../runtime.js';
@@ -18,9 +18,6 @@ const ENTITY_TYPES = [
   'product', 'substance', 'indicator', 'norm', 'region', 'file', 'batchDocument',
 ] as const;
 const BACKENDS = ['express', 'django', 'laravel', 'seed', 'system'] as const;
-const by = (op: string) => new Set(states.organization.transitions.filter((t) => t.by === op).map((t) => `${t.from}>${t.to}`));
-const BY_UPDATE = by('updateAdminOrganization');
-const BY_APPROVE = by('approveOrganization');
 
 export function organizationAdminView(m: Mock, o: OrganizationRow) {
   const users = m.store.t.users.filter((u) => u.organization_id === o.id && u.deleted_at === null);
@@ -92,7 +89,7 @@ export const adminHandlers: Record<string, Handler> = {
     const id = uuidParam(ctx.params.id);
     const input = parseBody(OrganizationAdminPatchSchema, await ctx.json());
     const o = liveOrg(ctx, id);
-    if (input.status !== undefined && input.status !== o.status && (o.type === 'PLATFORM' || !BY_UPDATE.has(`${o.status}>${input.status}`)))
+    if (input.status !== undefined && input.status !== o.status && (o.type === 'PLATFORM' || !canEntityTransition('organization', o.status, input.status, 'updateAdminOrganization')))
       throw invalidTransition({ from: o.status, to: input.status });
     let regionId = o.region_id;
     if (input.regionCode !== undefined) {
@@ -110,8 +107,11 @@ export const adminHandlers: Record<string, Handler> = {
   },
 
   approveOrganization(ctx) {
-    const o = liveOrg(ctx, uuidParam(ctx.params.id));
-    if (!BY_APPROVE.has(`${o.status}>ACTIVE`)) throw invalidTransition({ from: o.status, to: 'ACTIVE' });
+    // P23: no 400 — an id that is not a uuid names no organization (404).
+    const raw = ctx.params.id ?? '';
+    if (!isUuid(raw)) throw notFound();
+    const o = liveOrg(ctx, raw.toLowerCase());
+    if (!canEntityTransition('organization', o.status, 'ACTIVE', 'approveOrganization')) throw invalidTransition({ from: o.status, to: 'ACTIVE' });
     ctx.store.touch('organization', o);
     ctx.store.patch(o, { status: 'ACTIVE', updated_at: ctx.store.nowIso() });
     return json(200, organizationAdminView(ctx, o));

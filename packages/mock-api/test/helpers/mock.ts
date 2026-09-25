@@ -3,7 +3,7 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll } from 'vitest';
 import { createMockApi, DEMO_PASSWORD, type MockApi } from '../../src/index.js';
 import { nodeAssetLoader } from './assets.js';
-import { expectStatus } from './client.js';
+import { call, expectStatus } from './client.js';
 
 export interface TestMock {
   api: MockApi;
@@ -33,7 +33,12 @@ export function useMock(opts: { rateLimits?: boolean } = {}): TestMock {
     async login(email) {
       const r = await expectStatus(200, 'POST', '/auth/login', { body: { email, password: DEMO_PASSWORD } });
       if (r.body.twoFactorRequired) {
-        const v = await expectStatus(200, 'POST', '/auth/2fa/verify', { body: { challengeId: r.body.challengeId, code: api.totp(email) } });
+        // The code of a step already used is refused (R35): the next step is waited for.
+        let v = await call('POST', '/auth/2fa/verify', { body: { challengeId: r.body.challengeId, code: api.totp(email) } });
+        if (v.status !== 200) {
+          t += 30_000;
+          v = await call('POST', '/auth/2fa/verify', { body: { challengeId: r.body.challengeId, code: api.totp(email) } });
+        }
         return v.body.accessToken as string;
       }
       return r.body.accessToken as string;

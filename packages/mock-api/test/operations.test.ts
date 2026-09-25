@@ -13,7 +13,8 @@ import { useMock } from './helpers/mock.js';
 const mock = useMock();
 const webp = new Uint8Array(readFileSync(new URL('../assets/seed/avatars/avatar-1-96.webp', import.meta.url)));
 const pdf = new TextEncoder().encode('%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n');
-const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><script>alert(1)</script><rect width="10" height="10" onclick="x()"/></svg>');
+const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" onclick="x()" style="fill: red; background: url(http://e.x)" fill="url(http://evil)"/></svg>');
+const svgScript = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 
 const form = (bytes: Uint8Array, name: string, type = 'application/octet-stream'): FormData => {
   const f = new FormData();
@@ -92,14 +93,39 @@ describe('auth', () => {
     expect(r.body.expiresIn).toBe(900);
   });
 
-  it('TOTP login of inspector.head and setup for another inspector', async () => {
+  it('TOTP: inspector.head enables it (seed parity: nobody has it), then logs in with a challenge', async () => {
+    const plain = await expectStatus(200, 'POST', '/auth/login', { body: { email: 'inspector.head@agrotrace.test', password: DEMO_PASSWORD } });
+    expect(plain.body.twoFactorRequired).toBe(false);
+    const head = plain.body.accessToken as string;
+    const setup = await expectStatus(200, 'POST', '/auth/2fa/setup', { token: head, body: {} });
+    expect(setup.headers.get('Cache-Control')).toBe('no-store');
+    await expectStatus(200, 'POST', '/auth/2fa/setup', { token: head, body: { code: mock.api.totp('inspector.head@agrotrace.test') } });
+
     const challenge = await expectStatus(200, 'POST', '/auth/login', { body: { email: 'inspector.head@agrotrace.test', password: DEMO_PASSWORD } });
     expect(challenge.body.twoFactorRequired).toBe(true);
-    const bad = await expectStatus(401, 'POST', '/auth/2fa/verify', { body: { challengeId: challenge.body.challengeId, code: '000000' === mock.api.totp('inspector.head@agrotrace.test') ? '111111' : '000000' } });
-    expect(bad.body.params.attemptsLeft).toBe(4);
-    await expectStatus(200, 'POST', '/auth/2fa/verify', { body: { challengeId: challenge.body.challengeId, code: mock.api.totp('inspector.head@agrotrace.test') } });
+    const headCode = mock.api.totp('inspector.head@agrotrace.test');
+    const wrong = (d: number) => String((Number(headCode) + d) % 1_000_000).padStart(6, '0');
+    const bad1 = await expectStatus(401, 'POST', '/auth/2fa/verify', { body: { challengeId: challenge.body.challengeId, code: wrong(250_000) } });
+    expect(bad1.body).toMatchObject({ code: 'INVALID_TWO_FACTOR_CODE', params: { attemptsLeft: 4 } });
+    const bad2 = await expectStatus(401, 'POST', '/auth/2fa/verify', { body: { challengeId: challenge.body.challengeId, code: wrong(500_000) } });
+    expect(bad2.body.params.attemptsLeft).toBe(3);
+    // The step accepted at setup is never accepted again (R35) — the code of the setup's step is refused.
+    const reused = await expectStatus(401, 'POST', '/auth/2fa/verify', { body: { challengeId: challenge.body.challengeId, code: headCode } });
+    expect(reused.body).toMatchObject({ code: 'INVALID_TWO_FACTOR_CODE', params: { attemptsLeft: 2 } });
+    mock.advance(31_000);
+    const ok = await expectStatus(200, 'POST', '/auth/2fa/verify', { body: { challengeId: challenge.body.challengeId, code: mock.api.totp('inspector.head@agrotrace.test') } });
+    expect(ok.headers.get('Cache-Control')).toBe('no-store');
     await expectStatus(401, 'POST', '/auth/2fa/verify', { body: { challengeId: challenge.body.challengeId, code: '123456' } });
     await expectStatus(400, 'POST', '/auth/2fa/verify', { body: { challengeId: 'x', code: '1' } });
+    // Five wrong codes annul the challenge.
+    const c2 = await expectStatus(200, 'POST', '/auth/login', { body: { email: 'inspector.head@agrotrace.test', password: DEMO_PASSWORD } });
+    for (let i = 1; i <= 5; i++) {
+      const r = await expectStatus(401, 'POST', '/auth/2fa/verify', { body: { challengeId: c2.body.challengeId, code: wrong(100_000 * i) } });
+      expect(r.body.params.attemptsLeft).toBe(5 - i);
+    }
+    const gone = await expectStatus(401, 'POST', '/auth/2fa/verify', { body: { challengeId: c2.body.challengeId, code: mock.api.totp('inspector.head@agrotrace.test') } });
+    expect(gone.body.code).toBe('TOKEN_EXPIRED');
+    tokens.delete('inspector.head@agrotrace.test');
 
     const t = await as('inspector');
     const start = await expectStatus(200, 'POST', '/auth/2fa/setup', { token: t, body: {} });
@@ -163,7 +189,7 @@ describe('profile, users, organizations, files', () => {
     const notLinked = await expectStatus(400, 'PUT', '/me/channels', { token: t, body: { email: true, telegram: true } });
     expect(notLinked.body.errors.telegram).toEqual(['validation.telegram.notLinked']);
     const tg = await expectStatus(201, 'POST', '/me/telegram-code', { token: t });
-    expect(mock.api.linkTelegram(tg.body.code)).toBe(true);
+    expect(await mock.api.linkTelegram(tg.body.code)).toBe(true);
     const linked = await expectStatus(200, 'PUT', '/me/channels', { token: t, body: { email: false, telegram: true } });
     expect(linked.body).toEqual({ email: false, telegram: true, telegramLinked: true });
 
@@ -224,7 +250,11 @@ describe('profile, users, organizations, files', () => {
     const logo = await expectStatus(200, 'PUT', `/organizations/${own.id}/logo`, { token: t, form: form(svg, 'logo.svg') });
     expect(logo.body.url).toMatch(/^\/api\/v1\/public\/files\//);
     const img = await expectStatus(200, 'GET', `/organizations/${own.id}/logo`, { token: t });
-    expect(img.text).not.toContain('<script');
+    expect(img.headers.get('Content-Security-Policy')).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    expect(img.text).toContain('style="fill: red"');
+    expect(img.text).not.toContain('evil');
+    const refused = await expectStatus(415, 'PUT', `/organizations/${own.id}/logo`, { token: t, form: form(svgScript, 'x.svg') });
+    expect(refused.body.params).toEqual({ allowed: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'] });
     expect(img.text).not.toContain('onclick');
     await expectStatus(404, 'PUT', `/organizations/${org('Провизия').id}/logo`, { token: t, form: form(svg, 'logo.svg') });
     await expectStatus(403, 'PUT', `/organizations/${org('Молкомбинат').id}/logo`, { token: t, form: form(svg, 'logo.svg') });

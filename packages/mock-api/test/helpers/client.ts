@@ -80,6 +80,12 @@ export function contractErrors(operationId: string, method: string, path: string
   if (!res.content) return mediaType && status !== 304 && status !== 204 ? [`${operationId} ${status}: no content declared, got ${mediaType}`] : [];
   if (!mediaType || !res.content[mediaType]) return [`${operationId} ${status}: media type ${mediaType} not declared (${Object.keys(res.content).join(', ')})`];
   if (!mediaType.includes('json')) return [];
+  if (mediaType === 'application/problem+json') {
+    const b = body as { status?: number; code?: string };
+    if (b?.status !== status) return [`${operationId} ${status}: problem.status ${b?.status} differs from the HTTP status`];
+    const declared = declaredCodes(op, res, status);
+    if (!declared.has(b.code!)) return [`${operationId} ${status}: code ${b.code} is not declared for this status (${[...declared].join(', ')})`];
+  }
   const base = typeof raw.$ref === 'string' ? (raw.$ref as string).slice(1) : `/paths/${esc(path)}/${method.toLowerCase()}/responses/${status}`;
   const a = getAjv();
   const validate = a.compile({ $ref: `${DOC_ID}#${base}/content/${esc(mediaType)}/schema` });
@@ -120,4 +126,39 @@ export async function expectStatus(expected: number, method: string, path: strin
   const r = await call(method, path, o);
   if (r.status !== expected) throw new Error(`${method} ${path}: expected ${expected}, got ${r.status} ${r.text.slice(0, 500)}`);
   return r;
+}
+
+const GENERIC: Record<number, string[]> = {
+  400: ['VALIDATION'],
+  401: ['UNAUTHORIZED'],
+  403: ['FORBIDDEN'],
+  404: ['NOT_FOUND'],
+  405: ['METHOD_NOT_ALLOWED'],
+  409: ['VERSION_CONFLICT', 'INVALID_TRANSITION'],
+  413: ['FILE_TOO_LARGE'],
+  415: ['UNSUPPORTED_MEDIA_TYPE'],
+  422: ['BUSINESS_RULE'],
+  429: ['RATE_LIMITED'],
+  503: ['EXTERNAL_UNAVAILABLE', 'BACKEND_UNAVAILABLE'],
+};
+
+/**
+ * Problem codes an operation declares for a status: the codes named by the response (its description and examples,
+ * the shared component's included), by the operation's description and parameters (e.g. `400 TOKEN_EXPIRED`,
+ * `INVALID_IDEMPOTENCY_KEY`), plus the generic code of the status.
+ */
+function declaredCodes(op: Json, res: Json, status: number): Set<string> {
+  const codes = (deref(contract().components.schemas.ProblemCode).enum ?? []) as string[];
+  const text = JSON.stringify([res, op.description ?? '', (op.parameters ?? []).map((p: Json) => deref(p))]);
+  const out = new Set(GENERIC[status] ?? []);
+  const resText = JSON.stringify(res);
+  for (const c of codes) {
+    if (resText.includes(c)) out.add(c);
+    else if (
+      new RegExp(`${status}\\s+(VALIDATION\\s+)?\`?${c}\\b`).test(text) ||
+      ((c.startsWith('IDEMPOTENCY') || c === 'INVALID_IDEMPOTENCY_KEY') && text.includes(c))
+    )
+      out.add(c);
+  }
+  return out;
 }

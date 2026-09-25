@@ -83,7 +83,7 @@ for (const name of [...new Set(users.flatMap((u) => (u.avatar ? [u.avatar] : [])
 const logoLines: string[] = [];
 for (const o of organizations) {
   const svg = read(new URL(`images/logos/${o.key}.svg`, SEED));
-  const binding = importOf(`../../../../db/seed/images/logos/${o.key}.svg`);
+  const binding = importOf(`@agrotrace/seed/images/logos/${o.key}.svg`);
   logoLines.push(`  '${o.key}': { url: ${binding}, sha256: '${sha256(svg)}', size: ${svg.length} },`);
 }
 

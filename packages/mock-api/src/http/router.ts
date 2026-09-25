@@ -10,7 +10,7 @@ import { OPERATIONS } from '../contract/operations.generated.js';
 import type { OperationMeta } from '../contract/types.js';
 import { hitRateLimit } from '../domain/limits.js';
 import { verifyAccessToken } from '../domain/tokens.js';
-import { sha256hex } from '../lib/crypto.js';
+import { randomUuid, sha256hex } from '../lib/crypto.js';
 import type { Mock } from '../runtime.js';
 import type { Principal } from '../store/types.js';
 import { json, makeCtx, problemResponse, type Handler } from './context.js';
@@ -42,10 +42,10 @@ const ROUTES: Route[] = OPERATIONS.map((op) => {
 });
 
 export interface RouterHooks {
-  /** Runs before every operation (the schedulers catching up with the clock). */
-  beforeEach: () => void;
-  /** Runs after every operation that may have changed state (persistence). */
-  afterWrite: () => void;
+  /** Runs before every request (the shared state read through, the schedulers catching up with the clock). */
+  beforeEach: () => Promise<void>;
+  /** Runs after every request, whatever its method (persistence of any change, GET side effects included). */
+  afterEach: () => Promise<void>;
 }
 
 export function createRouter(m: Mock, handlers: Record<string, Handler>, hooks: RouterHooks) {
@@ -81,6 +81,7 @@ export function createRouter(m: Mock, handlers: Record<string, Handler>, hooks: 
     if (op.operationId === 'streamEvents') {
       const p = verifyAccessToken(m.cfg.secret, url.searchParams.get('access_token') ?? '', now);
       if (!p) throw new ApiError(401, 'UNAUTHORIZED');
+      hitRateLimit(m, 'user', p.userId);
       return p;
     }
     if (!op.bearer) return null;
@@ -99,7 +100,7 @@ export function createRouter(m: Mock, handlers: Record<string, Handler>, hooks: 
     return p;
   }
 
-  async function handle(request: Request): Promise<Response> {
+  async function handle(request: Request, requestId: string): Promise<Response> {
     const url = new URL(request.url);
     const raw = url.pathname;
     if (!raw.startsWith(`${PREFIX}/`) || raw.includes('//')) return problemResponse(new ApiError(404, 'NOT_FOUND'));
@@ -110,7 +111,8 @@ export function createRouter(m: Mock, handlers: Record<string, Handler>, hooks: 
     const handler = handlers[op.operationId];
     if (!handler) return problemResponse(new ApiError(404, 'NOT_FOUND'));
     try {
-      hooks.beforeEach();
+      await hooks.beforeEach();
+      m.store.requestId = requestId;
       const principal = authenticate(op, request, url);
 
       let idem: { key: string; fingerprint: string } | null = null;
@@ -144,14 +146,25 @@ export function createRouter(m: Mock, handlers: Record<string, Handler>, hooks: 
       console.error('[mock-api]', op.operationId, e);
       return problemResponse(new ApiError(500, 'INTERNAL'));
     } finally {
-      if (request.method !== 'GET') hooks.afterWrite();
+      await hooks.afterEach();
     }
   }
 
-  /** Serializes requests; the SSE stream returns as soon as it is open. */
-  return (request: Request): Promise<Response> => {
-    const next = queue.then(() => handle(request));
+  /** X-Request-Id (the client's when it matches `^[A-Za-z0-9._-]{1,64}$`, R79) and X-Backend on every response. */
+  async function tagged(request: Request): Promise<Response> {
+    const own = request.headers.get('X-Request-Id');
+    const requestId = own !== null && /^[A-Za-z0-9._-]{1,64}$/.test(own) ? own : randomUuid();
+    const res = await handle(request, requestId);
+    res.headers.set('X-Request-Id', requestId);
+    res.headers.set('X-Backend', 'express');
+    return res;
+  }
+
+  /** Runs `fn` between requests (never interleaved with one). */
+  const exclusive = <T>(fn: () => Promise<T>): Promise<T> => {
+    const next = queue.then(fn);
     queue = next.catch(() => undefined);
     return next;
   };
+  return { handle: (request: Request): Promise<Response> => exclusive(() => tagged(request)), exclusive };
 }

@@ -96,7 +96,6 @@ function treatmentRefs(ctx: Ctx, input: { substanceId: string; appliedAt: string
   if (Object.keys(errors).length > 0) throw validation(errors);
 }
 
-const clean = (t: string): string => t.replace(/\.\d+Z$/, 'Z');
 
 export const fieldsHandlers: Record<string, Handler> = {
   listFields(ctx) {
@@ -153,8 +152,14 @@ export const fieldsHandlers: Record<string, Handler> = {
     const input = parseField(await ctx.json());
     const f = ownField(ctx, id);
     const rid = regionId(ctx, input.regionCode);
-    ctx.store.touch('field', f);
-    ctx.store.patch(f, { name: input.name, area_ha: input.areaHa, region_id: rid, geometry: input.geometry ?? null, updated_at: ctx.store.nowIso() });
+    const next = { name: input.name, area_ha: input.areaHa, region_id: rid, geometry: input.geometry ?? null };
+    const same =
+      f.name === next.name && f.area_ha === next.area_ha && f.region_id === next.region_id && JSON.stringify(f.geometry ?? null) === JSON.stringify(next.geometry);
+    // A body equal to the row changes nothing: no write, no audit row, `updatedAt` kept (P23).
+    if (!same) {
+      ctx.store.touch('field', f);
+      ctx.store.patch(f, { ...next, updated_at: ctx.store.nowIso() });
+    }
     return json(200, fieldView(ctx, f));
   },
 
@@ -194,7 +199,7 @@ export const fieldsHandlers: Record<string, Handler> = {
       substance_id: input.substanceId.toLowerCase(),
       dose: input.dose,
       dose_unit: input.doseUnit,
-      applied_at: clean(input.appliedAt),
+      applied_at: new Date(input.appliedAt).toISOString(),
       created_at: now,
       updated_at: now,
       created_by: p.userId,
@@ -217,14 +222,19 @@ export const fieldsHandlers: Record<string, Handler> = {
         params: { reason: 'EDIT_WINDOW_CLOSED', editableUntil: iso(Date.parse(t.created_at) + DAY_MS) },
       });
     treatmentRefs(ctx, input);
-    ctx.store.touch('treatment', t);
-    ctx.store.patch(t, {
+    const next = {
       substance_id: input.substanceId.toLowerCase(),
       dose: input.dose,
       dose_unit: input.doseUnit,
-      applied_at: clean(input.appliedAt),
-      updated_at: ctx.store.nowIso(),
-    });
+      applied_at: new Date(input.appliedAt).toISOString(),
+    };
+    const same = (Object.keys(next) as (keyof typeof next)[]).every((k) =>
+      k === 'applied_at' ? Date.parse(t[k]) === Date.parse(next[k]) : t[k] === next[k],
+    );
+    if (!same) {
+      ctx.store.touch('treatment', t);
+      ctx.store.patch(t, { ...next, updated_at: ctx.store.nowIso() });
+    }
     return json(200, treatmentView(ctx, t));
   },
 };

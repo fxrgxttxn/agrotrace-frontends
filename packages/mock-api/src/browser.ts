@@ -18,7 +18,7 @@ export interface BrowserMockOptions extends MockApiOptions {
 }
 
 export async function startBrowserMock(options: BrowserMockOptions = {}): Promise<MockApi> {
-  const api = createMockApi({ persist: 'session', delayMs: 120, ...options });
+  const api = createMockApi({ delayMs: 120, ...options });
   const worker = setupWorker(...api.handlers);
   await worker.start({
     serviceWorker: { url: options.serviceWorkerUrl ?? '/mockServiceWorker.js' },

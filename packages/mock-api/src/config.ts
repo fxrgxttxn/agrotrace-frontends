@@ -18,6 +18,14 @@ export interface MockConfig {
   telegramBot: string | null;
   /** Called with every e-mail the mock "sends" (password reset, invitations) — the demo's inbox. */
   onMail: (mail: MockMail) => void;
+  /** Where persisted upload bytes live (IndexedDB in browsers); null — kept in the snapshot. */
+  blobs: BlobStore | null;
+}
+
+export interface BlobStore {
+  get(key: string): Promise<Uint8Array | undefined>;
+  put(key: string, bytes: Uint8Array): Promise<void>;
+  clear(): Promise<void>;
 }
 
 export interface MockMail {

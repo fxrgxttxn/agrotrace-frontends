@@ -13,13 +13,13 @@ import {
   SubstanceInputSchema,
 } from '@agrotrace/validation';
 import { insertBytesFile, softDeleteFile } from '../domain/files.js';
-import { RASTER_TYPES, rasterVariants, readUpload } from '../domain/uploads.js';
+import { RASTER_TYPES, readFilePart, readUpload } from '../domain/uploads.js';
 import { parseBody } from '../http/body.js';
 import { json, noContent, type Ctx, type Handler } from '../http/context.js';
 import { paginate, uuidParam } from '../http/params.js';
 import { ApiError, notFound, validation } from '../http/problem.js';
 import { compareValues, contains, sortBy } from '../lib/sort.js';
-import { INVALID, isWorkbook, isZip, readXlsx, type Cell } from '../lib/xlsx.js';
+import { INVALID, isWorkbook, isZip, readXlsx, WorkbookTooLarge, type Cell } from '../lib/xlsx.js';
 import type { Mock } from '../runtime.js';
 import type { IndicatorRow, NormRow, ProductRow, RegionRow, SubstanceRow } from '../store/types.js';
 import { logoUrl } from '../views/refs.js';
@@ -223,6 +223,8 @@ function readSheet(bytes: Uint8Array): { header: Cell[] | null; rows: { number: 
       sheet = readXlsx(bytes);
     } catch (e) {
       if (e instanceof ApiError) throw e;
+      if (e instanceof WorkbookTooLarge)
+        throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', { params: { allowed: IMPORT_TYPES, reason: 'workbook-too-large' } });
       throw unsupported();
     }
     const rows = sheet.rows.filter((r) => r.cells.some((c) => c !== ''));
@@ -387,10 +389,7 @@ export const dictionariesHandlers: Record<string, Handler> = {
 
   async importDictionary(ctx) {
     const name = dictName(ctx);
-    const form = await ctx.form();
-    const file = form.get('file');
-    if (file === null || typeof file === 'string') throw validation({ file: ['validation.required'] });
-    if (file.size > IMPORT_MAX_BYTES) throw new ApiError(413, 'FILE_TOO_LARGE', { params: { maxBytes: IMPORT_MAX_BYTES } });
+    const file = await readFilePart(ctx, IMPORT_MAX_BYTES);
     const sheet = readSheet(new Uint8Array(await file.arrayBuffer()));
     const columns = IMPORT_COLUMNS[name];
     const header = sheet.header;
@@ -467,14 +466,16 @@ export const dictionariesHandlers: Record<string, Handler> = {
     const p = ctx.user();
     const id = uuidParam(ctx.params.id);
     const product = ctx.store.get('products', id);
-    if (!product || product.deleted_at !== null) throw notFound();
-    const up = await readUpload(ctx, PRODUCT_IMAGE_MAX_BYTES, RASTER_TYPES);
-    const variants = await rasterVariants(up.bytes, up.mime);
+    const up = await readUpload(ctx, PRODUCT_IMAGE_MAX_BYTES, RASTER_TYPES, () => {
+      if (!product || product.deleted_at !== null) throw notFound();
+    });
+    const prod = product!;
+    const variants = up.variants;
     const file = insertBytesFile(ctx.store, { kind: 'PRODUCT_IMAGE', originalName: up.name, mime: up.mime, data: up.bytes, ownerId: p.userId, ...(variants && { variants }) });
-    const old = product.image_file_id;
-    ctx.store.touch('product', product);
-    ctx.store.patch(product, { image_file_id: file.id, updated_at: ctx.store.nowIso() });
+    const old = prod.image_file_id;
+    ctx.store.touch('product', prod);
+    ctx.store.patch(prod, { image_file_id: file.id, updated_at: ctx.store.nowIso() });
     softDeleteFile(ctx.store, old);
-    return json(200, entryView(ctx, 'products', product));
+    return json(200, entryView(ctx, 'products', prod));
   },
 };

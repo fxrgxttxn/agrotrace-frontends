@@ -61,8 +61,26 @@ const colIndex = (ref: string): number => {
 };
 
 /** Rows of the first worksheet: header (row 1) and data rows with their numbers; trailing empty cells dropped. */
+/** A workbook over the P23 limits (64 entries, 16 MiB per entry and 32 MiB in all inflated, 20 000 rows, 64 cells). */
+export class WorkbookTooLarge extends Error {}
+const MIB = 1024 * 1024;
+
 export function readXlsx(b: Uint8Array): { header: Cell[] | null; rows: { number: number; cells: Cell[] }[] } {
-  const files = unzipSync(b);
+  let entries = 0;
+  let declared = 0;
+  const files = unzipSync(b, {
+    filter: (f) => {
+      entries += 1;
+      declared += f.originalSize;
+      if (entries > 64 || f.originalSize > 16 * MIB || declared > 32 * MIB) throw new WorkbookTooLarge();
+      return true;
+    },
+  });
+  let actual = 0;
+  for (const data of Object.values(files)) {
+    actual += data.length;
+    if (data.length > 16 * MIB || actual > 32 * MIB) throw new WorkbookTooLarge();
+  }
   const text = (name: string): string | null => (files[name] ? strFromU8(files[name]!) : null);
   const workbook = text('xl/workbook.xml') ?? '';
   const firstSheetRid = /<sheet\b[^>]*\br:id="([^"]+)"/.exec(workbook)?.[1];
@@ -81,7 +99,10 @@ export function readXlsx(b: Uint8Array): { header: Cell[] | null; rows: { number
   const sheet = text(sheetPath);
   if (sheet === null) throw new Error('no worksheet');
   const out: { number: number; cells: Cell[] }[] = [];
+  let rowCount = 0;
   for (const row of sheet.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>|<row\b([^>]*)\/>/g)) {
+    rowCount += 1;
+    if (rowCount > 20_000) throw new WorkbookTooLarge();
     const number = Number(/\br="(\d+)"/.exec(row[1] ?? row[3] ?? '')?.[1] ?? out.length + 1);
     const cells: Cell[] = [];
     for (const c of (row[2] ?? '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
@@ -96,8 +117,10 @@ export function readXlsx(b: Uint8Array): { header: Cell[] | null; rows: { number
       else if (type === 'str') value = v === undefined ? INVALID : decodeXml(v);
       else if (type === 'n') value = v === undefined ? '' : Number.isFinite(Number(v)) ? numberText(Number(v)) : INVALID;
       else value = INVALID;
+      if (idx >= 64) throw new WorkbookTooLarge();
       while (cells.length < idx) cells.push('');
       cells[idx] = value;
+      if (cells.length > 64) throw new WorkbookTooLarge();
     }
     let end = cells.length;
     while (end > 0 && cells[end - 1] === '') end--;

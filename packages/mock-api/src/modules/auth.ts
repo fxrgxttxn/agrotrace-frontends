@@ -206,7 +206,7 @@ export const authHandlers: Record<string, Handler> = {
       const secret = newTotpSecret();
       ctx.store.audit({ entityType: 'user', entityId: u.id, diff: { totpSecret: [u.totp_secret === null ? null : '***', '***'] } });
       ctx.store.patch(u, { totp_secret: secret, updated_at: ctx.store.nowIso() });
-      return json(200, { totpEnabled: false, secret, otpauthUrl: otpauthUrl(u.email, secret) });
+      return json(200, { totpEnabled: false, secret, otpauthUrl: otpauthUrl(u.email, secret) }, NO_STORE);
     }
     const step = u.totp_secret ? matchTotpStep(u.totp_secret, input.code, ctx.store.now()) : null;
     if (step === null || ctx.store.kvGet(totpUsedKey(u.id, step)) !== undefined)
@@ -214,7 +214,7 @@ export const authHandlers: Record<string, Handler> = {
     ctx.store.touch('user', u);
     ctx.store.patch(u, { totp_enabled: true, updated_at: ctx.store.nowIso() });
     ctx.store.kvSet(totpUsedKey(u.id, step), '1', TOTP_USED_TTL_SEC);
-    return json(200, { totpEnabled: true });
+    return json(200, { totpEnabled: true }, NO_STORE);
   },
 
   refreshToken(ctx) {

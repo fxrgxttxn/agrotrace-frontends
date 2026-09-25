@@ -80,7 +80,9 @@ export type FileContent =
   /** A bundled asset (seed images): the original's metadata only, variants/original served by URL. */
   | { type: 'asset'; url?: string; variants?: Record<string, string> }
   /** Bytes held by the mock (uploads, generated QR and PDFs), base64 in snapshots. */
-  | { type: 'bytes'; data: Uint8Array; variants?: Record<string, Uint8Array> };
+  | { type: 'bytes'; data: Uint8Array; variants?: Record<string, Uint8Array> }
+  /** Bytes kept in the blob store (IndexedDB in browsers) under `id` and `id:<variant>` — persisted uploads. */
+  | { type: 'blob' };
 
 export interface FileRow {
   id: string;

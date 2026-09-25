@@ -1,6 +1,6 @@
 /** Organizations (paths/organizations.yaml): the directory (R46), the card (visibility), the logo. */
 import { fileRef, insertBytesFile, softDeleteFile } from '../domain/files.js';
-import { rasterVariants, RASTER_TYPES, readUpload } from '../domain/uploads.js';
+import { RASTER_TYPES, readUpload } from '../domain/uploads.js';
 import { canSeeOrganization } from '../domain/visibility.js';
 import { json, type Handler } from '../http/context.js';
 import { paginate, uuidParam } from '../http/params.js';
@@ -55,10 +55,11 @@ export const organizationsHandlers: Record<string, Handler> = {
   async uploadOrganizationLogo(ctx) {
     const p = ctx.user();
     const id = uuidParam(ctx.params.id);
-    if (!canSeeOrganization(ctx.store, p, id)) throw notFound();
-    if (!p.roles.includes('ADMIN') && id !== p.orgId) throw forbidden();
-    const up = await readUpload(ctx, LOGO_MAX_BYTES, [...RASTER_TYPES, 'image/svg+xml']);
-    const variants = up.mime === 'image/svg+xml' ? undefined : await rasterVariants(up.bytes, up.mime);
+    const up = await readUpload(ctx, LOGO_MAX_BYTES, [...RASTER_TYPES, 'image/svg+xml'], () => {
+      if (!canSeeOrganization(ctx.store, p, id)) throw notFound();
+      if (!p.roles.includes('ADMIN') && id !== p.orgId) throw forbidden();
+    });
+    const variants = up.variants;
     const o = ctx.store.must('organizations', id);
     const file = insertBytesFile(ctx.store, {
       kind: 'LOGO',

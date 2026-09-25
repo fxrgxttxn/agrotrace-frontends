@@ -1,4 +1,5 @@
 /** Dashboards and reports (paths/analytics.yaml, reports.yaml; FR-ANL-01…05). */
+import { canEntityTransition } from '../domain/transitions.js';
 import { compareCodePoints, isOverdue, ratioPercent2 } from '@agrotrace/domain';
 import { json, type Ctx, type Handler } from '../http/context.js';
 import { inDateRange, type QueryReader } from '../http/params.js';
@@ -60,7 +61,7 @@ function dashboard(ctx: Ctx, p: Principal, scope: string, w: { from: string; to:
   const s = ctx.store;
   const now = s.nowIso();
   if (scope === 'inspector') {
-    const tests = s.t.lab_tests.filter((t) => doneIn(t, w));
+    const tests = s.t.lab_tests.filter((t) => doneIn(t, w) && s.must('batches', t.batch_id).deleted_at === null);
     const batchOf = (t: LabTestRow) => s.must('batches', t.batch_id);
     return {
       scope,
@@ -94,8 +95,8 @@ function dashboard(ctx: Ctx, p: Principal, scope: string, w: { from: string; to:
   }
   if (scope === 'org') {
     const held = s.t.batches.filter((b) => b.deleted_at === null && b.holder_org_id === p.orgId);
-    const tests = s.t.lab_tests.filter((t) => doneIn(t, w) && s.must('batches', t.batch_id).origin_org_id === p.orgId);
-    const tasks = s.t.recall_tasks.filter((t) => t.holder_org_id === p.orgId && (t.status === 'OPEN' || t.status === 'OVERDUE'));
+    const tests = s.t.lab_tests.filter((t) => doneIn(t, w) && s.must('batches', t.batch_id).origin_org_id === p.orgId && s.must('batches', t.batch_id).deleted_at === null);
+    const tasks = s.t.recall_tasks.filter((t) => t.holder_org_id === p.orgId && canEntityTransition('recallTask', t.status, 'CONFIRMED') && s.must('batches', t.batch_id).deleted_at === null);
     return {
       scope,
       period: w,
@@ -106,7 +107,7 @@ function dashboard(ctx: Ctx, p: Principal, scope: string, w: { from: string; to:
       overdueTasks: tasks.filter((t) => isOverdue({ dueAt: t.due_at, now }).overdue).length,
     };
   }
-  const own = s.t.lab_tests.filter((t) => t.deleted_at === null && t.lab_org_id === p.orgId);
+  const own = s.t.lab_tests.filter((t) => t.deleted_at === null && t.lab_org_id === p.orgId && s.must('batches', t.batch_id).deleted_at === null);
   const queue = own.filter((t) => LAB_OPEN.has(t.status));
   const completed = own.filter((t) => doneIn(t, w));
   return {

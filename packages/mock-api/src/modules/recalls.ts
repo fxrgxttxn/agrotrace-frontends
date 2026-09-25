@@ -1,4 +1,5 @@
 /** Recalls and recall tasks (paths/recalls.yaml, recall-tasks.yaml; БП-5, BR-08, BR-10). */
+import { canBatchTransition, canEntityTransition } from '../domain/transitions.js';
 import { compareCodePoints, isOverdue, shouldCloseRecall } from '@agrotrace/domain';
 import { RecallCreateSchema, RecallTaskConfirmSchema } from '@agrotrace/validation';
 import { parseBody } from '../http/body.js';
@@ -195,9 +196,9 @@ export const recallsHandlers: Record<string, Handler> = {
     const task = s.get('recall_tasks', id);
     if (!task || task.holder_org_id !== p.orgId) throw notFound();
     if (task.version !== version) throw versionConflict(task.version);
-    if (task.status === 'CONFIRMED') throw invalidTransition({ from: 'CONFIRMED', to: 'CONFIRMED' });
+    if (!canEntityTransition('recallTask', task.status, 'CONFIRMED')) throw invalidTransition({ from: task.status, to: 'CONFIRMED' });
     const b = s.must('batches', task.batch_id);
-    if (b.status !== 'Recalled') throw invalidTransition({ from: b.status, to: 'WrittenOff', publicCode: b.public_code });
+    if (!canBatchTransition(b.status, 'WrittenOff')) throw invalidTransition({ from: b.status, to: 'WrittenOff', publicCode: b.public_code });
     const now = s.nowIso();
     transition(s, b, 'WrittenOff', 'WRITTEN_OFF', p.userId);
     s.touch('recallTask', task);

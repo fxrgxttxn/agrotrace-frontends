@@ -1,4 +1,5 @@
 /** Lab tests (paths/lab.yaml, БП-2, BR-02): queue, assignment by an inspector, sample, results (→ recall on FAIL), protocol. */
+import { canEntityTransition } from '../domain/transitions.js';
 import { compareCodePoints, compareDecimalStrings, concludeLabTest, isOverdue } from '@agrotrace/domain';
 import { LabResultsInputSchema, LabSampleRequestSchema, LabTestCreateSchema } from '@agrotrace/validation';
 import { parseBody } from '../http/body.js';
@@ -79,8 +80,8 @@ export function labTestView(m: Mock, p: Principal, t: LabTestRow) {
   const protocol = liveFile(m.store, t.protocol_file_id);
   const isLab = p.roles.includes('LAB');
   const actions: string[] = [];
-  if (isLab && t.status === 'QUEUED') actions.push('sample');
-  if (isLab && LAB_OPEN.has(t.status)) actions.push('submitResults');
+  if (isLab && canEntityTransition('labTest', t.status, 'SAMPLED')) actions.push('sample');
+  if (isLab && canEntityTransition('labTest', t.status, 'DONE')) actions.push('submitResults');
   if (isLab && t.status !== 'CANCELLED') actions.push('uploadProtocol');
   return {
     ...labTestListItem(m, t),
@@ -164,7 +165,7 @@ export const labHandlers: Record<string, Handler> = {
     if (body !== undefined) parseBody(LabSampleRequestSchema, body);
     const t = visibleTest(ctx, id);
     if (t.version !== version) throw versionConflict(t.version);
-    if (t.status !== 'QUEUED') throw invalidTransition({ from: t.status, to: 'SAMPLED' });
+    if (!canEntityTransition('labTest', t.status, 'SAMPLED')) throw invalidTransition({ from: t.status, to: 'SAMPLED' });
     ctx.store.touch('labTest', t);
     ctx.store.patch(t, { status: 'SAMPLED', sampled_at: ctx.store.nowIso(), version: t.version + 1, updated_at: ctx.store.nowIso() });
     return json(200, labTestView(ctx, p, t));
@@ -178,7 +179,7 @@ export const labHandlers: Record<string, Handler> = {
     const t = visibleTest(ctx, id);
     const s = ctx.store;
     if (t.version !== version) throw versionConflict(t.version);
-    if (!LAB_OPEN.has(t.status)) throw invalidTransition({ from: t.status, to: 'DONE' });
+    if (!canEntityTransition('labTest', t.status, 'DONE')) throw invalidTransition({ from: t.status, to: 'DONE' });
     const norms = currentNorms(ctx, t);
     const ids = input.results.map((r) => r.indicatorId.toLowerCase());
     const expected = new Set(norms.map((n) => n.indicatorId));
@@ -230,8 +231,10 @@ export const labHandlers: Record<string, Handler> = {
   async uploadLabProtocol(ctx) {
     const p = ctx.user();
     const id = uuidParam(ctx.params.id);
-    const up = await readUpload(ctx, PROTOCOL_MAX_BYTES, ['application/pdf']);
-    const t = visibleTest(ctx, id);
+    let t!: ReturnType<typeof visibleTest>;
+    const up = await readUpload(ctx, PROTOCOL_MAX_BYTES, ['application/pdf'], () => {
+      t = visibleTest(ctx, id);
+    });
     const file = insertBytesFile(ctx.store, { kind: 'LAB_PROTOCOL', originalName: up.name, mime: up.mime, data: up.bytes, ownerId: p.userId });
     const old = t.protocol_file_id;
     ctx.store.touch('labTest', t);
