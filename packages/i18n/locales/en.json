@@ -77,6 +77,7 @@
     "loading": "Loading"
   },
   "ui": {
+    "choose": "Choose",
     "openCalendar": "Open calendar",
     "selectAll": "Select all",
     "sort": "Sort",
@@ -476,6 +477,160 @@
       "telegram": "Lab test of batch {publicCode} at \"{labName}\" overdue (due {dueAt})"
     }
   },
+  "filters": {
+    "toggle": "Filters",
+    "selected": ", selected:",
+    "reset": "Reset filters",
+    "any": "All"
+  },
+  "maps": {
+    "open": "Open map",
+    "close": "Close map",
+    "fields": "Map of fields: {names}",
+    "failed": "The map did not load."
+  },
+  "fields": {
+    "sort": {
+      "name": "Name",
+      "areaDesc": "Area, largest first",
+      "areaAsc": "Area, smallest first",
+      "lastTreatment": "Last treatment"
+    },
+    "add": "Add field",
+    "search": "Search fields",
+    "searchPlaceholder": "Field name",
+    "farm": "Farm",
+    "region": "Region",
+    "area": "Area, ha",
+    "lastTreatment": "Last treatment",
+    "treatments": "Treatments",
+    "geometry": "Outline, GeoJSON",
+    "geometryInvalid": "Paste GeoJSON with a Polygon outline",
+    "noGeometry": "Not set",
+    "edit": "Edit",
+    "editTitle": "Edit field",
+    "delete": "Delete",
+    "deleteTitle": "Delete field",
+    "deleteText": "Field «{name}» leaves the list. Its treatments and the batches from it are kept.",
+    "created": "Field «{name}» added",
+    "saved": "Field «{name}» saved",
+    "deleted": "Field «{name}» deleted",
+    "failed": "Fields did not load.",
+    "notFound": "The field does not exist or is not available to you.",
+    "toList": "To the fields",
+    "batch": "Register batch"
+  },
+  "treatments": {
+    "sort": {
+      "newest": "Newest first",
+      "oldest": "Oldest first"
+    },
+    "title": "Treatments",
+    "add": "Record treatment",
+    "edit": "Edit",
+    "editTitle": "Edit treatment",
+    "editOf": "Edit treatment: {substance}, {date}",
+    "dose": "Dose",
+    "waitUntil": "Waiting period until",
+    "editableUntil": "Editable until {time}",
+    "editClosed": "The treatment could be edited until {time}: 24 hours have passed since it was recorded",
+    "created": "Treatment recorded",
+    "saved": "Treatment saved",
+    "empty": "No treatments yet.",
+    "failed": "Treatments did not load."
+  },
+  "batches": {
+    "sort": {
+      "updated": "Recently updated",
+      "code": "Batch code",
+      "massDesc": "Mass, largest first",
+      "massAsc": "Mass, smallest first"
+    },
+    "search": "Search batches",
+    "searchPlaceholder": "Batch code",
+    "code": "Batch",
+    "product": "Product",
+    "mass": "Mass, kg",
+    "massValue": "Mass",
+    "holder": "Holder",
+    "origin": "Creator",
+    "producedOn": "Production date",
+    "updatedAt": "Updated",
+    "kind": "Kind",
+    "field": "Field",
+    "harvestedAt": "Harvest date",
+    "producedAt": "Production date",
+    "test": "Lab test",
+    "status": "Status",
+    "from": "Produced from",
+    "to": "Produced to",
+    "organization": "Organization",
+    "failed": "Batches did not load.",
+    "notFound": "The batch does not exist or is not available to you.",
+    "toList": "To the batches",
+    "createdTest": "Batch {code} registered and sent to the lab: {reason}",
+    "createdNoTest": "Batch {code} registered and approved: no lab test needed",
+    "noLab": "The risk model requires a lab test, but no laboratory is active. Register the batch later",
+    "tabs": "Batch {code}",
+    "tab": {
+      "history": "History",
+      "path": "Path",
+      "graph": "Graph",
+      "tests": "Lab tests",
+      "docs": "Documents"
+    },
+    "system": "Automatically",
+    "byWaybill": "by waybill {number}",
+    "since": "since {date}",
+    "period": "{from} — {to}",
+    "historyFailed": "The history did not load.",
+    "pathFailed": "The path did not load."
+  },
+  "graph": {
+    "label": "Graph of batch {code}: {up} sources, {down} derived",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "fit": "Fit",
+    "open": "Open graph",
+    "close": "Close graph",
+    "related": "Related batches",
+    "link": "Link",
+    "root": "This batch",
+    "up": "Source, level {level}",
+    "down": "Derived, level {level}",
+    "noAccess": "No access",
+    "failed": "The graph did not load."
+  },
+  "labTests": {
+    "lab": "Laboratory",
+    "reason": "Reason",
+    "status": "Status",
+    "conclusion": "Conclusion",
+    "dueAt": "Due",
+    "overdue": "Overdue",
+    "empty": "No lab tests for this batch.",
+    "failed": "Lab tests did not load."
+  },
+  "documents": {
+    "vsd": "Veterinary certificate",
+    "number": "Number",
+    "issueDate": "Issued",
+    "vsdStatus": "Status in Mercury",
+    "product": "Product",
+    "volume": "Volume",
+    "consignor": "Consignor",
+    "consignee": "Consignee",
+    "attempts": "Requests to Mercury",
+    "retry": "Retry import",
+    "retried": "Certificate import requested again",
+    "protocols": "Test reports",
+    "qr": "QR code",
+    "publicPage": "Public page",
+    "png": "Download PNG",
+    "pdf": "Download PDF label",
+    "empty": "No documents yet.",
+    "failed": "Documents did not load."
+  },
   "productCategory": {
     "GRAIN": "Grain",
     "VEGETABLE": "Vegetables",
@@ -634,7 +789,8 @@
     "regions": "Regions"
   },
   "unit": {
-    "kg": "kg"
+    "kg": "kg",
+    "ha": "ha"
   },
   "count": {
     "batches": "{count, plural, one {# batch} other {# batches}}"

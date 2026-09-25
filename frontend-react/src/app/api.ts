@@ -111,6 +111,8 @@ export interface ApplyOptions<F extends FieldValues> {
   alert: (text: string, tone?: 'danger' | 'attention') => void;
   /** Called for a 429 with the seconds to wait. */
   onRateLimit?: (seconds: number) => void;
+  /** Maps a server path onto the form field that shows it (`geometry.coordinates[0]` → `geometry`). */
+  alias?: (path: string) => string;
 }
 
 /** Puts a failed submit on the form: field errors, a form-level message, or the rate-limit countdown. */
@@ -119,13 +121,14 @@ export function applyProblem<F extends FieldValues>(e: unknown, o: ApplyOptions<
     const rest: string[] = [];
     const fields = (o.fields ?? []) as readonly string[];
     const marked = new Set<string>();
-    for (const [path, keys] of Object.entries(e.errors)) {
+    for (const [raw, keys] of Object.entries(e.errors)) {
+      const path = o.alias ? o.alias(raw) : raw;
       const key = keys[0];
       if (!key) continue;
-      if (o.form && fields.includes(path)) {
+      if (o.form && fields.includes(path) && !marked.has(path)) {
         o.form.setError(path as Path<F>, { type: 'server', message: key });
         marked.add(path);
-      } else rest.push(t(key));
+      } else if (!marked.has(path)) rest.push(t(key));
     }
     // Focus the first invalid field in the order of the form (`fields` is listed in DOM order), not of the answer.
     const firstField = fields.find((f) => marked.has(f));

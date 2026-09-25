@@ -119,7 +119,14 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/batches/:id',
     title: 'page.batch',
     access: 'auth',
-    ops: ['getBatch', 'getBatchHistory', 'getBatchPath', 'getBatchGraph', 'getBatchDocuments'],
+    ops: [
+      'getBatch',
+      'getBatchHistory',
+      'getBatchPath',
+      'getBatchGraph',
+      'getBatchDocuments',
+      'listLabTests',
+    ],
     load: page(batches, 'BatchPage'),
   },
   {

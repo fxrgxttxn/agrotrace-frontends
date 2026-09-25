@@ -1,0 +1,196 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { PageToolbar } from '../../src/ui';
+import { graphElements, graphStyle, kebab, type BatchGraph } from '../../src/graph/elements';
+import { boundsOf, FieldMap } from '../../src/maps/FieldMap';
+import { normalizeDecimal } from '../../src/app/forms';
+import { parseGeometry } from '../../src/pages/fields';
+import { contractExample } from '../msw/fromContract';
+import { canonical, canonicalHtml, readmeBlock } from './readme';
+
+// Task 3 building blocks: the page toolbar against the README markup, the graph elements and colours, the map
+// (only with a key), the form helpers.
+
+const wide = (matches: boolean) =>
+  vi.spyOn(window, 'matchMedia').mockImplementation(
+    (query: string) =>
+      ({
+        matches,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }) as MediaQueryList,
+  );
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
+
+describe('README markup contract: page toolbar', () => {
+  it('search + filters (open on ≥ 768 px, count with its hidden prefix)', () => {
+    wide(true);
+    const { container } = render(
+      <PageToolbar
+        search={{ label: 'Поиск партий', placeholder: 'Код, продукт', value: '', onChange: () => {} }}
+        count={1}
+        filters={<span />}
+      />,
+    );
+    container
+      .querySelector('.at-page__filters-body')!
+      .replaceChildren(document.createTextNode('…at-field со select / date…'));
+    const block = readmeBlock('Страница').match(
+      /<div class="at-page__toolbar">[\s\S]*?<\/details>\n {2}<\/div>/,
+    )![0];
+    expect(canonical(container.childNodes)).toBe(canonicalHtml(block));
+  });
+
+  it('below 768 px the filters start closed; no count while nothing is chosen', () => {
+    wide(false);
+    const { container } = render(<PageToolbar filters={<span />} count={0} />);
+    expect(container.querySelector('details')!.open).toBe(false);
+    expect(container.querySelector('.at-page__filters-count')).toBeNull();
+    expect(container.querySelector('summary')!.textContent).toBe('Фильтры');
+  });
+});
+
+describe('graph elements', () => {
+  const graph = contractExample('getBatchGraph').body as BatchGraph;
+
+  it('status → token name', () => {
+    expect(kebab('OnTest')).toBe('on-test');
+    expect(kebab('WrittenOff')).toBe('written-off');
+    expect(kebab('Recalled')).toBe('recalled');
+  });
+
+  it('nodes carry code, status, access and root; edges parent → child', () => {
+    const els = graphElements(graph);
+    expect(els.filter((e) => e.group === 'nodes').map((e) => e.data)).toEqual([
+      { id: graph.nodes[0]!.id, label: 'AT-2026-000123', status: 'Processed', accessible: true, root: true },
+      { id: graph.nodes[1]!.id, label: 'AT-2026-000457', status: 'OnSale', accessible: false, root: false },
+    ]);
+    expect(els.filter((e) => e.group === 'edges').map((e) => e.data)).toEqual([
+      {
+        id: `${graph.edges[0]!.parent}>${graph.edges[0]!.child}`,
+        source: graph.edges[0]!.parent,
+        target: graph.edges[0]!.child,
+      },
+    ]);
+  });
+
+  it('colours come from the status tokens; a node without access is dashed', () => {
+    const style = graphStyle(graph, (name) => `var(${name})`);
+    const sel = (s: string) => style.find((x) => x.selector === s)?.style as Record<string, unknown>;
+    expect(sel('node[status = "OnSale"]')).toEqual({
+      'background-color': 'var(--status-on-sale-bg)',
+      color: 'var(--status-on-sale-fg)',
+    });
+    expect(sel('node[!accessible]')['border-style']).toBe('dashed');
+  });
+});
+
+describe('field map', () => {
+  const polygon = {
+    type: 'Polygon' as const,
+    coordinates: [
+      [
+        [39.0, 45.0],
+        [39.2, 45.0],
+        [39.2, 45.1],
+        [39.0, 45.0],
+      ],
+    ] as [number, number][][],
+  };
+
+  it('bounds of the outer rings', () => {
+    expect(boundsOf([polygon])).toEqual([
+      [39.0, 45.0],
+      [39.2, 45.1],
+    ]);
+    expect(boundsOf([])).toBeNull();
+  });
+
+  it('without a key nothing is drawn and no script is loaded', () => {
+    wide(true);
+    vi.stubEnv('VITE_YANDEX_MAPS_API_KEY', '');
+    const { container } = render(<FieldMap fields={[{ id: '1', name: 'Северное', geometry: polygon }]} />);
+    expect(container.childNodes).toHaveLength(0);
+    expect(document.querySelector('script[src*="api-maps.yandex.ru"]')).toBeNull();
+  });
+
+  it('with a key: the outlines on Yandex Maps 3.0, fitted to their bounds', async () => {
+    wide(true);
+    vi.stubEnv('VITE_YANDEX_MAPS_API_KEY', 'test-key');
+    const added: unknown[] = [];
+    let bounds: unknown = null;
+    class Entity {
+      constructor(public props?: unknown) {}
+    }
+    class YMap {
+      constructor(_el: HTMLElement, props: { location: { bounds: unknown } }) {
+        bounds = props.location.bounds;
+      }
+      addChild(child: unknown) {
+        added.push(child);
+        return this;
+      }
+      destroy() {}
+    }
+    window.ymaps3 = {
+      ready: Promise.resolve(),
+      YMap,
+      YMapDefaultSchemeLayer: Entity,
+      YMapDefaultFeaturesLayer: Entity,
+      YMapFeature: Entity,
+    } as unknown as NonNullable<typeof window.ymaps3>;
+    render(
+      <MemoryRouter>
+        <FieldMap
+          fields={[
+            { id: '1', name: 'Северное', geometry: polygon },
+            { id: '2', name: 'Без контура', geometry: null },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('img', { name: 'Карта полей: Северное' })).toBeInTheDocument();
+    await waitFor(() => expect(added).toHaveLength(3));
+    expect(bounds).toEqual([
+      [39.0, 45.0],
+      [39.2, 45.1],
+    ]);
+    expect((added[2] as Entity).props).toMatchObject({ geometry: polygon });
+    delete window.ymaps3;
+  });
+});
+
+describe('form helpers', () => {
+  it('decimal text → wire format', () => {
+    expect(normalizeDecimal('124,5', 2)).toBe('124.50');
+    expect(normalizeDecimal('1.5', 3)).toBe('1.500');
+    expect(normalizeDecimal('10', 2)).toBe('10.00');
+    expect(normalizeDecimal('1,2345', 3)).toBe('1,2345');
+    expect(normalizeDecimal('abc', 2)).toBe('abc');
+  });
+
+  it('GeoJSON outline: geometry, Feature, one-feature collection; anything else is rejected', () => {
+    const p = { type: 'Polygon', coordinates: [] };
+    expect(parseGeometry('')).toEqual({ ok: true, value: null });
+    expect(parseGeometry(JSON.stringify(p))).toEqual({ ok: true, value: p });
+    expect(parseGeometry(JSON.stringify({ type: 'Feature', geometry: p }))).toEqual({ ok: true, value: p });
+    expect(
+      parseGeometry(
+        JSON.stringify({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: p }] }),
+      ),
+    ).toEqual({ ok: true, value: p });
+    expect(parseGeometry('{"type":"Point","coordinates":[1,2]}')).toEqual({ ok: false });
+    expect(parseGeometry('null')).toEqual({ ok: false });
+    expect(parseGeometry('{')).toEqual({ ok: false });
+  });
+});

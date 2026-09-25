@@ -96,3 +96,11 @@ export function formatBytes(bytes: number, locale: Locale): string {
   const rounded = unit === 0 ? String(value) : String(Math.round(value * 10) / 10);
   return `${locale === 'ru' ? rounded.replace('.', ',') : rounded} ${units[unit]}`;
 }
+
+/** A decimal wire string (area `124.50`, dose `1.500`) with the locale's separators, digits as they are (no float):
+ * `formatDecimal('12480.500', 'ru')` → `'12 480,500'`. The unit is the caller's (column header or suffix). */
+export function formatDecimal(value: string, locale: Locale): string {
+  const [intPart = '0', decPart] = value.split('.');
+  const grouped = groupThousands(intPart, locale === 'ru' ? NBSP : ',');
+  return decPart === undefined ? grouped : `${grouped}${locale === 'ru' ? ',' : '.'}${decPart}`;
+}

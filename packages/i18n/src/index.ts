@@ -10,6 +10,7 @@ export {
   formatLocalDateTime,
   formatLocalTime,
   formatBytes,
+  formatDecimal,
 } from './format.js';
 export { formatRuDate, parseRuDate, maskRuDateInput, isWithinRuDateBounds } from './date-input.js';
 export { problemMessage, type Problem, type T } from './problem.js';

@@ -373,5 +373,6 @@ describe('helpers', () => {
     expect(initials('Иван Петров')).toBe('ИП');
     expect(initials('Петров Иван Сергеевич')).toBe('ПИ');
     expect(initials('Admin')).toBe('AD');
+    expect(initials('ООО «Кубанский мукомол»')).toBe('ОК');
   });
 });
