@@ -8,7 +8,7 @@
  */
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
-import { demoUser, demoUsers, type Role } from './lib/auth.js';
+import { demoUser, demoUsers, loginAs, type Role } from './lib/auth.js';
 import { api, ApiClient, type ApiResponse } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
 import { closeDb, fixtureWrite } from './lib/db.js';
@@ -98,12 +98,20 @@ const b64url = (b: Buffer | string) => Buffer.from(b).toString('base64url');
 function jwtPayload(token: string): Record<string, any> {
   return JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8'));
 }
-
-/** An HS256 JWT as the contract defines it (shared JWT_SECRET). */
-function signJwt(payload: Record<string, unknown>, secret = process.env.JWT_SECRET!): string {
-  const head = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+/**
+ * A JWT over `payload` with the given JOSE header (default HS256), HMAC-signed with `secret` using the hash the
+ * header names for HS* (HS256 for any other `alg`, i.e. an alg-confusion attempt); `alg: none` → empty signature.
+ */
+function signJwt(
+  payload: Record<string, unknown>,
+  secret = process.env.JWT_SECRET!,
+  header: Record<string, unknown> = { alg: 'HS256', typ: 'JWT' },
+): string {
+  const head = b64url(JSON.stringify(header));
   const body = b64url(JSON.stringify(payload));
-  const sig = createHmac('sha256', secret).update(`${head}.${body}`).digest('base64url');
+  if (header.alg === 'none') return `${head}.${body}.`;
+  const hash = header.alg === 'HS512' ? 'sha512' : header.alg === 'HS384' ? 'sha384' : 'sha256';
+  const sig = createHmac(hash, secret).update(`${head}.${body}`).digest('base64url');
   return `${head}.${body}.${sig}`;
 }
 
@@ -173,6 +181,28 @@ describe('login', () => {
       const res = await login(client, email, 'whatever-password');
       expectProblem(res, 401, 'INVALID_CREDENTIALS');
       expectNoCookie(res);
+    }
+  });
+
+  it('R31 under concurrency: a right password racing the locking 5th wrong one is never let in once the lock is set', async () => {
+    // 4 wrong passwords first, then the 5th wrong and the right one in parallel. Either the right one resets the
+    // counter first (the 5th wrong then counts 1, no lock, the right one is 200), or the 5th wrong locks first and the
+    // right one must be ACCOUNT_LOCKED — the account state afterwards tells which happened. Never both.
+    for (let round = 0; round < 4; round++) {
+      const org = await activeOrgHead();
+      for (let i = 1; i <= 4; i++) await login(api(), org.email, `wrong-${i}-password`);
+      const [, right] = await Promise.all([
+        login(api(), org.email, 'wrong-5-password'),
+        login(api(), org.email, org.password),
+      ]);
+      const after = await login(api(), org.email, org.password);
+      if (after.status === 401) {
+        expectProblem(after, 401, 'ACCOUNT_LOCKED');
+        expectProblem(right, 401, 'ACCOUNT_LOCKED'); // never 200 (or 403) from a burst that locked the account
+      } else {
+        expect(after.status, after.text).toBe(200);
+        expect(right.status, right.text).toBe(200);
+      }
     }
   });
 
@@ -328,6 +358,47 @@ describe('Bearer access token', () => {
     expect(own.sub).toBe(user.id);
   });
 
+  it('alg confusion and claim tampering → 401 (only HS256 with valid claims is accepted)', async () => {
+    const { client } = await freshHead('AUTHORITY');
+    const now = Math.floor(Date.now() / 1000);
+    const own = jwtPayload(client.accessToken!);
+    const valid = { ...own, jti: randomUUID(), iat: now, exp: now + 900 };
+    const without = (k: string) => Object.fromEntries(Object.entries(valid).filter(([key]) => key !== k));
+    const [h, , s] = client.accessToken!.split('.');
+    const tampered = `${h}.${b64url(JSON.stringify({ ...own, roles: ['ADMIN'] }))}.${s}`;
+    const cases: Record<string, string> = {
+      'alg none': signJwt(valid, undefined, { alg: 'none', typ: 'JWT' }),
+      'alg none, HS256 signature kept': `${b64url(JSON.stringify({ alg: 'none' }))}.${signJwt(valid).split('.').slice(1).join('.')}`,
+      HS512: signJwt(valid, undefined, { alg: 'HS512', typ: 'JWT' }),
+      'RS256 header, HMAC with the secret': signJwt(valid, undefined, { alg: 'RS256', typ: 'JWT' }),
+      'roles tampered, original signature': tampered,
+      'no sub': signJwt(without('sub')),
+      'no org': signJwt(without('org')),
+      'no exp': signJwt(without('exp')),
+      'org_admin as a string': signJwt({ ...valid, org_admin: 'true' }),
+      'unknown role': signJwt({ ...valid, roles: ['ROOT'] }),
+      'unknown crit header': signJwt(valid, undefined, {
+        alg: 'HS256',
+        typ: 'JWT',
+        crit: ['x-at'],
+        'x-at': 1,
+      }),
+    };
+    for (const [name, token] of Object.entries(cases)) {
+      const res = await api().post('/auth/2fa/setup', {}, { headers: { authorization: `Bearer ${token}` } });
+      await expectContract(res, 'setupTwoFactor');
+      expect(res.status, `${name}: ${res.text}`).toBe(401);
+      expect(res.body.code, name).toBe('UNAUTHORIZED');
+    }
+    // Control: the same claims, properly signed, are accepted.
+    const ok = await api().post(
+      '/auth/2fa/setup',
+      {},
+      { headers: { authorization: `Bearer ${signJwt(valid)}` } },
+    );
+    expect(ok.status, ok.text).toBe(200);
+  });
+
   it('x-roles: a role outside [INSPECTOR, ADMIN] → 403 FORBIDDEN without params', async () => {
     const { client } = await freshHead('FARM');
     const res = await client.post('/auth/2fa/setup', {});
@@ -337,7 +408,9 @@ describe('Bearer access token', () => {
   });
 
   itRateLimit("scope 'user': the 101st authenticated request within the window → 429", async () => {
-    const { client, user } = await freshHead('FARM');
+    // A demo employee, not a registration: the --ratelimits run is the plain backend, where DaData may be configured.
+    const client = await loginAs('FARMER', { head: false });
+    const user = { id: jwtPayload(client.accessToken!).sub as string };
     await awayFromWindowEdge(60, 20);
     const results = await Promise.all(Array.from({ length: 100 }, () => client.post('/auth/2fa/setup', {})));
     expect(results.map((r) => r.status)).toEqual(Array(100).fill(403));
@@ -503,6 +576,28 @@ describe('two-factor login', () => {
     await challenge(org.email);
   });
 
+  it('a parallel burst of wrong codes gets at most 5 INVALID_TWO_FACTOR_CODE answers per challenge', async () => {
+    const { org } = await inspectorWithTotp();
+    const id = await challenge(org.email);
+    const results = await Promise.all(Array.from({ length: 8 }, () => verify(id, '000000')));
+    const invalid = results.filter((r) => r.body.code === 'INVALID_TWO_FACTOR_CODE');
+    expect(invalid.length).toBeLessThanOrEqual(5);
+    for (const r of results) expect(r.status).toBe(401);
+    expect(results.filter((r) => r.body.code === 'TOKEN_EXPIRED').length).toBe(8 - invalid.length);
+    expect(new Set(invalid.map((r) => r.body.params.attemptsLeft)).size).toBe(invalid.length);
+  });
+
+  it('a right code on an expired challenge does not burn its step: it still works on a new challenge', async () => {
+    const { org, secret } = await inspectorWithTotp(-1);
+    const id = await challenge(org.email);
+    await redis().del(`2fa:${id}`); // the challenge expired
+    await awayFromStepEdge(6);
+    const code = totpAt(secret, currentStep());
+    expectProblem(await verify(id, code), 401, 'TOKEN_EXPIRED');
+    const ok = await verify(await challenge(org.email), code);
+    expect(ok.status, ok.text).toBe(200);
+  });
+
   it('an unknown or expired challenge → 401 TOKEN_EXPIRED; a malformed body → 400', async () => {
     const { org, secret } = await inspectorWithTotp();
     expectProblem(await verify(randomUUID(), '123456'), 401, 'TOKEN_EXPIRED');
@@ -537,6 +632,21 @@ describe('refresh', () => {
     expectProblem(res, 401, 'TOKEN_EXPIRED');
     const claims = jwtPayload(viaJar.body.accessToken);
     expect(claims.exp - claims.iat).toBe(900);
+  });
+
+  it('parallel refreshes with one token: exactly one rotates, the others are the grace 401; the chain lives', async () => {
+    const { org } = await freshHead('FARM');
+    const client = api();
+    const { token: a } = await loginOk(client, org.email, org.password);
+    const results = await Promise.all(Array.from({ length: 5 }, () => refresh(api(), a)));
+    for (const r of results) await expectContract(r, 'refreshToken');
+    const winners = results.filter((r) => r.status === 200);
+    expect(winners, results.map((r) => r.status).join(',')).toHaveLength(1);
+    for (const r of results.filter((x) => x.status !== 200)) {
+      expectProblem(r, 401, 'TOKEN_EXPIRED');
+      expectNoCookie(r);
+    }
+    await refreshOk(client, expectRefreshCookie(winners[0]!));
   });
 
   it('a token rotated ≤ 10 s ago → 401 without Set-Cookie and without revoking the chain', async () => {
@@ -686,7 +796,10 @@ describe('password reset', () => {
     const res = await api().post('/auth/password/forgot', { email });
     await expectContract(res, 'forgotPassword');
     expect(res.status).toBe(204);
-    await new Promise((r) => setTimeout(r, 1000));
+    // Barrier instead of a fixed wait: a later request for an existing account gets its letter (polled with a
+    // deadline), so a letter to the unknown address, had one been sent first, would have arrived by now as well.
+    const { org } = await freshHead('FARM');
+    await requestReset(org.email);
     expect(await mailsTo(email)).toEqual([]);
     const reset = await api().post('/auth/password/reset', {
       token: b64url(randomBytes(32)),
@@ -742,7 +855,7 @@ async function register(body: unknown) {
 }
 
 describe('registerOrganization', () => {
-  it('without DaData (dev stack: no DADATA_API_KEY) → 201 MANUAL_CHECK; the head waits for approval', async () => {
+  it('DaData unavailable (the api-test profile unsets DADATA_API_KEY) → 201 MANUAL_CHECK; the head waits for approval', async () => {
     const body = registration({ inn: randomInn(12) }, { email: uniqueEmail('Mixed.Case').toUpperCase() });
     const res = await register(body);
     expect(res.status, res.text).toBe(201);

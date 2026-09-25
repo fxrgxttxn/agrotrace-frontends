@@ -26,6 +26,7 @@ import { newOpaqueToken, sha256hex } from '../../security/tokens.js';
 import { generateTotpSecret, matchStep, otpauthUrl } from '../../security/totp.js';
 import { auditDiff, auditService, SECRET } from '../audit/service.js';
 import { loadMe, type MeView } from '../me/view.js';
+import { registrationIdentity } from './registration.js';
 import {
   createRefreshToken,
   revokeAllRefreshTokens,
@@ -134,12 +135,12 @@ export function authService(c: Container) {
     return null;
   }
 
-  /** Accepts a TOTP code once: the step must match (±1) and not have been accepted for the user before (R35). */
-  async function acceptTotp(userId: string, secret: string, code: string): Promise<boolean> {
-    const step = matchStep(secret, code);
-    if (step === null) return false;
-    const set = await redis.set(`totp-used:${userId}:${step}`, '1', 'EX', TOTP_USED_TTL_SEC, 'NX');
-    return set === 'OK';
+  /** R35/R82 `totp-used:{userId}:{step}`: a step accepted once is never accepted again for the user. */
+  const totpUsedKey = (userId: string, step: number) => `totp-used:${userId}:${step}`;
+
+  /** Marks the step used (SET NX EX 90); false — it already was (a parallel replay won). */
+  async function markTotpUsed(userId: string, step: number): Promise<boolean> {
+    return (await redis.set(totpUsedKey(userId, step), '1', 'EX', TOTP_USED_TTL_SEC, 'NX')) === 'OK';
   }
 
   return {
@@ -177,8 +178,19 @@ export function authService(c: Container) {
         throw new AppProblem(401, 'INVALID_CREDENTIALS');
       }
 
-      if (u.failed_logins > 0)
-        await db.updateTable('users').set({ failed_logins: 0 }).where('id', '=', u.id).execute();
+      // A burst of wrong passwords may have locked the account while this password was being verified (all of the
+      // burst read "not locked" above): the reset applies only to an unlocked row; otherwise that lock is reported.
+      const reset = await sql<{ id: string }>`
+        UPDATE users SET failed_logins = 0
+         WHERE id = ${u.id} AND (locked_until IS NULL OR locked_until <= now())
+        RETURNING id
+      `.execute(db);
+      if (!reset.rows[0]) {
+        const again = await loadAuthUser({ id: u.id });
+        throw new AppProblem(401, 'ACCOUNT_LOCKED', {
+          params: { lockedUntil: iso(again?.locked_until ?? new Date()) },
+        });
+      }
       const denied = statusProblem(u);
       if (denied) throw denied;
 
@@ -209,17 +221,36 @@ export function authService(c: Container) {
         await redis.del(key, failKey);
         throw expired();
       }
-      if (!(await acceptTotp(u.id, u.totp_secret, input.code))) {
-        const res = await redis.multi().incr(failKey).expire(failKey, CHALLENGE_TTL_SEC, 'NX').exec();
-        const fails = Number(res?.[0]?.[1] ?? CHALLENGE_MAX_FAILS);
-        if (fails >= CHALLENGE_MAX_FAILS) await redis.del(key, failKey);
-        throw new AppProblem(401, 'INVALID_TWO_FACTOR_CODE', {
-          params: { attemptsLeft: Math.max(0, CHALLENGE_MAX_FAILS - fails) },
-        });
+      // Every attempt reserves one of the 5 slots BEFORE its code is checked, so a parallel burst can never get more
+      // than 5 wrong codes answered for one challenge.
+      // EXISTS in the same MULTI: a challenge annulled in between never restarts the count from 1.
+      const res = await redis
+        .multi()
+        .exists(key)
+        .incr(failKey)
+        .expire(failKey, CHALLENGE_TTL_SEC, 'NX')
+        .exec();
+      const alive = Number(res?.[0]?.[1] ?? 0) === 1;
+      const attempt = Number(res?.[1]?.[1] ?? CHALLENGE_MAX_FAILS + 1);
+      if (!alive || attempt > CHALLENGE_MAX_FAILS) {
+        await redis.del(key, failKey);
+        throw expired();
       }
-      // Single use: whoever deletes the challenge first wins (a parallel verify or the 5th wrong code).
+      const wrong = async () => {
+        if (attempt >= CHALLENGE_MAX_FAILS) await redis.del(key, failKey);
+        return new AppProblem(401, 'INVALID_TWO_FACTOR_CODE', {
+          params: { attemptsLeft: CHALLENGE_MAX_FAILS - attempt },
+        });
+      };
+      const step = matchStep(u.totp_secret, input.code);
+      if (step === null || (await redis.exists(totpUsedKey(u.id, step))) === 1) throw await wrong();
+      // Single use: whoever deletes the challenge first wins (a parallel verify or the 5th wrong code). Only then is
+      // the step marked used, so a consumed or annulled challenge never burns it.
       if ((await redis.getdel(key)) === null) throw expired();
       await redis.del(failKey);
+      if (!(await markTotpUsed(u.id, step)))
+        // The same code won a parallel race for another challenge (replay): this challenge is gone — attempts 0.
+        throw new AppProblem(401, 'INVALID_TWO_FACTOR_CODE', { params: { attemptsLeft: 0 } });
       return openSession(u.id);
     },
 
@@ -261,7 +292,8 @@ export function authService(c: Container) {
 
       const invalidCode = () => new AppProblem(400, 'INVALID_TWO_FACTOR_CODE');
       if (!u.totp_secret) throw invalidCode();
-      if (!(await acceptTotp(u.id, u.totp_secret, input.code))) throw invalidCode();
+      const step = matchStep(u.totp_secret, input.code);
+      if (step === null || (await redis.exists(totpUsedKey(u.id, step))) === 1) throw invalidCode();
       const secret = u.totp_secret;
       const outcome = await withTx(db, async (tx) => {
         const r = await tx
@@ -291,6 +323,8 @@ export function authService(c: Container) {
       if (outcome === 'enabled') throw enabled();
       // A parallel first step replaced the secret the code was checked against.
       if (outcome === 'replaced') throw invalidCode();
+      // Marked only once TOTP is really enabled (a refused setup does not burn the step); never accepted again.
+      await markTotpUsed(u.id, step);
       return { totpEnabled: true as const };
     },
 
@@ -378,16 +412,13 @@ export function authService(c: Container) {
       if (emailTaken) errors['admin.email'] = ['validation.email.taken'];
       if (Object.keys(errors).length > 0) throw validationProblem(errors);
 
-      const party = await c.dadata.findParty(input.inn);
-      if (party.status === 'notFound') throw validationProblem({ inn: ['validation.inn.notFound'] });
-      if (party.status === 'unavailable' && input.name === undefined)
-        throw validationProblem({ name: ['validation.required'] });
+      const identity = registrationIdentity(await c.dadata.findParty(input.inn), input.name);
       const org = {
         type: input.type,
-        name: party.status === 'found' ? party.name : input.name!,
+        name: identity.name,
         inn: input.inn,
-        address: party.status === 'found' ? party.address : null,
-        status: party.status === 'found' ? ('PENDING' as const) : ('MANUAL_CHECK' as const),
+        address: identity.address,
+        status: identity.status,
         trustRating: input.type === 'FARM' ? trustRating.initial : null,
       };
       const role = ROLE_OF_TYPE[input.type]!;

@@ -5,7 +5,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { SignJWT } from 'jose';
-import { createDaData } from '../src/infra/dadata.js';
+import { createDaData, type DaData, type PartyLookup } from '../src/infra/dadata.js';
+import { AppProblem } from '../src/http/problem.js';
+import { registrationIdentity } from '../src/modules/auth/registration.js';
 import { createFileUrls, fileUrlKey, fileSignature } from '../src/infra/file-urls.js';
 import { clientIp } from '../src/http/request-id.js';
 import { issueAccessToken, verifyAccessToken } from '../src/security/jwt.js';
@@ -198,5 +200,37 @@ describe('small parsers', () => {
     expect(refreshCookieOf('at_refresh=')).toBeNull();
     expect(refreshCookieOf('other=1')).toBeNull();
     expect(refreshCookieOf(undefined)).toBeNull();
+  });
+});
+
+describe('registration × DaData (registrationIdentity with a stub adapter)', () => {
+  const stub = (r: PartyLookup): DaData => ({ findParty: async () => r });
+  const decide = async (d: DaData, name?: string) =>
+    registrationIdentity(await d.findParty('2311123457'), name);
+
+  it('found → PENDING with the name and address from DaData, whatever the request says', async () => {
+    expect(
+      await decide(stub({ status: 'found', name: 'ООО «Ромашка»', address: 'г. Владимир' }), 'Другое'),
+    ).toEqual({ name: 'ООО «Ромашка»', address: 'г. Владимир', status: 'PENDING' });
+  });
+
+  it('notFound → 400 errors.inn [validation.inn.notFound]', async () => {
+    const err = await decide(stub({ status: 'notFound' }), 'КФХ').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AppProblem);
+    expect((err as AppProblem).body()).toMatchObject({
+      status: 400,
+      code: 'VALIDATION',
+      errors: { inn: ['validation.inn.notFound'] },
+    });
+  });
+
+  it('unavailable → MANUAL_CHECK with the request name; without a name → errors.name [validation.required]', async () => {
+    expect(await decide(stub({ status: 'unavailable' }), 'КФХ Петров')).toEqual({
+      name: 'КФХ Петров',
+      address: null,
+      status: 'MANUAL_CHECK',
+    });
+    const err = await decide(stub({ status: 'unavailable' })).catch((e: unknown) => e);
+    expect((err as AppProblem).body().errors).toEqual({ name: ['validation.required'] });
   });
 });

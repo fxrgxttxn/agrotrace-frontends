@@ -52,10 +52,13 @@ export async function createRefreshToken(
 
 /**
  * R40: revokes the rotation chain of `id` — every row linked to it through `replaced_by`, its ancestors and its
- * descendants (the active one included); other sessions of the user are untouched.
+ * descendants (the active one included); other sessions of the user are untouched. The lineage rows are locked
+ * (`FOR UPDATE`, in id order) before the revocation, and the walk is repeated until it finds no new row: a rotation
+ * of the active descendant running concurrently either commits first (its new row joins the lineage on the next
+ * walk) or waits for this transaction and then finds its token revoked.
  */
-async function revokeChain(tx: Transaction<DB>, id: string, now: Date): Promise<void> {
-  await sql`
+const lineage = (id: string) => sql<{ id: string }>`
+  SELECT id FROM refresh_tokens WHERE id IN (
     WITH RECURSIVE down(id, replaced_by) AS (
       SELECT id, replaced_by FROM refresh_tokens WHERE id = ${id}
       UNION
@@ -65,9 +68,22 @@ async function revokeChain(tx: Transaction<DB>, id: string, now: Date): Promise<
       UNION
       SELECT r.id FROM refresh_tokens r JOIN up u ON r.replaced_by = u.id
     )
-    UPDATE refresh_tokens SET revoked_at = ${now}
-     WHERE revoked_at IS NULL AND id IN (SELECT id FROM down UNION SELECT id FROM up)
-  `.execute(tx);
+    SELECT id FROM down UNION SELECT id FROM up
+  ) ORDER BY id FOR UPDATE`;
+
+async function revokeChain(tx: Transaction<DB>, id: string, now: Date): Promise<void> {
+  let ids = new Set<string>();
+  for (;;) {
+    const locked = new Set((await lineage(id).execute(tx)).rows.map((r) => r.id));
+    if (locked.size === ids.size) break;
+    ids = locked;
+  }
+  await tx
+    .updateTable('refresh_tokens')
+    .set({ revoked_at: now })
+    .where('id', 'in', [...ids])
+    .where('revoked_at', 'is', null)
+    .execute();
 }
 
 export type RefreshOutcome =
