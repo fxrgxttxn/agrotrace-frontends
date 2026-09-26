@@ -50,14 +50,16 @@ export async function xlsx(sheets: { name: string; rows: (CellValue[] | null)[] 
  * A ZIP archive of `files` — stored, or deflated when `declared` is given, with that uncompressed size written into the
  * headers (a lie when it differs from the data: a decompression bomb).
  */
-export function zip(files: { name: string; data: string | Buffer; declared?: number }[]): Buffer {
+export function zip(
+  files: { name: string; data: string | Buffer; declared?: number; badCrc?: boolean }[],
+): Buffer {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
   for (const f of files) {
     const name = Buffer.from(f.name, 'utf8');
     const data = typeof f.data === 'string' ? Buffer.from(f.data, 'utf8') : f.data;
-    const crc = crc32(data);
+    const crc = (crc32(data) ^ (f.badCrc ? 1 : 0)) >>> 0;
     const deflated = f.declared !== undefined;
     const body = deflated ? deflateRawSync(data) : data;
     const size = f.declared ?? data.length;
@@ -99,7 +101,8 @@ const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationship
 /** A hand-written workbook: `rows` is the first sheet's `<sheetData>` XML; `extra` entries are appended. */
 export function workbookXml(
   rows: string,
-  extra: { name: string; data: string | Buffer; declared?: number }[] = [],
+  extra: { name: string; data: string | Buffer; declared?: number; badCrc?: boolean }[] = [],
+  opts: { sheet?: string; badSheetCrc?: boolean } = {},
 ): Buffer {
   return zip([
     {
@@ -120,7 +123,8 @@ export function workbookXml(
     },
     {
       name: 'xl/worksheets/sheet1.xml',
-      data: `<worksheet xmlns="${NS}"><sheetData>${rows}</sheetData></worksheet>`,
+      data: opts.sheet ?? `<worksheet xmlns="${NS}"><sheetData>${rows}</sheetData></worksheet>`,
+      badCrc: opts.badSheetCrc,
     },
     ...extra,
   ]);

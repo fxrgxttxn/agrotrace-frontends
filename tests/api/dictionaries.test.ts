@@ -195,7 +195,9 @@ describe('listDictionary: filters (R51), sorting, paging', () => {
     const names = all.body.items.map((p: { name: string }) => p.name) as string[];
     expect(names).toEqual([...names].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b))));
     const desc = await list(client, 'products', { size: 100, sort: 'name,desc' });
-    expect(desc.body.items.map((p: { name: string }) => p.name)).toEqual([...names].reverse());
+    const descNames = desc.body.items.map((p: { name: string }) => p.name) as string[];
+    expect(descNames).toEqual([...descNames].sort((a, b) => Buffer.compare(Buffer.from(b), Buffer.from(a))));
+    if (all.body.total <= 100) expect(descNames).toEqual([...names].reverse());
     const page2 = await list(client, 'products', { size: 2, page: 2 });
     expect(page2.body).toMatchObject({ page: 2, size: 2, total: all.body.total });
     expect(page2.body.items.map((p: { name: string }) => p.name)).toEqual(names.slice(2, 4));
@@ -1046,6 +1048,77 @@ describe('importDictionary: XLSX', () => {
       allowed: IMPORT_ALLOWED,
       reason: 'workbook-too-large',
     });
+  });
+
+  it('P25 structure: missing `r`, prefixed SpreadsheetML elements, a bad CRC → 415 {allowed}', async () => {
+    const client = await admin();
+    const refused = { allowed: IMPORT_ALLOWED };
+    const noR = workbookXml('<row><c r="A1"><v>1</v></c></row>');
+    expectProblem(await importFile(client, 'regions', noR, 'r.xlsx'), 415, 'UNSUPPORTED_MEDIA_TYPE', refused);
+    const noCellR = workbookXml('<row r="1"><c><v>1</v></c></row>');
+    expectProblem(
+      await importFile(client, 'regions', noCellR, 'c.xlsx'),
+      415,
+      'UNSUPPORTED_MEDIA_TYPE',
+      refused,
+    );
+    const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+    const prefixed = workbookXml('', [], {
+      sheet: `<x:worksheet xmlns:x="${ns}"><x:sheetData><x:row r="1"><x:c r="A1"><x:v>1</x:v></x:c></x:row></x:sheetData></x:worksheet>`,
+    });
+    expectProblem(
+      await importFile(client, 'regions', prefixed, 'p.xlsx'),
+      415,
+      'UNSUPPORTED_MEDIA_TYPE',
+      refused,
+    );
+    const header =
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>code</t></is></c><c r="B1" t="inlineStr"><is><t>name</t></is></c></row>';
+    const crc = workbookXml(header, [], { badSheetCrc: true });
+    expectProblem(await importFile(client, 'regions', crc, 'k.xlsx'), 415, 'UNSUPPORTED_MEDIA_TYPE', refused);
+  });
+
+  it('P25: a cell over 1 000 characters → validation.maxLength for that cell (its text is never read back)', async () => {
+    const client = await admin();
+    const book = await xlsx([
+      {
+        name: 'Лист1',
+        rows: [
+          ['name', 'unit'],
+          ['Ж'.repeat(1001), 'мг/кг'],
+        ],
+      },
+    ]);
+    const res = await importFile(client, 'indicators', book, 'l.xlsx');
+    expect(res.body).toEqual({
+      created: 0,
+      updated: 0,
+      unchanged: 0,
+      errors: [{ row: 2, column: 'name', message: 'validation.maxLength' }],
+    });
+  });
+
+  it('P25: Cyrillic text over 64 KiB of workbook reads back exactly (no character is cut)', async () => {
+    const client = await admin();
+    const u = uniq();
+    const names = Array.from({ length: 250 }, (_, i) => `Ёж ${u} ${i} ${'ЖЩЫ«»—'.repeat(20 + (i % 4))}`);
+    const book = await xlsx([
+      {
+        name: 'Продукты',
+        rows: [['name', 'category', 'lossNormPercent'], ...names.map((n) => [n, 'GRAIN', '1.5'])],
+      },
+    ]);
+    const res = await importFile(client, 'products', book, 'cyr.xlsx');
+    expect(res.status, res.text.slice(0, 300)).toBe(200);
+    expect(res.body).toEqual({ created: 250, updated: 0, unchanged: 0, errors: [] });
+    const found: string[] = [];
+    for (let page = 1; page <= 3; page++)
+      found.push(
+        ...(await list(client, 'products', { q: `Ёж ${u} `, size: 100, page })).body.items.map(
+          (p: { name: string }) => p.name,
+        ),
+      );
+    expect(found.sort()).toEqual([...names].sort());
   });
 });
 

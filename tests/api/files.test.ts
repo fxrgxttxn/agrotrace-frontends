@@ -33,14 +33,19 @@ const UUID0 = '00000000-0000-4000-8000-000000000000';
 const PRIVATE = 'private, max-age=0, must-revalidate';
 const PUBLIC = 'public, max-age=86400';
 
-/** The file id of a seeded product photo, from listDictionary (products.imageUrl). */
+/**
+ * The file id of a seeded product photo, from listDictionary (products.imageUrl) — every page: other suites add
+ * products without photos, which may sort first.
+ */
 async function productPhoto(client: ApiClient): Promise<{ id: string }> {
-  const res = await client.get('/dictionaries/products', { query: { size: 100 } });
-  await expectContract(res, 'listDictionary');
-  expect(res.status, res.text).toBe(200);
-  const withImage = (res.body.items as { imageUrl: string | null }[]).find((p) => p.imageUrl !== null);
-  if (!withImage) throw new Error('no seeded product has a photo');
-  return { id: fileIdOf(withImage.imageUrl!) };
+  for (let page = 1; ; page++) {
+    const res = await client.get('/dictionaries/products', { query: { size: 100, page } });
+    await expectContract(res, 'listDictionary');
+    expect(res.status, res.text).toBe(200);
+    const withImage = (res.body.items as { imageUrl: string | null }[]).find((p) => p.imageUrl !== null);
+    if (withImage) return { id: fileIdOf(withImage.imageUrl!) };
+    if (page * 100 >= res.body.total) throw new Error('no seeded product has a photo');
+  }
 }
 
 /** A fresh head with an uploaded avatar: { client, fileId, url (signed), originalName }. */

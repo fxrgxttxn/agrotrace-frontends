@@ -30,8 +30,14 @@ export const XLSX_PART_CAPS: Readonly<Record<string, number>> = {
 };
 export const MAX_DATA_ROWS = 10_000;
 
-/** A cell as it crosses the thread boundary: its text, or null for a cell of another type (date, boolean, error). */
-export type WireCell = string | null;
+/**
+ * A cell as it crosses the thread boundary: its text; null — a cell of another type (date, boolean, error); 1 — a text
+ * longer than `MAX_CELL_CHARS` (P25: never shipped; the import reports `validation.maxLength`).
+ */
+export type WireCell = string | null | 1;
+/** P25: the result is bounded inside the worker — cells of at most 1 000 characters, 8 MiB of UTF-8 text in all. */
+export const MAX_CELL_CHARS = 1000;
+export const MAX_RESULT_BYTES = 8 * 1024 * 1024;
 export type XlsxResult =
   | { ok: true; header: WireCell[] | null; rows: { number: number; cells: WireCell[] }[] }
   | { ok: false; kind: 'tooLarge' | 'unsupported' | 'tooManyRows' };
@@ -145,8 +151,15 @@ export async function readWorkbook(bytes: Buffer): Promise<XlsxResult> {
     const minimal = minimalWorkbook(bytes);
     // Fed in 64 KiB chunks: exceljs parses (and holds the events of) one chunk at a time — a whole-buffer chunk would
     // make it materialize every cell of the sheet at once (P24: 5 000 × 64 cells took ~370 MB of heap that way).
+    // Each chunk ends right before a `<` byte (P25): exceljs decodes every chunk as UTF-8 on its own, so a chunk must
+    // never end inside a multi-byte character — and `<` (0x3C) never occurs inside one.
     const chunks = function* () {
-      for (let i = 0; i < minimal.length; i += 64 * 1024) yield minimal.subarray(i, i + 64 * 1024);
+      for (let i = 0; i < minimal.length;) {
+        const lt = minimal.indexOf(0x3c, i + 64 * 1024);
+        const end = lt < 0 ? minimal.length : lt;
+        yield minimal.subarray(i, end);
+        i = end;
+      }
     };
     const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from(chunks()), {
       sharedStrings: 'cache',
@@ -158,6 +171,17 @@ export async function readWorkbook(bytes: Buffer): Promise<XlsxResult> {
     let header: WireCell[] | null = null;
     const rows: { number: number; cells: WireCell[] }[] = [];
     let seen = 0;
+    let resultBytes = 0;
+    const bounded = (list: WireCell[]): WireCell[] =>
+      list.map((c) => {
+        if (typeof c !== 'string') return c;
+        // Characters are code points (R36); the UTF-16 length bounds the count cheaply.
+        if (c.length > 2 * MAX_CELL_CHARS || (c.length > MAX_CELL_CHARS && [...c].length > MAX_CELL_CHARS))
+          return 1;
+        resultBytes += Buffer.byteLength(c, 'utf8');
+        if (resultBytes > MAX_RESULT_BYTES) throw new Stop('tooLarge');
+        return c;
+      });
     for await (const ws of reader) {
       let first = true;
       for await (const row of ws as unknown as AsyncIterable<ExcelJS.Row>) {
@@ -171,13 +195,13 @@ export async function readWorkbook(bytes: Buffer): Promise<XlsxResult> {
         if (first) {
           first = false;
           if (row.number === 1) {
-            header = trimmed;
+            header = bounded(trimmed);
             continue;
           }
         }
         if (row.number === 1 || trimmed.every((c) => c === '')) continue;
         if (rows.length === MAX_DATA_ROWS) throw new Stop('tooManyRows');
-        rows.push({ number: row.number, cells: trimmed });
+        rows.push({ number: row.number, cells: bounded(trimmed) });
       }
       break;
     }
@@ -188,4 +212,16 @@ export async function readWorkbook(bytes: Buffer): Promise<XlsxResult> {
       return { ok: false, kind: err.kind === 'tooLarge' ? 'tooLarge' : 'unsupported' };
     return { ok: false, kind: 'unsupported' };
   }
+}
+
+/** The result crosses threads as ONE transferable ArrayBuffer of JSON (P25), never as a cloned object graph. */
+export function encodeResult(r: XlsxResult): ArrayBuffer {
+  const b = Buffer.from(JSON.stringify(r), 'utf8');
+  const ab = new ArrayBuffer(b.length);
+  new Uint8Array(ab).set(b);
+  return ab;
+}
+
+export function decodeResult(ab: ArrayBuffer): XlsxResult {
+  return JSON.parse(Buffer.from(ab).toString('utf8')) as XlsxResult;
 }

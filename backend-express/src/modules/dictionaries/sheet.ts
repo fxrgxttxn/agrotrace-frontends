@@ -20,11 +20,13 @@
 import { AppProblem, validationProblem } from '../../http/problem.js';
 import { workerEngine, WorkerQueue, type Engine } from '../../infra/worker-queue.js';
 import { ZipError, zipDirectory } from '../../infra/zip.js';
-import { MAX_DATA_ROWS, XLSX_PART_CAPS, XLSX_ZIP_LIMITS, type XlsxResult } from './xlsx-read.js';
+import { decodeResult, MAX_DATA_ROWS, XLSX_PART_CAPS, XLSX_ZIP_LIMITS, type WireCell } from './xlsx-read.js';
 
 export { MAX_DATA_ROWS };
 export const INVALID = Symbol('invalid cell');
-export type Cell = string | typeof INVALID;
+/** An XLSX cell longer than 1 000 characters (P25): its text never left the worker; reported as validation.maxLength. */
+export const TOO_LONG = Symbol('too long cell');
+export type Cell = string | typeof INVALID | typeof TOO_LONG;
 export interface SheetRow {
   number: number;
   cells: Cell[];
@@ -49,7 +51,8 @@ const tooManyRows = () => validationProblem({ file: ['validation.import.tooManyR
 
 export const isEmptyRow = (cells: Cell[]): boolean => cells.every((c) => c === '');
 
-export type XlsxQueue = WorkerQueue<Buffer, XlsxResult>;
+/** The worker answers with one transferred ArrayBuffer (the JSON of an XlsxResult, P25). */
+export type XlsxQueue = WorkerQueue<Buffer, ArrayBuffer>;
 
 export async function readSheet(
   bytes: Buffer,
@@ -142,7 +145,7 @@ export const XLSX_QUEUE_WAITING = 8;
 export const XLSX_SMALL_LANE_BYTES = 64 * 1024;
 export const XLSX_WORKER_HEAP_MB = 256;
 
-export function xlsxWorkerEngine(): Engine<Buffer, XlsxResult> {
+export function xlsxWorkerEngine(): Engine<Buffer, ArrayBuffer> {
   return workerEngine(
     { js: new URL('./xlsx-worker.js', import.meta.url), ts: new URL('./xlsx-worker.ts', import.meta.url) },
     XLSX_WORKER_HEAP_MB,
@@ -175,10 +178,11 @@ async function readXlsx(bytes: Buffer, opts: { signal?: AbortSignal; queue?: Xls
   checkDirectory(bytes);
   const o = await (opts.queue ?? laneOf(bytes.length)).run(bytes, opts.signal);
   if (!o.ok) throw o.reason === 'too-complex' ? tooLarge() : unsupported(); // aborted: nobody reads the answer
-  const r = o.value;
+  const r = decodeResult(o.value);
   if (!r.ok)
     throw r.kind === 'tooLarge' ? tooLarge() : r.kind === 'tooManyRows' ? tooManyRows() : unsupported();
-  const cells = (list: (string | null)[]): Cell[] => list.map((c) => (c === null ? INVALID : c));
+  const cells = (list: WireCell[]): Cell[] =>
+    list.map((c) => (c === null ? INVALID : c === 1 ? TOO_LONG : c));
   return {
     header: r.header ? cells(r.header) : null,
     rows: r.rows.map((row) => ({ number: row.number, cells: cells(row.cells) })),

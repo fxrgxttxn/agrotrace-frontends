@@ -17,6 +17,8 @@ export interface Tag {
   selfClosing: boolean;
   /** The local name (after the last `:`). */
   name: string;
+  /** The qualified name carries a prefix (`x:row`). */
+  prefixed: boolean;
   /** Requested attributes by local name (a prefixed `r:id` is `id`), entity-decoded; empty when not requested. */
   attrs: ReadonlyMap<string, string>;
 }
@@ -87,9 +89,10 @@ export function scanXml(
       p++;
     }
     if (p === nameStart || p >= n) throw new ScanError('malformed');
-    const name = local(text.slice(nameStart, p));
+    const qname = text.slice(nameStart, p);
+    const name = local(qname);
     let attrs: Map<string, string> | null = null;
-    const tag: Tag = { end: isEnd, selfClosing: false, name, attrs: NO_ATTRS };
+    const tag: Tag = { end: isEnd, selfClosing: false, name, prefixed: name !== qname, attrs: NO_ATTRS };
     if (isEnd) {
       while (p < n && isSpace(text.charCodeAt(p))) p++;
       if (text.charCodeAt(p) !== 0x3e) throw new ScanError('malformed');
@@ -183,9 +186,16 @@ function columnOf(ref: string, limit: number): number | null {
   return k === 0 ? null : col;
 }
 
+/** SpreadsheetML elements exceljs reads by their unprefixed names (a prefixed one would be silently skipped by it). */
+const SHEET_ELEMENTS = new Set(['worksheet', 'sheetData', 'row', 'c', 'v', 'f', 'is', 't', 'r']);
+const SST_ELEMENTS = new Set(['sst', 'si', 't', 'r', 'rPh']);
+
 /**
- * The first sheet: ≤ `maxRows` `<row>` elements (empty ones included), ≤ `maxCellsPerRow` `<c>` elements in a row
- * and no cell reference beyond that column — otherwise ScanError('tooLarge'), raised as soon as it is exceeded.
+ * The first sheet (P24, P25), in document order, the first violation wins:
+ * - SpreadsheetML elements unprefixed (default namespace) — a prefixed `sheetData`/`row`/`c`/… → malformed (415);
+ * - every `<row>` and `<c>` carries `r`, every `<c>` is inside a `<row>` — otherwise malformed (415);
+ * - ≤ `maxRows` `<row>` elements anywhere in the part (empty ones included), ≤ `maxCellsPerRow` `<c>` elements in a
+ *   row and no cell reference beyond that column (`BL`) — otherwise too large, raised as soon as it is exceeded.
  */
 export function prescanSheet(text: string, limits = SCAN_LIMITS): void {
   let rows = 0;
@@ -193,31 +203,33 @@ export function prescanSheet(text: string, limits = SCAN_LIMITS): void {
   let inRow = false;
   scanXml(
     text,
-    (name) => name === 'c',
+    (name) => name === 'c' || name === 'row',
     (t) => {
+      if (t.prefixed && SHEET_ELEMENTS.has(t.name)) throw new ScanError('malformed');
       if (t.name === 'row') {
         if (t.end) {
           inRow = false;
           return;
         }
+        if (!t.attrs.has('r')) throw new ScanError('malformed');
         if (++rows > limits.maxRows) throw new ScanError('tooLarge');
         cells = 0;
         inRow = !t.selfClosing;
         return;
       }
       if (t.name === 'c' && !t.end) {
-        if (inRow && ++cells > limits.maxCellsPerRow) throw new ScanError('tooLarge');
         const ref = t.attrs.get('r');
-        if (ref !== undefined) {
-          const col = columnOf(ref, limits.maxCellsPerRow);
-          if (col !== null && col > limits.maxCellsPerRow) throw new ScanError('tooLarge');
-        }
+        if (!inRow || ref === undefined) throw new ScanError('malformed');
+        if (++cells > limits.maxCellsPerRow) throw new ScanError('tooLarge');
+        const col = columnOf(ref, limits.maxCellsPerRow);
+        if (col === null) throw new ScanError('malformed');
+        if (col > limits.maxCellsPerRow) throw new ScanError('tooLarge');
       }
     },
   );
 }
 
-/** The shared strings: ≤ `maxStrings` `<si>` items and ≤ `maxRuns` rich-text runs (`<r>`) in all. */
+/** The shared strings: unprefixed; ≤ `maxStrings` `<si>` items and ≤ `maxRuns` rich-text runs (`<r>`) in all. */
 export function prescanSharedStrings(text: string, limits = SCAN_LIMITS): void {
   let strings = 0;
   let runs = 0;
@@ -225,6 +237,7 @@ export function prescanSharedStrings(text: string, limits = SCAN_LIMITS): void {
     text,
     () => false,
     (t) => {
+      if (t.prefixed && SST_ELEMENTS.has(t.name)) throw new ScanError('malformed');
       if (t.end) return;
       if (t.name === 'si' && ++strings > limits.maxStrings) throw new ScanError('tooLarge');
       if (t.name === 'r' && ++runs > limits.maxRuns) throw new ScanError('tooLarge');
