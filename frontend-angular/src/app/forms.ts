@@ -67,6 +67,8 @@ export function dropEmpty<T extends Record<string, unknown>>(values: T): Partial
  * be created in an injection context. */
 export function formAlert(): {
   show: (text: string, tone?: 'danger' | 'attention') => void;
+  /** The message of a failed request (its text, or `text`), unless it is one nobody should be told of (FM29). */
+  error: (e: unknown, text?: string) => void;
   clear: () => void;
 } {
   const toasts = inject(ToastService);
@@ -80,15 +82,31 @@ export function formAlert(): {
     alive = false;
     clear();
   });
-  return {
+  const show = (text: string, tone: 'danger' | 'attention' = 'danger') => {
     // FM25: a message of a screen that is gone is not shown (it would stay, unowned)
-    show: (text, tone = 'danger') => {
-      if (!alive) return;
-      clear();
-      id = toasts.push({ tone, text });
+    if (!alive) return;
+    clear();
+    id = toasts.push({ tone, text });
+  };
+  return {
+    show,
+    error: (e, text) => {
+      if (!quietFailure(e)) show(text ?? errorText(e), errorTone(e));
     },
     clear,
   };
+}
+
+/** FM29: failures nobody is told of — a cancelled request (AbortError / CancelledError), and a 401 of a signed-in
+ * request that the auth flow handles itself (the session-lost message and the login). A 401 answer of the login /
+ * 2FA screens (INVALID_CREDENTIALS, INVALID_TWO_FACTOR_CODE, …) is an answer and is shown. */
+export function quietFailure(e: unknown): boolean {
+  if (e instanceof Error && (e.name === 'AbortError' || e.name === 'CancelledError')) return true;
+  if (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'AbortError')
+    return true;
+  return (
+    e instanceof ApiProblem && e.status === 401 && (e.code === 'UNAUTHORIZED' || e.code === 'TOKEN_EXPIRED')
+  );
 }
 
 /** A rate limit is a wait, not a failure: attention tone; everything else is an error. */
@@ -251,6 +269,7 @@ export interface ApplyOptions {
 
 /** Puts a failed request on a form or an action: field errors, a form-level message, or the rate-limit countdown. */
 export function applyProblem(e: unknown, o: ApplyOptions): void {
+  if (quietFailure(e)) return;
   if (e instanceof ApiProblem && e.code === 'VALIDATION' && e.errors) {
     const rest: string[] = [];
     const fields = o.fields ?? [];

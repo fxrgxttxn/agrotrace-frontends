@@ -115,8 +115,8 @@ export class SessionService {
       ch.onmessage = (e: MessageEvent) =>
         this.zone.run(() => {
           if ((e.data as { type?: string } | null)?.type !== 'logout') return;
-          this.endLocally(true);
-          void this.router.navigateByUrl('/login', { replaceUrl: true });
+          // an anonymous tab (login form, invite, public) stays where it is (FM29)
+          if (this.endLocally(true)) void this.router.navigateByUrl('/login', { replaceUrl: true });
         });
     }
     inject(DestroyRef).onDestroy(() => {
@@ -185,11 +185,16 @@ export class SessionService {
   }
 
   // `loggedOut`: an explicit logout (here or in another tab) goes to a plain /login — no `next` back into the cabinet.
-  private endLocally(loggedOut = false): void {
-    this.gen++;
+  private endLocally(loggedOut = false): boolean {
+    // FM29: only a session that exists (signed in, being restored, or holding a token) ends — a logout broadcast
+    // reaching an anonymous tab changes nothing of its generation (its login form is never silenced)
+    const had = this.state().status !== 'anonymous' || this.store.get() !== null;
     this.store.set(null);
     this.set(loggedOut ? { status: 'anonymous', loggedOut: true } : { status: 'anonymous' });
+    if (!had) return false;
+    this.gen++;
     this.ended$.next();
+    return true;
   }
 
   /** The session generation now: take it when a request that will write the session starts (FM28). */

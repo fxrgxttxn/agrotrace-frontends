@@ -29,9 +29,9 @@ import {
   type TwoFactorSetupRequest,
 } from '@agrotrace/validation';
 import { injectLive } from '../app/alive';
-import { call, countdown, errorText, retryAfterOf } from '../app/api';
+import { call, countdown, retryAfterOf } from '../app/api';
 import { actionOrigin, restoreFocus, type ActionOrigin } from '../app/focus';
-import { errorTone, FocusAfterWaitDirective, formAlert, SchemaForm } from '../app/forms';
+import { FocusAfterWaitDirective, formAlert, SchemaForm } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { injectQuery } from '../app/query';
 import { SessionService } from '../app/session';
@@ -141,9 +141,10 @@ export class PersonalCardComponent {
     }
     // FM28: the profile of this session only (a late answer after a logout never revives it); UI steps while here
     this.session.setMe(next, generation);
+    // FM29: said even if the card is gone (same session); the form steps only while it stands
+    if (generation === this.session.generation) this.toasts.push({ tone: 'ok', text: t('profile.saved') });
     if (!this.live(generation)) return;
     this.f.reset({ fullName: next.fullName, phone: next.phone ?? null });
-    this.toasts.push({ tone: 'ok', text: t('profile.saved') });
   };
 }
 
@@ -301,15 +302,16 @@ export class AvatarCardComponent {
       } else if (e instanceof ApiProblem && e.code === 'VALIDATION' && e.errors?.['file']?.[0])
         error = t(e.errors['file'][0]);
       if (error) this.picked.update((x) => (x ? { ...x, error } : x));
-      else this.alert.show(errorText(e), errorTone(e));
+      else this.alert.error(e);
       this.refocus(opener, generation);
       return;
     }
     // Done (FM28): the success is said; the new avatar comes with a re-read of the profile that never fails the upload.
     this.busy.set(null);
+    if (generation === this.session.generation)
+      this.toasts.push({ tone: 'ok', text: t('profile.avatarSaved') });
     if (this.live(generation)) {
       this.picked.set(null);
-      this.toasts.push({ tone: 'ok', text: t('profile.avatarSaved') });
       this.refocus(opener, generation);
     }
     await this.session.reloadMe(generation);
@@ -325,7 +327,7 @@ export class AvatarCardComponent {
     } catch (e) {
       this.busy.set(null);
       if (this.live(generation)) {
-        this.alert.show(errorText(e), errorTone(e));
+        this.alert.error(e);
         this.refocus(opener, generation);
       }
       return;
@@ -334,8 +336,9 @@ export class AvatarCardComponent {
     // FM28: gone at once (the answer says so), then the profile is re-read — a failed re-read is no failure here
     const me = this.session.me();
     if (me) this.session.setMe({ ...me, avatarUrl: null }, generation);
-    if (this.live(generation)) {
+    if (generation === this.session.generation)
       this.toasts.push({ tone: 'ok', text: t('profile.avatarDeleted') });
+    if (this.live(generation)) {
       this.refocus(opener, generation);
     }
     await this.session.reloadMe(generation);
@@ -488,7 +491,7 @@ export class ChannelsCardComponent {
       if (!this.live(generation)) return;
       const key =
         e instanceof ApiProblem ? (e.errors?.['telegram']?.[0] ?? e.errors?.['email']?.[0]) : undefined;
-      this.alert.show(key ? t(key) : errorText(e), errorTone(e));
+      this.alert.error(e, key ? t(key) : undefined);
     } finally {
       this.saving.set(false);
     }
@@ -503,7 +506,7 @@ export class ChannelsCardComponent {
       const code = await call<TelegramCode>(this.session.api.POST('/me/telegram-code'));
       if (this.live(generation)) this.code.set(code);
     } catch (e) {
-      if (this.live(generation)) this.alert.show(errorText(e), errorTone(e));
+      if (this.live(generation)) this.alert.error(e);
     } finally {
       this.codeBusy.set(false);
       // «Привязать Telegram» gives way to the code (FM21)
@@ -634,7 +637,7 @@ export class TwoFactorCardComponent {
       if (e instanceof ApiProblem && e.status === 409) void this.alreadyOn(generation);
       else if (this.live(generation)) {
         if (e instanceof ApiProblem && e.status === 429) this.startWait.start(retryAfterOf(e));
-        this.f.alert.show(errorText(e), errorTone(e));
+        this.f.alert.error(e);
       }
       this.refocus(opener, generation);
       return;
@@ -668,10 +671,12 @@ export class TwoFactorCardComponent {
     // Done (FM28): «on» at once, the success said; the profile re-read after it never fails the change
     const me = this.session.me();
     if (me) this.session.setMe({ ...me, totpEnabled: true }, generation);
+    // FM29: a success of this same session is said in the app's toast region even if the card is gone
+    if (generation === this.session.generation)
+      this.toasts.push({ tone: 'ok', text: t('profile.twoFactorEnabled') });
     if (this.live(generation)) {
       this.pending.set(null);
       this.f.reset({ code: '' });
-      this.toasts.push({ tone: 'ok', text: t('profile.twoFactorEnabled') });
       this.refocus(opener, generation);
     }
     await this.session.reloadMe(generation);

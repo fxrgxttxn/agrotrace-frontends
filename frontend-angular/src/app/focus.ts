@@ -55,9 +55,15 @@ export function actionOrigin(): ActionOrigin {
  * (`afterNextRender`). */
 export function restoreFocus(origin: ActionOrigin, revealed?: HTMLElement | null): void {
   if (!origin.triggered) return;
-  const opener = origin.el;
+  rescue(origin.el, revealed);
+  // FM29: a control hidden by `hidden` / display:none keeps document.activeElement until the browser's focus fixup
+  // (at the next rendering) — look once more then
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => rescue(origin.el, revealed));
+}
+
+function rescue(opener: Element | null, revealed?: HTMLElement | null): void {
   if (revealed && !gone(revealed) && (focusLost() || document.activeElement === opener)) {
-    revealed.focus();
+    if (document.activeElement !== revealed) revealed.focus();
     return;
   }
   if (!focusLost()) return;

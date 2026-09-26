@@ -111,7 +111,7 @@ describe('FM28 session writes', () => {
 });
 
 describe('FM28 auth screens that are gone', () => {
-  it('a password reset answering after the person left: no toast, no navigation', async () => {
+  it('a password reset answering after the person left: the success is said, no navigation', async () => {
     server.use(
       contractResponse('refreshToken', { status: 401 }),
       http.post(`${API_BASE}/auth/password/reset`, async () => {
@@ -127,7 +127,8 @@ describe('FM28 auth screens that are gone', () => {
     await screen.findByRole('heading', { level: 1, name: 'Регистрация организации' });
     await new Promise((r) => setTimeout(r, 900));
     expect(router.url).toBe('/register');
-    expect(toasts('polite')).toBe('');
+    // FM29 (refines FM28): the success is still said in the app's toast region; no navigation from the gone screen
+    expect(toasts('polite')).toBe('Пароль изменён — войдите с новым паролем');
   });
 });
 

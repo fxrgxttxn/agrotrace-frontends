@@ -351,9 +351,9 @@ export class PasswordResetPage {
       else this.f.fail(e);
       return;
     }
-    if (!this.alive()) return; // FM28: the screen is gone — no toast, no navigation
+    // FM29: the success is said in the app's toast region even if the person left; the navigation only from here
     this.toasts.push({ tone: 'ok', text: t('auth.resetDone') });
-    await this.router.navigateByUrl('/login', { replaceUrl: true });
+    if (this.alive()) await this.router.navigateByUrl('/login', { replaceUrl: true });
   };
 }
 
@@ -447,9 +447,9 @@ export class InvitePage {
       else this.f.fail(e);
       return;
     }
-    if (!this.alive()) return; // FM28: the screen is gone — no toast, no navigation
+    // FM29: the success is said in the app's toast region even if the person left; the navigation only from here
     this.toasts.push({ tone: 'ok', text: t('auth.inviteDone') });
-    await this.router.navigateByUrl('/login', { replaceUrl: true });
+    if (this.alive()) await this.router.navigateByUrl('/login', { replaceUrl: true });
   };
 }
 
