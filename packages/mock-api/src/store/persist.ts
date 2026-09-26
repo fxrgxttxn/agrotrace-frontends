@@ -18,6 +18,7 @@ interface Snapshot {
   format: number;
   t: Tables;
   kv: [string, KvEntry][];
+  epoch?: string;
   seq: Sequences;
   cookies: [string, string][];
 }
@@ -59,6 +60,7 @@ export function serialize(store: Store, inBlobs: Set<string> = new Set()): strin
     kv: [...store.kv],
     seq: store.seq,
     cookies: [...store.cookies],
+    epoch: store.epoch,
   };
   return JSON.stringify(snapshot);
 }
@@ -88,6 +90,7 @@ export function deserialize(json: string, clock: () => number): Store | null {
   store.kv = new Map(s.kv);
   store.seq = s.seq;
   store.cookies = new Map(s.cookies);
+  if (s.epoch) store.epoch = s.epoch;
   store.reindex();
   return store;
 }

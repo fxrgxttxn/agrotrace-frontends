@@ -106,6 +106,14 @@ const defaultLoadAsset: AssetLoader = async (url) => {
   return new Uint8Array(await res.arrayBuffer());
 };
 
+let warnedNoLocks = false;
+/** Once per page: the state is shared by the tabs but the browser cannot serialize them (no Web Locks). */
+export function warnNoLocks(): void {
+  if (warnedNoLocks) return;
+  warnedNoLocks = true;
+  console.warn('[mock-api] navigator.locks is not available: tabs of this origin are not serialized and concurrent writes of two tabs can overwrite each other');
+}
+
 function storageOf(persist: MockApiOptions['persist']): Storage | null {
   if (persist === false) return null;
   if (typeof persist === 'object') return persist;
@@ -183,10 +191,14 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       const old = f.regen ? m.store.get('files', f.id) : undefined;
       if (old && old.sha256 === f.sha256 && old.content.type === 'bytes' && old.content.data.length > 0) f.content = old.content;
     }
+    const reset = next.epoch !== m.store.epoch;
     m.store = next;
     hub.attach(next);
     await renderGenerated(cfg, next);
-    hub.deliverFrom(seenSeq);
+    // Another tab reset the world: this tab's streams belong to the old one (their ids mean nothing now) — they are
+    // closed, the clients reconnect and get the new world's notifications.
+    if (reset) hub.closeAll();
+    else hub.deliverFrom(seenSeq);
   };
 
   const save = async (): Promise<void> => {
@@ -203,9 +215,11 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   };
 
   const lock: CrossTabLock | null = options.lock !== undefined ? options.lock : storage ? webLock() : null;
+  if (storage && options.lock === undefined && !lock) warnNoLocks();
   const router = createRouter(m, handlers, {
     beforeEach: async () => {
       await readThrough();
+      m.store.sweepExpired();
       runSchedulers(m.store);
     },
     afterEach: save,
@@ -229,7 +243,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
 
   // Another tab wrote: adopt it right away, so this tab's SSE streams deliver its notifications.
   const onStorage = (e: { key: string | null }): void => {
-    if (e.key === VERSION_KEY || e.key === null) void router.exclusive(readThrough);
+    if (e.key === VERSION_KEY || e.key === null) void serial(readThrough);
   };
   if (storage && g.addEventListener) g.addEventListener('storage', onStorage);
 

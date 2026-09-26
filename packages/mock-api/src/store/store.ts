@@ -5,7 +5,7 @@
  * written to `audit_log` at commit (one entry per changed row, `action` = operationId, AuditEntry rules); work that the
  * contract runs "after commit" (notifications, rating recalculation, VSD import) is queued and runs after the commit.
  */
-import { MOCK_NAMESPACE, uuidV5 } from '../lib/crypto.js';
+import { hex, MOCK_NAMESPACE, randomBytes, uuidV5 } from '../lib/crypto.js';
 import { iso } from '../lib/time.js';
 import type { KvEntry, Sequences, TableName, Tables } from './types.js';
 
@@ -101,6 +101,8 @@ export class Store {
   dirty = false;
   /** X-Request-Id of the request being handled (written into audit rows). */
   requestId: string | null = null;
+  /** Identity of this world: a reset makes a new one, so tabs can tell "another world" from "more changes". */
+  epoch: string = hex(randomBytes(8));
   private op: Operation | null = null;
   private byId = new Map<TableName, Map<string, Row>>();
 
@@ -224,6 +226,16 @@ export class Store {
     this.dirty = true;
     this.kv.delete(key);
     this.op?.undo.push(() => this.kv.set(key, prev));
+  }
+
+  /** Deletes every expired key (rate-limit windows, TOTP steps, pending idempotency marks…); dirty only if any. */
+  sweepExpired(): void {
+    const now = this.now();
+    for (const [key, e] of this.kv)
+      if (e.expiresAt !== null && e.expiresAt <= now) {
+        this.kv.delete(key);
+        this.dirty = true;
+      }
   }
 
   /** GETDEL. */
