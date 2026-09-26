@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { t } from '../app/i18n';
 import { Button, Table, type Column } from '../ui';
 import { useThemeVersion } from '../ui/fullscreen';
+import { afterChunkFailure, here } from '../reload';
 import { chartSummary, type Bar } from './bars';
 import type { ChartView } from './echarts';
 
@@ -10,15 +11,16 @@ import type { ChartView } from './echarts';
 // ECharts is its own lazy chunk (the dashboard page does not carry it); the chart is drawn again when the theme
 // changes (token values are read with getComputedStyle).
 
-/** One request for the chart chunk however many charts mount together (a failure lets the next mount try again). */
+/** One request for the chart chunk per document, however many charts mount. A failed dynamic import stays failed in
+ * this document (browsers keep the failed module), so it is not asked again: «Повторить» loads the page anew through
+ * the reload-once guard (ruling FM15). */
 let loading: Promise<typeof import('./echarts')> | null = null;
 function loadCharts() {
-  loading ??= import('./echarts').catch((e: unknown) => {
-    loading = null;
-    throw e;
-  });
+  loading ??= import('./echarts');
   return loading;
 }
+
+type Failure = 'chunk' | 'draw';
 
 export interface BarChartProps<T> {
   /** The card title: the canvas summary starts with it, the table caption is it. */
@@ -69,13 +71,66 @@ function ChartCanvas({
   integer?: boolean;
   axisFormat?: (value: number) => string;
 }) {
-  const el = useRef<HTMLDivElement>(null);
-  const [failed, setFailed] = useState(false);
-  // «Повторить» after a failure: a new attempt (the chunk request is made again, `loadCharts`).
+  const [failure, setFailure] = useState<Failure | null>(null);
+  // «Повторить» after a draw error: a new mount (the loaded library tries again).
   const [attempt, setAttempt] = useState(0);
+  if (failure)
+    return (
+      <div className="at-chart__canvas">
+        <div className="at-chart__failed">
+          <p role="alert" style={{ margin: 0 }}>
+            {t('dashboard.chartFailed')}
+          </p>
+          <Button
+            variant="secondary"
+            size="s"
+            onClick={() => {
+              // The chunk could not be loaded: only a new document can ask for it again (FM15 guard: once per chain).
+              if (failure === 'chunk') {
+                afterChunkFailure(here());
+                return;
+              }
+              setFailure(null);
+              setAttempt((n) => n + 1);
+            }}
+          >
+            {t('action.retry')}
+          </Button>
+        </div>
+      </div>
+    );
+  return (
+    <ChartMount
+      key={attempt}
+      title={title}
+      bars={bars}
+      integer={integer}
+      axisFormat={axisFormat}
+      onFail={setFailure}
+    />
+  );
+}
+
+/** The canvas while drawing works; unmounted on a failure (no further requests). */
+function ChartMount({
+  title,
+  bars,
+  integer,
+  axisFormat,
+  onFail,
+}: {
+  title: string;
+  bars: Bar[];
+  integer?: boolean;
+  axisFormat?: (value: number) => string;
+  onFail: (f: Failure) => void;
+}) {
+  const el = useRef<HTMLDivElement>(null);
   const theme = useThemeVersion();
   const format = useRef(axisFormat);
   format.current = axisFormat;
+  const fail = useRef(onFail);
+  fail.current = onFail;
   // Redrawn only when what is drawn changes (a re-render with equal data keeps the chart).
   const data = JSON.stringify(bars);
 
@@ -91,36 +146,16 @@ function ChartCanvas({
             axisFormat: format.current && ((v: number) => format.current!(v)),
           });
         } catch {
-          setFailed(true);
+          fail.current('draw');
         }
       },
-      () => !cancelled && setFailed(true),
+      () => !cancelled && fail.current('chunk'),
     );
     return () => {
       cancelled = true;
       view?.destroy();
     };
-  }, [data, integer, theme, attempt, failed]);
+  }, [data, integer, theme]);
 
-  if (failed)
-    return (
-      <div className="at-chart__canvas">
-        <div className="at-chart__failed">
-          <p role="alert" style={{ margin: 0 }}>
-            {t('dashboard.chartFailed')}
-          </p>
-          <Button
-            variant="secondary"
-            size="s"
-            onClick={() => {
-              setFailed(false);
-              setAttempt((n) => n + 1);
-            }}
-          >
-            {t('action.retry')}
-          </Button>
-        </div>
-      </div>
-    );
   return <div className="at-chart__canvas" role="img" aria-label={chartSummary(title, bars)} ref={el}></div>;
 }

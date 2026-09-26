@@ -9,6 +9,7 @@ import { ProcessingRequestSchema } from '@agrotrace/validation';
 import { applyProblem, call, errorText, errorTone, useCountdown, useFormAlert } from '../app/api';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit } from '../app/forms';
+import { useCacheWriter } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
 import { useMe, useSession } from '../app/session';
@@ -84,6 +85,7 @@ function useBatchTransition() {
   const { api } = useSession();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const cache = useCacheWriter();
   const [busy, setBusy] = useState<string | null>(null);
   const reread = () => {
     void queryClient.invalidateQueries({ queryKey: ['batches'] });
@@ -105,7 +107,7 @@ function useBatchTransition() {
           ? api.POST('/batches/{id}/on-sale', { params })
           : api.POST('/batches/{id}/sold', { params }),
       );
-      queryClient.setQueryData(['batch', next.id], next);
+      cache.set(['batch', next.id], next);
       reread();
       toast.push({
         tone: 'ok',
@@ -447,6 +449,7 @@ function ProcessingWizard({ batches, products }: { batches: BatchItem[]; product
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const cache = useCacheWriter();
   const alert = useFormAlert();
   const [wait, startWait] = useCountdown();
   const wide = useWide();
@@ -561,7 +564,7 @@ function ProcessingWizard({ batches, products }: { batches: BatchItem[]; product
       setBusy(true);
       try {
         const result = await call<Schemas['ProcessingResult']>(api.POST('/processing', { body }));
-        for (const b of result.outputs) queryClient.setQueryData(['batch', b.id], b);
+        for (const b of result.outputs) cache.set(['batch', b.id], b);
         void queryClient.invalidateQueries({ queryKey: ['batches'] });
         void queryClient.invalidateQueries({ queryKey: ['batch'] });
         toast.push({

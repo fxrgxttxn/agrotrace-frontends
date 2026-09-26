@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   ApiProblem,
   withVariant,
@@ -14,8 +14,17 @@ import {
   TwoFactorSetupRequestSchema,
   type TwoFactorSetupRequest,
 } from '@agrotrace/validation';
-import { call, errorText, errorTone, retryAfterOf, useCountdown, useFormAlert } from '../app/api';
+import {
+  call,
+  errorText,
+  errorTone,
+  retryAfterOf,
+  useCountdown,
+  useFocusAfterWait,
+  useFormAlert,
+} from '../app/api';
 import { errorOf, FORM_GRID, Submit, useSchemaForm } from '../app/forms';
+import { useCacheWriter } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { useMe, useSession } from '../app/session';
 import { ThemeSwitch } from '../shell/ThemeSwitch';
@@ -286,7 +295,7 @@ const CHANNELS_KEY = ['me', 'channels'] as const;
 
 function ChannelsCard() {
   const { api } = useSession();
-  const queryClient = useQueryClient();
+  const cache = useCacheWriter();
   const toast = useToast();
   const alert = useFormAlert();
   const [code, setCode] = useState<TelegramCode | null>(null);
@@ -319,7 +328,7 @@ function ChannelsCard() {
     setSaving(true);
     try {
       const data = await call<NotificationChannels>(api.PUT('/me/channels', { body: next }));
-      queryClient.setQueryData(CHANNELS_KEY, data);
+      cache.set(CHANNELS_KEY, data);
     } catch (e) {
       const key = e instanceof ApiProblem ? (e.errors?.telegram?.[0] ?? e.errors?.email?.[0]) : undefined;
       alert.show(key ? t(key) : errorText(e), errorTone(e));
@@ -423,8 +432,19 @@ function TwoFactorCard({ me }: { me: Me }) {
     ['code'],
   );
 
-  // A 429 on the start step waits on its own button.
+  // A 429 on the start step waits on its own button (FM17: the focus comes back to it when it can act).
   const [startWait, startStartWait] = useCountdown();
+  const setupRef = useFocusAfterWait(startWait);
+  // FM24: «Настроить» reveals the code form — the focus goes to its field; «Отмена» removes it — back to «Настроить».
+  const [backToSetup, setBackToSetup] = useState(false);
+  useEffect(() => {
+    if (pending) form.setFocus('code');
+  }, [pending, form]);
+  useEffect(() => {
+    if (!backToSetup) return;
+    setBackToSetup(false);
+    setupRef.current?.focus();
+  }, [backToSetup, setupRef]);
 
   const alreadyOn = async () => {
     setPending(null);
@@ -479,7 +499,7 @@ function TwoFactorCard({ me }: { me: Me }) {
       </CardHeader>
       {!me.totpEnabled && !pending && (
         <CardFooter>
-          <Button busy={starting} disabled={startWait > 0} onClick={() => void start()}>
+          <Button ref={setupRef} busy={starting} disabled={startWait > 0} onClick={() => void start()}>
             {startWait > 0 ? t('auth.retryIn', { seconds: startWait }) : t('profile.setup')}
           </Button>
         </CardFooter>
@@ -513,7 +533,13 @@ function TwoFactorCard({ me }: { me: Me }) {
             <Submit busy={form.formState.isSubmitting} wait={wait}>
               {t('profile.enable')}
             </Submit>
-            <Button variant="ghost" onClick={() => setPending(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setPending(null);
+                setBackToSetup(true);
+              }}
+            >
               {t('action.cancel')}
             </Button>
           </CardFooter>

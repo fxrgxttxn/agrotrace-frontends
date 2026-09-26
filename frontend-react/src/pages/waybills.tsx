@@ -18,6 +18,7 @@ import {
 } from '../app/api';
 import { DateFilter } from '../app/DateFilter';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit } from '../app/forms';
+import { useCacheWriter } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { useIdempotency } from '../app/idempotency';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
@@ -418,6 +419,7 @@ function WaybillNewForm({ batches }: { batches: BatchItem[] }) {
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const cache = useCacheWriter();
   const alert = useFormAlert();
   const idempotent = useIdempotency();
   const wanted = params.get('batchId') ?? '';
@@ -480,7 +482,7 @@ function WaybillNewForm({ batches }: { batches: BatchItem[] }) {
       const waybill = await idempotent(body, (key) =>
         call<Waybill>(api.POST('/waybills', { params: { header: { 'Idempotency-Key': key } }, body })),
       );
-      queryClient.setQueryData(['waybill', waybill.id], waybill);
+      cache.set(['waybill', waybill.id], waybill);
       void queryClient.invalidateQueries({ queryKey: ['waybills'] });
       toast.push({ tone: 'ok', text: t('waybills.created', { number: waybill.number }) });
       navigate(`/waybills/${waybill.id}`);
@@ -658,6 +660,7 @@ export function WaybillPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const cache = useCacheWriter();
   const problems = useWaybillProblems(id);
   const idempotentSend = useIdempotency();
   const [sending, setSending] = useState(false);
@@ -697,7 +700,7 @@ export function WaybillPage() {
   }, [readAt, refocus]);
 
   const changed = (next: Waybill) => {
-    queryClient.setQueryData(['waybill', next.id], next);
+    cache.set(['waybill', next.id], next);
     void queryClient.invalidateQueries({ queryKey: ['waybills'] });
     void queryClient.invalidateQueries({ queryKey: ['batches'] });
     void queryClient.invalidateQueries({ queryKey: ['batch'] });

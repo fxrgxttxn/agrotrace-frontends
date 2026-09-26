@@ -481,7 +481,7 @@ describe('/waybills/:id — conflicts (FM13)', () => {
     await waitFor(() => expect(reads).toBe(2));
   });
 
-  it('an identical re-read spends the refocus flag: a later send does not pull the focus to the title', async () => {
+  it('an identical re-read, then a send that removes «Отгрузить»: the focus is on the title (FM21), never the body', async () => {
     let reads = 0;
     server.use(
       // The re-read answers the same card: structural sharing keeps the same object.
@@ -500,7 +500,10 @@ describe('/waybills/:id — conflicts (FM13)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Отгрузить' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Отгрузить' })).toBeNull());
     await new Promise((r) => setTimeout(r, 50));
-    expect(screen.getByRole('heading', { level: 1, name: 'WB-2026-000017' })).not.toHaveFocus();
+    // FM21: the removed «Отгрузить» hands the focus to the page title (never the body).
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'WB-2026-000017' })).toHaveFocus(),
+    );
   });
 
   it('reject VERSION_CONFLICT keeps the reason and the number; the confirmation then uses the new version', async () => {

@@ -132,6 +132,15 @@ describe('/lab/tests', () => {
     await waitFor(() => expect(seen.at(-1)!.has('status')).toBe(false));
   });
 
+  it('«Все» with nothing found is an empty queue (no button); `status=all` with other statuses becomes `status=all`', async () => {
+    server.use(asLab(), contractResponse('listLabTests', { body: pageOf([]) }));
+    const { router } = await open('/lab/tests?status=all&status=QUEUED', 'Очередь проб');
+    await waitFor(() => expect(router.state.location.search).toBe('?status=all'));
+    const empty = (await screen.findByText('Проб в очереди нет.')).closest('.at-empty')!;
+    expect(within(empty as HTMLElement).queryByRole('button')).toBeNull();
+    expect(within(empty as HTMLElement).queryByRole('link')).toBeNull();
+  });
+
   it('filters go to the server and stay in the URL; unknown values are dropped', async () => {
     const seen: URLSearchParams[] = [];
     server.use(
@@ -476,7 +485,45 @@ describe('/lab/tests/:id — results', () => {
     expect(screen.getByLabelText('Значение: Нитраты')).toHaveValue('612');
   });
 
-  it('only plain decimals are compared (the domain rule, never Number()): «1e3» is not a value', async () => {
+  it('a re-read under the open FAIL dialog that adds a norm closes it; nothing incomplete is sent; the new field is focused', async () => {
+    let sent = 0;
+    const CADMIUM = '5e7a9c1e-3b5d-4f7a-9c1e-3b5d7f9a1c3e';
+    const base = pending();
+    server.use(
+      asLab(),
+      contractResponse('getLabTest', { body: base, once: true }),
+      contractResponse('getLabTest', {
+        body: pending({
+          version: 3,
+          norms: [
+            ...base.norms,
+            { indicatorId: CADMIUM, name: 'Кадмий', unit: 'мг/кг', maxValue: '0.100000' },
+          ],
+        }),
+      }),
+      contractResponse('submitLabResults', {
+        status: 400,
+        example: 'mismatch',
+        onRequest: () => void sent++,
+      }),
+    );
+    await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
+    await userEvent.type(await screen.findByLabelText('Значение: Нитраты'), '612');
+    await userEvent.type(screen.getByLabelText('Значение: Свинец'), '0,15');
+    await userEvent.click(screen.getByRole('button', { name: 'Внести результаты' }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Превышение нормативов: партия AT-2026-000123',
+    });
+    await userEvent.type(within(dialog).getByLabelText('Код партии для подтверждения'), 'AT-2026-000123');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Внести и запустить отзыв' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(sent).toBe(1);
+    const cadmium = await screen.findByLabelText('Значение: Кадмий');
+    await waitFor(() => expect(cadmium).toHaveFocus());
+    expect(screen.getByLabelText('Значение: Нитраты')).toHaveValue('612');
+  });
+
+  it('the live comparison takes only the contract Decimal (no exponent) and is exact at the limit (BR-02: strictly greater)', async () => {
     server.use(asLab(), contractResponse('getLabTest', { body: pending() }));
     await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
     const nitrates = await screen.findByLabelText('Значение: Нитраты');

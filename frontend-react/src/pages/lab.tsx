@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm, type FieldErrors, type Resolver } from 'react-hook-form';
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
@@ -18,6 +18,7 @@ import {
 } from '../app/api';
 import { DateFilter } from '../app/DateFilter';
 import { Submit } from '../app/forms';
+import { useCacheWriter } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { CONCLUSION_TONE, LAB_STATUS_TONE } from '../app/labTests';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
@@ -185,6 +186,23 @@ export function LabTestsPage() {
     (status.length ? 1 : 0) +
     (reason.length ? 1 : 0) +
     [conclusion, overdue, from, to].filter(Boolean).length;
+  // Only «Все» chosen (nothing else narrows the list): an empty answer is simply an empty queue.
+  const allOnly = status[0] === ALL && !q && count === 1;
+  // `all` with other statuses (a hand-made link) is just `all`: the URL says what is shown.
+  const [, setSearch] = useSearchParams();
+  const mixed = statusParam.includes(ALL) && statusParam.length > 1;
+  useEffect(() => {
+    if (!mixed) return;
+    setSearch(
+      (cur) => {
+        const next = new URLSearchParams(cur);
+        next.delete('status');
+        next.append('status', ALL);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [mixed, setSearch]);
 
   const query = useQuery({
     queryKey: [
@@ -291,7 +309,9 @@ export function LabTestsPage() {
     if (items.length === 0)
       return (
         <Card>
-          {q || count ? (
+          {allOnly ? (
+            <Empty art="empty-lab" text={t('lab.empty')} />
+          ) : q || count ? (
             <Empty
               art="empty-search"
               text={t('empty.search')}
@@ -461,6 +481,7 @@ export function LabTestPage() {
   const { api } = useSession();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const cache = useCacheWriter();
   const problems = useLabProblems(id);
   const [sampling, setSampling] = useState(false);
   const [sampleWait, startSampleWait] = useCountdown();
@@ -490,7 +511,7 @@ export function LabTestPage() {
   }, [readAt, refocus]);
 
   const changed = (next: LabTest) => {
-    queryClient.setQueryData(['labTest', next.id], next);
+    cache.set(['labTest', next.id], next);
     void queryClient.invalidateQueries({ queryKey: ['labTests'] });
     void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     void queryClient.invalidateQueries({ queryKey: ['batch'] });
@@ -545,9 +566,9 @@ export function LabTestPage() {
           </CardBody>
         </Card>
       );
-    // Not keyed: a re-read after a conflict or a changed set of norms keeps what was typed for the norms that stayed
-    // (FM13, FM20).
-    return <ResultsForm test={test} problems={problems} onDone={changed} />;
+    // Keyed by the test only: a re-read after a conflict or a changed set of norms keeps what was typed for the norms
+    // that stayed (FM13, FM20); another test (same route, new id) starts empty.
+    return <ResultsForm key={test.id} test={test} problems={problems} onDone={changed} />;
   };
 
   return (
@@ -742,11 +763,28 @@ function ResultsForm({
   // RHF's watch() hands back the same (mutated) object: the live check reads a copy each render.
   const snapshot = { ...form.watch('values') };
   const preview = previewConclusion(norms, snapshot);
-  // A re-read under the open FAIL confirmation (new norms) that no longer concludes FAIL closes it.
-  const stillFail = confirming ? previewConclusion(norms, confirming.values) === 'FAIL' : true;
+  // The FAIL confirmation holds the values it was opened with: it stays only while they still cover every current norm
+  // with a number and still conclude FAIL. A re-read that changed the norms (a conflict, FM20 mismatch) closes it —
+  // confirming then would send an empty value for a new norm.
+  const covered =
+    confirming !== null &&
+    norms.every((n) => validDecimal(confirming.values[n.indicatorId] ?? '') !== null) &&
+    previewConclusion(norms, confirming.values) === 'FAIL';
   useEffect(() => {
-    if (!stillFail) setConfirming(null);
-  }, [stillFail]);
+    if (confirming && !covered) setConfirming(null);
+  }, [confirming, covered]);
+  // A changed set of norms: the first norm still without a value gets the focus (after a closing dialog returned
+  // its own; ruling FM24 — the newly revealed field).
+  const normSet = norms.map((n) => n.indicatorId).join();
+  const seenSet = useRef(normSet);
+  useEffect(() => {
+    if (seenSet.current === normSet) return;
+    seenSet.current = normSet;
+    const empty = current.current.find((n) => !(form.getValues(`values.${n.indicatorId}`) ?? '').trim());
+    if (!empty) return;
+    const timer = setTimeout(() => form.setFocus(`values.${empty.indicatorId}`), 0);
+    return () => clearTimeout(timer);
+  }, [normSet, form]);
 
   /** Sends the values; a failure to show in the confirmation dialog is returned (it stays open). */
   const send = async (v: ResultValues): Promise<string | null> => {
@@ -864,7 +902,7 @@ function ResultsForm({
         busy={busy}
         wait={wait}
         onClose={() => setConfirming(null)}
-        onConfirm={() => (confirming ? send(confirming) : Promise.resolve(null))}
+        onConfirm={() => (confirming && covered ? send(confirming) : Promise.resolve(null))}
       />
     </Card>
   );

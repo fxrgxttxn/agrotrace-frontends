@@ -4,7 +4,8 @@ import { call } from './api';
 import { useSession } from './session';
 
 // Reference dictionaries for selects (products, substances, regions): read by every signed-in role, small, changed
-// only by an admin — loaded whole (100 per page, every page), sorted by name, cached for the session.
+// only by an admin — loaded whole (100 per page, every page), sorted by name, kept until the page is reloaded (ruling
+// FM21: never stale, never collected); a new session starts on an empty cache (sign-in clears it).
 
 type Entries = {
   products: Schemas['Product'];
@@ -18,7 +19,8 @@ export function useDictionary<N extends keyof Entries>(name: N) {
   const { api } = useSession();
   return useQuery({
     queryKey: ['dictionary', name],
-    staleTime: 10 * 60 * 1000,
+    staleTime: Infinity,
+    gcTime: Infinity,
     queryFn: async () => {
       const items: Entries[N][] = [];
       for (let page = 1; ; page++) {

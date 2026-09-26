@@ -2,7 +2,7 @@ import { forwardRef, type ReactNode } from 'react';
 import { useForm, type FieldValues, type Path, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z, type ZodTypeAny } from 'zod';
-import { applyProblem, fieldText, useCountdown, useFormAlert } from './api';
+import { applyProblem, fieldText, useCountdown, useFocusAfterWait, useFormAlert } from './api';
 import { t } from './i18n';
 import { Button } from '../ui/Button';
 
@@ -11,7 +11,8 @@ import { Button } from '../ui/Button';
 
 export const FORM_GRID = { display: 'grid', gap: 'var(--sp-4)' } as const;
 
-/** Submit button: busy while sending, disabled with a countdown after a 429. */
+/** Submit button: busy while sending, disabled with a countdown after a 429; when the wait ends it takes the focus
+ * back if nothing else holds it (FM17, `useFocusAfterWait`). */
 export const Submit = forwardRef<
   HTMLButtonElement,
   {
@@ -23,8 +24,14 @@ export const Submit = forwardRef<
     form?: string;
   }
 >(function Submit({ busy, wait, children, variant = 'primary', form }, ref) {
+  const own = useFocusAfterWait(wait);
+  const both = (el: HTMLButtonElement | null) => {
+    own.current = el;
+    if (typeof ref === 'function') ref(el);
+    else if (ref) ref.current = el;
+  };
   return (
-    <Button ref={ref} type="submit" form={form} variant={variant} busy={busy} disabled={wait > 0}>
+    <Button ref={both} type="submit" form={form} variant={variant} busy={busy} disabled={wait > 0}>
       {wait > 0 ? t('auth.retryIn', { seconds: wait }) : children}
     </Button>
   );

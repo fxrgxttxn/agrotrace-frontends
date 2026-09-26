@@ -96,3 +96,42 @@ test('a bootstrap chunk that fails: one reload, then the plain message with «П
   await expect(page.getByRole('button', { name: 'Повторить' })).toBeVisible();
   expect(loads).toBe(2);
 });
+
+test('the chart library chunk fails: every chart says so; «Повторить» loads the page anew (FM15), then they draw', async ({
+  page,
+}) => {
+  await stand(page, {
+    getMe: (_u: URL, example: unknown) => ({
+      ...(example as Record<string, unknown>),
+      roles: ['INSPECTOR'],
+      organization: {
+        id: 'f1a2b3c4-5000-4000-8000-000000000900',
+        name: 'Инспекция',
+        type: 'AUTHORITY',
+        logoUrl: null,
+      },
+    }),
+  });
+  let loads = 0;
+  let asked = 0;
+  let block = true;
+  page.on('load', () => void loads++);
+  await page.route(/\/assets\/echarts-[^/]+\.js$/, (route) => {
+    asked++;
+    return block ? route.abort() : route.continue();
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await expect(page.locator('.at-chart__failed')).toHaveCount(3);
+  await expect(page.locator('.at-chart__failed').first().getByRole('alert')).toHaveText(
+    'График не загрузился.',
+  );
+  // One request for all the charts, none after the failure (the browser keeps the failed module).
+  await page.waitForTimeout(500);
+  expect(asked).toBe(1);
+  block = false;
+  await page.locator('.at-chart__failed').first().getByRole('button', { name: 'Повторить' }).click();
+  await expect(page.locator('.at-chart__canvas svg')).toHaveCount(3);
+  expect(loads).toBe(2);
+  await expect(page.locator('.at-chart__failed')).toHaveCount(0);
+});

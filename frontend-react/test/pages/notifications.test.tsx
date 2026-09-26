@@ -266,3 +266,43 @@ describe('/notifications', () => {
     expect(await screen.findByRole('link', { name: 'Изъять партию AT-2026-000002' })).toBeInTheDocument();
   });
 });
+
+describe('app-wide live refresh and focus (FM21, FM24)', () => {
+  it('a `notification` event while elsewhere refreshes the cached list: back on /notifications it is new', async () => {
+    let reads = 0;
+    server.use(
+      contractResponse('listNotifications', { body: pageOf([note(1)]), onRequest: () => void reads++ }),
+    );
+    const { router } = await open();
+    await screen.findByRole('link', { name: 'Изъять партию AT-2026-000001' });
+    await act(() => router.navigate('/profile'));
+    await screen.findByRole('heading', { level: 1, name: 'Профиль' });
+    server.use(
+      contractResponse('listNotifications', {
+        body: pageOf([note(2), note(1)]),
+        onRequest: () => void reads++,
+      }),
+    );
+    act(() => FakeEventSource.last!.emit('notification', note(2), '2'));
+    const before = reads;
+    await act(() => router.navigate('/notifications'));
+    // Within the 30 s the list would be fresh; the event made it stale, so it is asked again at once.
+    expect(await screen.findByRole('link', { name: 'Изъять партию AT-2026-000002' })).toBeInTheDocument();
+    expect(reads).toBe(before + 1);
+  });
+
+  it('«Отметить прочитанным» goes away with the selection: the focus goes to the page title, not the body', async () => {
+    server.use(
+      contractResponse('listNotifications', { body: pageOf([note(12), note(11)]) }),
+      contractResponse('markNotificationsRead', { body: { count: 1 } }),
+    );
+    await open();
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: 'Выбрать «Изъять партию AT-2026-000011»' }),
+    );
+    screen.getByRole('button', { name: 'Отметить прочитанным' }).focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Отметить прочитанным' })).toBeNull());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Уведомления' })).toHaveFocus());
+  });
+});

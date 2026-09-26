@@ -21,6 +21,7 @@ import {
 } from '@agrotrace/api-client';
 import { call, retryAfterOf } from './api';
 import { t } from './i18n';
+import { resetSessionCache } from './cache';
 import { useToast } from '../ui/Toasts';
 
 // Session (spec §9.2 «Context + useReducer», rulings R32/R61/R62): the access token lives in memory only
@@ -174,7 +175,7 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
   const endLocally = useCallback(
     (loggedOut = false) => {
       store.set(null);
-      queryClient.clear();
+      resetSessionCache(queryClient);
       dispatch({ type: 'anonymous', loggedOut });
     },
     [store, queryClient],
@@ -214,10 +215,12 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
 
   const signIn = useCallback(
     (result: LoginSuccess) => {
+      // A new session starts on an empty cache (FM24: nothing of a previous person, their late writes dropped).
+      resetSessionCache(queryClient);
       store.set(result.accessToken);
       dispatch({ type: 'authenticated', me: result.user as Me });
     },
-    [store],
+    [store, queryClient],
   );
 
   const signOut = useCallback(

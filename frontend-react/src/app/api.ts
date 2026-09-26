@@ -167,7 +167,7 @@ export function focusIfIdle(button: HTMLElement | null): void {
  * (as the «Повторить» of the unavailable screen, F8), by the FM17 rule (`focusIfIdle`). Put the returned ref on the
  * button. */
 export function useFocusAfterWait(wait: number) {
-  const ref = useRef<HTMLButtonElement>(null);
+  const ref = useRef<HTMLButtonElement | null>(null);
   const waited = useRef(false);
   useEffect(() => {
     if (wait > 0) waited.current = true;

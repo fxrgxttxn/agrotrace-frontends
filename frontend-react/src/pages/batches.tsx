@@ -25,6 +25,7 @@ import {
 } from '../app/api';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
+import { useCacheWriter } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
 import { momentCheck, momentDefaults, MomentInput, momentWire } from '../app/MomentInput';
@@ -483,6 +484,7 @@ function BatchNewForm({ fields, products }: { fields: Schemas['Field'][]; produc
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const cache = useCacheWriter();
   const wanted = params.get('fieldId') ?? '';
   const at = momentDefaults(null);
   const { form, alert, wait, fail } = useSchemaForm<BatchValues>(
@@ -505,7 +507,7 @@ function BatchNewForm({ fields, products }: { fields: Schemas['Field'][]; produc
     setBusy(true);
     try {
       const batch = await call<Batch>(api.POST('/batches', { body }));
-      queryClient.setQueryData(['batch', batch.id], batch);
+      cache.set(['batch', batch.id], batch);
       void queryClient.invalidateQueries({ queryKey: ['batches'] });
       void queryClient.invalidateQueries({ queryKey: ['fields'] });
       // The risk model's decision (BR-03) is the first thing the farmer needs to know.
@@ -1149,6 +1151,7 @@ function DocsTab({ batch }: { batch: Batch }) {
   const me = useMe();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const cache = useCacheWriter();
   const key = ['batch', batch.id, 'documents'];
   const query = useQuery({
     queryKey: key,
@@ -1179,7 +1182,7 @@ function DocsTab({ batch }: { batch: Batch }) {
         }),
       );
       idempotency.current = null;
-      queryClient.setQueryData<Schemas['BatchDocuments']>(key, (d) => (d ? { ...d, vsd } : d));
+      cache.set<Schemas['BatchDocuments']>(key, (d) => (d ? { ...d, vsd } : d));
       toast.push({ tone: 'ok', text: t('documents.retried') });
     } catch (e) {
       if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));

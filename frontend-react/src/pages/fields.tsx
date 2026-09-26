@@ -8,6 +8,7 @@ import { call, errorText, errorTone, useFormAlert } from '../app/api';
 import { addDays } from '../app/dates';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
+import { useCacheWriter } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
 import { momentCheck, momentDefaults, MomentInput, momentWire } from '../app/MomentInput';
@@ -511,6 +512,7 @@ export function FieldPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const cache = useCacheWriter();
   const [dialog, setDialog] = useState<'edit' | 'delete' | null>(null);
   // Each opening of the edit dialog starts from the field as it is now.
   const [editKey, setEditKey] = useState(0);
@@ -625,7 +627,7 @@ export function FieldPage() {
           submitLabel={t('action.save')}
           onSaved={(f) => {
             setDialog(null);
-            queryClient.setQueryData(['field', id], f);
+            cache.set(['field', id], f);
             void queryClient.invalidateQueries({ queryKey: ['fields'] });
             toast.push({ tone: 'ok', text: t('fields.saved', { name: f.name }) });
           }}
