@@ -1,12 +1,13 @@
 /** Contract table freshness, the validator itself, rate limits, schedulers, persistence, generated files. */
 import { writeFileSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
+import { zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { operationTable } from '../scripts/contract-table.js';
 import { OPERATIONS } from '../src/contract/operations.generated.js';
 import { createMockApi, DEMO_PASSWORD, type CrossTabLock, type MockApi } from '../src/index.js';
-import { readXlsx, writeXlsx } from '../src/lib/xlsx.js';
+import { inflateEntries, readXlsx, WorkbookTooLarge, writeXlsx, XLSX_MAX_ENTRY_BYTES } from '../src/lib/xlsx.js';
 import { Store } from '../src/store/store.js';
 import { contractErrors } from './helpers/client.js';
 import { nodeAssetLoader } from './helpers/assets.js';
@@ -262,6 +263,36 @@ describe('one backend per origin (FM3)', () => {
     api.dispose();
   });
 });
+describe('XLSX inflation (P23, round 2)', () => {
+  /** A ZIP whose headers (local and central) claim `claimed` bytes for every entry, whatever they inflate to. */
+  const lying = (files: Record<string, Uint8Array>, claimed: number): Uint8Array => {
+    const zip = zipSync(files, { level: 9 });
+    const v = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
+    for (let i = 0; i + 4 <= zip.length; i++) {
+      const sig = v.getUint32(i, true);
+      if (sig === 0x04034b50) v.setUint32(i + 22, claimed, true);
+      if (sig === 0x02014b50) v.setUint32(i + 24, claimed, true);
+    }
+    return zip;
+  };
+
+  it('an entry inflating past 16 MiB is refused while inflating, whatever its header says', () => {
+    const zip = lying({ 'xl/workbook.xml': new Uint8Array(XLSX_MAX_ENTRY_BYTES + 1) }, 100);
+    expect(() => inflateEntries(zip)).toThrow(WorkbookTooLarge);
+    // Exactly at the cap is fine.
+    expect(inflateEntries(lying({ a: new Uint8Array(XLSX_MAX_ENTRY_BYTES) }, 100)).a!.length).toBe(XLSX_MAX_ENTRY_BYTES);
+  });
+
+  it('entries together past 32 MiB, and more than 64 entries, are refused; within the caps all is read', () => {
+    const third = new Uint8Array(12 * 1024 * 1024);
+    expect(() => inflateEntries(lying({ a: third, b: third, c: third }, 10))).toThrow(WorkbookTooLarge);
+    const many = Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`f${i}`, new Uint8Array(1)]));
+    expect(() => inflateEntries(zipSync(many))).toThrow(WorkbookTooLarge);
+    const ok = inflateEntries(zipSync({ a: third, b: new Uint8Array([1, 2, 3]) }));
+    expect([ok.a!.length, [...ok.b!]]).toEqual([third.length, [1, 2, 3]]);
+  });
+});
+
 describe('generated files', () => {
   it('XLSX written by the mock reads back; a seeded protocol and a report PDF are written for a visual check', async () => {
     const x = writeXlsx([{ name: 'Лист', header: ['name', 'type', 'waitingPeriodDays'], rows: [[{ t: 'text', v: 'Пр & <тест>' }, { t: 'text', v: 'PESTICIDE' }, { t: 'int', v: 12 }]] }]);

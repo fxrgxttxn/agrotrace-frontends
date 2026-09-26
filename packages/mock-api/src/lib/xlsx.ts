@@ -4,7 +4,7 @@
  *   writing, other types — INVALID), rows with their sheet numbers;
  * - writing: sheets of typed cells (text, integer `0`, mass `0.000`, percent/hours `0.00`), a bold header row.
  */
-import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
+import { strFromU8, strToU8, Unzip, UnzipInflate, unzipSync, zipSync } from 'fflate';
 
 export const INVALID = Symbol('invalid cell');
 export type Cell = string | typeof INVALID;
@@ -60,27 +60,66 @@ const colIndex = (ref: string): number => {
   return n - 1;
 };
 
-/** Rows of the first worksheet: header (row 1) and data rows with their numbers; trailing empty cells dropped. */
 /** A workbook over the P23 limits (64 entries, 16 MiB per entry and 32 MiB in all inflated, 20 000 rows, 64 cells). */
 export class WorkbookTooLarge extends Error {}
 const MIB = 1024 * 1024;
 
-export function readXlsx(b: Uint8Array): { header: Cell[] | null; rows: { number: number; cells: Cell[] }[] } {
+export const XLSX_MAX_ENTRIES = 64;
+export const XLSX_MAX_ENTRY_BYTES = 16 * MIB;
+export const XLSX_MAX_TOTAL_BYTES = 32 * MIB;
+
+/**
+ * The entries of the ZIP, inflated as a stream (fflate `Unzip`) with the P23 caps checked on every chunk: an entry
+ * that inflates past 16 MiB, or all of them past 32 MiB, stops the inflation there (memory stays bounded whatever the
+ * headers claim) → WorkbookTooLarge; so do more than 64 entries. A broken ZIP throws a plain Error.
+ */
+export function inflateEntries(b: Uint8Array): Record<string, Uint8Array> {
+  const files: Record<string, Uint8Array> = {};
   let entries = 0;
-  let declared = 0;
-  const files = unzipSync(b, {
-    filter: (f) => {
-      entries += 1;
-      declared += f.originalSize;
-      if (entries > 64 || f.originalSize > 16 * MIB || declared > 32 * MIB) throw new WorkbookTooLarge();
-      return true;
-    },
+  let total = 0;
+  let failure: unknown = null;
+  const unzip = new Unzip((file) => {
+    entries += 1;
+    if (entries > XLSX_MAX_ENTRIES) throw new WorkbookTooLarge();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    file.ondata = (err, chunk, final) => {
+      if (failure) return;
+      if (err) {
+        failure = err;
+        return;
+      }
+      size += chunk.length;
+      total += chunk.length;
+      if (size > XLSX_MAX_ENTRY_BYTES || total > XLSX_MAX_TOTAL_BYTES) {
+        failure = new WorkbookTooLarge();
+        file.terminate();
+        return;
+      }
+      chunks.push(chunk);
+      if (final) {
+        const out = new Uint8Array(size);
+        let at = 0;
+        for (const c of chunks) {
+          out.set(c, at);
+          at += c.length;
+        }
+        files[file.name] = out;
+      }
+    };
+    file.start();
   });
-  let actual = 0;
-  for (const data of Object.values(files)) {
-    actual += data.length;
-    if (data.length > 16 * MIB || actual > 32 * MIB) throw new WorkbookTooLarge();
-  }
+  unzip.register(UnzipInflate);
+  // Fed in 64 KiB slices: an inflating entry never holds more than the caps plus one slice's output.
+  const SLICE = 64 * 1024;
+  for (let at = 0; at < b.length && !failure; at += SLICE) unzip.push(b.subarray(at, at + SLICE), at + SLICE >= b.length);
+  if (failure) throw failure;
+  return files;
+}
+
+/** Rows of the first worksheet: header (row 1) and data rows with their numbers; trailing empty cells dropped. */
+export function readXlsx(b: Uint8Array): { header: Cell[] | null; rows: { number: number; cells: Cell[] }[] } {
+  const files = inflateEntries(b);
   const text = (name: string): string | null => (files[name] ? strFromU8(files[name]!) : null);
   const workbook = text('xl/workbook.xml') ?? '';
   const firstSheetRid = /<sheet\b[^>]*\br:id="([^"]+)"/.exec(workbook)?.[1];
