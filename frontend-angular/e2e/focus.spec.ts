@@ -144,3 +144,61 @@ test('429 at start-up: the retry waits Retry-After, then the focus is on «По�
   await expect(page.locator(h1('Поля'))).toBeVisible();
   await expect(page).toHaveURL(/\/fields$/);
 });
+
+test('the retry replaces its history entry: deep link + 503 + «Повторить» → /403 adds none', async ({
+  page,
+}) => {
+  let first = true;
+  await mockApi(page, {
+    overrides: {
+      'POST /auth/refresh': () => {
+        if (!first) return undefined;
+        first = false;
+        return { status: 503 };
+      },
+    },
+  });
+  await page.goto('/admin/users');
+  await expect(page.locator(h1('Сервис недоступен'))).toBeVisible();
+  const before = await page.evaluate(() => history.length);
+  await page.getByRole('button', { name: 'Повторить' }).click();
+  await expect(page).toHaveURL(/\/403$/);
+  expect(await page.evaluate(() => history.length)).toBe(before);
+});
+
+test('sign-in into a route of another role: /login → /admin/users → /403 replaces the entry (no extra history)', async ({
+  page,
+}) => {
+  await mockApi(page, { signedIn: false });
+  await page.goto('/login?next=%2Fadmin%2Fusers');
+  await expect(page.locator(h1('Вход'))).toBeVisible();
+  const before = await page.evaluate(() => history.length);
+  await page.getByLabel('Email').fill('petrov@agrotrace.test');
+  await page.getByLabel('Пароль').fill('agrotrace-demo');
+  await page.getByRole('button', { name: 'Войти' }).click();
+  await expect(page).toHaveURL(/\/403$/);
+  expect(await page.evaluate(() => history.length)).toBe(before);
+});
+
+test('a lazy page (chunk delayed 2.5 s): URL and aria-current at once, the aria-busy loading page, then h1 focus', async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto('/batches');
+  await expect(page.locator(h1('Партии'))).toBeVisible();
+  // every page chunk requested from now on is slow
+  await page.route('**/assets/chunk-*.js', async (route) => {
+    await new Promise((r) => setTimeout(r, 2500));
+    await route.continue();
+  });
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await expect(page).toHaveURL(/\/fields$/, { timeout: 1000 });
+  await expect(page.locator('.at-sidebar a[href="/fields"]')).toHaveAttribute('aria-current', 'page', {
+    timeout: 1000,
+  });
+  await expect(page.locator('.at-shell__main > .at-page[aria-busy="true"]')).toBeVisible({ timeout: 1000 });
+  await expect(page.locator(h1('Партии'))).toBeHidden({ timeout: 1000 });
+  await expect(page.locator(h1('Поля'))).toBeFocused({ timeout: 8000 });
+  await expect(page.locator('.at-shell__main > .at-page[aria-busy="true"]')).toHaveCount(0);
+  await expect(page.locator('.at-shell__main > .at-page')).toHaveCount(1);
+});

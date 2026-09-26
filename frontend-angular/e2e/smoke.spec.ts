@@ -52,9 +52,10 @@ async function horizontalOverflow(page: Page): Promise<number> {
 async function angularMarkers(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const out: string[] = [];
-    for (const el of document.querySelectorAll('body *')) {
+    for (const el of document.querySelectorAll('body, body *')) {
       if (el.tagName === 'ROUTER-OUTLET') out.push('<router-outlet>');
-      for (const a of el.attributes) if (/^(ng-reflect-|_ngcontent|_nghost)/.test(a.name)) out.push(a.name);
+      for (const a of el.attributes)
+        if (/^(ng-reflect-|_ngcontent|_nghost|ng-version$)/.test(a.name)) out.push(a.name);
     }
     return out;
   });
@@ -71,6 +72,18 @@ test('the stand serves the build with its CSP, only external scripts, no inline 
   expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
   expect(html).not.toMatch(/\son[a-z]+=/i); // inlineCritical off: no `onload="this.media='all'"`
   expect(html).not.toMatch(/<base\s/i);
+  // hashed JS / CSS under /assets/ (immutable caching, a missing chunk is a 404 — not index.html)
+  const refs = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)].map((m) => m[1]!);
+  expect(refs.length).toBeGreaterThan(1);
+  for (const ref of refs) expect(ref).toMatch(/^\/assets\//);
+  // through the page (the request context would not use Chromium's host mapping)
+  const probe = await page.evaluate(async (ref) => {
+    const asset = await fetch(ref);
+    const missing = await fetch('/assets/chunk-MISSING.js');
+    return { cache: asset.headers.get('cache-control') ?? '', missing: missing.status };
+  }, refs[0]!);
+  expect(probe.cache).toContain('immutable');
+  expect(probe.missing).toBe(404);
 });
 
 test('/login renders without console errors or CSP violations, no horizontal scroll at 360 px', async ({
@@ -130,12 +143,10 @@ test('the public entry renders /p/:publicCode without cabinet code (size noted)'
   expect(js).not.toContain('NG04002');
   expect(js).not.toContain('Zone.__symbol__');
   const gzip = scripts.reduce((sum, s) => sum + gzipSync(s.body).length, 0);
-  test
-    .info()
-    .annotations.push({
-      type: 'public JS gzip',
-      description: `${(gzip / 1024).toFixed(1)} KB in ${scripts.length} files`,
-    });
+  test.info().annotations.push({
+    type: 'public JS gzip',
+    description: `${(gzip / 1024).toFixed(1)} KB in ${scripts.length} files`,
+  });
   console.log(`public entry JS: ${(gzip / 1024).toFixed(1)} KB gzip in ${scripts.length} files`);
   expect(await cspViolations(page)).toEqual([]);
   expect(unexpected(w)).toEqual([]);

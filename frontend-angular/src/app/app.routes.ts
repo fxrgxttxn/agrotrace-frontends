@@ -9,6 +9,7 @@ import {
 } from '../pages/errors';
 import { guestOnly, requireRole, signedIn, toLoginOrUnavailable } from './guards';
 import { AUTH_ROUTES, CABINET_ROUTES } from './routes';
+import { SHELL_PAGE_LOADERS } from './navigation';
 import { ShellComponent } from './shell/shell';
 
 /** Guest-only auth screens: a signed-in user is sent on (`next` or home). */
@@ -35,6 +36,17 @@ export class PublicReloadComponent {
  *  3. the same cabinet paths without a session: to /login?next= or, on a transient failure, «Сервис недоступен»;
  *  4. standalone 403 / 404. */
 export function buildRoutes(devRoutes: Routes = []): Routes {
+  const shellChildren: Routes = [
+    ...CABINET_ROUTES.map((r) => ({
+      path: r.path.slice(1),
+      pathMatch: 'full' as const,
+      canActivate: [requireRole(r.access)],
+      loadComponent: r.load,
+    })),
+    { path: '403', component: ForbiddenPage },
+    { path: '**', component: NotFoundPage },
+  ];
+  for (const r of shellChildren) if (r.loadComponent) SHELL_PAGE_LOADERS.add(r.loadComponent);
   return [
     ...AUTH_ROUTES.map((r) => ({
       path: r.path.slice(1),
@@ -47,16 +59,7 @@ export function buildRoutes(devRoutes: Routes = []): Routes {
       path: '',
       component: ShellComponent,
       canMatch: [signedIn],
-      children: [
-        ...CABINET_ROUTES.map((r) => ({
-          path: r.path.slice(1),
-          pathMatch: 'full' as const,
-          canActivate: [requireRole(r.access)],
-          loadComponent: r.load,
-        })),
-        { path: '403', component: ForbiddenPage },
-        { path: '**', component: NotFoundPage },
-      ],
+      children: shellChildren,
     },
     ...CABINET_ROUTES.map((r) => ({
       path: r.path.slice(1),

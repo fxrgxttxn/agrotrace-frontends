@@ -1,15 +1,22 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router } from '@angular/router';
-import { filter, map } from 'rxjs';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { withVariant, type Me } from '@agrotrace/api-client';
 import { t } from '../i18n';
 import { LiveEventsService } from '../live-events';
 import { isCurrent, navFor, NOTIFICATIONS_ITEM, PROFILE_ITEM, type NavItem } from '../nav';
 import { OutletDirective } from '../outlet';
-import { pathnameOf, RouteFocusService } from '../route-focus';
+import { NavigationService } from '../navigation';
+import { RouteFocusService } from '../route-focus';
 import { SessionService } from '../session';
-import { AvatarComponent, DialogComponent, LinkDirective } from '../ui';
+import { AvatarComponent, DialogComponent, LinkDirective, PageLoadingComponent } from '../ui';
 
 /** How many role items the bottom bar holds before «Ещё» (spec §9.3). */
 export const BOTTOM_NAV_ITEMS = 4;
@@ -20,16 +27,9 @@ export function bellCount(unread: number): string | null {
   return unread > 99 ? '99+' : String(unread);
 }
 
-/** The current pathname, as a signal (for `aria-current`). */
+/** The current pathname, as a signal (for `aria-current`): it follows a navigation from its start (FM10). */
 function currentPath() {
-  const router = inject(Router);
-  return toSignal(
-    router.events.pipe(
-      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
-      map((e) => pathnameOf(e.urlAfterRedirects)),
-    ),
-    { initialValue: pathnameOf(router.url) },
-  );
+  return inject(NavigationService).pathname;
 }
 
 /** `at-sidebar` (README «Боковое меню»): ≥ 1024 px with labels, 768–1023 px icons only (`title` shows the name). */
@@ -176,13 +176,19 @@ export class BottomNavComponent {
     DialogComponent,
     LinkDirective,
     OutletDirective,
+    PageLoadingComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `@if (me(); as me) {
     <a class="at-shell__skip" href="#main">{{ t('shell.skip') }}</a>
     <nav class="at-sidebar" [items]="items()"></nav>
     <header class="at-topbar" [me]="me" [unread]="unread()"></header>
-    <main class="at-shell__main" id="main" tabindex="-1"><ng-container atOutlet /></main>
+    <main class="at-shell__main" id="main" tabindex="-1">
+      @if (navigation.loadingIn() === 'shell') {
+        <div class="at-page" [loading]="true"></div>
+      }
+      <ng-container atOutlet="shell" />
+    </main>
     <nav class="at-bottom-nav" [items]="items()" [open]="moreOpen()" (more)="moreOpen.set(true)"></nav>
     <dialog
       class="at-dialog"
@@ -219,7 +225,13 @@ export class ShellComponent {
   protected readonly t = t;
   private readonly session = inject(SessionService);
   private readonly routeFocus = inject(RouteFocusService);
+  protected readonly navigation = inject(NavigationService);
   protected readonly unread = inject(LiveEventsService).unread;
+
+  constructor() {
+    this.navigation.shellActive = true;
+    inject(DestroyRef).onDestroy(() => (this.navigation.shellActive = false));
+  }
   protected readonly me = this.session.me;
   protected readonly items = computed(() => {
     const me = this.me();

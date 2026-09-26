@@ -55,7 +55,9 @@ function walk(node: Node, out: string[], depth: number): void {
   if (marker) throw new Error(`Angular marker attribute ${marker.name} on <${tag}> — not README markup`);
   const attrs = [...el.attributes]
     .filter((a) => !skip.includes(a.name))
-    .map((a) => `${a.name}="${a.name === 'style' ? normStyle(a.value) : a.value}"`)
+    .map((a) => [a.name, a.name === 'class' ? withoutNgClasses(a.value) : a.value] as const)
+    .filter(([name, value]) => name !== 'class' || value !== '')
+    .map(([name, value]) => `${name}="${name === 'style' ? normStyle(value) : value}"`)
     .sort();
   out.push(`${pad}<${tag}${attrs.length ? ' ' + attrs.join(' ') : ''}>`);
   const children = tag === 'template' ? (el as HTMLTemplateElement).content.childNodes : el.childNodes;
@@ -106,4 +108,13 @@ export function readmeMenuIcons(): Map<string, string> {
     }
   }
   return out;
+}
+
+/** Ruling FM9: Angular's form-state classes (`ng-untouched`, `ng-pristine`, `ng-valid`, …) are tolerated on controls;
+ * they are the only thing the comparison drops (no style may target them). */
+function withoutNgClasses(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter((c) => c && !/^ng-/.test(c))
+    .join(' ');
 }

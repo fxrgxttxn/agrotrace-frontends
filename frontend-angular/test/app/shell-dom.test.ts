@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/angular';
 import userEvent from '@testing-library/user-event';
 import { contractExample } from '../msw/fromContract';
 import { canonical, canonicalHtml, readmeBlock } from '../ui/readme';
-import { UI } from '../../src/app/ui';
+import { leakedInputAttributes } from '../ui/leaks';
 import { FakeEventSource, renderApp } from './renderApp';
 
 // The shell compared with the README «Каркас» markup, rendered as in the production build (ngDevMode off from the
@@ -25,46 +25,6 @@ async function shell(path = '/batches') {
   const r = renderApp(path);
   await screen.findByRole('heading', { level: 1 });
   return r;
-}
-
-/** Wrapper inputs are always bound (`[label]="…"`): a static `label="…"` would also leave the attribute in the DOM.
- * Names of wrapper inputs that are not HTML attributes of their own must never appear as attributes. */
-function leakedInputAttributes(root: Element): string[] {
-  const native = new Set([
-    'id',
-    'name',
-    'value',
-    'type',
-    'disabled',
-    'hidden',
-    'title',
-    'label',
-    'size',
-    'checked',
-    'href',
-    'src',
-    'alt',
-    'selected',
-    'min',
-    'max',
-    'accept',
-    'multiple',
-    'width',
-    'height',
-  ]);
-  const inputs = new Set<string>();
-  for (const type of UI) {
-    const def =
-      (type as unknown as Record<string, { inputs?: Record<string, unknown> }>)['ɵcmp'] ??
-      (type as unknown as Record<string, { inputs?: Record<string, unknown> }>)['ɵdir'];
-    for (const k of Object.keys(def?.inputs ?? {}))
-      if (!native.has(k.toLowerCase())) inputs.add(k.toLowerCase());
-  }
-  const out: string[] = [];
-  for (const el of root.querySelectorAll('*'))
-    for (const a of el.attributes)
-      if (inputs.has(a.name)) out.push(`<${el.tagName.toLowerCase()} ${a.name}>`);
-  return out;
 }
 
 describe('shell markup = README «Каркас» (production DOM)', () => {

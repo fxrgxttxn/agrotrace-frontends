@@ -62,10 +62,11 @@ export type SessionState =
 export function safeNext(raw: string | null | undefined): string {
   if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/\\')) return '/';
   if (raw === '/login' || raw.startsWith('/login/') || raw.startsWith('/login?')) return '/';
-  return raw;
+  return raw.split('#', 1)[0] || '/'; // never the #fragment (FM10)
 }
 
-/** `/login?next=…` for a path the user has to sign in for (plain `/login` for the home page). */
+/** `/login?next=…` for a path the user has to sign in for (plain `/login` for the home page); a `#fragment` is never
+ * carried (FM10). */
 export function loginUrl(here: string): string {
   const next = safeNext(here);
   return next === '/' ? '/login' : `/login?next=${encodeURIComponent(next)}`;

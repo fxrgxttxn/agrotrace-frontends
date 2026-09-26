@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { Router, type CanActivateFn, type CanMatchFn } from '@angular/router';
+import { RedirectCommand, Router, type CanActivateFn, type CanMatchFn } from '@angular/router';
 import { canAccess, type Access } from './access';
 import { loginUrl, safeNext, SessionService } from './session';
 
@@ -10,7 +10,12 @@ import { loginUrl, safeNext, SessionService } from './session';
 //                        a transient failure (R61/F8) → the «Сервис недоступен» screen at that URL;
 //   requireRole(access)  a route of another role → /403 (the page chunk is only loaded after this passed);
 //   guestOnly            /login, /login/2fa: a signed-in user goes where `next` says (or home).
-// `inject` only works before the first `await`: every dependency is taken up front.
+// Every redirect REPLACES the entry of the refused URL (React's `<Navigate replace>`): with `urlUpdateStrategy:
+// 'eager'` that URL is already in the history when the guard runs. `inject` only works before the first `await`.
+
+function replaceWith(router: Router, url: string): RedirectCommand {
+  return new RedirectCommand(router.parseUrl(url), { replaceUrl: true });
+}
 
 export const signedIn: CanMatchFn = () => {
   const session = inject(SessionService);
@@ -22,8 +27,8 @@ export const toLoginOrUnavailable: CanActivateFn = (_route, state) => {
   return inject(SessionService)
     .settled()
     .then((s) => {
-      if (s.status === 'anonymous') return router.parseUrl(s.loggedOut ? '/login' : loginUrl(state.url));
-      if (s.status === 'authenticated') return router.parseUrl(state.url); // signed in meanwhile: into the shell
+      if (s.status === 'anonymous') return replaceWith(router, s.loggedOut ? '/login' : loginUrl(state.url));
+      if (s.status === 'authenticated') return replaceWith(router, state.url); // signed in meanwhile: into the shell
       return true;
     });
 };
@@ -32,7 +37,7 @@ export function requireRole(access: Access): CanActivateFn {
   return () => {
     const me = inject(SessionService).me();
     if (!me) return false;
-    return canAccess(me, access) || inject(Router).parseUrl('/403');
+    return canAccess(me, access) || replaceWith(inject(Router), '/403');
   };
 }
 
@@ -41,6 +46,6 @@ export const guestOnly: CanActivateFn = (route) => {
   return inject(SessionService)
     .settled()
     .then((s) =>
-      s.status === 'authenticated' ? router.parseUrl(safeNext(route.queryParamMap.get('next'))) : true,
+      s.status === 'authenticated' ? replaceWith(router, safeNext(route.queryParamMap.get('next'))) : true,
     );
 };

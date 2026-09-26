@@ -39,7 +39,10 @@
             ]
           },
           "configurations": {
-            "production": {},
+            "production": {
+              "outputPath": { "base": "dist", "browser": "assets" },
+              "deployUrl": "/assets/"
+            },
             "development": {
               "optimization": false,
               "sourceMap": true,

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
 import { createT } from '@agrotrace/i18n';
 
 // No router and no cabinet modules here: the path is matched by hand so the chunk stays small (spec §9.6; A8 fills
@@ -38,6 +38,9 @@ export class PublicApp {
         : t('page.notFound');
 
   constructor() {
+    // FM10: no framework version attribute in the production DOM.
+    const host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+    queueMicrotask(() => host.removeAttribute('ng-version'));
     document.title = `${this.title} — AgroTrace`;
   }
 }

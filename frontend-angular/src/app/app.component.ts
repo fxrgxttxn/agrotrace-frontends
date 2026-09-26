@@ -1,6 +1,15 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  ElementRef,
+  inject,
+  signal,
+} from '@angular/core';
 import { NavigationCancel, NavigationEnd, NavigationError, Router } from '@angular/router';
 import { LiveEventsService } from './live-events';
+import { NavigationService } from './navigation';
 import { OutletDirective } from './outlet';
 import { RouteFocusService } from './route-focus';
 import { SessionService } from './session';
@@ -16,17 +25,22 @@ import { PageLoadingComponent, ToastsComponent } from './ui';
   template: `@if (loading()) {
       <div class="at-page" [loading]="true"></div>
     }
-    <ng-container atOutlet />
+    <ng-container atOutlet="root" />
     <div class="at-toasts"></div>`,
 })
 export class AppComponent {
   // The session starts restoring as soon as the app does.
   private readonly session = inject(SessionService);
   private readonly routed = signal(false);
-  /** Nothing routed yet: the first navigation waits (session restore, first page chunk). */
-  protected readonly loading = computed(() => !this.routed());
+  /** Nothing routed yet (the first navigation waits: session restore, first page chunk), or a page chunk of a screen
+   * outside the shell loads (FM10). */
+  protected readonly loading = computed(() => !this.routed() || this.navigation.loadingIn() === 'root');
+  private readonly navigation = inject(NavigationService);
 
   constructor() {
+    // FM10: no framework version attribute in the production DOM (Angular writes `ng-version` on the root host).
+    const host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+    queueMicrotask(() => host.removeAttribute('ng-version'));
     inject(LiveEventsService);
     inject(RouteFocusService);
     const sub = inject(Router).events.subscribe((e) => {

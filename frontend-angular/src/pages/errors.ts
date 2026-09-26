@@ -143,6 +143,14 @@ export class UnavailablePage {
         afterNextRender(() => this.retryButton()?.nativeElement.focus(), { injector: this.injector });
       }
     });
+    // A retry that fails again (loading → unavailable, FM10): the disabled button had dropped the focus — back to it.
+    let previous = this.session.status();
+    effect(() => {
+      const now = this.session.status();
+      if (previous === 'loading' && now === 'unavailable' && this.wait.left() === 0)
+        afterNextRender(() => this.retryButton()?.nativeElement.focus(), { injector: this.injector });
+      previous = now;
+    });
   }
 
   protected text(): string {
@@ -156,6 +164,7 @@ export class UnavailablePage {
     await this.session.restore();
     // Run the guards of this URL again (into the shell with its role guard, to the login, or back here with a new
     // wait) — a deep link of another role ends on /403 exactly as after a normal start.
-    await this.router.navigateByUrl(this.router.url, { onSameUrlNavigation: 'reload' });
+    // The retry replaces this entry (no extra history entry; React re-renders in place).
+    await this.router.navigateByUrl(this.router.url, { onSameUrlNavigation: 'reload', replaceUrl: true });
   }
 }

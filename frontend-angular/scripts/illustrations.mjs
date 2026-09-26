@@ -31,7 +31,12 @@ export function generate() {
     const rest = inner.replace(/<([a-z]+)\b([^>]*?)\s*\/>/g, '').trim();
     if (rest)
       throw new Error(`${name}.svg: only self-closing elements are expected, found: ${rest.slice(0, 60)}`);
-    const body = elements.map(([, tag, attrs]) => `<svg:${tag}${attrs}></svg:${tag}>`).join('\n          ');
+    // `style` as an attribute binding: written verbatim (`fill: var(--c-straw)`, as in the file and in React), not
+    // re-serialised by Angular's static styling (which appends `;`).
+    const attrsOf = (a) => a.replace(/ style="([^"']*)"/g, ' [attr.style]="\'$1\'"');
+    const body = elements
+      .map(([, tag, attrs]) => `<svg:${tag}${attrsOf(attrs)}></svg:${tag}>`)
+      .join('\n          ');
     cases.push(`      @case ('${name}') {\n          ${body}\n        }`);
     boxes.push(`  '${name}': '${m[1]}',`);
   }

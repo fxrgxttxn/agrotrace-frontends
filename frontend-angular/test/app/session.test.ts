@@ -113,6 +113,23 @@ describe('session start-up', () => {
     expect(url()).toBe('/403');
   });
 
+  it('a retry that fails again (loading → unavailable) puts the focus back on «Повторить» (FM10)', async () => {
+    server.use(http.post(`${API_BASE}/auth/refresh`, () => new HttpResponse(null, { status: 503 })));
+    renderApp('/fields');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Повторить' })),
+    );
+  });
+
+  it('a cabinet deep link with a #fragment: `next` keeps path and query, never the fragment (FM10)', async () => {
+    server.use(contractResponse('refreshToken', { status: 401 }));
+    const { url } = renderApp('/batches?status=Approved#top');
+    await screen.findByRole('heading', { level: 1, name: 'Вход' });
+    expect(url()).toBe('/login?next=%2Fbatches%3Fstatus%3DApproved');
+  });
+
   it('after a successful retry an anonymous user goes to /login?next=', async () => {
     server.use(
       http.post(`${API_BASE}/auth/refresh`, () => new HttpResponse(null, { status: 503 }), { once: true }),
@@ -282,6 +299,7 @@ describe('role guard', () => {
 describe('safeNext', () => {
   it('keeps same-origin paths only', () => {
     expect(safeNext('/batches?x=1')).toBe('/batches?x=1');
+    expect(safeNext('/batches?x=1#top')).toBe('/batches?x=1'); // FM10: never the fragment
     expect(safeNext('//evil.example')).toBe('/');
     expect(safeNext('/\\evil.example')).toBe('/');
     expect(safeNext('https://evil.example')).toBe('/');

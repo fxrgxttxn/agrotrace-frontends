@@ -7,6 +7,7 @@ import { provideRouter, Router } from '@angular/router';
 import { afterEach } from 'vitest';
 import { AppComponent } from '../../src/app/app.component';
 import { buildRoutes } from '../../src/app/app.routes';
+import { ROUTER_CONFIG } from '../../src/app/app.config';
 import { DEV_ROUTES } from '../../src/app/dev-routes.dev';
 import { httpClientFetch } from '../../src/app/http-fetch';
 import { EVENT_SOURCE } from '../../src/app/live-events';
@@ -65,7 +66,7 @@ export function renderApp(path: string): AppHarness {
   TestBed.configureTestingModule({
     providers: [
       provideHttpClient(),
-      provideRouter(buildRoutes(DEV_ROUTES)),
+      provideRouter(buildRoutes(DEV_ROUTES), ROUTER_CONFIG),
       provideLocationMocks(),
       { provide: APP_BASE_HREF, useValue: '/' },
       {

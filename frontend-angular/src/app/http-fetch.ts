@@ -15,36 +15,42 @@ function toResponse(
   body: ArrayBuffer | null,
 ): Response {
   const h = new Headers();
-  for (const name of headers.keys()) {
-    const value = headers.get(name);
-    if (value !== null) h.set(name, value);
-  }
+  // every value of a repeated header (HttpHeaders keeps them apart; `fetch` joins them)
+  for (const name of headers.keys()) for (const value of headers.getAll(name) ?? []) h.append(name, value);
   return new Response(NULL_BODY.has(status) ? null : (body ?? null), { status, statusText, headers: h });
 }
 
 export function httpClientFetch(http: HttpClient): typeof fetch {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const req = input instanceof Request && init === undefined ? input : new Request(input, init);
-    const headers: Record<string, string> = {};
+    let headers = new HttpHeaders();
     req.headers.forEach((value, name) => {
-      headers[name] = value;
+      headers = headers.append(name, value);
     });
     const raw = req.method === 'GET' || req.method === 'HEAD' ? null : await req.arrayBuffer();
     const body = raw && raw.byteLength > 0 ? raw : null;
     if (req.signal.aborted) throw new DOMException('Aborted', 'AbortError');
     return new Promise<Response>((resolve, reject) => {
+      const onAbort = () => {
+        sub.unsubscribe();
+        reject(new DOMException('Aborted', 'AbortError'));
+      };
+      const done = () => req.signal.removeEventListener('abort', onAbort);
       const sub = http
         .request(req.method, req.url, {
           body,
-          headers: new HttpHeaders(headers),
+          headers,
           observe: 'response',
           responseType: 'arraybuffer',
           withCredentials: req.credentials === 'include',
         })
         .subscribe({
-          next: (res: HttpResponse<ArrayBuffer>) =>
-            resolve(toResponse(res.status, res.statusText, res.headers, res.body)),
+          next: (res: HttpResponse<ArrayBuffer>) => {
+            done();
+            resolve(toResponse(res.status, res.statusText, res.headers, res.body));
+          },
           error: (e: unknown) => {
+            done();
             if (e instanceof HttpErrorResponse && e.status > 0)
               resolve(
                 toResponse(
@@ -57,10 +63,7 @@ export function httpClientFetch(http: HttpClient): typeof fetch {
             else reject(new TypeError('Failed to fetch'));
           },
         });
-      req.signal.addEventListener('abort', () => {
-        sub.unsubscribe();
-        reject(new DOMException('Aborted', 'AbortError'));
-      });
+      req.signal.addEventListener('abort', onAbort, { once: true });
     });
   };
 }
