@@ -112,11 +112,8 @@ function trimTrailing(cells: WireCell[]): WireCell[] {
 
 /** Steps 1–3: the parts of the first sheet, every limit checked; the minimal workbook for exceljs. */
 function minimalWorkbook(bytes: Buffer): Buffer {
-  const wanted = (n: string) =>
-    n === '[Content_Types].xml' ||
-    n in XLSX_PART_CAPS ||
-    n === 'xl/sharedStrings.xml' ||
-    n.startsWith('xl/worksheets/');
+  // Every entry is kept (≤ 32 MiB in all): the first sheet may be any part the workbook's relationship names (P27).
+  const wanted = () => true;
   let entries: ZipEntry[];
   try {
     entries = unzip(bytes, XLSX_ZIP_LIMITS, wanted);

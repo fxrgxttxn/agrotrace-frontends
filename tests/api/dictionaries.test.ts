@@ -8,6 +8,7 @@
  * survive a reset (the seed keeps the table), so every region a test creates is deleted again.
  */
 import { randomBytes } from 'node:crypto';
+import ExcelJS from 'exceljs';
 import { afterAll, describe, expect, it } from 'vitest';
 import { loginAs, type Role } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
@@ -1129,6 +1130,47 @@ describe('importDictionary: XLSX', () => {
       const res = await importFile(client, 'regions', workbookXml(rows), `${name}.xlsx`);
       expect(res.status, `${name}: ${res.text}`).toBe(415);
       expect(res.body.params, name).toEqual({ allowed: IMPORT_ALLOWED });
+    }
+  });
+
+  it('P27: real workbooks with extension elements of other namespaces import (exceljs data bar, x14 list validation)', async () => {
+    const client = await admin();
+    const u = uniq();
+    const book = async (opts: { dataBar?: boolean; listOnOtherSheet?: boolean }) => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Показатели');
+      const lists = wb.addWorksheet('Списки');
+      lists.getCell('A1').value = 'мг/кг';
+      lists.getCell('A2').value = '%';
+      ws.addRow(['name', 'unit']);
+      ws.addRow([`Показатель ${u} ${JSON.stringify(opts).length}`, 'мг/кг']);
+      if (opts.listOnOtherSheet)
+        // exceljs writes a list whose source is on another sheet into the x14 extension (x14:dataValidation, xm:f).
+        (ws as unknown as { dataValidations: { add(ref: string, v: object): void } }).dataValidations.add(
+          'B2:B100',
+          { type: 'list', allowBlank: true, formulae: ['Списки!$A$1:$A$2'] },
+        );
+      if (opts.dataBar)
+        ws.addConditionalFormatting({
+          ref: 'A2:A10',
+          rules: [
+            {
+              type: 'dataBar',
+              priority: 1,
+              cfvo: [
+                { type: 'num', value: 0 },
+                { type: 'num', value: 100 },
+              ],
+              color: { argb: 'FF638EC6' },
+            } as unknown as ExcelJS.ConditionalFormattingRule,
+          ],
+        });
+      return Buffer.from(await wb.xlsx.writeBuffer());
+    };
+    for (const opts of [{ dataBar: true }, { listOnOtherSheet: true }]) {
+      const res = await importFile(client, 'indicators', await book(opts), 'real.xlsx');
+      expect(res.status, `${JSON.stringify(opts)}: ${res.text}`).toBe(200);
+      expect(res.body).toEqual({ created: 1, updated: 0, unchanged: 0, errors: [] });
     }
   });
 

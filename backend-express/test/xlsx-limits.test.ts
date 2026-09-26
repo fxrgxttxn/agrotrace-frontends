@@ -575,3 +575,114 @@ describe('P26: references, namespaces, precedence, result text', () => {
     expect(await read(book({ sst: long, rows: HDR + fewer }))).toBe(tooLarge);
   }, 60_000);
 });
+
+describe('P27: namespace-aware, well-formed XML; the first sheet per OPC', () => {
+  const refused = '415 UNSUPPORTED_MEDIA_TYPE';
+  const read = async (b: Buffer) => reasonOf(await outcome(readSheet(b)));
+  const sheetXml = (inner: string, rootAttrs = `xmlns="${NS}"`) =>
+    `<worksheet ${rootAttrs}><sheetData>${HDR}</sheetData>${inner}</worksheet>`;
+  const withSheet = (xml: string, over: { wb?: string; rels?: string; sheetName?: string } = {}) =>
+    zipOf([
+      { name: '[Content_Types].xml', data: '<Types/>' },
+      { name: 'xl/workbook.xml', data: over.wb ?? WB },
+      { name: 'xl/_rels/workbook.xml.rels', data: over.rels ?? RELS },
+      { name: over.sheetName ?? 'xl/worksheets/sheet1.xml', data: xml },
+    ]);
+  const X14 = 'http://schemas.microsoft.com/office/spreadsheetml/2009/9/main';
+  const XM = 'http://schemas.microsoft.com/office/excel/2006/main';
+
+  it('elements of other namespaces are ignored: x14 data validation (xm:f) and data bars in extLst → ok', async () => {
+    const ext = `<extLst><ext uri="{CCE6A557-97BC-4b89-ADB6-D9C93CAAB3DF}" xmlns:x14="${X14}"><x14:dataValidations count="1" xmlns:xm="${XM}"><x14:dataValidation type="list"><x14:formula1><xm:f>Lists!$A$1:$A$2</xm:f></x14:formula1><xm:sqref>B2:B100</xm:sqref></x14:dataValidation></x14:dataValidations></ext></extLst>`;
+    expect(await read(withSheet(sheetXml(ext)))).toBe('ok');
+    const bar = `<extLst><ext uri="{78C0D931-6437-407d-A8EE-F0AAD7539E65}" xmlns:x14="${X14}"><x14:conditionalFormattings><x14:conditionalFormatting xmlns:xm="${XM}"><x14:cfRule type="dataBar"><x14:dataBar><x14:cfvo type="num"><xm:f>0</xm:f></x14:cfvo><x14:cfvo type="num"><xm:f>100</xm:f></x14:cfvo></x14:dataBar></x14:cfRule><xm:sqref>A2:A10</xm:sqref></x14:conditionalFormatting></x14:conditionalFormattings></ext></extLst>`;
+    expect(await read(withSheet(sheetXml(bar)))).toBe('ok');
+  });
+
+  it('a prefixed element of the SpreadsheetML main or Strict namespace → 415 {allowed}', async () => {
+    const both = sheetXml(`<x:extLst/>`, `xmlns="${NS}" xmlns:x="${NS}"`);
+    expect(await read(withSheet(both))).toBe(refused);
+    const strict = sheetXml(
+      `<s:extLst/>`,
+      `xmlns="${NS}" xmlns:s="http://purl.oclc.org/ooxml/spreadsheetml/main"`,
+    );
+    expect(await read(withSheet(strict))).toBe(refused);
+    // Declaring the prefix without using it is fine.
+    expect(await read(withSheet(sheetXml('', `xmlns="${NS}" xmlns:x="${NS}"`)))).toBe('ok');
+  });
+
+  it.each([
+    ['an unbound element prefix', sheetXml('<foo:bar/>')],
+    [
+      'an unbound attribute prefix',
+      `<worksheet xmlns="${NS}"><sheetData><row r="1" foo:x="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>`,
+    ],
+    [
+      'a mismatched end tag',
+      `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1"><v>1</v></c></rowX></sheetData></worksheet>`,
+    ],
+    ['a missing </worksheet>', `<worksheet xmlns="${NS}"><sheetData>${HDR}</sheetData>`],
+    ['a second root element', `${sheetXml('')}<extra/>`],
+    [
+      'a duplicate attribute',
+      `<worksheet xmlns="${NS}"><sheetData><row r="1" r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>`,
+    ],
+    [
+      '< in an attribute value',
+      `<worksheet xmlns="${NS}"><sheetData><row r="1" spans="1<2"><c r="A1"><v>1</v></c></row></sheetData></worksheet>`,
+    ],
+    [
+      '&#0; in text',
+      `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>a&#0;</t></is></c></row></sheetData></worksheet>`,
+    ],
+    [
+      'an undefined entity in text',
+      `<worksheet xmlns="${NS}"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>a&foo;</t></is></c></row></sheetData></worksheet>`,
+    ],
+    ['an XML declaration naming UTF-16', `<?xml version="1.0" encoding="UTF-16"?>${sheetXml('')}`],
+    ['nesting deeper than 256', sheetXml(`${'<a:x xmlns:a="urn:a">'.repeat(300)}${'</a:x>'.repeat(300)}`)],
+  ])('%s → 415 {allowed}', async (_label, xml) => {
+    expect(await read(withSheet(xml))).toBe(refused);
+  });
+
+  it('UTF-16 content (with or without a BOM) → 415 {allowed}', async () => {
+    const text = sheetXml('');
+    const le = Buffer.from(text, 'utf16le');
+    expect(await read(withSheet(Buffer.concat([Buffer.from([0xff, 0xfe]), le]) as unknown as string))).toBe(
+      refused,
+    );
+    expect(await read(withSheet(le as unknown as string))).toBe(refused);
+  });
+
+  it('only the unprefixed `r` counts, whatever the attribute order', async () => {
+    const rows = `<row x14ac:r="9" r="1" xmlns:x14ac="urn:a"><c r="A1" x14ac:r="Z9"><v>1</v></c></row>`;
+    expect(await read(withSheet(`<worksheet xmlns="${NS}"><sheetData>${rows}</sheetData></worksheet>`))).toBe(
+      'ok',
+    );
+    const onlyPrefixed = `<row x14ac:r="1" xmlns:x14ac="urn:a"><c r="A1"><v>1</v></c></row>`;
+    expect(
+      await read(withSheet(`<worksheet xmlns="${NS}"><sheetData>${onlyPrefixed}</sheetData></worksheet>`)),
+    ).toBe(refused);
+  });
+
+  it('the first <sheet> whatever its type; targets resolved per OPC; a non-worksheet target → 415 {allowed}', async () => {
+    const rel = (type: string, target: string) =>
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R_NS}/${type}" Target="${target}"/></Relationships>`;
+    expect(await read(withSheet(sheetXml(''), { rels: rel('worksheet', '/xl/worksheets/sheet1.xml') }))).toBe(
+      'ok',
+    );
+    expect(
+      await read(withSheet(sheetXml(''), { rels: rel('worksheet', '../xl/worksheets/sheet1.xml') })),
+    ).toBe('ok');
+    expect(
+      await read(
+        withSheet(sheetXml(''), { rels: rel('worksheet', 'data/first.xml'), sheetName: 'xl/data/first.xml' }),
+      ),
+    ).toBe('ok');
+    expect(await read(withSheet(sheetXml(''), { rels: rel('chartsheet', 'worksheets/sheet1.xml') }))).toBe(
+      refused,
+    );
+    expect(await read(withSheet(sheetXml(''), { rels: rel('worksheet', '../../outside.xml') }))).toBe(
+      refused,
+    );
+  });
+});
