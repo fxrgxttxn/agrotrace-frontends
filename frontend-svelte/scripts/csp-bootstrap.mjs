@@ -14,41 +14,43 @@ const out = process.argv[2] ?? 'build';
 const APP_DIR = 'assets';
 const INLINE = /<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g;
 
-// FM15: the start-up chunks themselves failed (the kit entry or the app manifest) — the same reload-once guard as the
-// pages (src/lib/app/chunkFailure.ts: sessionStorage `agrotrace-chunk-reload` = the URL), then a plain static message
-// «Не удалось загрузить страницу.» with «Повторить» (a reload), never a blank page.
-const BOOT_FAILED = `function __agrotraceBootFailed(error, element) {
+// FM15/FM18: the start-up chunks failed (the kit entry, the app manifest, the root layout — in the last case SvelteKit
+// has already replaced the document with its error template). The same reload-once mark as the pages
+// (src/lib/app/chunkFailure.ts: sessionStorage `agrotrace-chunk-reload` = the URL, the #fragment kept), then the
+// static FM18 screen of index.html / the error template (scripts/templates.mjs: README markup, texts from
+// @agrotrace/i18n) is shown at once — put back into the document if it was replaced — with the app's stylesheets.
+const BOOT_FAILED = `var __agrotraceFallback = document.getElementById('at-load-failed');
+var __agrotraceStyles = Array.prototype.map.call(document.querySelectorAll('link[rel="stylesheet"]'), function (l) {
+  return l.href;
+});
+function __agrotraceBootFailed(error) {
   var key = 'agrotrace-chunk-reload';
   var here = location.pathname + location.search;
   var tried = here;
   try { tried = sessionStorage.getItem(key); } catch (e) {}
   if (tried !== here) {
-    try { sessionStorage.setItem(key, here); location.replace(here); return; } catch (e) {}
+    try {
+      sessionStorage.setItem(key, here);
+      sessionStorage.setItem('agrotrace-focus-title', '1');
+      location.reload();
+      return;
+    } catch (e) {}
   }
   console.warn('AgroTrace: start-up failed', error);
-  function el(tag, cls, text) {
-    var node = document.createElement(tag);
-    if (cls) node.className = cls;
-    if (text) node.textContent = text;
-    return node;
-  }
-  var main = el('main', 'at-page');
-  main.id = 'main';
-  main.tabIndex = -1;
-  var header = el('div', 'at-page__header');
-  var h1 = el('h1', 'at-page__title', 'AgroTrace');
-  h1.tabIndex = -1;
-  header.appendChild(h1);
-  var empty = el('div', 'at-empty');
-  empty.appendChild(el('p', 'at-empty__text', ${JSON.stringify('Не удалось загрузить страницу.')}));
-  var button = el('button', 'at-button', ${JSON.stringify('Повторить')});
-  button.type = 'button';
-  button.setAttribute('data-variant', 'primary');
-  button.addEventListener('click', function () { location.reload(); });
-  empty.appendChild(button);
-  main.appendChild(header);
-  main.appendChild(empty);
-  element.replaceChildren(main);
+  __agrotraceStyles.forEach(function (href) {
+    var has = Array.prototype.some.call(document.querySelectorAll('link[rel="stylesheet"]'), function (l) {
+      return l.href === href;
+    });
+    if (has) return;
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    document.head.appendChild(link);
+  });
+  var box = document.getElementById('at-load-failed') || __agrotraceFallback;
+  if (!box) return;
+  box.setAttribute('data-now', '');
+  if (!box.isConnected) document.body.appendChild(box);
 }
 `;
 const START = /\]\)\.then\(\(\[kit, app\]\) => \{\s*kit\.start\(app, element\);\s*\}\);/;
@@ -77,7 +79,7 @@ for (const page of pages) {
     if (!START.test(js)) throw new Error(`csp-bootstrap: unexpected start-up call in ${page}:\n${js}`);
     js = `${BOOT_FAILED}${js.replace(
       START,
-      ']).then(([kit, app]) => kit.start(app, element)).catch((e) => __agrotraceBootFailed(e, element));',
+      ']).then(([kit, app]) => kit.start(app, element)).catch(__agrotraceBootFailed);',
     )}`;
     const hash = createHash('sha256').update(js).digest('hex').slice(0, 10);
     const dir = join(out, APP_DIR, 'immutable', 'entry');

@@ -11,9 +11,12 @@ interface RouteFocusState {
   last: string | null;
   /** A navigation whose focus is handled by its origin (the «Ещё» menu). */
   skip: string | null;
+  /** The first page's title to focus once the router has finished its start (the document replaced a failed
+   * navigation): SvelteKit resets focus to <body> after mounting, so the move is repeated from `afterNavigate`. */
+  pending: HTMLElement | null;
 }
 
-const state: RouteFocusState = { last: null, skip: null };
+const state: RouteFocusState = { last: null, skip: null, pending: null };
 
 /** Called by a menu that restores focus itself, right before it navigates to `pathname`. */
 export function skipRouteFocus(pathname: string): void {
@@ -23,20 +26,43 @@ export function skipRouteFocus(pathname: string): void {
 /** A page with its title `h1` is shown at `pathname`. */
 export function arrive(pathname: string, title: HTMLElement | null | undefined): void {
   if (state.last === null) {
-    state.last = pathname; // first load: focus stays where the browser put it
+    state.last = pathname; // first load: focus stays where the browser put it…
+    if (takeTitleFocus() && title) {
+      state.pending = title; // …unless this document replaced a failed navigation
+      title.focus({ preventScroll: true });
+    }
     return;
   }
-  if (state.last === pathname) return;
+  if (state.last === pathname) {
+    const pending = state.pending;
+    state.pending = null;
+    if (pending?.isConnected) pending.focus({ preventScroll: true });
+    return;
+  }
+  state.pending = null;
   state.last = pathname;
   const skipped = state.skip === pathname;
   state.skip = null;
   if (!skipped) title?.focus({ preventScroll: true });
 }
 
+/** The document was loaded by the chunk-failure recovery in place of an in-app navigation (chunkFailure.ts): its
+ * first page takes the focus like any navigation would have given it (read once). */
+function takeTitleFocus(): boolean {
+  try {
+    const set = sessionStorage.getItem('agrotrace-focus-title') === '1';
+    sessionStorage.removeItem('agrotrace-focus-title');
+    return set;
+  } catch {
+    return false;
+  }
+}
+
 /** Tests: a fresh app (the next page is a first load again). */
 export function resetRouteFocus(): void {
   state.last = null;
   state.skip = null;
+  state.pending = null;
 }
 
 // Query-only navigations keep focus where it was. Links already do (`data-sveltekit-keepfocus` on <body>), but the

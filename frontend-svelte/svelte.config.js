@@ -1,5 +1,6 @@
 import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+import { writeTemplates } from './scripts/templates.mjs';
 
 // Static SPA served by the gateway (/srv/svelte): adapter-static with the SPA fallback `index.html` (every route is
 // client-rendered: `ssr = false` in src/routes/+layout.ts). The gateway CSP is `script-src 'self'`: SvelteKit's
@@ -17,5 +18,7 @@ export default {
     // No automatic version polling (index.html is never cached by the gateway).
     version: { pollInterval: 0 },
     output: { preloadStrategy: 'modulepreload' },
+    // index.html and the error page carry the static FM18 screen, its texts from @agrotrace/i18n (scripts/templates.mjs).
+    files: writeTemplates(),
   },
 };

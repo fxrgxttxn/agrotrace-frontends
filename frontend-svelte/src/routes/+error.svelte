@@ -7,9 +7,11 @@
   // no cabinet module (the public group shares it). FM11/FM15: while the one automatic reload starts — a busy page;
   // then one line and «Повторить» (a reload).
   const t = createT('ru');
+  // Decided once, when this page is created (the reload marks the page right after; no flash of the message).
+  const reloading = reloadPending(page.error);
 </script>
 
-{#if reloadPending(page.error)}
+{#if reloading}
   <main class="at-page" id="main" tabindex="-1" aria-busy="true"></main>
 {:else}
   <main class="at-page" id="main" tabindex="-1">

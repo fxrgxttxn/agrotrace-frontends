@@ -22,6 +22,16 @@
   );
   const pathname = $derived(pending ?? page.url.pathname);
 
+  // The page under the focus may disappear for the loading page (focus inside main, e.g. a link of the page): the
+  // focus goes to main (the loading region) instead of falling to <body>; the new page then takes it (F4).
+  let main: HTMLElement | null = $state(null);
+  $effect(() => {
+    if (!pending || !main) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || !active.isConnected || main.contains(active))
+      main.focus({ preventScroll: true });
+  });
+
   // README «Фокус при смене маршрута»: scroll to the top of the new page.
   $effect(() => {
     void page.url.pathname;
@@ -33,7 +43,7 @@
   <a class="at-shell__skip" href="#main">{t('shell.skip')}</a>
   <Sidebar {items} {pathname} />
   <Topbar {me} unread={live.unread} />
-  <main class="at-shell__main" id="main" tabindex="-1">
+  <main bind:this={main} class="at-shell__main" id="main" tabindex="-1">
     {#if pending}<PageLoading />{:else}{@render children()}{/if}
   </main>
   <BottomNav {items} {pathname} />

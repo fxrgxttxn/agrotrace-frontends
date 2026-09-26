@@ -19,3 +19,4 @@ storage/*.key
 
 # SvelteKit static build
 frontend-svelte/build/
+frontend-svelte/.templates/

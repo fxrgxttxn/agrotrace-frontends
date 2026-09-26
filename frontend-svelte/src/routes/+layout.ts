@@ -11,4 +11,6 @@ export const trailingSlash = 'never';
 export function load(): void {
   applyTheme(readTheme());
   injectSprite();
+  // FM18: the app started — the static «page could not be loaded» fallback of index.html goes away.
+  document.getElementById('at-load-failed')?.remove();
 }

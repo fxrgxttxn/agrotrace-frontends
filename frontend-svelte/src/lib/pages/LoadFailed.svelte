@@ -14,9 +14,12 @@
   let { standalone = false }: { standalone?: boolean } = $props();
 
   const title = $derived(t(cabinetRoute(page.url.pathname)?.title ?? 'page.notFound'));
+  // Decided once, when this failure page is created: the automatic reload marks the page right after, and the
+  // failure text must not flash in the document that is about to be replaced.
+  const reloading = reloadPending(page.error);
 </script>
 
-{#if reloadPending(page.error)}
+{#if reloading}
   <PageLoading />
 {:else}
   <Page {title} main={standalone} style={standalone ? 'max-width: 30rem' : undefined}>

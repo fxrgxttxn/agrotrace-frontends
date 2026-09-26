@@ -9,13 +9,21 @@
 //   of a document that shows a page clears it.
 // - The reload replaces the (target) history entry: the history is what a successful navigation would have left.
 // - The browser keeps a failed module in the document's module map, so the same document can never import it again:
-//   after a committed chunk failure, the next link/`goto` navigation is a full document load (the import is retried).
+//   after a chunk failure in the document (committed or not), the next link/`goto` navigation is a full document load (the import is retried).
 // - The bootstrap (kit entry chunks) has the same guard in the post-build boot script (scripts/csp-bootstrap.mjs).
 
 const KEY = 'agrotrace-chunk-reload';
+/** Also set by the boot script (scripts/csp-bootstrap.mjs). */
+export const TITLE_FOCUS = 'agrotrace-focus-title';
 
-/** A chunk failure was committed in this document: later in-app navigations load a fresh document. */
+/** A chunk failed to load in this document (the browser keeps the failure in its module map, whatever happened to the
+ * navigation): later in-app navigations load a fresh document. Set by `handleError`, before any page reacts. */
 let failedHere = false;
+
+/** `handleError` saw a chunk failure. */
+export function noteChunkFailure(): void {
+  failedHere = true;
+}
 
 /** The message `handleError` gives a chunk failure (the error pages recognise it). */
 export const CHUNK_FAILED = 'chunk';
@@ -46,14 +54,14 @@ export function reloadPending(error: { message: string } | null): boolean {
  * stays); a page shown → the mark is spent. */
 export function afterPageShown(error: { message: string } | null): void {
   if (error?.message === CHUNK_FAILED) {
-    failedHere = true;
     if (mark() === here()) return;
     try {
       sessionStorage.setItem(KEY, here());
     } catch {
       return;
     }
-    location.replace(here());
+    markTitleFocus();
+    location.reload(); // committed: the current entry IS the target — a reload replaces it and keeps the #fragment
     return;
   }
   if (!error) {
@@ -65,13 +73,23 @@ export function afterPageShown(error: { message: string } | null): void {
   }
 }
 
-/** `beforeNavigate` of the root layout: after a committed chunk failure in this document, an in-app link/`goto` to
- * another URL becomes a full document load (a fresh module map retries the import). */
+/** `beforeNavigate` of the root layout: after a committed chunk failure in this document, every in-app link/`goto`
+ * becomes a full document load (a fresh module map retries the import) — the same URL too: the failure page's own
+ * section link retries it. */
 export function fullLoadAfterFailure(type: string, to: URL | null | undefined, cancel: () => void): void {
   if (!failedHere || !to || (type !== 'link' && type !== 'goto') || to.origin !== location.origin) return;
-  if (target(to) === here()) return;
   cancel();
+  markTitleFocus();
   location.assign(`${target(to)}${to.hash}`);
+}
+
+/** The next document (after an automatic full load) focuses its page title on its first page (review round 3). */
+function markTitleFocus(): void {
+  try {
+    sessionStorage.setItem(TITLE_FOCUS, '1');
+  } catch {
+    // storage unavailable
+  }
 }
 
 /** «Повторить» on the failure page: a plain reload of the current URL. */

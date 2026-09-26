@@ -426,8 +426,9 @@ test('FM15: after a failure the error state is not kept — the next navigation 
   });
   await context.route(`**${FIELDS_CHUNK}`, (route) => route.abort('failed'));
   await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
   await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
-  await expect(page.locator('main .at-empty__text')).toHaveText('Не удалось загрузить страницу.');
+  await expect(page.locator('.at-shell__main .at-empty__text')).toHaveText('Не удалось загрузить страницу.');
   expect(documents).toEqual(['/batches', '/fields']);
   await context.unroute(`**${FIELDS_CHUNK}`); // the chunk is back (e.g. the network returned)
   await page.locator('.at-sidebar').getByRole('link', { name: 'Накладные' }).click();
@@ -451,11 +452,129 @@ test('FM15: a failing start-up chunk (public page) — one reload, then a static
   const start = entryFiles.find((f) => /\/entry\/start\./.test(f))!;
   await context.route(`**${start}`, (route) => route.abort('failed'));
   await page.goto('/p/AT-2026-000123');
-  await expect(page.locator('main .at-empty__text')).toHaveText('Не удалось загрузить страницу.');
-  await expect(page.getByRole('button', { name: 'Повторить' })).toBeVisible();
+  const retry = await staticScreen(page); // FM17/FM18: the same static screen (a link «Повторить»)
   expect(documents).toEqual(['/p/AT-2026-000123', '/p/AT-2026-000123']);
   await context.unroute(`**${start}`);
-  await page.getByRole('button', { name: 'Повторить' }).click();
+  await retry.click();
   await expect(h1(page, 'Партия')).toBeVisible();
   expect(await page.evaluate(() => sessionStorage.getItem('agrotrace-chunk-reload'))).toBeNull();
+});
+
+// ── Ruling FM18 and review round 3 ─────────────────────────────────────────────────────────────────────────────────
+
+const ROOT_CHUNK = nodeFile('src/routes/+layout.svelte');
+
+async function staticScreen(page: Page, timeout = 5000) {
+  const box = page.locator('#at-load-failed');
+  await expect(box).toBeVisible({ timeout });
+  await expect(box.locator('main.at-page > article.at-card > .at-empty > p.at-empty__text')).toHaveText(
+    'Не удалось загрузить страницу.',
+  );
+  const retry = box.getByRole('link', { name: 'Повторить' });
+  await expect(retry).toHaveAttribute('href', '');
+  await expect(retry).toHaveAttribute('data-variant', 'primary');
+  // the design system applies (not an unstyled page): the primary button has its own background, not transparent
+  const bg = await retry.evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(bg).not.toBe('rgba(0, 0, 0, 0)');
+  await expect(page.locator('body')).not.toContainText(/500|chunk|Internal Error/);
+  return retry;
+}
+
+for (const path of ['/batches', '/p/AT-2026-000123'])
+  test(`FM18: the root layout chunk fails on ${path} — one reload, then the static screen (never the raw error page)`, async ({
+    page,
+    context,
+  }) => {
+    await mockApi(context);
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    const documents: string[] = [];
+    page.on('request', (r) => {
+      if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+    });
+    await context.route(`**${ROOT_CHUNK}`, (route) => route.abort('failed'));
+    await page.goto(path);
+    // SvelteKit may paint its error template (our static screen) before the boot script starts the one reload: wait
+    // for the reloaded document before looking at the screen.
+    await expect.poll(() => documents.length).toBe(2);
+    const retry = await staticScreen(page);
+    expect(documents).toEqual([path, path]);
+    await context.unroute(`**${ROOT_CHUNK}`);
+    await retry.click();
+    await expect(page.locator('h1').first()).toBeVisible();
+    await expect(page.locator('#at-load-failed')).toHaveCount(0);
+    test.info().annotations.push({ type: 'page errors', description: errors.join(' | ') || 'none' });
+  });
+
+test('FM18: the entry script itself cannot load — index.html shows its static screen after 10 s', async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(60000);
+  await mockApi(context);
+  await context.route('**/assets/immutable/entry/boot.*.js', (route) => route.abort('failed'));
+  await page.goto('/batches');
+  await page.waitForTimeout(2000);
+  await expect(page.locator('#at-load-failed')).toBeHidden(); // not before 10 s
+  const retry = await staticScreen(page, 15000);
+  await context.unroute('**/assets/immutable/entry/boot.*.js');
+  await retry.click();
+  await expect(h1(page, 'Партии')).toBeVisible();
+  await expect(page.locator('#at-load-failed')).toHaveCount(0); // removed when the app starts
+});
+
+test('round 3: after the automatic reload the page title has the focus and the #fragment is kept', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  let failures = 1;
+  await context.route(`**${FIELDS_CHUNK}`, (route) =>
+    failures-- > 0 ? route.abort('failed') : route.continue(),
+  );
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  await follow(page, '/fields#top');
+  await expect(h1(page, 'Поля')).toBeFocused();
+  expect(new URL(page.url()).hash).toBe('#top');
+});
+
+test('round 3: on the failure page its own section link retries in a fresh document', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  const documents: string[] = [];
+  page.on('request', (r) => {
+    if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+  });
+  await context.route(`**${FIELDS_CHUNK}`, (route) => route.abort('failed'));
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await expect(page.locator('.at-shell__main .at-empty__text')).toHaveText('Не удалось загрузить страницу.');
+  await context.unroute(`**${FIELDS_CHUNK}`);
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await expect(h1(page, 'Поля')).toBeFocused();
+  expect(documents).toEqual(['/batches', '/fields', '/fields']);
+});
+
+test('round 3: focus inside main does not fall to <body> while the next page loads', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  await context.route(`**${FIELDS_CHUNK}`, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  await follow(page, '/fields');
+  await expect(page.locator('.at-shell__main > .at-page[aria-busy="true"]')).toBeVisible();
+  await expect(page.locator('main#main')).toBeFocused();
+  release();
+  await expect(h1(page, 'Поля')).toBeFocused();
 });

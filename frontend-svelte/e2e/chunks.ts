@@ -57,6 +57,26 @@ export const publicModules: string[] = [...closure([...publicNodes, ...rootNodes
 export const CABINET_MODULE =
   /frontend-svelte\/src\/(lib\/(app\/(session|live|guards|forms|cache)|shell\/|pages\/)|routes\/\(app\)\/)/;
 
+/** What the public graph MAY contain — an allowlist: anything else fails the check. Of this app: the root layout and
+ * error page, the public group, the public page component, the client hooks and the helpers the root layout needs
+ * (theme, sprite, chunk recovery); of the workspace: i18n (and its locale JSON) and the design system; Svelte and
+ * SvelteKit themselves, their small runtime dependencies, SvelteKit's generated files and Vite's helpers. */
+export const PUBLIC_ALLOWED: RegExp[] = [
+  /^frontend-svelte\/src\/routes\/\+(layout\.ts|layout\.svelte|error\.svelte)$/,
+  /^frontend-svelte\/src\/routes\/\(public\)\//,
+  /^frontend-svelte\/src\/lib\/public\//,
+  /^frontend-svelte\/src\/lib\/app\/(theme\.svelte|sprite|chunkFailure)\.ts$/,
+  /^frontend-svelte\/src\/hooks\.client\.ts$/,
+  /^packages\/(i18n|design-system)\//,
+  /^frontend-svelte\/\.svelte-kit\/generated\//,
+  /node_modules\/(\.pnpm\/[^/]+\/node_modules\/)?(svelte|@sveltejs\/kit|esm-env|devalue|clsx|cookie|set-cookie-parser)\//,
+  /^\0|^vite\//,
+];
+
+/** Public-graph modules outside the allowlist (`[]` — the public pages are isolated). */
+export const publicNotAllowed = (): string[] =>
+  publicModules.filter((m) => !PUBLIC_ALLOWED.some((re) => re.test(m.split('?')[0]!)));
+
 /** The client chunk of a route node, by its route file (e.g. `src/routes/(app)/(cabinet)/fields/+page.svelte`). */
 export function nodeFile(routeFile: string): string {
   const key = NODES.find((k) => sourceOf(k).includes(`"../../../../${routeFile}"`));

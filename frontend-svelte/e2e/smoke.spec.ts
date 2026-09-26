@@ -1,6 +1,6 @@
 import { gzipSync } from 'node:zlib';
 import { expect, test } from '@playwright/test';
-import { cabinetOnly, CABINET_MODULE, nodeCounts, publicModules } from './chunks';
+import { cabinetOnly, CABINET_MODULE, nodeCounts, publicModules, publicNotAllowed } from './chunks';
 import { ANONYMOUS, mockApi } from './contract';
 import { cspViolations, horizontalOverflow, unexpected, watch } from './helpers';
 
@@ -134,6 +134,7 @@ test('the public pages /p/* load no cabinet chunk (module graph) and stay in the
   expect(nodeCounts.public).toBe(3); // the three /p pages (the group has no layout of its own)
   expect(publicModules.some((m) => m.endsWith('src/lib/public/PublicPage.svelte'))).toBe(true);
   expect(publicModules.filter((m) => CABINET_MODULE.test(m))).toEqual([]);
+  expect(publicNotAllowed()).toEqual([]); // an allowlist: nothing else may be in the public graph
   expect(cabinetOnly.size).toBeGreaterThan(0);
   await page.goto('/p/AT-2026-000123');
   await expect(page.getByRole('heading', { level: 1, name: 'Партия' })).toBeVisible();
