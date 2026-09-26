@@ -102,7 +102,17 @@ const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationship
 export function workbookXml(
   rows: string,
   extra: { name: string; data: string | Buffer; declared?: number; badCrc?: boolean }[] = [],
-  opts: { sheet?: string; badSheetCrc?: boolean; sst?: string; workbookPad?: number } = {},
+  opts: {
+    sheet?: string | Buffer;
+    badSheetCrc?: boolean;
+    sst?: string;
+    workbookPad?: number;
+    /** The relationship of the first sheet: its type (default worksheet) and target (default worksheets/sheet1.xml). */
+    relType?: string;
+    relTarget?: string;
+    /** The archive path the sheet is stored under (default xl/worksheets/sheet1.xml). */
+    sheetPath?: string;
+  } = {},
 ): Buffer {
   return zip([
     {
@@ -115,14 +125,14 @@ export function workbookXml(
     },
     {
       name: 'xl/_rels/workbook.xml.rels',
-      data: `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R_NS}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+      data: `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R_NS}/${opts.relType ?? 'worksheet'}" Target="${opts.relTarget ?? 'worksheets/sheet1.xml'}"/></Relationships>`,
     },
     {
       name: 'xl/styles.xml',
       data: `<styleSheet xmlns="${NS}"><cellXfs count="2"><xf/><xf/></cellXfs></styleSheet>`,
     },
     {
-      name: 'xl/worksheets/sheet1.xml',
+      name: opts.sheetPath ?? 'xl/worksheets/sheet1.xml',
       data: opts.sheet ?? `<worksheet xmlns="${NS}"><sheetData>${rows}</sheetData></worksheet>`,
       badCrc: opts.badSheetCrc,
     },

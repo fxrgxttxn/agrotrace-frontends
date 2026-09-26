@@ -1174,6 +1174,58 @@ describe('importDictionary: XLSX', () => {
     }
   });
 
+  it('P27/P28: prefix rebinding, well-formedness, UTF-16, chartsheet first, OPC targets', async () => {
+    const client = await admin();
+    const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+    const header =
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>code</t></is></c><c r="B1" t="inlineStr"><is><t>name</t></is></c></row>';
+    const sheet = (inner: string, attrs = `xmlns="${ns}"`) =>
+      `<worksheet ${attrs}><sheetData>${header}${inner}</sheetData></worksheet>`;
+    const refusedSheets: Record<string, string | Buffer> = {
+      // A prefix bound to the SpreadsheetML namespace on an element (also after rebinding it inside).
+      prefixedMain: sheet('', `xmlns="${ns}" xmlns:x="${ns}"`)
+        .replace('<sheetData>', '<x:sheetData>')
+        .replace('</sheetData>', '</x:sheetData>'),
+      reboundInside: sheet(`<row r="2" xmlns:a="urn:a"><c r="A2"><v>1</v></c></row>`).replace(
+        '</worksheet>',
+        `<a:ext xmlns:a="urn:a"><a:x xmlns:a="${ns}"/></a:ext></worksheet>`,
+      ),
+      emptyPrefixRow: sheet('<:row r="2"><c r="A2"><v>1</v></c></:row>'),
+      mismatchedEnd: sheet('<row r="2"><c r="A2"><v>1</v></c></rowX>'),
+      missingEnd: `<worksheet xmlns="${ns}"><sheetData>${header}</sheetData>`,
+      unboundPrefix: sheet('<row r="2"><foo:bar/><c r="A2"><v>1</v></c></row>'),
+      duplicateAttribute: sheet('<row r="2" r="2"><c r="A2"><v>1</v></c></row>'),
+      ltInAttribute: sheet('<row r="2" spans="1<2"><c r="A2"><v>1</v></c></row>'),
+      undefinedEntity: sheet('<row r="2"><c r="A2" t="inlineStr"><is><t>a&foo;</t></is></c></row>'),
+      secondRoot: `${sheet('')}<extra/>`,
+      textAfterRoot: `${sheet('')}junk`,
+      controlCharacter: sheet('<row r="2"><c r="A2" t="inlineStr"><is><t>a\u0001</t></is></c></row>'),
+      doubleDashComment: sheet('<!-- a -- b -->'),
+      utf16: Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(sheet(''), 'utf16le')]),
+    };
+    for (const [name, xml] of Object.entries(refusedSheets)) {
+      const res = await importFile(client, 'regions', workbookXml('', [], { sheet: xml }), `${name}.xlsx`);
+      expect(res.status, `${name}: ${res.text}`).toBe(415);
+      expect(res.body.params, name).toEqual({ allowed: IMPORT_ALLOWED });
+    }
+    // The first <sheet> is a chartsheet, or its target leaves the package → 415 {allowed}.
+    for (const opts of [{ relType: 'chartsheet' }, { relTarget: '../../outside.xml' }]) {
+      const res = await importFile(client, 'regions', workbookXml(header, [], opts), 'opc.xlsx');
+      expect(res.status, `${JSON.stringify(opts)}: ${res.text}`).toBe(415);
+      expect(res.body.params).toEqual({ allowed: IMPORT_ALLOWED });
+    }
+    // OPC targets that resolve to the stored sheet are read (header only → nothing imported).
+    for (const opts of [
+      { relTarget: '/xl/worksheets/sheet1.xml' },
+      { relTarget: '../xl/worksheets/sheet1.xml' },
+      { relTarget: 'data/first.xml', sheetPath: 'xl/data/first.xml' },
+    ]) {
+      const res = await importFile(client, 'regions', workbookXml(header, [], opts), 'opc.xlsx');
+      expect(res.status, `${JSON.stringify(opts)}: ${res.text}`).toBe(200);
+      expect(res.body).toEqual({ created: 0, updated: 0, unchanged: 0, errors: [] });
+    }
+  });
+
   it('P26: namespaces — none, Strict OOXML, a foreign default namespace inside → 415 {allowed}', async () => {
     const client = await admin();
     const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';

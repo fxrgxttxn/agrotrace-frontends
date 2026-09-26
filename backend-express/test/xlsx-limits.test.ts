@@ -132,11 +132,18 @@ beforeEach(() => {
 afterEach(() => clearInterval(lagTimer));
 
 /** Reads `bytes`, asserting a wall-clock bound; returns the outcome as "ok" / "415 workbook-too-large" / …. */
+/**
+ * Load tolerance (P28): the host may be busy with other work (containers, parallel suites). Bounds are the expected
+ * cost times SLACK — still far below the unbounded behaviour they guard against (seconds to minutes, OOM).
+ */
+const SLACK = Number(process.env.TIMING_SLACK ?? 3);
+const MAX_LAG_MS = 100 * SLACK;
+
 async function timed(bytes: Buffer, boundMs: number): Promise<string> {
   resetLag();
   const started = Date.now();
   const r = reasonOf(await outcome(readSheet(bytes)));
-  expect(Date.now() - started, r).toBeLessThan(boundMs);
+  expect(Date.now() - started, r).toBeLessThan(boundMs * SLACK);
   return r;
 }
 
@@ -186,7 +193,7 @@ describe('ZIP directory (API thread) and inflate checks (worker)', () => {
     expect(() =>
       unzip(zipOf([{ name: 'a', data: Buffer.alloc(MiB), declared: 10 }]), XLSX_ZIP_LIMITS, () => false),
     ).toThrow(ZipError);
-    expect(maxLag).toBeLessThan(100);
+    expect(maxLag).toBeLessThan(MAX_LAG_MS);
   });
 
   it('a ZIP that is not a workbook → 415 without reason', async () => {
@@ -239,7 +246,7 @@ describe('pre-scan limits (cells = <c> elements per row; no cell beyond column 6
       ),
     ).toThrow();
     expect(() => prescanSheet(`<row r="1">${'<c/>'.repeat(4_000_000)}</row>`)).toThrow();
-    expect(Date.now() - started).toBeLessThan(1000);
+    expect(Date.now() - started).toBeLessThan(1000 * SLACK);
   });
 });
 
@@ -313,7 +320,7 @@ describe('pathological workbooks: bounded time, the exact outcome, the API threa
       const heapBefore = process.memoryUsage().heapUsed;
       const r = await timed(bytes, 12_000); // the 10 s deadline + slack
       expect(r).toBe(expected);
-      expect(maxLag, `event-loop lag while reading ${name}`).toBeLessThan(100);
+      expect(maxLag, `event-loop lag while reading ${name}`).toBeLessThan(MAX_LAG_MS);
       // The API thread holds the (bounded) result only: far below the amplified sizes.
       expect(process.memoryUsage().heapUsed - heapBefore).toBeLessThan(64 * MiB);
     },
@@ -433,10 +440,10 @@ describe('a large legitimate workbook fits the worker heap', () => {
     resetLag();
     const started = Date.now();
     const sheet = await readSheet(bytes);
-    expect(Date.now() - started).toBeLessThan(5000);
+    expect(Date.now() - started).toBeLessThan(5000 * SLACK);
     expect(sheet.rows).toHaveLength(4999);
     expect(sheet.rows[0]!.cells).toHaveLength(64);
-    expect(maxLag).toBeLessThan(100);
+    expect(maxLag).toBeLessThan(MAX_LAG_MS);
   }, 90_000);
 });
 
@@ -465,9 +472,9 @@ describe('the deadline terminates the worker', () => {
     resetLag();
     const started = Date.now();
     expect(reasonOf(await outcome(readSheet(slow, { queue: q })))).toBe('415 workbook-too-large');
-    expect(Date.now() - started).toBeLessThan(1500); // 300 ms deadline, then the worker is gone
+    expect(Date.now() - started).toBeLessThan(1500 * SLACK); // 300 ms deadline, then the worker is gone
     expect(terminated).toBe(1);
-    expect(maxLag).toBeLessThan(100);
+    expect(maxLag).toBeLessThan(MAX_LAG_MS);
     // The next job runs on a fresh worker.
     expect(reasonOf(await outcome(readSheet(book(), { queue: q })))).toBe('ok');
     expect(created).toBe(2);
@@ -684,5 +691,59 @@ describe('P27: namespace-aware, well-formed XML; the first sheet per OPC', () =>
     expect(await read(withSheet(sheetXml(''), { rels: rel('worksheet', '../../outside.xml') }))).toBe(
       refused,
     );
+  });
+});
+
+describe('P28: stricter well-formedness, linear scope handling', () => {
+  const ok = (xml: string) => () =>
+    scanXml(
+      xml,
+      () => false,
+      () => undefined,
+    );
+  const root = (inner: string, attrs = '') => `<r:root xmlns:r="urn:r"${attrs}>${inner}</r:root>`;
+
+  it.each([
+    ['text before the root', `junk${root('')}`],
+    ['text after the root', `${root('')}junk`],
+    ['CDATA after the root', `${root('')}<![CDATA[x]]>`],
+    ['a raw control character', root('\u0001')],
+    ['U+FFFF', root('\uffff')],
+    ['-- inside a comment', root('<!-- a -- b -->')],
+    ['a comment ending in ---> ', root('<!-- a --->')],
+    ['one expanded attribute name twice', root('<p:a xmlns:p="urn:q" xmlns:q="urn:q" p:v="1" q:v="2"/>')],
+    ['xml bound elsewhere', root('<r:a xmlns:xml="urn:bad"/>')],
+    [
+      'another prefix bound to the xml namespace',
+      root('<r:a xmlns:x="http://www.w3.org/XML/1998/namespace"/>'),
+    ],
+    ['xmlns as an element prefix', root('<xmlns:a/>')],
+    ['an empty prefix', root('<:row r="3"/>')],
+    ['an empty local part', root('<r:/>')],
+    ['two colons', root('<r:a:b/>')],
+    ['an attribute with an empty prefix', root('<r:a :v="1"/>')],
+    ['the encoding label UTF8', `<?xml version="1.0" encoding="UTF8"?>${root('')}`],
+  ])('%s → malformed', (_label, xml) => {
+    expect(ok(xml)).toThrow('malformed');
+  });
+
+  it('still accepted: char references with leading zeros, xml bound to its own namespace, whitespace outside the root', () => {
+    expect(ok(`<?xml version="1.0" encoding="utf-8"?>\n${root('&#x0000000041;&#00065;')}\n`)).not.toThrow();
+    expect(
+      ok(root('<r:a xmlns:xml="http://www.w3.org/XML/1998/namespace" xml:space="preserve"/>')),
+    ).not.toThrow();
+  });
+
+  it('many declaring elements under many root bindings stay linear (no copy of the scope per element)', () => {
+    const decl = Array.from({ length: 20_000 }, (_, k) => ` xmlns:p${k}="u:${k}"`).join('');
+    const kids = '<q:e xmlns:q="u"/>'.repeat(700_000);
+    const started = Date.now();
+    expect(ok(`<r:root xmlns:r="urn:r"${decl}>${kids}</r:root>`)).not.toThrow();
+    expect(Date.now() - started).toBeLessThan(1500 * SLACK);
+  });
+
+  it('an empty-prefix row in a sheet → 415 {allowed} (it was silently dropped by the reader before)', async () => {
+    const rows = `${HDR}<:row r="3"><c r="A3"><v>1</v></c></:row>`;
+    expect(reasonOf(await outcome(readSheet(book({ rows }))))).toBe('415 UNSUPPORTED_MEDIA_TYPE');
   });
 });

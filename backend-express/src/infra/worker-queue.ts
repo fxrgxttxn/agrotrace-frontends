@@ -29,8 +29,12 @@ export interface Engine<I, R> {
 
 export type QueueOutcome<R> = { ok: true; value: R } | { ok: false; reason: 'too-complex' | 'aborted' };
 
-/** A worker that has not reported ready within this long is given up. */
-const WORKER_START_TIMEOUT_MS = 30_000;
+/**
+ * A worker that has not reported ready within this long is given up. The bundled worker starts in well under a second;
+ * unit tests start it from TypeScript sources through tsx, which on a busy host can take longer — they raise it
+ * (vitest.config.ts).
+ */
+const WORKER_START_TIMEOUT_MS = Number(process.env.WORKER_START_TIMEOUT_MS ?? 30_000);
 
 /**
  * A worker-thread engine: `dist/<name>.js` next to the bundle, or the `.ts` source through tsx (sources, tests).
