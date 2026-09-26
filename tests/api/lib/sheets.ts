@@ -102,7 +102,7 @@ const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationship
 export function workbookXml(
   rows: string,
   extra: { name: string; data: string | Buffer; declared?: number; badCrc?: boolean }[] = [],
-  opts: { sheet?: string; badSheetCrc?: boolean } = {},
+  opts: { sheet?: string; badSheetCrc?: boolean; sst?: string; workbookPad?: number } = {},
 ): Buffer {
   return zip([
     {
@@ -111,7 +111,7 @@ export function workbookXml(
     },
     {
       name: 'xl/workbook.xml',
-      data: `<workbook xmlns="${NS}" xmlns:r="${R_NS}"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+      data: `<workbook xmlns="${NS}" xmlns:r="${R_NS}"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets>${' '.repeat(opts.workbookPad ?? 0)}</workbook>`,
     },
     {
       name: 'xl/_rels/workbook.xml.rels',
@@ -126,6 +126,7 @@ export function workbookXml(
       data: opts.sheet ?? `<worksheet xmlns="${NS}"><sheetData>${rows}</sheetData></worksheet>`,
       badCrc: opts.badSheetCrc,
     },
+    ...(opts.sst !== undefined ? [{ name: 'xl/sharedStrings.xml', data: opts.sst }] : []),
     ...extra,
   ]);
 }

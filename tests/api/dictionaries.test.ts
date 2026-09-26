@@ -1078,39 +1078,111 @@ describe('importDictionary: XLSX', () => {
     expectProblem(await importFile(client, 'regions', crc, 'k.xlsx'), 415, 'UNSUPPORTED_MEDIA_TYPE', refused);
   });
 
-  it('P25: a cell over 1 000 characters → validation.maxLength for that cell (its text is never read back)', async () => {
+  it('P25/P26: the 1 000-character cap — regions.code of 1 000 characters → pattern, of 1 001 → maxLength', async () => {
+    // `code` has no length limit of its own in the import rules (only its pattern), so the cap alone decides.
     const client = await admin();
     const book = await xlsx([
       {
         name: 'Лист1',
         rows: [
-          ['name', 'unit'],
-          ['Ж'.repeat(1001), 'мг/кг'],
+          ['code', 'name'],
+          ['A'.repeat(1000), 'Регион'],
+          ['A'.repeat(1001), 'Регион'],
         ],
       },
     ]);
-    const res = await importFile(client, 'indicators', book, 'l.xlsx');
+    const res = await importFile(client, 'regions', book, 'l.xlsx');
     expect(res.body).toEqual({
       created: 0,
       updated: 0,
       unchanged: 0,
-      errors: [{ row: 2, column: 'name', message: 'validation.maxLength' }],
+      errors: [
+        { row: 2, column: 'code', message: 'validation.pattern' },
+        { row: 3, column: 'code', message: 'validation.maxLength' },
+      ],
     });
   });
 
-  it('P25: Cyrillic text over 64 KiB of workbook reads back exactly (no character is cut)', async () => {
+  it('P26: `r` semantics — every class of bad row or cell reference → 415 {allowed}', async () => {
+    const client = await admin();
+    const header =
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>code</t></is></c><c r="B1" t="inlineStr"><is><t>name</t></is></c></row>';
+    const c = (ref: string) => `<c r="${ref}"><v>1</v></c>`;
+    const cases: Record<string, string> = {
+      zeroRow: '<row r="0"><c r="A0"><v>1</v></c></row>',
+      hugeRow: '<row r="99999999999"><c r="A99999999999"><v>1</v></c></row>',
+      fractionRow: '<row r="2.5"><c r="A2"><v>1</v></c></row>',
+      lettersRow: '<row r="3abc"><c r="A3"><v>1</v></c></row>',
+      duplicateRows: `${header}<row r="2">${c('A2')}</row><row r="2">${c('A2')}</row>`,
+      rowsOutOfOrder: `${header}<row r="3">${c('A3')}</row><row r="2">${c('A2')}</row>`,
+      secondHeader: `${header}<row r="2">${c('A2')}</row>${header}`,
+      cellOfAnotherRow: `${header}<row r="2">${c('A7')}</row>`,
+      cellWithoutRow: `${header}<row r="2">${c('A')}</row>`,
+      decreasingCells: `${header}<row r="2">${c('B2')}${c('A2')}</row>`,
+      duplicateCells: `${header}<row r="2">${c('A2')}${c('A2')}</row>`,
+      lowerCase: `${header}<row r="2">${c('a2')}</row>`,
+      dollar: `${header}<row r="2">${c('$A$2')}</row>`,
+      // Malformed wins over the column limit on one element.
+      dollarBeyondBL: `${header}<row r="2">${c('$BM2')}</row>`,
+    };
+    for (const [name, rows] of Object.entries(cases)) {
+      const res = await importFile(client, 'regions', workbookXml(rows), `${name}.xlsx`);
+      expect(res.status, `${name}: ${res.text}`).toBe(415);
+      expect(res.body.params, name).toEqual({ allowed: IMPORT_ALLOWED });
+    }
+  });
+
+  it('P26: namespaces — none, Strict OOXML, a foreign default namespace inside → 415 {allowed}', async () => {
+    const client = await admin();
+    const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+    const header =
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>code</t></is></c><c r="B1" t="inlineStr"><is><t>name</t></is></c></row>';
+    const sheets = {
+      none: `<worksheet><sheetData>${header}</sheetData></worksheet>`,
+      strict: `<worksheet xmlns="http://purl.oclc.org/ooxml/spreadsheetml/main"><sheetData>${header}</sheetData></worksheet>`,
+      foreignInside: `<worksheet xmlns="${ns}"><sheetData><row r="1" xmlns="urn:evil"><c r="A1"><v>1</v></c></row></sheetData></worksheet>`,
+    };
+    for (const [name, sheet] of Object.entries(sheets)) {
+      const res = await importFile(client, 'regions', workbookXml('', [], { sheet }), `${name}.xlsx`);
+      expect(res.status, `${name}: ${res.text}`).toBe(415);
+      expect(res.body.params, name).toEqual({ allowed: IMPORT_ALLOWED });
+    }
+  });
+
+  it('P25: Cyrillic across a 64 KiB boundary reads back exactly, for every byte parity of the boundary', async () => {
+    // Four imports of the same 250 names from a hand-made workbook whose shared strings (> 64 KiB, almost all 2-byte
+    // characters) are shifted by 0, 1, 40 and 41 bytes of padding in the workbook part: whatever the reader's
+    // chunking, one of the imports puts the 64 KiB offset inside a 2-byte character. The first import creates the
+    // products; each later one must find every name unchanged — a single cut character would create a new product.
     const client = await admin();
     const u = uniq();
-    const names = Array.from({ length: 250 }, (_, i) => `Ёж ${u} ${i} ${'ЖЩЫ«»—'.repeat(20 + (i % 4))}`);
-    const book = await xlsx([
-      {
-        name: 'Продукты',
-        rows: [['name', 'category', 'lossNormPercent'], ...names.map((n) => [n, 'GRAIN', '1.5'])],
-      },
+    const names = Array.from({ length: 250 }, (_, i) => `Ёж ${u} ${i} ${'ЖЩЫЮЯ'.repeat(28)}`);
+    const header = `<row r="1">${['name', 'category', 'lossNormPercent']
+      .map((h, k) => `<c r="${'ABC'[k]}1" t="inlineStr"><is><t>${h}</t></is></c>`)
+      .join('')}</row>`;
+    const rows = names
+      .map(
+        (_, i) =>
+          `<row r="${i + 2}"><c r="A${i + 2}" t="s"><v>${i}</v></c><c r="B${i + 2}" t="inlineStr"><is><t>GRAIN</t></is></c><c r="C${i + 2}"><v>1.5</v></c></row>`,
+      )
+      .join('');
+    const sst = `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${names
+      .map((n) => `<si><t>${n}</t></si>`)
+      .join('')}</sst>`;
+    expect(Buffer.byteLength(sst)).toBeGreaterThan(70 * 1024); // the shared strings span the 64 KiB offset
+    const reports = [];
+    for (const pad of [0, 1, 40, 41]) {
+      const book = workbookXml(header + rows, [], { sst, workbookPad: pad });
+      const res = await importFile(client, 'products', book, `cyr${pad}.xlsx`);
+      expect(res.status, res.text.slice(0, 300)).toBe(200);
+      reports.push(res.body);
+    }
+    expect(reports).toEqual([
+      { created: 250, updated: 0, unchanged: 0, errors: [] },
+      { created: 0, updated: 0, unchanged: 250, errors: [] },
+      { created: 0, updated: 0, unchanged: 250, errors: [] },
+      { created: 0, updated: 0, unchanged: 250, errors: [] },
     ]);
-    const res = await importFile(client, 'products', book, 'cyr.xlsx');
-    expect(res.status, res.text.slice(0, 300)).toBe(200);
-    expect(res.body).toEqual({ created: 250, updated: 0, unchanged: 0, errors: [] });
     const found: string[] = [];
     for (let page = 1; page <= 3; page++)
       found.push(

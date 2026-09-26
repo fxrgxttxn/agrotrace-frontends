@@ -171,7 +171,11 @@ export async function readWorkbook(bytes: Buffer): Promise<XlsxResult> {
     let header: WireCell[] | null = null;
     const rows: { number: number; cells: WireCell[] }[] = [];
     let seen = 0;
+    // "Result text" (P26): the header and the non-empty data rows up to row 10 001, cells over 1 000 characters
+    // excluded, numbers as their decimal text, trailing empty cells dropped. Over 8 MiB, nothing more is kept, but the
+    // sheet is still read for tooManyRows, which takes precedence over the 8 MiB total.
     let resultBytes = 0;
+    let dataRows = 0;
     const bounded = (list: WireCell[]): WireCell[] =>
       list.map((c) => {
         if (typeof c !== 'string') return c;
@@ -179,7 +183,6 @@ export async function readWorkbook(bytes: Buffer): Promise<XlsxResult> {
         if (c.length > 2 * MAX_CELL_CHARS || (c.length > MAX_CELL_CHARS && [...c].length > MAX_CELL_CHARS))
           return 1;
         resultBytes += Buffer.byteLength(c, 'utf8');
-        if (resultBytes > MAX_RESULT_BYTES) throw new Stop('tooLarge');
         return c;
       });
     for await (const ws of reader) {
@@ -200,11 +203,13 @@ export async function readWorkbook(bytes: Buffer): Promise<XlsxResult> {
           }
         }
         if (row.number === 1 || trimmed.every((c) => c === '')) continue;
-        if (rows.length === MAX_DATA_ROWS) throw new Stop('tooManyRows');
+        if (++dataRows > MAX_DATA_ROWS) throw new Stop('tooManyRows');
+        if (resultBytes > MAX_RESULT_BYTES) continue; // already too large: keep nothing, keep counting rows
         rows.push({ number: row.number, cells: bounded(trimmed) });
       }
       break;
     }
+    if (resultBytes > MAX_RESULT_BYTES) return { ok: false, kind: 'tooLarge' };
     return { ok: true, header, rows };
   } catch (err) {
     if (err instanceof Stop) return { ok: false, kind: err.kind };

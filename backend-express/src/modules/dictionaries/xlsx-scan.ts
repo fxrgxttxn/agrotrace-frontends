@@ -19,6 +19,8 @@ export interface Tag {
   name: string;
   /** The qualified name carries a prefix (`x:row`). */
   prefixed: boolean;
+  /** The default namespace this tag declares (`xmlns="…"`), if it declares one. */
+  defaultNs?: string;
   /** Requested attributes by local name (a prefixed `r:id` is `id`), entity-decoded; empty when not requested. */
   attrs: ReadonlyMap<string, string>;
 }
@@ -129,6 +131,7 @@ export function scanXml(
         if (q !== 0x22 && q !== 0x27) throw new ScanError('malformed');
         const close = text.indexOf(q === 0x22 ? '"' : "'", p + 1);
         if (close < 0) throw new ScanError('malformed');
+        if (attrName === 'xmlns') tag.defaultNs = decode(text.slice(p + 1, close));
         if (collect) {
           attrs ??= new Map();
           attrs.set(local(attrName), decode(text.slice(p + 1, close)));
@@ -143,15 +146,42 @@ export function scanXml(
 }
 
 /** The archive path of the first sheet in workbook order (`xl/workbook.xml` → its relationship target). */
+/** The Transitional SpreadsheetML main namespace (P26); the Strict one (purl.oclc.org) or none is refused. */
+export const SPREADSHEETML = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+
+/**
+ * A namespace guard for one part: its root element must be `root`, unprefixed, declaring the SpreadsheetML default
+ * namespace, and no element inside may declare another default namespace (`xmlns="urn:…"`). Returns the check to run
+ * on every tag.
+ */
+function namespaceGuard(root: string): (t: Tag) => void {
+  let first = true;
+  return (t) => {
+    if (t.end) return;
+    if (first) {
+      first = false;
+      if (t.name !== root || t.prefixed || t.defaultNs !== SPREADSHEETML) throw new ScanError('malformed');
+      return;
+    }
+    if (t.defaultNs !== undefined && t.defaultNs !== SPREADSHEETML) throw new ScanError('malformed');
+  };
+}
+
+/**
+ * The archive path of the first sheet in workbook order (`xl/workbook.xml` → its relationship target). The workbook
+ * part itself must be SpreadsheetML (P26): root `workbook` in the Transitional main namespace, no foreign default
+ * namespace inside.
+ */
 export function firstSheetPath(workbook: string, rels: string): string | null {
   let rid: string | undefined;
+  const ns = namespaceGuard('workbook');
   scanXml(
     workbook,
     (name) => name === 'sheet',
     (t) => {
-      if (t.end || t.name !== 'sheet') return;
+      ns(t);
+      if (t.end || t.name !== 'sheet' || rid !== undefined) return;
       rid = t.attrs.get('id');
-      return false;
     },
   );
   if (!rid) return null;
@@ -172,18 +202,36 @@ export function firstSheetPath(workbook: string, rels: string): string | null {
 }
 
 export const SCAN_LIMITS = { maxRows: 20_000, maxCellsPerRow: 64, maxStrings: 200_000, maxRuns: 200_000 };
+/** The last row of a sheet (Excel's grid): a row number above it is no row. */
+export const MAX_ROW_NUMBER = 1_048_576;
 
-/** Column number of a cell reference (`BL12` → 64); null without letters. Stops early past `limit`. */
-function columnOf(ref: string, limit: number): number | null {
+/** A row reference: a positive integer without sign, leading zero or fraction, ≤ MAX_ROW_NUMBER; else null. */
+function rowNumber(s: string): number | null {
+  if (s.length === 0 || s.length > 7) return null;
+  let n = 0;
+  for (let k = 0; k < s.length; k++) {
+    const d = s.charCodeAt(k) - 0x30;
+    if (d < 0 || d > 9 || (k === 0 && d === 0)) return null;
+    n = n * 10 + d;
+  }
+  return n <= MAX_ROW_NUMBER ? n : null;
+}
+
+/**
+ * A cell reference: upper-case column letters (1–3) then its row number, no `$`, no space — `BL12` → {col: 64, row: 12};
+ * else null.
+ */
+function cellRef(s: string): { col: number; row: number } | null {
   let col = 0;
   let k = 0;
-  for (; k < ref.length; k++) {
-    const ch = ref.charCodeAt(k) | 0x20; // lower case
-    if (ch < 0x61 || ch > 0x7a) break;
-    col = col * 26 + (ch - 0x60);
-    if (col > limit) return col;
+  for (; k < s.length && k < 4; k++) {
+    const ch = s.charCodeAt(k);
+    if (ch < 0x41 || ch > 0x5a) break;
+    col = col * 26 + (ch - 0x40);
   }
-  return k === 0 ? null : col;
+  if (k === 0 || k > 3) return null;
+  const row = rowNumber(s.slice(k));
+  return row === null ? null : { col, row };
 }
 
 /** SpreadsheetML elements exceljs reads by their unprefixed names (a prefixed one would be silently skipped by it). */
@@ -191,52 +239,68 @@ const SHEET_ELEMENTS = new Set(['worksheet', 'sheetData', 'row', 'c', 'v', 'f', 
 const SST_ELEMENTS = new Set(['sst', 'si', 't', 'r', 'rPh']);
 
 /**
- * The first sheet (P24, P25), in document order, the first violation wins:
- * - SpreadsheetML elements unprefixed (default namespace) — a prefixed `sheetData`/`row`/`c`/… → malformed (415);
- * - every `<row>` and `<c>` carries `r`, every `<c>` is inside a `<row>` — otherwise malformed (415);
+ * The first sheet (P24–P26), in document order; the first violation wins, and on one element a malformed reference
+ * wins over a limit:
+ * - SpreadsheetML: root `worksheet` in the Transitional main namespace, no foreign default namespace inside, the
+ *   SpreadsheetML elements unprefixed → otherwise malformed (415);
+ * - every `<row>` has `r` = a positive integer (no sign, no leading zero, no fraction, ≤ 1 048 576), strictly
+ *   increasing through the part; every `<c>` is inside a `<row>` and has `r` = an upper-case A1 reference without `$`
+ *   whose row is that row's number, columns strictly increasing within the row → otherwise malformed (415);
  * - ≤ `maxRows` `<row>` elements anywhere in the part (empty ones included), ≤ `maxCellsPerRow` `<c>` elements in a
- *   row and no cell reference beyond that column (`BL`) — otherwise too large, raised as soon as it is exceeded.
+ *   row and no cell beyond that column (`BL`) → otherwise too large, raised as soon as it is exceeded.
  */
 export function prescanSheet(text: string, limits = SCAN_LIMITS): void {
   let rows = 0;
   let cells = 0;
   let inRow = false;
+  let lastRow = 0;
+  let lastCol = 0;
+  const ns = namespaceGuard('worksheet');
   scanXml(
     text,
     (name) => name === 'c' || name === 'row',
     (t) => {
+      ns(t);
       if (t.prefixed && SHEET_ELEMENTS.has(t.name)) throw new ScanError('malformed');
       if (t.name === 'row') {
         if (t.end) {
           inRow = false;
           return;
         }
-        if (!t.attrs.has('r')) throw new ScanError('malformed');
+        const r = rowNumber(t.attrs.get('r') ?? '');
+        if (r === null || r <= lastRow) throw new ScanError('malformed');
         if (++rows > limits.maxRows) throw new ScanError('tooLarge');
+        lastRow = r;
+        lastCol = 0;
         cells = 0;
         inRow = !t.selfClosing;
         return;
       }
       if (t.name === 'c' && !t.end) {
-        const ref = t.attrs.get('r');
-        if (!inRow || ref === undefined) throw new ScanError('malformed');
-        if (++cells > limits.maxCellsPerRow) throw new ScanError('tooLarge');
-        const col = columnOf(ref, limits.maxCellsPerRow);
-        if (col === null) throw new ScanError('malformed');
-        if (col > limits.maxCellsPerRow) throw new ScanError('tooLarge');
+        const ref = cellRef(t.attrs.get('r') ?? '');
+        if (!inRow || ref === null || ref.row !== lastRow || ref.col <= lastCol)
+          throw new ScanError('malformed');
+        lastCol = ref.col;
+        if (++cells > limits.maxCellsPerRow || ref.col > limits.maxCellsPerRow)
+          throw new ScanError('tooLarge');
       }
     },
   );
 }
 
-/** The shared strings: unprefixed; ≤ `maxStrings` `<si>` items and ≤ `maxRuns` rich-text runs (`<r>`) in all. */
+/**
+ * The shared strings: root `sst` in the SpreadsheetML namespace, unprefixed; ≤ `maxStrings` `<si>` items and
+ * ≤ `maxRuns` rich-text runs (`<r>`) in all.
+ */
 export function prescanSharedStrings(text: string, limits = SCAN_LIMITS): void {
   let strings = 0;
   let runs = 0;
+  const ns = namespaceGuard('sst');
   scanXml(
     text,
     () => false,
     (t) => {
+      ns(t);
       if (t.prefixed && SST_ELEMENTS.has(t.name)) throw new ScanError('malformed');
       if (t.end) return;
       if (t.name === 'si' && ++strings > limits.maxStrings) throw new ScanError('tooLarge');

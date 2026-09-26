@@ -177,7 +177,10 @@ describe('ZIP directory (API thread) and inflate checks (worker)', () => {
       { name: 'xl/workbook.xml', data: WB },
       { name: 'xl/_rels/workbook.xml.rels', data: RELS },
       { name: 'xl/sharedStrings.xml', data: Buffer.alloc(64 * MiB, 0x20), declared: 1000 },
-      { name: 'xl/worksheets/sheet1.xml', data: `<worksheet><sheetData>${HDR}</sheetData></worksheet>` },
+      {
+        name: 'xl/worksheets/sheet1.xml',
+        data: `<worksheet xmlns="${NS}"><sheetData>${HDR}</sheetData></worksheet>`,
+      },
     ]);
     expect(await timed(wanted, 3000)).toBe('415 workbook-too-large');
     expect(() =>
@@ -390,7 +393,7 @@ describe('P25 structure rules and the order of checks', () => {
       { name: 'xl/_rels/workbook.xml.rels', data: RELS },
       {
         name: 'xl/worksheets/sheet1.xml',
-        data: `<worksheet><sheetData>${HDR}</sheetData></worksheet>`,
+        data: `<worksheet xmlns="${NS}"><sheetData>${HDR}</sheetData></worksheet>`,
         declared: 5000,
       },
     ]);
@@ -501,4 +504,74 @@ describe('no temporary files', () => {
     expect((await outcome(readSheet(broken)))?.status).toBe(415);
     expect([...temps()].filter((f) => !before.has(f))).toEqual([]);
   });
+});
+
+describe('P26: references, namespaces, precedence, result text', () => {
+  const refused = '415 UNSUPPORTED_MEDIA_TYPE';
+  const tooLarge = '415 workbook-too-large';
+  const read = async (b: Buffer) => reasonOf(await outcome(readSheet(b)));
+  const c = (ref: string) => `<c r="${ref}"><v>1</v></c>`;
+
+  it.each([
+    ['row r="0"', '<row r="0"><c r="A0"><v>1</v></c></row>'],
+    ['row r beyond 1 048 576', '<row r="99999999999"><c r="A99999999999"><v>1</v></c></row>'],
+    ['row r a fraction', '<row r="2.5"><c r="A2"><v>1</v></c></row>'],
+    ['row r with letters', '<row r="3abc"><c r="A3"><v>1</v></c></row>'],
+    ['row r with a sign', '<row r="+2"><c r="A2"><v>1</v></c></row>'],
+    ['row r with a leading zero', '<row r="02"><c r="A2"><v>1</v></c></row>'],
+    ['duplicate rows', `${HDR}<row r="2">${c('A2')}</row><row r="2">${c('A2')}</row>`],
+    ['rows out of order', `${HDR}<row r="3">${c('A3')}</row><row r="2">${c('A2')}</row>`],
+    ['a second header row after data', `${HDR}<row r="2">${c('A2')}</row>${HDR}`],
+    ['a cell of another row', `${HDR}<row r="2">${c('A7')}</row>`],
+    ['a cell reference without a row', `${HDR}<row r="2">${c('A')}</row>`],
+    ['decreasing cells', `${HDR}<row r="2">${c('B2')}${c('A2')}</row>`],
+    ['duplicate cells', `${HDR}<row r="2">${c('A2')}${c('A2')}</row>`],
+    ['a lower-case reference', `${HDR}<row r="2">${c('a2')}</row>`],
+    ['a $ reference', `${HDR}<row r="2">${c('$A$2')}</row>`],
+  ])('%s → 415 {allowed}', async (_label, rows) => {
+    expect(await read(book({ rows }))).toBe(refused);
+  });
+
+  it('namespaces: none, the Strict one, a foreign default namespace inside, or a non-SpreadsheetML workbook → 415', async () => {
+    const sheet = (xml: string) =>
+      zipOf([
+        { name: '[Content_Types].xml', data: '<Types/>' },
+        { name: 'xl/workbook.xml', data: WB },
+        { name: 'xl/_rels/workbook.xml.rels', data: RELS },
+        { name: 'xl/worksheets/sheet1.xml', data: xml },
+      ]);
+    expect(await read(sheet(`<worksheet><sheetData>${HDR}</sheetData></worksheet>`))).toBe(refused);
+    const strict = 'http://purl.oclc.org/ooxml/spreadsheetml/main';
+    expect(await read(sheet(`<worksheet xmlns="${strict}"><sheetData>${HDR}</sheetData></worksheet>`))).toBe(
+      refused,
+    );
+    const evil = `<worksheet xmlns="${NS}"><sheetData><row r="1" xmlns="urn:evil">${c('A1')}</row></sheetData></worksheet>`;
+    expect(await read(sheet(evil))).toBe(refused);
+    expect(await read(book({ wb: WB.replace(` xmlns="${NS}"`, '') }))).toBe(refused);
+    expect(await read(book({ sst: '<sst><si><t>x</t></si></sst>' }))).toBe(refused);
+    // Extra prefixed namespaces (as Excel writes them) are fine.
+    const excel = `<worksheet xmlns="${NS}" xmlns:r="${R_NS}" xmlns:mc="urn:mc" mc:Ignorable="x14ac"><sheetData>${HDR}</sheetData></worksheet>`;
+    expect(await read(sheet(excel))).toBe('ok');
+  });
+
+  it('on one element a malformed reference wins over a limit: $BM2 → {allowed}, BM2 → too large', async () => {
+    expect(await read(book({ rows: `${HDR}<row r="2">${c('$BM2')}</row>` }))).toBe(refused);
+    expect(await read(book({ rows: `${HDR}<row r="2">${c('BM2')}</row>` }))).toBe(tooLarge);
+  });
+
+  it('tooManyRows is decided while reading, before the 8 MiB result total', async () => {
+    // 10 001 data rows, each with 900 characters: over 8 MiB long before row 10 001 — still 400 tooManyRows.
+    const long = `<sst xmlns="${NS}"><si><t>${'x'.repeat(900)}</t></si></sst>`;
+    const rows = Array.from(
+      { length: 10_001 },
+      (_, i) => `<row r="${i + 2}"><c r="A${i + 2}" t="s"><v>0</v></c></row>`,
+    ).join('');
+    expect(await read(book({ sst: long, rows: HDR + rows }))).toBe('400 VALIDATION');
+    // 10 000 such rows: 8.6 MiB of result text → too large.
+    const fewer = Array.from(
+      { length: 10_000 },
+      (_, i) => `<row r="${i + 2}"><c r="A${i + 2}" t="s"><v>0</v></c></row>`,
+    ).join('');
+    expect(await read(book({ sst: long, rows: HDR + fewer }))).toBe(tooLarge);
+  }, 60_000);
 });
