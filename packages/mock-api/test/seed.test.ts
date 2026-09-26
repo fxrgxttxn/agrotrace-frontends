@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildSeed } from '../src/store/seed.js';
 import { renderGenerated } from '../src/domain/documents.js';
-import type { MockConfig } from '../src/config.js';
+import { memoryCounters, type MockConfig } from '../src/config.js';
 import { nodeAssetLoader } from './helpers/assets.js';
 
 const cfg = (now: number): MockConfig => ({
@@ -14,6 +14,7 @@ const cfg = (now: number): MockConfig => ({
   telegramBot: 'agrotrace_bot',
   onMail: () => undefined,
   blobs: null,
+  counters: memoryCounters(),
 });
 
 describe('seed world', () => {

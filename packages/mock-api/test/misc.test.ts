@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { operationTable } from '../scripts/contract-table.js';
 import { OPERATIONS } from '../src/contract/operations.generated.js';
+import { COUNTERS_KEY } from '../src/config.js';
 import { createMockApi, DEMO_PASSWORD, type CrossTabLock, type MockApi } from '../src/index.js';
 import { inflateEntries, readXlsx, WorkbookTooLarge, writeXlsx, XLSX_MAX_ENTRY_BYTES } from '../src/lib/xlsx.js';
 import { Store } from '../src/store/store.js';
@@ -188,19 +189,66 @@ describe('one backend per origin (FM3)', () => {
     expect(later.dirty, 'expiry on read').toBe(true);
   });
 
-  it('FM8: a request that changes nothing writes nothing', async () => {
+  it('FM8/FM19: pure reads never write the world, also with rate limits ON (counters live in their own key)', async () => {
     const { storage } = memoryStorage();
-    let writes = 0;
-    const counting = { getItem: storage.getItem, removeItem: storage.removeItem, setItem: (k: string, v: string) => ((writes += 1), storage.setItem(k, v)) } as Storage;
-    const api = createMockApi({ now: () => T0, loadAsset: nodeAssetLoader, persist: counting, blobStore: null, rateLimits: false, lock: sharedLock(), verifyPersistence: true });
-    await api.ready;
+    const writes = new Map<string, number>();
+    const counting = { getItem: storage.getItem, removeItem: storage.removeItem, setItem: (k: string, v: string) => (writes.set(k, (writes.get(k) ?? 0) + 1), storage.setItem(k, v)) } as Storage;
+    // No verifyPersistence here: the verification itself serializes the world after every request.
+    const opts = { now: () => T0, loadAsset: nodeAssetLoader, persist: counting, blobStore: null, rateLimits: true, lock: sharedLock() };
+    const api = createMockApi(opts);
+    const other = createMockApi(opts);
+    await Promise.all([api.ready, other.ready]);
     const token = (await (await api.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }))).json()).accessToken;
-    const w = writes;
-    for (let i = 0; i < 5; i++) expect((await api.handle(req('/fields?size=5', { token }))).status).toBe(200);
-    expect(writes).toBe(w);
+    const insp = (await (await other.handle(req('/auth/login', { method: 'POST', json: { email: 'inspector@agrotrace.test', password: DEMO_PASSWORD } }))).json()).accessToken;
+    const stream = await other.handle(req(`/events/stream?access_token=${insp}`));
+    const reader = stream.body!.getReader();
+    await reader.read(); // the initial unread
+    const world = () => writes.get('agrotrace-mock-api') ?? 0;
+    const w = world();
+    const c = writes.get(COUNTERS_KEY) ?? 0;
+    // Not even serialized: a read must not cost a world-sized JSON.stringify (the reviewer's 2.2–2.7 s for 40 GETs).
+    const stringify = JSON.stringify;
+    let worldSized = 0;
+    const spy = vi.spyOn(JSON, 'stringify').mockImplementation(((...args: Parameters<typeof JSON.stringify>) => {
+      const out = stringify(...args);
+      if (typeof out === 'string' && out.length > 100_000) worldSized += 1;
+      return out;
+    }) as typeof JSON.stringify);
+    try {
+      for (let i = 0; i < 20; i++) expect((await api.handle(req('/fields?size=5', { token }))).status).toBe(200);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(worldSized).toBe(0);
+    expect(world()).toBe(w);
+    expect(writes.get(COUNTERS_KEY)! - c).toBe(20); // every read counted in `user`
+    // The other tab re-reads nothing and pushes nothing to its streams.
+    await other.handle(req('/health/live'));
+    const pushed = await Promise.race([reader.read().then(() => 'pushed'), new Promise((ok) => setTimeout(() => ok('quiet'), 200))]);
+    expect(pushed).toBe('quiet');
+    // A write writes the world.
     await api.handle(req('/fields', { method: 'POST', token, json: { name: 'W', areaHa: '1.00', regionCode: '33' } }));
-    expect(writes).toBeGreaterThan(w);
+    expect(world()).toBeGreaterThan(w);
+    await reader.cancel();
     api.dispose();
+    other.dispose();
+  });
+
+  it('FM19: rate-limit counters are shared by the tabs (the limit is per origin, not per tab)', async () => {
+    const { storage } = memoryStorage();
+    const opts = { now: () => T0 + 1_000, loadAsset: nodeAssetLoader, persist: storage, blobStore: null, rateLimits: true, lock: sharedLock() };
+    const a = createMockApi(opts);
+    const b = createMockApi(opts);
+    await Promise.all([a.ready, b.ready]);
+    const bad = (api: MockApi) => api.handle(req('/auth/login', { method: 'POST', json: { email: 'x@agrotrace.test', password: 'x' } }));
+    for (let i = 0; i < 10; i++) expect((await bad(a)).status).toBe(401);
+    for (let i = 0; i < 10; i++) expect((await bad(b)).status).toBe(401);
+    expect((await bad(a)).status).toBe(429);
+    // A reset starts every window afresh (same minute: without clearing, the next login would still be 429).
+    await b.reset();
+    expect((await bad(a)).status).toBe(401);
+    a.dispose();
+    b.dispose();
   });
 
   it('FM8: without a lock the pending idempotency mark is published before the operation runs', async () => {

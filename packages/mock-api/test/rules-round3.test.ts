@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { webLock, type CrossTabLock } from '../src/config.js';
-import { createMockApi, DEMO_PASSWORD, solveChallenge, type MockApi } from '../src/index.js';
+import { createMockApi, DEMO_PASSWORD, memoryCounters, solveChallenge, type MockApi } from '../src/index.js';
 import { expectStatus } from './helpers/client.js';
 import { nodeAssetLoader } from './helpers/assets.js';
 import { useMock } from './helpers/mock.js';
@@ -148,8 +148,8 @@ const loginIn = async (api: MockApi, email: string) =>
   (await (await api.handle(req('/auth/login', { method: 'POST', json: { email, password: DEMO_PASSWORD } }))).json()).accessToken as string;
 
 /** An SSE stream of a tab and everything it received so far. */
-async function stream(api: MockApi, token: string) {
-  const res = await api.handle(req(`/events/stream?access_token=${token}`));
+async function stream(api: MockApi, token: string, lastEventId?: string) {
+  const res = await api.handle(req(`/events/stream?access_token=${token}`, lastEventId === undefined ? {} : { headers: { 'Last-Event-ID': lastEventId } }));
   const reader = res.body!.getReader();
   const dec = new TextDecoder();
   let text = '';
@@ -246,6 +246,30 @@ describe('SSE across tabs', () => {
     await s.cancel();
   });
 
+  it('the read-through of a storage event takes the cross-tab lock (round 4)', async () => {
+    env = tabs(2);
+    const [a, c] = env.tabs as [MockApi, MockApi];
+    await Promise.all([a.ready, c.ready]);
+    await a.handle(req('/health/live'));
+    const uses = env.lockUses();
+    env.storageEvent();
+    await c.ready;
+    expect(env.lockUses()).toBe(uses + 2); // one read-through per tab
+  });
+
+  it('expired world keys are swept as a change of the world (dirty, persisted)', async () => {
+    env = tabs(2);
+    const [a, c] = env.tabs as [MockApi, MockApi];
+    await Promise.all([a.ready, c.ready]);
+    await a.handle(req('/health/live'));
+    a.store.kvSet('probe', 1, 60);
+    await a.handle(req('/health/live')); // persisted (clean again)
+    a.store.kv.get('probe')!.expiresAt = T0 - 1; // its window ends — nothing else changes
+    await a.handle(req('/health/live')); // verifyPersistence: the sweep's delete must mark the store dirty
+    await c.handle(req('/health/live'));
+    expect(c.store.kv.has('probe')).toBe(false);
+  });
+
   it('a reset runs under the cross-tab lock; the other tab closes its old-world streams and ignores their ids', async () => {
     env = tabs(2);
     const [a, c] = env.tabs as [MockApi, MockApi];
@@ -264,12 +288,16 @@ describe('SSE across tabs', () => {
     await s.drain();
     expect(s.done).toBe(true);
     expect(c.openStreams).toBe(0);
-    // The client reconnects with its old Last-Event-ID: above every id of the new world — treated as absent.
+    // FM19: ids are monotonic across resets — every id of the new world is above the old one, so the client that
+    // reconnects with its old Last-Event-ID gets all of the new world's notifications of its user.
+    const inspectorId = c.store.t.users.find((u) => u.email === 'inspector@agrotrace.test')!.id;
+    const newIds = c.store.t.notifications.filter((n) => n.user_id === inspectorId).map((n) => n.seq).sort((x, y) => x - y);
+    expect(newIds.length).toBeGreaterThan(0);
+    expect(Math.min(...c.store.t.notifications.map((n) => n.seq))).toBeGreaterThan(lastId);
     const fresh = await loginIn(c, 'inspector@agrotrace.test');
-    const again = await c.handle(req(`/events/stream?access_token=${fresh}`, { headers: { 'Last-Event-ID': String(lastId) } }));
-    const first = new TextDecoder().decode((await again.body!.getReader().read()).value);
-    expect(first).toMatch(/^event: unread/);
-    await again.body?.cancel().catch(() => undefined);
+    const again = await stream(c, fresh, String(lastId));
+    expect(again.ids()).toEqual(newIds);
+    await again.cancel();
   });
 });
 
@@ -309,16 +337,21 @@ describe('runtime details', () => {
     for (const t of [x, y, z]) t.dispose();
   });
 
-  it('expired keys (rate-limit windows) are deleted, not kept forever', async () => {
+  it('expired keys are deleted, not kept forever (world keys and rate-limit windows)', async () => {
     let t = T0;
-    const api = createMockApi({ now: () => t, loadAsset: nodeAssetLoader, persist: false, rateLimits: true });
+    const counters = memoryCounters();
+    const api = createMockApi({ now: () => t, loadAsset: nodeAssetLoader, persist: false, rateLimits: true, counters });
     await api.ready;
-    await api.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }));
-    expect([...api.store.kv.keys()].some((k) => k.startsWith('rl:login-ip:'))).toBe(true);
+    const login = () => api.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }));
+    await login();
+    const first = counters.keys().filter((k) => k.startsWith('rl:login-ip:'));
+    expect(first).toHaveLength(1);
+    api.store.kvSet('probe', 1, 60);
     t += 5 * 60_000;
-    await api.handle(req('/health/live'));
-    const stale = [...api.store.kv].filter(([, e]) => e.expiresAt !== null && e.expiresAt <= t);
-    expect(stale.map(([k]) => k)).toEqual([]);
+    await login();
+    // The old window is gone, only the current one is kept; the expired world key is swept before the request.
+    expect(counters.keys().filter((k) => k.startsWith('rl:login-ip:'))).toEqual([expect.not.stringMatching(first[0]!)]);
+    expect(api.store.kv.has('probe')).toBe(false);
     api.dispose();
   });
 });

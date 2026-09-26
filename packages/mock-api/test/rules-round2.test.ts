@@ -6,7 +6,7 @@
  * still checked against the contract. Each test was shown RED under its mutation (fix report).
  */
 import { describe, expect, it } from 'vitest';
-import { createMockApi, DEMO_PASSWORD, type MockApi } from '../src/index.js';
+import { createMockApi, DEMO_PASSWORD, memoryCounters, type MockApi, type RateCounters } from '../src/index.js';
 import { sha256hex } from '../src/lib/crypto.js';
 import { AVATAR_MAX_BYTES } from '../src/modules/profile.js';
 import { nodeAssetLoader } from './helpers/assets.js';
@@ -18,6 +18,7 @@ type Json = any;
 
 interface Env {
   api: MockApi;
+  counters: RateCounters;
   advance(ms: number): void;
   call(method: string, path: string, o?: { token?: string; json?: unknown; form?: FormData; headers?: Record<string, string> }): Promise<{ status: number; headers: Headers; body: Json }>;
   login(email: string): Promise<string>;
@@ -25,7 +26,8 @@ interface Env {
 
 async function env(opts: { rateLimits?: boolean } = {}): Promise<Env> {
   let t = T0;
-  const api = createMockApi({ now: () => t, loadAsset: nodeAssetLoader, rateLimits: opts.rateLimits ?? false, persist: false });
+  const counters = memoryCounters();
+  const api = createMockApi({ now: () => t, loadAsset: nodeAssetLoader, rateLimits: opts.rateLimits ?? false, persist: false, counters });
   await api.ready;
   const call: Env['call'] = async (method, path, o = {}) => {
     const headers: Record<string, string> = { ...(o.headers ?? {}) };
@@ -44,6 +46,7 @@ async function env(opts: { rateLimits?: boolean } = {}): Promise<Env> {
   };
   return {
     api,
+    counters,
     advance: (ms) => (t += ms),
     call,
     login: async (email) => (await call('POST', '/auth/login', { json: { email, password: DEMO_PASSWORD } })).body.accessToken,
@@ -125,13 +128,13 @@ describe('rate limits', () => {
   });
 
   it('a valid Bearer on a signed file URL counts in `user`; the URL alone does not', async () => {
-    const { api, call, login } = await env({ rateLimits: true });
+    const { api, counters, call, login } = await env({ rateLimits: true });
     const token = await login('petrov@agrotrace.test');
     const me = await call('GET', '/me', { token });
     const url = (me.body.avatarUrl as string).replace('/api/v1', '');
     const counter = () => {
       const start = Math.floor(api.store.now() / 60_000) * 60;
-      return (api.store.kvGet<number>(`rl:user:${me.body.id}:${start}`) ?? 0) as number;
+      return counters.peek(`rl:user:${me.body.id}:${start}`, api.store.now());
     };
     const c0 = counter();
     expect((await call('GET', url)).status).toBe(200);
