@@ -66,12 +66,15 @@ export const COUNTERS_KEY = 'agrotrace-mock-api:rate-limits';
  * storage refuses the write (quota) this tab keeps counting in memory.
  */
 export function storageCounters(storage: Storage): RateCounters {
-  const fallback = memoryCounters();
+  /** The windows as this tab last knew them: what counting continues from while the storage refuses writes. */
+  let known: Windows = {};
+  let failing = false;
   const read = (): Windows => {
+    if (failing) return known;
     try {
       return JSON.parse(storage.getItem(COUNTERS_KEY) ?? '{}') as Windows;
     } catch {
-      return {};
+      return known;
     }
   };
   return {
@@ -79,10 +82,13 @@ export function storageCounters(storage: Storage): RateCounters {
       const w = live(read(), now);
       const count = (w[key]?.[0] ?? 0) + 1;
       w[key] = [count, expiresAt];
+      known = w;
       try {
         storage.setItem(COUNTERS_KEY, JSON.stringify(w));
+        failing = false;
       } catch {
-        return fallback.hit(key, expiresAt, now);
+        // Quota: this tab keeps counting from the last known count (the limit is never reset by a failed write).
+        failing = true;
       }
       return count;
     },
@@ -90,7 +96,8 @@ export function storageCounters(storage: Storage): RateCounters {
     keys: () => Object.keys(read()),
     clear() {
       storage.removeItem(COUNTERS_KEY);
-      fallback.clear();
+      known = {};
+      failing = false;
     },
   };
 }
