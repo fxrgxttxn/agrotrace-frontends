@@ -164,3 +164,105 @@ test('a retry that restores a session of another role goes to /403, never shows 
   await expect(page).toHaveURL(/\/403$/);
   expect(seen).not.toContain('Пользователи');
 });
+
+// ── Review round 2 and ruling FM10 ─────────────────────────────────────────────────────────────────────────────────
+
+test('back and forward across a query-only change keep focus where it was', async ({ page, context }) => {
+  await mockApi(context);
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  await follow(page, '/batches?page=2');
+  await expect(page).toHaveURL(/\?page=2$/);
+  await expect(page.locator('#probe')).toBeFocused();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/batches$/);
+  await expect(page.locator('#probe')).toBeFocused();
+  await page.goForward();
+  await expect(page).toHaveURL(/\?page=2$/);
+  await expect(page.locator('#probe')).toBeFocused();
+});
+
+test('picking the current page in «Ещё» adds no history entry and keeps focus on «Ещё»', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto('/profile');
+  await expect(h1(page, 'Профиль')).toBeVisible();
+  const before = await page.evaluate(() => history.length);
+  const more = page.getByRole('button', { name: 'Ещё' });
+  await more.click();
+  await page.locator('#more-menu').getByRole('link', { name: 'Профиль' }).click();
+  await expect(page.locator('#more-menu')).not.toHaveAttribute('open');
+  await expect(more).toBeFocused();
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => history.length)).toBe(before);
+  await expect(more).toBeFocused();
+});
+
+test('Back while «Ещё» is open closes the sheet and focuses the page it returns to', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto('/batches');
+  await page.locator('.at-bottom-nav').getByRole('link', { name: 'Поля' }).click();
+  await expect(h1(page, 'Поля')).toBeFocused();
+  await page.getByRole('button', { name: 'Ещё' }).click();
+  await expect(page.locator('#more-title')).toBeFocused();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/batches$/);
+  await expect(page.locator('#more-menu')).not.toHaveAttribute('open');
+  await expect(h1(page, 'Партии')).toBeFocused();
+});
+
+test('FM10: while a page chunk loads, the target section is current and the content is busy; then F4', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  await page.route('**/assets/immutable/nodes/**', async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await expect(page.locator('.at-shell__main > .at-page[aria-busy="true"]')).toBeVisible();
+  await expect(page.locator('.at-sidebar a[href="/fields"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('.at-sidebar a[href="/batches"]')).not.toHaveAttribute('aria-current', 'page');
+  // SvelteKit commits the URL when the navigation completes (see the task report: FM10 URL note).
+  const urlWhileLoading = new URL(page.url()).pathname;
+  test.info().annotations.push({ type: 'FM10 URL while loading', description: urlWhileLoading });
+  console.log(`FM10 URL while the chunk loads: ${urlWhileLoading}`);
+  release();
+  await expect(h1(page, 'Поля')).toBeFocused();
+  await expect(page).toHaveURL(/\/fields$/);
+  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+});
+
+test('FM10: «Повторить» → loading → «Сервис недоступен» again puts the focus back on «Повторить»', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context, { refreshToken: { abort: true, times: 2 } });
+  await page.goto('/fields');
+  await expect(h1(page, 'Сервис недоступен')).toBeVisible();
+  expect(await active(page)).toMatch(/^body/); // first load: nothing moved
+  await page.getByRole('button', { name: 'Повторить' }).click();
+  await expect(h1(page, 'Сервис недоступен')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Повторить' })).toBeFocused();
+  await page.getByRole('button', { name: 'Повторить' }).press('Enter');
+  await expect(h1(page, 'Поля')).toBeVisible();
+});
+
+test('FM10: `next` never carries the #fragment', async ({ page, context }) => {
+  await mockApi(context, ANONYMOUS);
+  await page.goto('/batches?status=Approved#top');
+  await expect(h1(page, 'Вход')).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('next')).toBe('/batches?status=Approved');
+});

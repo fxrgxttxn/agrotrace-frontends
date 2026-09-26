@@ -21,6 +21,8 @@ export interface Override {
   headers?: Record<string, string>;
   /** Answer this way only the first time, then the default. */
   once?: boolean;
+  /** Answer this way this many times, then the default. */
+  times?: number;
   /** No answer at all: the network fails (a transient failure). */
   abort?: boolean;
 }
@@ -68,7 +70,11 @@ export async function mockApi(
     if (hit.op.operationId === 'downloadFile' || hit.op.operationId === 'downloadPublicFile')
       return route.fulfill({ status: 200, contentType: 'image/jpeg', path: PHOTO });
     const o = overrides[hit.op.operationId] ?? {};
-    if (o.once) delete overrides[hit.op.operationId];
+    const left = o.once ? 1 : o.times;
+    if (left !== undefined) {
+      if (left <= 1) delete overrides[hit.op.operationId];
+      else overrides[hit.op.operationId] = { ...o, once: false, times: left - 1 };
+    }
     if (o.abort) return route.abort('failed');
     const spec = contractExample(hit.op.operationId, o.status, o.example);
     const body = o.body !== undefined ? o.body : spec.body;

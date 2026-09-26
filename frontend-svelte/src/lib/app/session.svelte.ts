@@ -62,6 +62,7 @@ export class Session {
   store: TokenStore;
   api: Api;
   #booting = true;
+  #userRetry = false;
   #started: Promise<void> | null = null;
   #channel: BroadcastChannel | null = null;
 
@@ -88,6 +89,19 @@ export class Session {
   start(): Promise<void> {
     this.#started ??= this.restore();
     return this.#started;
+  }
+
+  /** «Повторить» after a transient failure: a restore the user asked for (the screen it leads to takes the focus). */
+  retry(): Promise<void> {
+    this.#userRetry = true;
+    return this.restore();
+  }
+
+  /** FM10: whether the «Сервис недоступен» screen now showing comes from the user's own retry (read once). */
+  takeUserRetry(): boolean {
+    const was = this.#userRetry;
+    this.#userRetry = false;
+    return was;
   }
 
   /** Restores the session from the refresh cookie (start-up, and «Повторить» after a transient failure). */
@@ -153,6 +167,7 @@ export class Session {
   }
 
   #authenticated(me: Me): void {
+    this.#userRetry = false;
     this.me = me;
     this.retryAfter = undefined;
     this.loggedOut = false;

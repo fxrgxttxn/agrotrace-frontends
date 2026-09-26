@@ -23,5 +23,10 @@ export const page: PageState = $state({
   form: null,
 });
 
-export const navigating = { current: null };
+/** No navigation in progress (the in-memory router commits without a pending phase). */
+export const navigating: { from: null; to: { url: URL } | null; type: null } = $state({
+  from: null,
+  to: null,
+  type: null,
+});
 export const updated = { current: false, check: async () => false };

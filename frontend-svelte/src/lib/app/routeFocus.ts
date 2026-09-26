@@ -38,3 +38,27 @@ export function resetRouteFocus(): void {
   state.last = null;
   state.skip = null;
 }
+
+// Query-only navigations keep focus where it was. Links already do (`data-sveltekit-keepfocus` on <body>), but the
+// router still resets focus on back/forward and on `goto` without `keepFocus`: the (app) layout remembers the focused
+// element before such a navigation and puts the focus back afterwards — or, when that element is gone (or inside a
+// closed dialog), on the page title.
+let kept: HTMLElement | null = null;
+
+/** `beforeNavigate`: remember the focus when only the query (or hash) changes. */
+export function keepFocusFor(from: URL | null | undefined, to: URL | null | undefined): void {
+  kept =
+    from && to && from.pathname === to.pathname && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+}
+
+/** `afterNavigate`: restore it. */
+export function restoreKeptFocus(): void {
+  const el = kept;
+  kept = null;
+  if (!el) return;
+  if (el !== document.body && el.isConnected && !el.closest('dialog:not([open])'))
+    el.focus({ preventScroll: true });
+  else document.querySelector<HTMLElement>('h1.at-page__title')?.focus({ preventScroll: true });
+}

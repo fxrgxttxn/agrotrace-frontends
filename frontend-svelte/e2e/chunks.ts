@@ -43,3 +43,16 @@ export const cabinetOnly: Set<string> = (() => {
 })();
 
 export const nodeCounts = { app: appNodes.length, public: publicNodes.length, root: rootNodes.length };
+
+/** Source modules of every chunk (written by the build: vite.config.ts `moduleMap`). */
+const modules = JSON.parse(readFileSync(`${KIT}output/module-map.json`, 'utf8')) as Record<string, string[]>;
+
+/** Every source module the public pages can run: their nodes, the root layout and the kit entries, with all their
+ * static imports. Checked directly (not against a cabinet set derived from the same graph). */
+export const publicModules: string[] = [...closure([...publicNodes, ...rootNodes, ...entries])].flatMap(
+  (f) => modules[f] ?? [],
+);
+
+/** Modules that belong to the cabinet: never in the public graph. */
+export const CABINET_MODULE =
+  /frontend-svelte\/src\/(lib\/(app\/(session|live|guards|forms|cache)|shell\/|pages\/)|routes\/\(app\)\/)/;

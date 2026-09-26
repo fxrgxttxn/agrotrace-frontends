@@ -70,6 +70,7 @@
       }
     } else if (!open && d.open) {
       d.close();
+      closed(); // the focus goes back now, not when the (asynchronous) `close` event arrives
     }
   });
 

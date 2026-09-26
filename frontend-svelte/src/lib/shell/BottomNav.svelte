@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { page } from '$app/state';
+  import { beforeNavigate, goto } from '$app/navigation';
+  import { flushSync } from 'svelte';
   import { t } from '../app/i18n';
   import { BOTTOM_NAV_ITEMS, isCurrent, NOTIFICATIONS_ITEM, PROFILE_ITEM, type NavItem } from '../app/nav';
   import { skipRouteFocus } from '../app/routeFocus';
@@ -9,9 +9,16 @@
 
   /** `at-bottom-nav` (README «Нижняя навигация»): the first four items of the role and «Ещё», which opens the rest of
    * the menu, notifications and the profile in an `at-dialog` (a bottom sheet below 768 px). */
-  let { items }: { items: NavItem[] } = $props();
+  /** `pathname`: the section to mark current — the target of a navigation in progress already (FM10). */
+  let { items, pathname }: { items: NavItem[]; pathname: string } = $props();
 
   let open = $state(false);
+
+  // Any navigation while the sheet is open (Back, a link elsewhere) closes it; the new page then takes the focus by the
+  // route rule (F4). A pick closes it itself before navigating.
+  beforeNavigate(() => {
+    open = false;
+  });
   const main = $derived(items.slice(0, BOTTOM_NAV_ITEMS));
   const more = $derived([...items.slice(BOTTOM_NAV_ITEMS), NOTIFICATIONS_ITEM, PROFILE_ITEM]);
 </script>
@@ -21,7 +28,7 @@
     <a
       class="at-bottom-nav__link"
       href={item.href}
-      aria-current={isCurrent(item, page.url.pathname) ? 'page' : undefined}
+      aria-current={isCurrent(item, pathname) ? 'page' : undefined}
       ><Icon name={item.icon} class="at-bottom-nav__icon" />{t(item.label)}</a
     >
   {/each}
@@ -49,15 +56,19 @@
           <a
             class="at-sidebar__link"
             href={item.href}
-            aria-current={isCurrent(item, page.url.pathname) ? 'page' : undefined}
+            aria-current={isCurrent(item, pathname) ? 'page' : undefined}
             onclick={(e) => {
               // README: a pick returns focus to «Ещё» (the page title does not take it). The router is told to keep the
               // focus explicitly: the link itself is gone from the DOM once the menu closes.
               if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
               e.preventDefault();
-              skipRouteFocus(item.href);
-              open = false;
-              void goto(item.href, { keepFocus: true });
+              // Like a link: the current page picked again replaces its history entry instead of adding a copy (and, the
+              // pathname being the same, the page title never takes the focus).
+              const here = `${location.pathname}${location.search}` === item.href;
+              if (!here) skipRouteFocus(item.href);
+              // Closed now, so the dialog has given the focus back to «Ещё» before the router looks at it.
+              flushSync(() => (open = false));
+              void goto(item.href, { keepFocus: true, replaceState: here });
             }}><Icon name={item.icon} class="at-sidebar__icon" /><span class="at-sidebar__label">{t(item.label)}</span></a
           >
         </li>

@@ -1,6 +1,6 @@
 import { gzipSync } from 'node:zlib';
 import { expect, test } from '@playwright/test';
-import { cabinetOnly, nodeCounts } from './chunks';
+import { cabinetOnly, CABINET_MODULE, nodeCounts, publicModules } from './chunks';
 import { ANONYMOUS, mockApi } from './contract';
 import { cspViolations, horizontalOverflow, unexpected, watch } from './helpers';
 
@@ -128,9 +128,12 @@ test('the public pages /p/* load no cabinet chunk (module graph) and stay in the
   page.on('response', (r) => {
     if (r.request().resourceType() === 'script') scripts.set(new URL(r.url()).pathname, r.text());
   });
-  // The graph itself: there are cabinet/auth-only chunks, and the session module is one of them.
+  // The module graph of the public pages (their nodes, the root layout, the kit entries and all static imports): no
+  // cabinet module at all — session, live stream, guards, forms, shell, cabinet pages, (app) routes.
   expect(nodeCounts.app).toBeGreaterThan(30);
   expect(nodeCounts.public).toBe(3); // the three /p pages (the group has no layout of its own)
+  expect(publicModules.some((m) => m.endsWith('src/lib/public/PublicPage.svelte'))).toBe(true);
+  expect(publicModules.filter((m) => CABINET_MODULE.test(m))).toEqual([]);
   expect(cabinetOnly.size).toBeGreaterThan(0);
   await page.goto('/p/AT-2026-000123');
   await expect(page.getByRole('heading', { level: 1, name: 'Партия' })).toBeVisible();
@@ -142,6 +145,7 @@ test('the public pages /p/* load no cabinet chunk (module graph) and stay in the
   // no session restore, no stream: nothing of the cabinet ran
   expect(calls).toEqual([]);
   const bodies = await Promise.all(scripts.values());
+  expect(bodies.filter((b) => b.includes('agrotrace-session') || b.includes('at-sidebar'))).toEqual([]);
   const gzip = bodies.reduce((sum, b) => sum + gzipSync(b).length, 0) / 1024;
   const note = `${loaded.length} scripts, ${gzip.toFixed(1)} KB gzip of 60 KB (headroom ${(60 - gzip).toFixed(1)} KB)`;
   test.info().annotations.push({ type: 'public JS', description: note });
