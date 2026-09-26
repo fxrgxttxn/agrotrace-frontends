@@ -17,12 +17,18 @@ export function OrgPicker({
   value,
   onChange,
   types,
+  error,
+  exclude,
 }: {
   id: string;
   label: string;
   value: string;
   onChange: (id: string | null) => void;
   types?: OrganizationType[];
+  /** Error text of the field (a form field). */
+  error?: string | null;
+  /** An organization never offered (the user's own: a waybill receiver). */
+  exclude?: string;
 }) {
   const { api } = useSession();
   const [query, setQuery] = useState('');
@@ -52,14 +58,16 @@ export function OrgPicker({
         }),
       ),
   });
-  const options: ComboOption[] = (found.data?.items ?? []).map((o) => ({
-    value: o.id,
-    label: o.name,
-    meta: enumLabel(t, 'OrganizationType', o.type),
-  }));
+  const options: ComboOption[] = (found.data?.items ?? [])
+    .filter((o) => o.id !== exclude)
+    .map((o) => ({
+      value: o.id,
+      label: o.name,
+      meta: enumLabel(t, 'OrganizationType', o.type),
+    }));
 
   return (
-    <Field id={id} label={label}>
+    <Field id={id} label={label} error={error}>
       <Combobox
         listLabel={label}
         query={query}

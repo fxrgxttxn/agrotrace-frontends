@@ -20,6 +20,7 @@ import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema
 import { LOCALE, t } from '../app/i18n';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
 import { momentCheck, momentDefaults, MomentInput, momentWire } from '../app/MomentInput';
+import { DateFilter } from '../app/DateFilter';
 import { OrgPicker } from '../app/OrgPicker';
 import { CABINET_ROUTES } from '../app/routes';
 import { useMe, useSession } from '../app/session';
@@ -36,7 +37,6 @@ import {
   CardFooter,
   CardHeader,
   Chip,
-  DateInput,
   Empty,
   Field,
   InputGroup,
@@ -390,47 +390,6 @@ export function BatchesPage() {
       />
       {content()}
     </Page>
-  );
-}
-
-/** A date filter: the URL changes on a complete valid date or when the text is cleared (not while typing). */
-function DateFilter({
-  id,
-  label,
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  min?: string;
-  max?: string;
-  onChange: (iso: string | null) => void;
-}) {
-  const latest = useRef<string | null>(value || null);
-  // The URL can change without typing (back/forward, «Сбросить фильтры»): what the field holds follows it.
-  useEffect(() => {
-    latest.current = value || null;
-  }, [value]);
-  const [error, setError] = useState<string | null>(null);
-  return (
-    <Field id={id} label={label} error={error ? t(error) : null}>
-      <DateInput
-        value={value || null}
-        min={min}
-        max={max}
-        onChange={(iso) => {
-          latest.current = iso;
-          if (iso && iso !== value) onChange(iso);
-        }}
-        onValidate={(err) => {
-          setError(err);
-          if (!err && latest.current === null && value) onChange(null);
-        }}
-      />
-    </Field>
   );
 }
 

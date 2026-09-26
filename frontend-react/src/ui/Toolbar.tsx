@@ -6,7 +6,8 @@ export const SEARCH_INPUT_DELAY_MS = 300;
 
 const WIDE = '(min-width: 768px)';
 
-function useWide(): boolean {
+/** `true` from 768 px (the tablet and desktop layouts). */
+export function useWide(): boolean {
   const [wide, setWide] = useState(() => window.matchMedia(WIDE).matches);
   useEffect(() => {
     const mq = window.matchMedia(WIDE);

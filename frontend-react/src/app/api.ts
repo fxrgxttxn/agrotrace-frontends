@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FieldValues, Path, UseFormReturn } from 'react-hook-form';
 import { ApiProblem, type ProblemBody } from '@agrotrace/api-client';
-import { problemMessage } from '@agrotrace/i18n';
+import { enumLabel, problemMessage } from '@agrotrace/i18n';
 import { t } from './i18n';
 import { useToast } from '../ui/Toasts';
 
@@ -50,8 +50,12 @@ export function retryAfterOf(p: ApiProblem): number {
 export function errorText(e: unknown): string {
   if (e instanceof ApiProblem) {
     if (e.code === 'FORBIDDEN' && typeof e.params?.reason === 'string') {
-      const key = `auth.forbidden.${e.params.reason}`;
-      const text = t(key);
+      // The other side of an operation (NOT_HOLDER, NOT_SENDER, NOT_RECEIVER) or a state (BATCH_STATUS): the reason's
+      // own text, with the batch code when the answer names it.
+      const code = typeof e.params.publicCode === 'string' ? e.params.publicCode : null;
+      const status = typeof e.params.status === 'string' ? enumLabel(t, 'BatchStatus', e.params.status) : '';
+      const key = `auth.forbidden.${e.params.reason}${code ? '_CODE' : ''}`;
+      const text = t(key, { publicCode: code ?? '', status });
       if (text !== key) return text;
     }
     if (e.status === 429) return t('auth.rateLimited', { seconds: retryAfterOf(e) });

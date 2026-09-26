@@ -85,3 +85,29 @@ export function useFieldControl<P extends ControlAttrs>(props: P): P {
     'aria-describedby': describedBy,
   };
 }
+
+/** An `at-field` inside a table cell or a row of a list form: the column header (`data-label` in card mode) or the
+ * control's own `aria-label` names the control, so there is no `label` element; the error is as in `Field`. */
+export function CellField({
+  id,
+  error,
+  children,
+}: {
+  id: string;
+  error?: string | null;
+  children: ReactNode;
+}) {
+  const errorId = error ? `${id}-error` : undefined;
+  return (
+    <FieldContext.Provider value={{ id, errorId, invalid: Boolean(error) }}>
+      <div className="at-field" data-invalid={error ? '' : undefined}>
+        {children}
+        {error && (
+          <p className="at-field__error" id={errorId} role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </FieldContext.Provider>
+  );
+}
