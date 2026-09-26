@@ -37,18 +37,16 @@ test('a page chunk that fails twice: one reload, then the error page at the targ
   await expect(page.locator(h1('Партии'))).toBeVisible();
   const before = await page.evaluate(() => history.length);
   let aborted = 0;
-  await page.route(
-    (url) => chunks.includes(url.pathname),
-    (route) => {
-      aborted++;
-      return route.abort();
-    },
-  );
+  const fieldsChunk = (url: URL) => chunks.includes(url.pathname);
+  await page.route(fieldsChunk, (route) => {
+    aborted++;
+    return route.abort();
+  });
   const loads: string[] = [];
   page.on('load', () => loads.push(page.url()));
 
   await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
-  await expect(page.getByText('Не удалось загрузить страницу')).toBeVisible();
+  await expect(page.getByText('Не удалось загрузить страницу.')).toBeVisible();
   await expect(page).toHaveURL(/\/fields$/);
   expect(loads.filter((u) => u.endsWith('/fields'))).toHaveLength(1); // exactly one full reload
   expect(aborted).toBeGreaterThanOrEqual(2);
@@ -69,10 +67,125 @@ test('a page chunk that fails twice: one reload, then the error page at the targ
   await expect(page).toHaveURL(/\/batches$/);
   await expect(page.locator(h1('Партии'))).toBeVisible();
 
-  // once the chunk loads again, «Повторить» brings the page
-  await page.unroute((url) => chunks.includes(url.pathname));
+  // FM15: the error page is not cached as the route component — with the chunk back, Forward shows the page
+  await page.unroute(fieldsChunk);
   await page.goForward();
   await expect(page).toHaveURL(/\/fields$/);
+  await expect(page.locator(h1('Поля'))).toBeVisible();
+  await expect(page.locator('.at-empty')).toHaveCount(0);
+  await expect(page.getByText('Не удалось загрузить страницу.')).toHaveCount(0);
+});
+
+/** Every request of the `/fields` page chunk waits `ms`, then fails. */
+async function slowFailingChunk(page: Page, chunks: string[], ms: number): Promise<void> {
+  await page.route(
+    (url) => chunks.includes(url.pathname),
+    async (route) => {
+      await new Promise((r) => setTimeout(r, ms));
+      await route.abort().catch(() => {});
+    },
+  );
+}
+
+test('FM15: a failing chunk of a navigation the user already left (another link) reloads nothing', async ({
+  page,
+}) => {
+  await mockApi(page);
+  const chunks = await pageChunks(page, '/fields');
+  await page.goto('/batches');
+  await expect(page.locator(h1('Партии'))).toBeVisible();
+  await slowFailingChunk(page, chunks, 2000);
+  const loads: string[] = [];
+  page.on('load', () => loads.push(page.url()));
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await page.waitForTimeout(300);
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Накладные' }).click();
+  await expect(page.locator(h1('Накладные'))).toBeVisible();
+  await page.waitForTimeout(2500); // the failed chunk has come back meanwhile
+  expect(loads).toEqual([]);
+  await expect(page).toHaveURL(/\/waybills$/);
+  await expect(page.locator(h1('Накладные'))).toBeVisible();
+  await expect(page.locator('.at-empty')).toHaveCount(0);
+});
+
+test('FM15: a failing chunk after Back reloads nothing, the page before stays', async ({ page }) => {
+  await mockApi(page);
+  const chunks = await pageChunks(page, '/fields');
+  await page.goto('/batches');
+  await expect(page.locator(h1('Партии'))).toBeVisible();
+  await slowFailingChunk(page, chunks, 2000);
+  const loads: string[] = [];
+  page.on('load', () => loads.push(page.url()));
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await page.waitForTimeout(300);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/batches$/);
+  await page.waitForTimeout(2500);
+  expect(loads).toEqual([]);
+  await expect(page.locator(h1('Партии'))).toBeVisible();
+  await expect(page.locator('.at-empty')).toHaveCount(0);
+});
+
+test('FM15: after the error page, the next navigation to the route imports the chunk again', async ({
+  page,
+}) => {
+  await mockApi(page);
+  const chunks = await pageChunks(page, '/fields');
+  await page.goto('/batches');
+  await expect(page.locator(h1('Партии'))).toBeVisible();
+  const match = (url: URL) => chunks.includes(url.pathname);
+  await page.route(match, (route) => route.abort());
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await expect(page.getByText('Не удалось загрузить страницу.')).toBeVisible();
+  await page.unroute(match);
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Партии' }).click();
+  await expect(page.locator(h1('Партии'))).toBeFocused();
+  const documents: string[] = [];
+  page.on('request', (r) => {
+    if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+  });
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  // The import is attempted again (not the cached error page). Chromium keeps a failed dynamic import in its module
+  // map for the document, so that attempt fails at once and the one reload of FM11 fetches the chunk fresh.
+  await expect(page.locator(h1('Поля'))).toBeVisible();
+  await expect(page.locator('.at-empty')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/fields$/);
+  expect(documents).toEqual(['/fields']);
+});
+
+test('FM15: the app chunk itself fails at start: one reload, then a plain message with «Повторить» (no blank page)', async ({
+  page,
+}) => {
+  await mockApi(page, { signedIn: false });
+  // The entry's own static imports (modulepreload in index.html) are the same deploy as index.html itself; what can
+  // fail is the dynamic import of the app: every other chunk.
+  await page.goto('/login');
+  await expect(page.locator(h1('Вход'))).toBeVisible();
+  const preloaded = await page.evaluate(() =>
+    [...document.querySelectorAll('link[rel="modulepreload"]')].map(
+      (l) => new URL((l as HTMLLinkElement).href).pathname,
+    ),
+  );
+  const everyChunk = (url: URL) =>
+    /^\/assets\/chunk-.*\.js$/.test(url.pathname) && !preloaded.includes(url.pathname);
+  await page.route(everyChunk, (route) => route.abort());
+  // documents requested: this reload and exactly one automatic reload (the first document's `load` event never fires:
+  // the failed import reloads it before)
+  const documents: string[] = [];
+  page.on('request', (r) => {
+    if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+  });
+  await page.reload();
+  await expect(page.getByText('Не удалось загрузить страницу.')).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(documents).toEqual(['/login', '/login']);
+  const retry = page.getByRole('button', { name: 'Повторить' });
+  await expect(retry).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem('agrotrace-chunk-reload'))).toBeNull();
+  await page.unroute(everyChunk);
+  await retry.click();
+  await expect(page.locator(h1('Вход'))).toBeVisible();
+  await expect(page.getByText('Не удалось загрузить страницу.')).toHaveCount(0);
 });
 
 test('«Повторить» on the error page reloads and shows the page when the chunk is back', async ({ page }) => {
@@ -83,7 +196,7 @@ test('«Повторить» on the error page reloads and shows the page when t
   const match = (url: URL) => chunks.includes(url.pathname);
   await page.route(match, (route) => route.abort());
   await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
-  await expect(page.getByText('Не удалось загрузить страницу')).toBeVisible();
+  await expect(page.getByText('Не удалось загрузить страницу.')).toBeVisible();
   await page.unroute(match);
   await page.getByRole('button', { name: 'Повторить' }).click();
   await expect(page.locator('.at-empty')).toHaveCount(0);

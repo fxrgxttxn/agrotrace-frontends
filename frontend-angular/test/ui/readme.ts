@@ -55,6 +55,8 @@ function walk(node: Node, out: string[], depth: number): void {
   if (marker) throw new Error(`Angular marker attribute ${marker.name} on <${tag}> — not README markup`);
   const attrs = [...el.attributes]
     .filter((a) => !skip.includes(a.name))
+    // FM9: `ng-*` class tokens go; a class attribute made only of them goes too (the README element has none)
+    .filter((a) => !(a.name === 'class' && /(^| )ng-/.test(a.value) && withoutNgClasses(a.value) === ''))
     .map((a) => [a.name, a.name === 'class' ? withoutNgClasses(a.value) : a.value] as const)
     .map(([name, value]) => `${name}="${name === 'style' ? normStyle(value) : value}"`)
     .sort();

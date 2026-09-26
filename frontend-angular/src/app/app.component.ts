@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { NavigationCancel, NavigationEnd, NavigationError, Router } from '@angular/router';
 import { LiveEventsService } from './live-events';
+import { writeReloadMark } from '../reload-mark';
 import { NavigationService } from './navigation';
 import { OutletDirective } from './outlet';
 import { RouteFocusService } from './route-focus';
@@ -46,8 +47,14 @@ export class AppComponent {
     queueMicrotask(() => host.removeAttribute('ng-version'));
     inject(LiveEventsService);
     inject(RouteFocusService);
+    let ended = false;
     const sub = inject(Router).events.subscribe((e) => {
-      if (e instanceof NavigationEnd || e instanceof NavigationError) this.routed.set(true);
+      if (e instanceof NavigationEnd) {
+        // FM15: the first successful navigation of this document ends a reload chain
+        if (!ended) writeReloadMark(null);
+        ended = true;
+        this.routed.set(true);
+      } else if (e instanceof NavigationError) this.routed.set(true);
       else if (e instanceof NavigationCancel && e.code !== 0 /* redirect */) this.routed.set(true);
     });
     inject(DestroyRef).onDestroy(() => sub.unsubscribe());

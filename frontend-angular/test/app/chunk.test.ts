@@ -1,41 +1,69 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resilientLoad } from '../../src/app/chunk';
 
-// FM11: a page chunk that fails loads the target URL once more as a full document; failing again, the error page.
+// FM11/FM15: a page chunk that fails reloads the target URL once as a full document — only if the user is still on
+// that target; failing again after the reload, the error page. The mark is cleared by the app's first navigation.
 
 class Page {}
 class Failed {}
 const flush = () => new Promise((r) => setTimeout(r, 0));
+const MARK = 'agrotrace-chunk-reload';
+
+afterEach(() => {
+  sessionStorage.clear();
+  history.replaceState(null, '', '/');
+});
 
 describe('resilientLoad', () => {
-  it('a loaded chunk is the page (and clears a reload mark of this URL)', async () => {
-    sessionStorage.setItem('agrotrace-chunk-reload', '/');
+  it('a loaded chunk is the page, no reload', async () => {
     const reload = vi.fn();
     expect(await resilientLoad(async () => Page, Failed, reload)()).toBe(Page);
     expect(reload).not.toHaveBeenCalled();
-    expect(sessionStorage.getItem('agrotrace-chunk-reload')).toBeNull();
   });
 
-  it('the first failure reloads the document once (marked), the load never settles meanwhile', async () => {
-    sessionStorage.clear();
+  it('the first failure at the target reloads the document once (marked); the load never settles meanwhile', async () => {
+    history.replaceState(null, '', '/fields');
     const reload = vi.fn();
     let settled = false;
     void resilientLoad(
-      () => Promise.reject(new TypeError('Failed to fetch dynamically imported module')),
+      async () => {
+        throw new TypeError('Failed to fetch dynamically imported module');
+      },
       Failed,
       reload,
     )().then(() => (settled = true));
     await flush();
     expect(reload).toHaveBeenCalledTimes(1);
-    expect(sessionStorage.getItem('agrotrace-chunk-reload')).toBe('/');
+    expect(sessionStorage.getItem(MARK)).toBe('/fields');
     expect(settled).toBe(false);
   });
 
   it('failing again after that reload: the error page, no second reload, the mark cleared', async () => {
-    sessionStorage.setItem('agrotrace-chunk-reload', '/');
+    history.replaceState(null, '', '/fields');
+    sessionStorage.setItem(MARK, '/fields');
     const reload = vi.fn();
-    expect(await resilientLoad(() => Promise.reject(new Error('chunk')), Failed, reload)()).toBe(Failed);
+    expect(
+      await resilientLoad(
+        async () => {
+          throw new Error('chunk');
+        },
+        Failed,
+        reload,
+      )(),
+    ).toBe(Failed);
     expect(reload).not.toHaveBeenCalled();
-    expect(sessionStorage.getItem('agrotrace-chunk-reload')).toBeNull();
+    expect(sessionStorage.getItem(MARK)).toBeNull();
+  });
+
+  it('the user moved on (another link, Back) before the failure: no reload, the error goes to the dead navigation', async () => {
+    history.replaceState(null, '', '/fields');
+    const reload = vi.fn();
+    let fail: (e: Error) => void = () => {};
+    const result = resilientLoad(() => new Promise<never>((_, reject) => (fail = reject)), Failed, reload)();
+    history.pushState(null, '', '/batches'); // the user went elsewhere
+    fail(new Error('chunk'));
+    await expect(result).rejects.toThrow('chunk');
+    expect(reload).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(MARK)).toBeNull();
   });
 });

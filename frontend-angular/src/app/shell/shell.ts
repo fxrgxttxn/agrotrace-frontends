@@ -146,6 +146,7 @@ export class TopbarComponent {
       type="button"
       [attr.aria-expanded]="open() ? 'true' : 'false'"
       aria-controls="more-menu"
+      [disabled]="moreDisabled()"
       (click)="more.emit()"
     >
       <svg class="at-bottom-nav__icon" aria-hidden="true"><use href="#i-more"></use></svg>{{ t('nav.more') }}
@@ -156,6 +157,8 @@ export class BottomNavComponent {
   protected readonly t = t;
   readonly items = input.required<NavItem[]>();
   readonly open = input.required<boolean>();
+  /** The shell frame drawn while entering the cabinet (FM11) has no «Ещё» dialog yet. */
+  readonly moreDisabled = input(false);
   readonly more = output<void>();
   protected readonly main = computed(() => this.items().slice(0, BOTTOM_NAV_ITEMS));
   private readonly path = currentPath();
@@ -269,7 +272,7 @@ export class ShellComponent {
     <nav class="at-sidebar" [items]="items()"></nav>
     <header class="at-topbar" [me]="me" [unread]="unread()"></header>
     <main class="at-shell__main" id="main" tabindex="-1"><div class="at-page" [loading]="true"></div></main>
-    <nav class="at-bottom-nav" [items]="items()" [open]="false"></nav>
+    <nav class="at-bottom-nav" [items]="items()" [open]="false" [moreDisabled]="true"></nav>
   }`,
 })
 export class ShellFrameComponent {

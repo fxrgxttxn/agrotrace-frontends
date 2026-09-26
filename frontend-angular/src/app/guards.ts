@@ -36,9 +36,14 @@ export const toLoginOrUnavailable: CanActivateFn = (_route, state) => {
 export function requireRole(access: Access): CanActivateFn {
   return (_route, state) => {
     const router = inject(Router);
-    const me = inject(SessionService).me();
-    // Never a plain `false` (it would cancel and roll the eager URL back, FM11): no session here means the login.
-    if (!me) return replaceWith(router, loginUrl(state.url));
+    const session = inject(SessionService);
+    const me = session.me();
+    // Never a plain `false` (it would cancel and roll the eager URL back, FM11): no session here means the login —
+    // plain `/login` after an explicit logout (no `next` back into the cabinet), as `toLoginOrUnavailable`.
+    if (!me) {
+      const s = session.state();
+      return replaceWith(router, s.status === 'anonymous' && s.loggedOut ? '/login' : loginUrl(state.url));
+    }
     return canAccess(me, access) || replaceWith(router, '/403');
   };
 }

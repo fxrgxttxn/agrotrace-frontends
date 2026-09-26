@@ -180,9 +180,15 @@ const PAGE_LOAD_FAILED = `<div class="at-page__header" [pageTitle]="title"></div
 
 abstract class PageLoadFailedBase {
   protected readonly t = t;
-  protected readonly title = t(
-    (inject(ActivatedRoute).snapshot.data['title'] as string | undefined) ?? 'page.notFound',
-  );
+  private readonly route = inject(ActivatedRoute);
+  protected readonly title = t((this.route.snapshot.data['title'] as string | undefined) ?? 'page.notFound');
+
+  constructor() {
+    // FM15: the error is not the route's component for good — the router cached this page as the loaded component;
+    // dropping it makes the next navigation to the route import the chunk again.
+    const config = this.route.routeConfig as { _loadedComponent?: unknown } | null;
+    if (config) delete config._loadedComponent;
+  }
 
   protected reload(): void {
     location.reload();
