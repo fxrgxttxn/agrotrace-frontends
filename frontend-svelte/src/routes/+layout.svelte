@@ -11,8 +11,8 @@
   // document for the navigation after a failure.
   let { children }: { children: Snippet } = $props();
 
-  beforeNavigate(({ type, to, cancel }) => {
-    fullLoadAfterFailure(type, to?.url, cancel);
+  beforeNavigate((nav) => {
+    fullLoadAfterFailure(nav.type, nav.to?.url, nav.cancel, nav.type === 'link' ? nav.event : undefined);
   });
   afterNavigate(() => afterPageShown(page.error));
 </script>

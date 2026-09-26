@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { entryFiles, nodeFile } from './chunks';
 import { ANONYMOUS, mockApi } from './contract';
-import { watch } from './helpers';
+import { cspViolations, watch } from './helpers';
 
 // Focus, history and redirects with the REAL SvelteKit router of the build (rulings F4, FM7; README «Фокус при смене
 // маршрута»): every client-side pathname change except the first load focuses the new page's h1 — redirects included;
@@ -463,6 +463,9 @@ test('FM15: a failing start-up chunk (public page) — one reload, then a static
 // ── Ruling FM18 and review round 3 ─────────────────────────────────────────────────────────────────────────────────
 
 const ROOT_CHUNK = nodeFile('src/routes/+layout.svelte');
+/** SvelteKit reports the failed import of the root layout itself (an uncaught rejection while it renders its error
+ * template); nothing of the app throws. */
+const KIT_ROOT_FAILURE = /^pageerror: Failed to fetch dynamically imported module: .*\/nodes\/0\./;
 
 async function staticScreen(page: Page, timeout = 5000) {
   const box = page.locator('#at-load-failed');
@@ -486,8 +489,9 @@ for (const path of ['/batches', '/p/AT-2026-000123'])
     context,
   }) => {
     await mockApi(context);
-    const errors: string[] = [];
-    page.on('pageerror', (e) => errors.push(e.message));
+    const w = await watch(page);
+    // S1 minors: the static screen follows the stored theme
+    await context.addInitScript(() => localStorage.setItem('agrotrace-theme', 'dark'));
     const documents: string[] = [];
     page.on('request', (r) => {
       if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
@@ -499,12 +503,62 @@ for (const path of ['/batches', '/p/AT-2026-000123'])
     await expect.poll(() => documents.length).toBe(2);
     const retry = await staticScreen(page);
     expect(documents).toEqual([path, path]);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    // S1 minors: the reload's «focus the first title» flag is dropped with the static screen (no page will read it)
+    expect(await page.evaluate(() => sessionStorage.getItem('agrotrace-focus-title'))).toBeNull();
+    expect(await cspViolations(page)).toEqual([]);
+    // the only page error is SvelteKit's own report of the failed root layout import (nothing of ours throws)
+    expect(w.problems.filter((p) => p.startsWith('pageerror') && !KIT_ROOT_FAILURE.test(p))).toEqual([]);
     await context.unroute(`**${ROOT_CHUNK}`);
     await retry.click();
     await expect(page.locator('h1').first()).toBeVisible();
     await expect(page.locator('#at-load-failed')).toHaveCount(0);
-    test.info().annotations.push({ type: 'page errors', description: errors.join(' | ') || 'none' });
+    expect(await cspViolations(page)).toEqual([]);
   });
+
+test('S1 minors: after a failure, a link that replaces its entry stays a replacement as a full document load', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  const documents: string[] = [];
+  page.on('request', (r) => {
+    if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+  });
+  await context.route(`**${FIELDS_CHUNK}`, (route) => route.abort('failed'));
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await expect(page.locator('.at-shell__main .at-empty__text')).toHaveText('Не удалось загрузить страницу.');
+  const length = await page.evaluate(() => history.length);
+  await page.evaluate(() => {
+    const a = document.createElement('a');
+    a.href = '/waybills';
+    a.id = 'probe';
+    a.textContent = 'probe';
+    a.setAttribute('data-sveltekit-replacestate', '');
+    document.querySelector('.at-shell__main')!.append(a);
+  });
+  await page.locator('#probe').click();
+  await expect(h1(page, 'Накладные')).toBeVisible();
+  expect(documents).toEqual(['/batches', '/fields', '/waybills']);
+  expect(await page.evaluate(() => history.length)).toBe(length);
+  await page.goBack();
+  await expect(h1(page, 'Партии')).toBeVisible();
+});
+
+test('S1 minors: the focus flag of a reload is spent by the first page shown, even one without a title', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  await page.goto('/p/AT-2026-000123');
+  await expect(h1(page, 'Партия')).toBeVisible();
+  await page.evaluate(() => sessionStorage.setItem('agrotrace-focus-title', '1'));
+  await page.reload();
+  await expect(h1(page, 'Партия')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('agrotrace-focus-title'))).toBeNull();
+});
 
 test('FM18: the entry script itself cannot load — index.html shows its static screen after 10 s', async ({
   page,
@@ -512,15 +566,19 @@ test('FM18: the entry script itself cannot load — index.html shows its static 
 }) => {
   test.setTimeout(60000);
   await mockApi(context);
+  const w = await watch(page);
   await context.route('**/assets/immutable/entry/boot.*.js', (route) => route.abort('failed'));
   await page.goto('/batches');
   await page.waitForTimeout(2000);
   await expect(page.locator('#at-load-failed')).toBeHidden(); // not before 10 s
   const retry = await staticScreen(page, 15000);
+  expect(await cspViolations(page)).toEqual([]);
+  expect(w.problems.filter((p) => p.startsWith('pageerror'))).toEqual([]);
   await context.unroute('**/assets/immutable/entry/boot.*.js');
   await retry.click();
   await expect(h1(page, 'Партии')).toBeVisible();
   await expect(page.locator('#at-load-failed')).toHaveCount(0); // removed when the app starts
+  expect(await cspViolations(page)).toEqual([]);
 });
 
 test('round 3: after the automatic reload the page title has the focus and the #fragment is kept', async ({

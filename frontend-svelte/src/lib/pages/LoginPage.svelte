@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { goto } from '../app/goto';
   import { page } from '$app/state';
   import { ApiProblem, type LoginResponse } from '@agrotrace/api-client';
   import { formatLocalTime } from '@agrotrace/i18n';

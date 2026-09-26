@@ -18,7 +18,8 @@ const INLINE = /<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g;
 // has already replaced the document with its error template). The same reload-once mark as the pages
 // (src/lib/app/chunkFailure.ts: sessionStorage `agrotrace-chunk-reload` = the URL, the #fragment kept), then the
 // static FM18 screen of index.html / the error template (scripts/templates.mjs: README markup, texts from
-// @agrotrace/i18n) is shown at once — put back into the document if it was replaced — with the app's stylesheets.
+// @agrotrace/i18n) is shown at once — put back into the document if it was replaced — with the app's stylesheets and
+// the stored theme; the «focus the first title» flag of the reload is dropped (no page will read it).
 const BOOT_FAILED = `var __agrotraceFallback = document.getElementById('at-load-failed');
 var __agrotraceStyles = Array.prototype.map.call(document.querySelectorAll('link[rel="stylesheet"]'), function (l) {
   return l.href;
@@ -37,6 +38,15 @@ function __agrotraceBootFailed(error) {
     } catch (e) {}
   }
   console.warn('AgroTrace: start-up failed', error);
+  try {
+    // no page will read the «focus the first title» flag of the reload (src/lib/app/chunkFailure.ts)
+    sessionStorage.removeItem('agrotrace-focus-title');
+  } catch (e) {}
+  try {
+    // the stored theme (src/lib/app/theme.svelte.ts: localStorage 'agrotrace-theme'; «system» = no attribute)
+    var theme = localStorage.getItem('agrotrace-theme');
+    if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+  } catch (e) {}
   __agrotraceStyles.forEach(function (href) {
     var has = Array.prototype.some.call(document.querySelectorAll('link[rel="stylesheet"]'), function (l) {
       return l.href === href;

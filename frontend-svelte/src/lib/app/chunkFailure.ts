@@ -54,7 +54,10 @@ export function reloadPending(error: { message: string } | null): boolean {
  * stays); a page shown → the mark is spent. */
 export function afterPageShown(error: { message: string } | null): void {
   if (error?.message === CHUNK_FAILED) {
-    if (mark() === here()) return;
+    if (mark() === here()) {
+      clearTitleFocus();
+      return;
+    }
     try {
       sessionStorage.setItem(KEY, here());
     } catch {
@@ -71,16 +74,50 @@ export function afterPageShown(error: { message: string } | null): void {
       // storage unavailable
     }
   }
+  // The focus flag belongs to the first page of this document only (its title has read it by now, routeFocus.ts): a
+  // page without a title to take it (the public QR page) must not leave it for a later document.
+  clearTitleFocus();
+}
+
+/** Set by the app's `goto` (lib/app/goto.ts) while a navigation that replaces its history entry is under way. */
+let replacing = false;
+
+export function setReplacing(value: boolean): void {
+  replacing = value;
+}
+
+/** A link navigation replaces the entry when its anchor (or an ancestor) says so, as SvelteKit reads it. */
+function linkReplaces(event: Event | undefined): boolean {
+  const a = (event?.target as Element | null | undefined)?.closest?.('a');
+  const holder = a?.closest('[data-sveltekit-replacestate]');
+  return Boolean(holder) && holder!.getAttribute('data-sveltekit-replacestate') !== 'false';
 }
 
 /** `beforeNavigate` of the root layout: after a committed chunk failure in this document, every in-app link/`goto`
  * becomes a full document load (a fresh module map retries the import) — the same URL too: the failure page's own
- * section link retries it. */
-export function fullLoadAfterFailure(type: string, to: URL | null | undefined, cancel: () => void): void {
+ * section link retries it. A navigation that would have replaced its history entry replaces it here too. */
+export function fullLoadAfterFailure(
+  type: string,
+  to: URL | null | undefined,
+  cancel: () => void,
+  event?: Event,
+): void {
   if (!failedHere || !to || (type !== 'link' && type !== 'goto') || to.origin !== location.origin) return;
+  const replace = type === 'goto' ? replacing : linkReplaces(event);
   cancel();
   markTitleFocus();
-  location.assign(`${target(to)}${to.hash}`);
+  const href = `${target(to)}${to.hash}`;
+  if (replace) location.replace(href);
+  else location.assign(href);
+}
+
+/** Forgets the «focus the first title» flag (the boot script does the same when it shows the static screen). */
+export function clearTitleFocus(): void {
+  try {
+    sessionStorage.removeItem(TITLE_FOCUS);
+  } catch {
+    // storage unavailable
+  }
 }
 
 /** The next document (after an automatic full load) focuses its page title on its first page (review round 3). */

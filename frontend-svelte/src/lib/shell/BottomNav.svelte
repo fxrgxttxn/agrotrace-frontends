@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { beforeNavigate, goto } from '$app/navigation';
+  import { beforeNavigate } from '$app/navigation';
+  import { goto } from '../app/goto';
   import { flushSync } from 'svelte';
   import { t } from '../app/i18n';
   import { BOTTOM_NAV_ITEMS, isCurrent, NOTIFICATIONS_ITEM, PROFILE_ITEM, type NavItem } from '../app/nav';

@@ -1,4 +1,4 @@
-import { goto } from '$app/navigation';
+import { goto } from './goto';
 import {
   ApiProblem,
   createApi,

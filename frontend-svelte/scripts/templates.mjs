@@ -1,7 +1,8 @@
 // FM18: the static «page could not be loaded» screen of index.html (revealed by CSS after 10 s if the app never
 // starts) and of SvelteKit's error template (the root layout failed). Texts come from @agrotrace/i18n at build time;
 // the markup is the README's (at-page / at-card / at-empty / primary at-button), with a JS-free «Повторить» link to
-// the current page (`href=""`). Written to .templates/ (git-ignored) by svelte.config.js before SvelteKit reads them.
+// the current page (`href=""`). Written to .templates/ (git-ignored) by svelte.config.js before SvelteKit reads them —
+// only when they change (config loads alone never rewrite them).
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -33,15 +34,30 @@ const STYLE = [
   '</style>',
 ].join('');
 
+/** Content of `file` if it exists, else null. */
+function current(file) {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** Fills the templates. Every tool that loads svelte.config.js (svelte-check, ESLint, Vitest, the build) calls this:
+ * a file is written only when its content changes, and an up-to-date copy on a read-only file system is fine — only a
+ * missing or outdated template that cannot be written is an error. */
 export function writeTemplates() {
   const out = here('../.templates/');
-  mkdirSync(out, { recursive: true });
   const fill = (file) =>
     readFileSync(here(`../src/templates/${file}`), 'utf8')
       .replace('%at.fallback.style%', STYLE)
       .replace('%at.fallback.now%', screen(true))
       .replace('%at.fallback%', screen(false));
-  writeFileSync(`${out}app.html`, fill('app.html'));
-  writeFileSync(`${out}error.html`, fill('error.html'));
+  for (const file of ['app.html', 'error.html']) {
+    const text = fill(file);
+    if (current(`${out}${file}`) === text) continue;
+    mkdirSync(out, { recursive: true });
+    writeFileSync(`${out}${file}`, text);
+  }
   return { appTemplate: '.templates/app.html', errorTemplate: '.templates/error.html' };
 }

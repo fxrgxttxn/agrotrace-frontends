@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { goto } from '$lib/app/goto';
   import { page } from '$app/state';
   import { mayOpen } from '$lib/app/guards';
   import { loginUrl, session } from '$lib/app/session.svelte';
