@@ -171,18 +171,55 @@ describe('FM27 / FM26 focus and forms', () => {
     box.remove();
   });
 
-  it('without the person’s own input in the last 2 s the focus is not moved (passive refresh)', async () => {
-    const { restoreFocus } = await import('../../src/app/focus');
+  it('an action not started by the person (a passive refresh) never moves the focus', async () => {
+    const { actionOrigin, restoreFocus } = await import('../../src/app/focus');
     const h1 = document.createElement('div');
     h1.innerHTML = '<div class="at-page"><h1 class="at-page__title" tabindex="-1">T</h1></div>';
     document.body.append(h1);
     const now = Date.now();
-    vi.spyOn(Date, 'now').mockReturnValue(now + 60_000);
-    restoreFocus(null);
+    vi.spyOn(Date, 'now').mockReturnValue(now + 60_000); // no click / key press in this task
+    restoreFocus(actionOrigin());
     expect(document.activeElement).toBe(document.body);
     vi.restoreAllMocks();
     h1.remove();
   });
+
+  it('FM26 clarification: a slow action the person triggered (answer after > 2 s) still gets the focus rescue', async () => {
+    const hex = (n: number) => n.toString(16).padStart(12, '0');
+    const note = (seq: number) => ({
+      id: `b7c8d9e0-f1a2-4b3c-8d4e-${hex(seq)}`,
+      seq,
+      type: 'RECALL_TASK',
+      payload: {
+        recallId: '4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d',
+        taskId: '5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e',
+        batchId: '6c7d8e9f-0a1b-4c2d-9e3f-4a5b6c7d8e9f',
+        publicCode: `AT-2026-${String(seq).padStart(6, '0')}`,
+        dueAt: '2026-09-25T15:00:00Z',
+        event: 'CREATED',
+      },
+      isRead: false,
+      createdAt: '2026-09-24T09:00:12Z',
+    });
+    server.use(
+      contractResponse('listNotifications', {
+        body: { items: [note(12), note(11)], page: 1, size: 20, total: 2 },
+      }),
+      http.post(`${API_BASE}/notifications/read`, async () => {
+        await delay(2600);
+        return HttpResponse.json({ count: 1 });
+      }),
+    );
+    renderApp('/notifications');
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: 'Выбрать «Изъять партию AT-2026-000011»' }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Отметить прочитанным' }));
+    await waitFor(
+      () => expect(screen.getByRole('heading', { level: 1, name: 'Уведомления' })).toHaveFocus(),
+      { timeout: 5000 },
+    );
+  }, 15000);
 
   it('FM15/FM26: with sessionStorage blocked the reload still happens once (mark in the history entry)', async () => {
     const { reloadOnce } = await import('../../src/reload-mark');

@@ -16,7 +16,7 @@ import { formatLocalDateTime, notificationMessage } from '@agrotrace/i18n';
 import { canAccess, type Viewer } from '../app/access';
 import { injectAlive } from '../app/alive';
 import { call } from '../app/api';
-import { restoreFocus } from '../app/focus';
+import { actionOrigin, restoreFocus } from '../app/focus';
 import { applyProblem, formAlert } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { LiveEventsService } from '../app/live-events';
@@ -342,7 +342,7 @@ export class NotificationsPage {
     if (kind === 'all' && this.items().length === 0) return;
     this.alert.clear();
     this.marking.set(kind);
-    const opener = document.activeElement;
+    const opener = actionOrigin();
     const generation = this.cache.generation;
     let res: UnreadCount;
     try {

@@ -30,7 +30,7 @@ import {
 } from '@agrotrace/validation';
 import { injectLive } from '../app/alive';
 import { call, countdown, errorText, retryAfterOf } from '../app/api';
-import { restoreFocus } from '../app/focus';
+import { actionOrigin, restoreFocus, type ActionOrigin } from '../app/focus';
 import { errorTone, FocusAfterWaitDirective, formAlert, SchemaForm } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { injectQuery } from '../app/query';
@@ -280,7 +280,7 @@ export class AvatarCardComponent {
     const p = this.picked();
     if (!p || p.error) return;
     this.alert.clear();
-    const opener = document.activeElement;
+    const opener = actionOrigin();
     const generation = this.session.generation;
     this.busy.set('upload');
     try {
@@ -317,7 +317,7 @@ export class AvatarCardComponent {
 
   protected async remove(): Promise<void> {
     this.alert.clear();
-    const opener = document.activeElement;
+    const opener = actionOrigin();
     const generation = this.session.generation;
     this.busy.set('delete');
     try {
@@ -342,7 +342,7 @@ export class AvatarCardComponent {
   }
 
   /** FM21: an action that removed the focused control gives the focus to its opener, else the page title. */
-  private refocus(opener: Element | null, generation: number): void {
+  private refocus(opener: ActionOrigin, generation: number): void {
     if (this.live(generation)) afterNextRender(() => restoreFocus(opener), { injector: this.injector });
   }
 }
@@ -496,7 +496,7 @@ export class ChannelsCardComponent {
 
   protected async newCode(): Promise<void> {
     this.alert.clear();
-    const opener = document.activeElement;
+    const opener = actionOrigin();
     const generation = this.session.generation;
     this.codeBusy.set(true);
     try {
@@ -601,14 +601,14 @@ export class TwoFactorCardComponent {
   private readonly injector = inject(Injector);
 
   /** FM21/FM24/FM25: focus after an action (opener, or a revealed field), while this card and its session stand. */
-  private refocus(opener: Element | null, generation: number, revealed?: () => HTMLElement | null): void {
+  private refocus(opener: ActionOrigin, generation: number, revealed?: () => HTMLElement | null): void {
     if (this.live(generation))
       afterNextRender(() => restoreFocus(opener, revealed?.()), { injector: this.injector });
   }
 
   /** «Отмена»: the form goes, the focus returns to «Настроить» that revealed it (FM25; FM17 idle rule). */
   protected cancel(): void {
-    const opener = document.activeElement;
+    const opener = actionOrigin();
     this.pending.set(null);
     this.refocus(opener, this.session.generation, () =>
       this.host.querySelector<HTMLElement>('.at-card__footer > button.at-button'),
@@ -623,7 +623,7 @@ export class TwoFactorCardComponent {
 
   protected async start(): Promise<void> {
     this.f.alert.clear();
-    const opener = document.activeElement;
+    const opener = actionOrigin();
     const generation = this.session.generation;
     this.starting.set(true);
     let res: TwoFactorSetupResponse;
@@ -652,7 +652,7 @@ export class TwoFactorCardComponent {
   }
 
   protected readonly confirm = async (body: TwoFactorSetupRequest): Promise<void> => {
-    const opener = document.activeElement;
+    const opener = actionOrigin();
     const generation = this.session.generation;
     try {
       await call<TwoFactorSetupResponse>(this.session.api.POST('/auth/2fa/setup', { body }));

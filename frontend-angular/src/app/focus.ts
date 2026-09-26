@@ -26,9 +26,9 @@ export function focusIfFree(button: HTMLElement | null | undefined): void {
   if (focusLost() || document.activeElement === button) button.focus();
 }
 
-/** FM26: the focus rescue follows the person's own input only — a removal within this time after their last pointer
- * or key input (passive refreshes never move the focus). */
-export const OWN_INPUT_MS = 2000;
+/** Time within which an action handler counts as started by the person's own click / key press (the handler runs in
+ * the task of that input event). */
+const INPUT_TASK_MS = 1000;
 let lastInput = Number.NEGATIVE_INFINITY;
 if (typeof document !== 'undefined') {
   const mark = () => (lastInput = Date.now());
@@ -36,13 +36,26 @@ if (typeof document !== 'undefined') {
   document.addEventListener('keydown', mark, true);
 }
 
+/** Where an action started: the focused control, and whether the person triggered it (a click / key press) — FM26:
+ * the focus rescue belongs to such an action, from its input to its answer, however long that takes; passive
+ * refreshes never move the focus. Take it when the action starts. */
+export interface ActionOrigin {
+  el: Element | null;
+  triggered: boolean;
+}
+
+export function actionOrigin(): ActionOrigin {
+  return { el: document.activeElement, triggered: Date.now() - lastInput < INPUT_TASK_MS };
+}
+
 /** Ruling FM21: after a dialog closes or an action removed the focused control, the focus goes back to the opener if
- * it is still on the page, else to the page title — only when the focus is lost (never taken from elsewhere) and the
- * removal follows the person's own input within {@link OWN_INPUT_MS} (FM26). `revealed`: the first field of a form
- * the action just showed (FM24) — it takes the focus first, only when the focus is idle (FM25/FM17). Call it after the
- * view shows the result (`afterNextRender`). */
-export function restoreFocus(opener: Element | null | undefined, revealed?: HTMLElement | null): void {
-  if (Date.now() - lastInput > OWN_INPUT_MS) return;
+ * it is still on the page, else to the page title — only for an action the person triggered (FM26) and only when the
+ * focus is lost (never taken from elsewhere). `revealed`: the first field of a form the action just showed (FM24) —
+ * it takes the focus first, only when the focus is idle (FM25/FM17). Call it after the view shows the result
+ * (`afterNextRender`). */
+export function restoreFocus(origin: ActionOrigin, revealed?: HTMLElement | null): void {
+  if (!origin.triggered) return;
+  const opener = origin.el;
   if (revealed && !gone(revealed) && (focusLost() || document.activeElement === opener)) {
     revealed.focus();
     return;
