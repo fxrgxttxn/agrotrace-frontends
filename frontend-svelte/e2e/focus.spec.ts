@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
+import { nodeFile } from './chunks';
 import { ANONYMOUS, mockApi } from './contract';
+import { watch } from './helpers';
 
 // Focus, history and redirects with the REAL SvelteKit router of the build (rulings F4, FM7; README «Фокус при смене
 // маршрута»): every client-side pathname change except the first load focuses the new page's h1 — redirects included;
@@ -265,4 +267,92 @@ test('FM10: `next` never carries the #fragment', async ({ page, context }) => {
   await page.goto('/batches?status=Approved#top');
   await expect(h1(page, 'Вход')).toBeVisible();
   expect(new URL(page.url()).searchParams.get('next')).toBe('/batches?status=Approved');
+});
+
+// ── Ruling FM11: page-chunk failures and entering the shell ───────────────────────────────────────────────────────
+
+const FIELDS_CHUNK = nodeFile('src/routes/(app)/(cabinet)/fields/+page.svelte');
+
+test('FM11: a page chunk that fails once — one full load of the target, then the page; history as a normal visit', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  let failures = 1;
+  const documents: string[] = [];
+  page.on('request', (r) => {
+    if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+  });
+  await context.route(`**${FIELDS_CHUNK}`, (route) =>
+    failures-- > 0 ? route.abort('failed') : route.continue(),
+  );
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  const before = await page.evaluate(() => history.length);
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await expect(h1(page, 'Поля')).toBeVisible();
+  await expect(page).toHaveURL(/\/fields$/);
+  expect(documents).toEqual(['/batches', '/fields']); // exactly one full load, of the target
+  expect(await page.evaluate(() => history.length)).toBe(before + 1);
+  await page.goBack();
+  await expect(h1(page, 'Партии')).toBeVisible();
+  await expect(page).toHaveURL(/\/batches$/);
+});
+
+test('FM11: a page chunk that keeps failing — one full load, then «Не удалось загрузить страницу» in the shell', async ({
+  page,
+  context,
+}) => {
+  const w = await watch(page);
+  await mockApi(context);
+  const documents: string[] = [];
+  page.on('request', (r) => {
+    if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+  });
+  await context.route(`**${FIELDS_CHUNK}`, (route) => route.abort('failed'));
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  const before = await page.evaluate(() => history.length);
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  const main = page.locator('main.at-shell__main');
+  await expect(main.locator('.at-empty__text')).toHaveText('Не удалось загрузить страницу.');
+  await expect(h1(page, 'Поля')).toBeVisible();
+  await expect(main.getByRole('button', { name: 'Повторить' })).toBeVisible();
+  await expect(page.locator('.at-sidebar a[href="/fields"]')).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveURL(/\/fields$/);
+  await expect(page.locator('body')).not.toContainText(/Internal Error|500|Failed to fetch/);
+  expect(documents).toEqual(['/batches', '/fields']); // no reload loop
+  expect(await page.evaluate(() => history.length)).toBe(before + 1);
+  // «Повторить» reloads the page (still failing here: the same state, still no loop)
+  await main.getByRole('button', { name: 'Повторить' }).click();
+  await expect(main.locator('.at-empty__text')).toHaveText('Не удалось загрузить страницу.');
+  expect(documents).toEqual(['/batches', '/fields', '/fields']);
+  expect(await page.evaluate(() => history.length)).toBe(before + 1);
+  await page.goBack();
+  await expect(h1(page, 'Партии')).toBeVisible();
+  expect(w.problems.filter((p) => /pageerror/.test(p))).toEqual([]);
+});
+
+test('FM11: entering the shell from /login?next= with a slow chunk shows the shell, the section and the loading page', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context, ANONYMOUS);
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  await context.route(`**${FIELDS_CHUNK}`, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto('/login?next=%2Ffields');
+  await expect(h1(page, 'Вход')).toBeVisible();
+  await page.getByLabel('Email').fill('petrov@kfh-petrov.ru');
+  await page.getByLabel('Пароль').fill('x');
+  await page.getByRole('button', { name: 'Войти' }).click();
+  await expect(page.locator('.at-shell .at-shell__main > .at-page[aria-busy="true"]')).toBeVisible();
+  await expect(page.locator('.at-sidebar a[href="/fields"]')).toHaveAttribute('aria-current', 'page');
+  await expect(h1(page, 'Вход')).toHaveCount(0);
+  release();
+  await expect(h1(page, 'Поля')).toBeFocused();
+  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
 });

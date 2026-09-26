@@ -56,3 +56,10 @@ export const publicModules: string[] = [...closure([...publicNodes, ...rootNodes
 /** Modules that belong to the cabinet: never in the public graph. */
 export const CABINET_MODULE =
   /frontend-svelte\/src\/(lib\/(app\/(session|live|guards|forms|cache)|shell\/|pages\/)|routes\/\(app\)\/)/;
+
+/** The client chunk of a route node, by its route file (e.g. `src/routes/(app)/(cabinet)/fields/+page.svelte`). */
+export function nodeFile(routeFile: string): string {
+  const key = NODES.find((k) => sourceOf(k).includes(`"../../../../${routeFile}"`));
+  if (!key) throw new Error(`no route node for ${routeFile}`);
+  return `/${manifest[key]!.file}`;
+}
