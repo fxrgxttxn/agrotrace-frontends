@@ -1,10 +1,12 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
   DestroyRef,
   effect,
   inject,
+  Injector,
   input,
   signal,
   untracked,
@@ -26,8 +28,10 @@ import {
   type TwoFactorSetupRequest,
 } from '@agrotrace/validation';
 import { call, countdown, errorText, retryAfterOf } from '../app/api';
+import { restoreFocus } from '../app/focus';
 import { errorTone, FocusAfterWaitDirective, formAlert, SchemaForm } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
+import { injectQuery } from '../app/query';
 import { SessionService } from '../app/session';
 import { ThemeSwitchComponent } from '../app/shell/theme-switch';
 import {
@@ -215,6 +219,7 @@ export class AvatarCardComponent {
   private readonly session = inject(SessionService);
   private readonly toasts = inject(ToastService);
   private readonly alert = formAlert();
+  private readonly injector = inject(Injector);
   protected readonly accept = AVATAR_TYPES.join(',');
   protected readonly picked = signal<Picked | null>(null);
   protected readonly busy = signal<'upload' | 'delete' | null>(null);
@@ -264,6 +269,7 @@ export class AvatarCardComponent {
     const p = this.picked();
     if (!p || p.error) return;
     this.alert.clear();
+    const opener = document.activeElement;
     this.busy.set('upload');
     try {
       const body = new FormData();
@@ -287,11 +293,13 @@ export class AvatarCardComponent {
       else this.alert.show(errorText(e), errorTone(e));
     } finally {
       this.busy.set(null);
+      this.refocus(opener);
     }
   }
 
   protected async remove(): Promise<void> {
     this.alert.clear();
+    const opener = document.activeElement;
     this.busy.set('delete');
     try {
       await call(this.session.api.DELETE('/me/avatar'));
@@ -301,7 +309,13 @@ export class AvatarCardComponent {
       this.alert.show(errorText(e), errorTone(e));
     } finally {
       this.busy.set(null);
+      this.refocus(opener);
     }
+  }
+
+  /** FM21: an action that removed the focused control gives the focus to its opener, else the page title. */
+  private refocus(opener: Element | null): void {
+    afterNextRender(() => restoreFocus(opener), { injector: this.injector });
   }
 }
 
@@ -382,18 +396,20 @@ export class ChannelsCardComponent {
   private readonly session = inject(SessionService);
   private readonly toasts = inject(ToastService);
   private readonly alert = formAlert();
-  protected readonly data = signal<NotificationChannels | null>(null);
-  protected readonly failed = signal(false);
-  protected readonly loading = signal(false);
+  private readonly injector = inject(Injector);
+  /** FM21: the shared query (cache 30 s, retries); polled while a link code is out. */
+  private readonly channelsQuery = injectQuery(
+    () => 'me/channels',
+    () => call<NotificationChannels>(this.session.api.GET('/me/channels')),
+  );
+  protected readonly data = this.channelsQuery.data;
+  protected readonly failed = this.channelsQuery.failed;
+  protected readonly loading = this.channelsQuery.fetching;
   protected readonly saving = signal(false);
   protected readonly codeBusy = signal(false);
   protected readonly code = signal<TelegramCode | null>(null);
-  private alive = true;
 
   constructor() {
-    const destroyRef = inject(DestroyRef);
-    destroyRef.onDestroy(() => (this.alive = false));
-    void this.load();
     // While a link code is out: watch for the bot to confirm the link; the code is void at `expiresAt`.
     effect((onCleanup) => {
       const code = this.code();
@@ -423,25 +439,17 @@ export class ChannelsCardComponent {
     return formatLocalTime(code.expiresAt, LOCALE);
   }
 
-  async load(): Promise<void> {
-    this.loading.set(true);
-    try {
-      const data = await call<NotificationChannels>(this.session.api.GET('/me/channels'));
-      if (!this.alive) return;
-      this.data.set(data);
-      this.failed.set(false);
-    } catch {
-      if (this.alive) this.failed.set(true);
-    } finally {
-      this.loading.set(false);
-    }
+  load(): Promise<void> {
+    return this.channelsQuery.refetch();
   }
 
   protected async save(next: { email: boolean; telegram: boolean }): Promise<void> {
     this.alert.clear();
     this.saving.set(true);
     try {
-      this.data.set(await call<NotificationChannels>(this.session.api.PUT('/me/channels', { body: next })));
+      this.channelsQuery.set(
+        await call<NotificationChannels>(this.session.api.PUT('/me/channels', { body: next })),
+      );
     } catch (e) {
       const key =
         e instanceof ApiProblem ? (e.errors?.['telegram']?.[0] ?? e.errors?.['email']?.[0]) : undefined;
@@ -453,6 +461,7 @@ export class ChannelsCardComponent {
 
   protected async newCode(): Promise<void> {
     this.alert.clear();
+    const opener = document.activeElement;
     this.codeBusy.set(true);
     try {
       this.code.set(await call<TelegramCode>(this.session.api.POST('/me/telegram-code')));
@@ -460,6 +469,8 @@ export class ChannelsCardComponent {
       this.alert.show(errorText(e), errorTone(e));
     } finally {
       this.codeBusy.set(false);
+      // «Привязать Telegram» gives way to the code (FM21)
+      afterNextRender(() => restoreFocus(opener), { injector: this.injector });
     }
   }
 }
@@ -512,7 +523,7 @@ const groupSecret = (s: string) => s.replace(/(.{4})(?=.)/g, '$1 ');
           </div>
           <footer class="at-card__footer">
             ${submitButton('f', "t('profile.enable')")}
-            <button class="at-button" [variant]="'ghost'" (click)="pending.set(null)">
+            <button class="at-button" [variant]="'ghost'" (click)="cancel()">
               {{ t('action.cancel') }}
             </button>
           </footer>
@@ -547,6 +558,18 @@ export class TwoFactorCardComponent {
   /** A 429 on the start step waits on its own button. */
   protected readonly startWait = countdown();
   protected readonly secret = groupSecret;
+  private readonly injector = inject(Injector);
+
+  /** FM21: an action that removed the focused control gives the focus to its opener, else the page title. */
+  private refocus(opener: Element | null): void {
+    afterNextRender(() => restoreFocus(opener), { injector: this.injector });
+  }
+
+  protected cancel(): void {
+    const opener = document.activeElement;
+    this.pending.set(null);
+    this.refocus(opener);
+  }
 
   private async alreadyOn(): Promise<void> {
     this.pending.set(null);
@@ -555,6 +578,7 @@ export class TwoFactorCardComponent {
 
   protected async start(): Promise<void> {
     this.f.alert.clear();
+    const opener = document.activeElement;
     this.starting.set(true);
     try {
       const res = await call<TwoFactorSetupResponse>(this.session.api.POST('/auth/2fa/setup', { body: {} }));
@@ -569,10 +593,12 @@ export class TwoFactorCardComponent {
       }
     } finally {
       this.starting.set(false);
+      this.refocus(opener);
     }
   }
 
   protected readonly confirm = async (body: TwoFactorSetupRequest): Promise<void> => {
+    const opener = document.activeElement;
     try {
       await call<TwoFactorSetupResponse>(this.session.api.POST('/auth/2fa/setup', { body }));
       this.pending.set(null);
@@ -585,6 +611,7 @@ export class TwoFactorCardComponent {
       else if (e instanceof ApiProblem && e.status === 409) await this.alreadyOn();
       else this.f.fail(e);
     }
+    this.refocus(opener);
   };
 }
 

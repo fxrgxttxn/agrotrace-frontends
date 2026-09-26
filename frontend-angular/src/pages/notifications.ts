@@ -1,4 +1,13 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import {
+  afterNextRender,
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  Injector,
+  signal,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -6,9 +15,11 @@ import type { ApiNotification, NotificationPage, UnreadCount } from '@agrotrace/
 import { formatLocalDateTime, notificationMessage } from '@agrotrace/i18n';
 import { canAccess, type Viewer } from '../app/access';
 import { call } from '../app/api';
+import { restoreFocus } from '../app/focus';
 import { applyProblem, formAlert } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { LiveEventsService } from '../app/live-events';
+import { injectQuery, QueryCache } from '../app/query';
 import { CABINET_ROUTES, matchPath } from '../app/routes';
 import { SessionService } from '../app/session';
 import {
@@ -214,9 +225,28 @@ export class NotificationsPage {
 
   protected readonly tab = computed<Tab>(() => (this.query().get('tab') === 'unread' ? 'unread' : 'all'));
   protected readonly page = computed(() => Math.max(1, Math.floor(Number(this.query().get('page'))) || 1));
-  protected readonly data = signal<NotificationPage | null>(null);
-  protected readonly failed = signal(false);
-  protected readonly fetching = signal(false);
+  /** The list of the tab / page in the URL (FM21: shared cache, retries, previous rows only while loading). */
+  private readonly list = injectQuery(
+    () => `notifications?tab=${this.tab()}&page=${this.page()}`,
+    () =>
+      call<NotificationPage>(
+        this.session.api.GET('/notifications', {
+          params: {
+            query: {
+              page: this.page(),
+              size: SIZE,
+              sort: 'seq,desc',
+              ...(this.tab() === 'unread' ? { isRead: false } : {}),
+            },
+          },
+        }),
+      ),
+  );
+  protected readonly data = this.list.data;
+  protected readonly failed = this.list.failed;
+  protected readonly fetching = this.list.fetching;
+  private readonly cache = inject(QueryCache);
+  private readonly injector = inject(Injector);
   protected readonly selected = signal<Set<string>>(new Set());
   protected readonly marking = signal<'ids' | 'all' | null>(null);
 
@@ -251,27 +281,32 @@ export class NotificationsPage {
     () => this.items().length === 0 || (this.live.unread() === 0 && !this.items().some((n) => !n.isRead)),
   );
 
-  /** Answers of older requests (another tab / page meanwhile) are dropped. */
-  private request = 0;
-  private alive = true;
   private shown = '';
 
   constructor() {
     const destroyRef = inject(DestroyRef);
-    destroyRef.onDestroy(() => (this.alive = false));
-    // A new tab / page: a new list, and the selection (it belongs to the rows on screen) starts empty.
+    // A new tab / page: the selection (it belongs to the rows on screen) starts empty.
     const sub = inject(ActivatedRoute).queryParamMap.subscribe(() => {
       const key = `${this.tab()}|${this.page()}`;
       if (key === this.shown) return;
       this.shown = key;
       this.selected.set(new Set());
-      void this.load();
     });
-    const live = this.live.notifications$.subscribe(() => void this.load());
+    // A live notification: every cached page is out of date, the one on screen is asked for again.
+    const live = this.live.notifications$.subscribe(() => void this.reload());
     destroyRef.onDestroy(() => {
       sub.unsubscribe();
       live.unsubscribe();
     });
+  }
+
+  protected load(): void {
+    void this.list.refetch();
+  }
+
+  private reload(): Promise<void> {
+    this.cache.invalidate('notifications?');
+    return this.list.refetch();
   }
 
   protected readonly hrefFor = (p: number): string => {
@@ -281,33 +316,6 @@ export class NotificationsPage {
     const s = q.toString();
     return `/notifications${s ? `?${s}` : ''}`;
   };
-
-  async load(): Promise<void> {
-    const id = ++this.request;
-    const tab = this.tab();
-    this.fetching.set(true);
-    try {
-      const data = await call<NotificationPage>(
-        this.session.api.GET('/notifications', {
-          params: {
-            query: {
-              page: this.page(),
-              size: SIZE,
-              sort: 'seq,desc',
-              ...(tab === 'unread' ? { isRead: false } : {}),
-            },
-          },
-        }),
-      );
-      if (!this.alive || id !== this.request) return;
-      this.data.set(data);
-      this.failed.set(false);
-    } catch {
-      if (this.alive && id === this.request) this.failed.set(true);
-    } finally {
-      if (id === this.request) this.fetching.set(false);
-    }
-  }
 
   protected selectTab(id: string): void {
     this.selected.set(new Set());
@@ -329,12 +337,15 @@ export class NotificationsPage {
     if (kind === 'all' && this.items().length === 0) return;
     this.alert.clear();
     this.marking.set(kind);
+    const opener = document.activeElement;
     try {
       const body = kind === 'ids' ? { ids: [...this.selected()] } : { upToSeq: await this.newestSeq() };
       const res = await call<UnreadCount>(this.session.api.POST('/notifications/read', { body }));
       this.live.setUnread(res.count);
       this.selected.set(new Set());
-      await this.load();
+      await this.reload();
+      // «Отметить прочитанным» went away with the selection (FM21): the opener if it is still there, else the title
+      afterNextRender(() => restoreFocus(opener), { injector: this.injector });
     } catch (e) {
       applyProblem(e, { alert: this.alert.show });
     } finally {

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Location } from '@angular/common';
 import { ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -27,6 +27,7 @@ import {
 import { call } from '../app/api';
 import { FocusAfterWaitDirective, SchemaForm } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
+import { FOREVER, injectQuery } from '../app/query';
 import { safeNext, SessionService } from '../app/session';
 import { ToastService, UI } from '../app/ui';
 import { AUTH_PAGE_HOST, CENTERED_ART, FORM_GRID, LINKS, submitButton } from './layout';
@@ -586,11 +587,15 @@ export class RegisterPage {
   protected readonly orgTypes = ORG_TYPES;
   private readonly session = inject(SessionService);
   protected readonly outcome = signal<RegisterOrganizationResponse['status'] | null>(null);
-  protected readonly regions = signal<Region[]>([]);
-  protected readonly regionsBusy = signal(false);
-  private readonly regionsError = signal(false);
-  protected readonly regionsFailed = computed(() => this.regionsError() && this.regions().length === 0);
-  private alive = true;
+  /** The public regions dictionary (FM21: cached until the page is reloaded, retried). */
+  private readonly regionsQuery = injectQuery(
+    () => 'public/regions',
+    () => call<Region[]>(this.session.api.GET('/public/regions')),
+    { freshMs: FOREVER },
+  );
+  protected readonly regions = computed(() => this.regionsQuery.data() ?? []);
+  protected readonly regionsBusy = this.regionsQuery.fetching;
+  protected readonly regionsFailed = this.regionsQuery.failed;
   protected readonly f = new SchemaForm<RegisterValues, RegisterOrganizationRequest>(
     RegisterOrganizationRequestSchema,
     {
@@ -605,23 +610,8 @@ export class RegisterPage {
     { toWire: ({ name, ...rest }) => (name === '' ? rest : { ...rest, name }) },
   );
 
-  constructor() {
-    inject(DestroyRef).onDestroy(() => (this.alive = false));
-    void this.loadRegions();
-  }
-
-  protected async loadRegions(): Promise<void> {
-    this.regionsBusy.set(true);
-    try {
-      const list = await call<Region[]>(this.session.api.GET('/public/regions'));
-      if (!this.alive) return;
-      this.regions.set(list);
-      this.regionsError.set(false);
-    } catch {
-      if (this.alive) this.regionsError.set(true);
-    } finally {
-      this.regionsBusy.set(false);
-    }
+  protected loadRegions(): void {
+    void this.regionsQuery.refetch();
   }
 
   protected readonly send = async (body: RegisterOrganizationRequest): Promise<void> => {
