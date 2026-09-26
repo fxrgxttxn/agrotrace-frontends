@@ -28,6 +28,7 @@ import { call } from '../app/api';
 import { FocusAfterWaitDirective, SchemaForm } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { FOREVER, injectQuery } from '../app/query';
+import { injectAlive } from '../app/alive';
 import { safeNext, SessionService } from '../app/session';
 import { ToastService, UI } from '../app/ui';
 import { AUTH_PAGE_HOST, CENTERED_ART, FORM_GRID, LINKS, submitButton } from './layout';
@@ -111,22 +112,28 @@ export class LoginPage {
     'password',
   ]);
 
+  private readonly alive = injectAlive();
+
   protected readonly send = async (body: LoginRequest): Promise<void> => {
+    let data: LoginResponse;
     try {
-      const data = await call<LoginResponse>(this.session.api.POST('/auth/login', { body }));
-      if (data.twoFactorRequired) {
-        await this.router.navigateByUrl(`/login/2fa${searchOf(this.router)}`, {
-          state: { challengeId: data.challengeId },
-        });
-        return;
-      }
-      this.session.signIn(data);
-      await this.router.navigateByUrl(nextOf(this.route), { replaceUrl: true });
+      data = await call<LoginResponse>(this.session.api.POST('/auth/login', { body }));
     } catch (e) {
       if (isProblem(e, 'ACCOUNT_LOCKED') && typeof e.params?.['lockedUntil'] === 'string')
         this.f.alert.show(t('auth.lockedUntil', { time: formatLocalTime(e.params['lockedUntil'], LOCALE) }));
       else this.f.fail(e);
+      return;
     }
+    // FM28: the next step / `next` only while this screen stands (the person may have gone elsewhere meanwhile)
+    if (data.twoFactorRequired) {
+      if (this.alive())
+        await this.router.navigateByUrl(`/login/2fa${searchOf(this.router)}`, {
+          state: { challengeId: data.challengeId },
+        });
+      return;
+    }
+    this.session.signIn(data);
+    if (this.alive()) await this.router.navigateByUrl(nextOf(this.route), { replaceUrl: true });
   };
 }
 
@@ -184,17 +191,28 @@ export class TwoFactorPage {
   );
 
   // The challenge is gone (expired, used, 5 wrong codes): a new login is needed; `next` is kept.
+  private readonly alive = injectAlive();
+
   private restart(): void {
+    if (!this.alive()) return; // FM28: the screen is gone — no toast, no navigation
     this.toasts.push({ tone: 'danger', text: t('auth.challengeExpired') });
     void this.router.navigateByUrl(`/login${this.search}`, { replaceUrl: true });
   }
 
   protected readonly send = async (body: TwoFactorVerifyRequest): Promise<void> => {
+    let data: LoginSuccess;
     try {
-      const data = await call<LoginSuccess>(this.session.api.POST('/auth/2fa/verify', { body }));
-      this.session.signIn(data);
-      await this.router.navigateByUrl(nextOf(this.route), { replaceUrl: true });
+      data = await call<LoginSuccess>(this.session.api.POST('/auth/2fa/verify', { body }));
     } catch (e) {
+      this.failed(e);
+      return;
+    }
+    this.session.signIn(data);
+    if (this.alive()) await this.router.navigateByUrl(nextOf(this.route), { replaceUrl: true });
+  };
+
+  private failed(e: unknown): void {
+    {
       if (isProblem(e, 'INVALID_TWO_FACTOR_CODE')) {
         const left = Number(e.params?.['attemptsLeft']);
         if (left > 0) this.f.setError('code', t('auth.attemptsLeft', { count: left }));
@@ -203,7 +221,7 @@ export class TwoFactorPage {
         this.restart();
       else this.f.fail(e);
     }
-  };
+  }
 }
 
 /** `/password/forgot` — always the same answer, whether the address exists or not. */
@@ -323,15 +341,19 @@ export class PasswordResetPage {
     ['password'],
   );
 
+  private readonly alive = injectAlive();
+
   protected readonly send = async (body: ResetPasswordRequest): Promise<void> => {
     try {
       await call(this.session.api.POST('/auth/password/reset', { body }));
-      this.toasts.push({ tone: 'ok', text: t('auth.resetDone') });
-      await this.router.navigateByUrl('/login', { replaceUrl: true });
     } catch (e) {
       if (deadToken(e)) this.dead.set(true);
       else this.f.fail(e);
+      return;
     }
+    if (!this.alive()) return; // FM28: the screen is gone — no toast, no navigation
+    this.toasts.push({ tone: 'ok', text: t('auth.resetDone') });
+    await this.router.navigateByUrl('/login', { replaceUrl: true });
   };
 }
 
@@ -415,15 +437,19 @@ export class InvitePage {
     void this.session.signOut(`/invite/${this.token ?? ''}`);
   }
 
+  private readonly alive = injectAlive();
+
   protected readonly send = async (body: AcceptInviteRequest): Promise<void> => {
     try {
       await call(this.session.api.POST('/auth/accept-invite', { body }));
-      this.toasts.push({ tone: 'ok', text: t('auth.inviteDone') });
-      await this.router.navigateByUrl('/login', { replaceUrl: true });
     } catch (e) {
       if (deadToken(e)) this.dead.set(true);
       else this.f.fail(e);
+      return;
     }
+    if (!this.alive()) return; // FM28: the screen is gone — no toast, no navigation
+    this.toasts.push({ tone: 'ok', text: t('auth.inviteDone') });
+    await this.router.navigateByUrl('/login', { replaceUrl: true });
   };
 }
 

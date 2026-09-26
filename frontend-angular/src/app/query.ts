@@ -82,11 +82,13 @@ export class QueryCache {
     const running = this.inflight.get(key);
     if (running) return running as Promise<T>;
     const generation = this.gen;
+    const self: { run?: Promise<unknown> } = {};
     const run = (async () => {
       for (let attempt = 0; ; attempt++) {
         try {
           const data = await load();
-          const stale = this.staleOnArrival.delete(key);
+          // only this run's own mark (a run of an ended generation never clears a newer run's mark)
+          const stale = this.inflight.get(key) === self.run && this.staleOnArrival.delete(key);
           if (this.put(key, data, generation) && stale) this.entries.get(key)!.at = Number.NEGATIVE_INFINITY;
           return data;
         } catch (e) {
@@ -97,6 +99,7 @@ export class QueryCache {
         }
       }
     })();
+    self.run = run;
     this.inflight.set(key, run);
     const done = () => {
       if (this.inflight.get(key) === run) {

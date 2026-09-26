@@ -97,6 +97,8 @@ export class SessionService {
   readonly waiting = signal(0);
 
   private booting = true;
+  /** Bumped when a session ends or a new one starts: late answers of another session are dropped (FM28). */
+  private gen = 0;
   private channel: BroadcastChannel | null = null;
 
   constructor() {
@@ -142,18 +144,23 @@ export class SessionService {
     }
   }
 
-  /** Start-up restore (and its retry after a transient failure): refresh from the cookie, then `/me`. */
+  /** Start-up restore (and its retry after a transient failure): refresh from the cookie, then `/me`. An answer that
+   * arrives after the session changed meanwhile (logout here or in another tab) is dropped (FM28). */
   async restore(): Promise<void> {
     this.booting = true;
     this.set({ status: 'loading' });
+    const generation = this.gen;
     try {
       const token = this.store.get() ?? (await this.api.refresh());
+      if (generation !== this.gen) return;
       if (!token) {
         this.set({ status: 'anonymous' });
         return;
       }
-      this.set({ status: 'authenticated', me: await this.loadMe() });
+      const me = await this.loadMe();
+      if (generation === this.gen) this.set({ status: 'authenticated', me });
     } catch (e) {
+      if (generation !== this.gen) return;
       // R61/F8: a network error, a 5xx or a rate limit (429 of /auth/refresh or /me) is not a logout — the session is
       // kept and a retry is offered (after Retry-After for a 429) instead of the login screen.
       if (e instanceof ApiProblem && e.status === 429)
@@ -179,13 +186,20 @@ export class SessionService {
 
   // `loggedOut`: an explicit logout (here or in another tab) goes to a plain /login — no `next` back into the cabinet.
   private endLocally(loggedOut = false): void {
+    this.gen++;
     this.store.set(null);
     this.set(loggedOut ? { status: 'anonymous', loggedOut: true } : { status: 'anonymous' });
     this.ended$.next();
   }
 
-  /** Installs a successful login (`POST /auth/login` or `/auth/2fa/verify`). */
+  /** The session generation now: take it when a request that will write the session starts (FM28). */
+  get generation(): number {
+    return this.gen;
+  }
+
+  /** Installs a successful login (`POST /auth/login` or `/auth/2fa/verify`) — a new session. */
   signIn(result: LoginSuccess): void {
+    this.gen++;
     this.store.set(result.accessToken);
     this.set({ status: 'authenticated', me: result.user as Me });
   }
@@ -202,13 +216,27 @@ export class SessionService {
     await this.router.navigateByUrl(to, { replaceUrl: true });
   }
 
-  /** Reloads `/me` (after a profile change). */
-  async reloadMe(): Promise<void> {
-    this.set({ status: 'authenticated', me: await this.loadMe() });
+  /** Re-reads `/me` after a change that succeeded (FM28): it never fails the change — a failed read keeps the profile
+   * on screen and is retried as any read (FM21: after 1 s and 2 s, not after a 4xx); an answer of an ended session is
+   * dropped. Resolves `true` once the profile is fresh. */
+  async reloadMe(generation: number): Promise<boolean> {
+    for (const wait of [0, 1000, 2000]) {
+      if (wait) await new Promise((r) => setTimeout(r, wait));
+      if (generation !== this.gen) return false;
+      try {
+        this.setMe(await this.loadMe(), generation);
+        return generation === this.gen;
+      } catch (e) {
+        if (e instanceof ApiProblem && e.status >= 400 && e.status < 500) return false;
+      }
+    }
+    return false;
   }
 
-  /** Installs a profile the API just returned (`PATCH /me`). */
-  setMe(me: Me): void {
+  /** Installs a profile an answer of session `generation` carries (`PATCH /me`, a re-read) — never for an ended or
+   * another session, never reviving one (FM28). */
+  setMe(me: Me, generation: number): void {
+    if (generation !== this.gen || this.state().status !== 'authenticated') return;
     this.set({ status: 'authenticated', me });
   }
 }

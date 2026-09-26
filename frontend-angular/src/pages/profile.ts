@@ -28,7 +28,7 @@ import {
   type MeUpdate,
   type TwoFactorSetupRequest,
 } from '@agrotrace/validation';
-import { injectAlive } from '../app/alive';
+import { injectLive } from '../app/alive';
 import { call, countdown, errorText, retryAfterOf } from '../app/api';
 import { restoreFocus } from '../app/focus';
 import { errorTone, FocusAfterWaitDirective, formAlert, SchemaForm } from '../app/forms';
@@ -108,7 +108,7 @@ export class PersonalCardComponent {
   private readonly session = inject(SessionService);
   private readonly toasts = inject(ToastService);
   /** FM25: UI steps of an action only while this card stands. */
-  private readonly alive = injectAlive();
+  private readonly live = injectLive();
   protected readonly facts = computed<CardFact[]>(() => {
     const me = this.personal();
     return [
@@ -131,14 +131,19 @@ export class PersonalCardComponent {
     if (values.fullName !== me.fullName) body.fullName = values.fullName;
     if (values.phone !== me.phone) body.phone = values.phone;
     if (Object.keys(body).length === 0) return;
+    const generation = this.session.generation;
+    let next: Me;
     try {
-      const next = await call<Me>(this.session.api.PATCH('/me', { body }));
-      this.session.setMe(next);
-      this.f.reset({ fullName: next.fullName, phone: next.phone ?? null });
-      if (this.alive()) this.toasts.push({ tone: 'ok', text: t('profile.saved') });
+      next = await call<Me>(this.session.api.PATCH('/me', { body }));
     } catch (e) {
-      this.f.fail(e);
+      if (this.live(generation)) this.f.fail(e);
+      return;
     }
+    // FM28: the profile of this session only (a late answer after a logout never revives it); UI steps while here
+    this.session.setMe(next, generation);
+    if (!this.live(generation)) return;
+    this.f.reset({ fullName: next.fullName, phone: next.phone ?? null });
+    this.toasts.push({ tone: 'ok', text: t('profile.saved') });
   };
 }
 
@@ -223,7 +228,7 @@ export class AvatarCardComponent {
   private readonly session = inject(SessionService);
   private readonly toasts = inject(ToastService);
   /** FM25: UI steps of an action only while this card stands. */
-  private readonly alive = injectAlive();
+  private readonly live = injectLive();
   private readonly alert = formAlert();
   private readonly injector = inject(Injector);
   protected readonly accept = AVATAR_TYPES.join(',');
@@ -276,15 +281,15 @@ export class AvatarCardComponent {
     if (!p || p.error) return;
     this.alert.clear();
     const opener = document.activeElement;
+    const generation = this.session.generation;
     this.busy.set('upload');
     try {
       const body = new FormData();
       body.append('file', p.file);
       await call(this.session.api.PUT('/me/avatar', { body: body as never }));
-      this.picked.set(null);
-      await this.session.reloadMe();
-      if (this.alive()) this.toasts.push({ tone: 'ok', text: t('profile.avatarSaved') });
     } catch (e) {
+      this.busy.set(null);
+      if (!this.live(generation)) return;
       let error: string | undefined;
       if (e instanceof ApiProblem && e.code === 'FILE_TOO_LARGE')
         error = tooLargeText(Number(e.params?.['maxBytes']) || AVATAR_MAX_BYTES);
@@ -297,31 +302,48 @@ export class AvatarCardComponent {
         error = t(e.errors['file'][0]);
       if (error) this.picked.update((x) => (x ? { ...x, error } : x));
       else this.alert.show(errorText(e), errorTone(e));
-    } finally {
-      this.busy.set(null);
-      this.refocus(opener);
+      this.refocus(opener, generation);
+      return;
     }
+    // Done (FM28): the success is said; the new avatar comes with a re-read of the profile that never fails the upload.
+    this.busy.set(null);
+    if (this.live(generation)) {
+      this.picked.set(null);
+      this.toasts.push({ tone: 'ok', text: t('profile.avatarSaved') });
+      this.refocus(opener, generation);
+    }
+    await this.session.reloadMe(generation);
   }
 
   protected async remove(): Promise<void> {
     this.alert.clear();
     const opener = document.activeElement;
+    const generation = this.session.generation;
     this.busy.set('delete');
     try {
       await call(this.session.api.DELETE('/me/avatar'));
-      await this.session.reloadMe();
-      if (this.alive()) this.toasts.push({ tone: 'ok', text: t('profile.avatarDeleted') });
     } catch (e) {
-      this.alert.show(errorText(e), errorTone(e));
-    } finally {
       this.busy.set(null);
-      this.refocus(opener);
+      if (this.live(generation)) {
+        this.alert.show(errorText(e), errorTone(e));
+        this.refocus(opener, generation);
+      }
+      return;
     }
+    this.busy.set(null);
+    // FM28: gone at once (the answer says so), then the profile is re-read — a failed re-read is no failure here
+    const me = this.session.me();
+    if (me) this.session.setMe({ ...me, avatarUrl: null }, generation);
+    if (this.live(generation)) {
+      this.toasts.push({ tone: 'ok', text: t('profile.avatarDeleted') });
+      this.refocus(opener, generation);
+    }
+    await this.session.reloadMe(generation);
   }
 
   /** FM21: an action that removed the focused control gives the focus to its opener, else the page title. */
-  private refocus(opener: Element | null): void {
-    if (this.alive()) afterNextRender(() => restoreFocus(opener), { injector: this.injector });
+  private refocus(opener: Element | null, generation: number): void {
+    if (this.live(generation)) afterNextRender(() => restoreFocus(opener), { injector: this.injector });
   }
 }
 
@@ -402,7 +424,7 @@ export class ChannelsCardComponent {
   private readonly session = inject(SessionService);
   private readonly toasts = inject(ToastService);
   /** FM25: UI steps of an action only while this card stands. */
-  private readonly alive = injectAlive();
+  private readonly live = injectLive();
   private readonly alert = formAlert();
   private readonly injector = inject(Injector);
   /** FM21/FM24: the shared query (cache 30 s, retries, stale shown while refetched); polled while a code is out. */
@@ -456,11 +478,14 @@ export class ChannelsCardComponent {
 
   protected async save(next: { email: boolean; telegram: boolean }): Promise<void> {
     this.alert.clear();
+    const generation = this.session.generation;
+    // the cache write is bound to the session of this moment (FM24/FM26 amendment: kept after leaving the screen)
+    const write = this.channelsQuery.writer();
     this.saving.set(true);
     try {
-      const write = this.channelsQuery.writer();
       write(await call<NotificationChannels>(this.session.api.PUT('/me/channels', { body: next })));
     } catch (e) {
+      if (!this.live(generation)) return;
       const key =
         e instanceof ApiProblem ? (e.errors?.['telegram']?.[0] ?? e.errors?.['email']?.[0]) : undefined;
       this.alert.show(key ? t(key) : errorText(e), errorTone(e));
@@ -472,15 +497,17 @@ export class ChannelsCardComponent {
   protected async newCode(): Promise<void> {
     this.alert.clear();
     const opener = document.activeElement;
+    const generation = this.session.generation;
     this.codeBusy.set(true);
     try {
-      this.code.set(await call<TelegramCode>(this.session.api.POST('/me/telegram-code')));
+      const code = await call<TelegramCode>(this.session.api.POST('/me/telegram-code'));
+      if (this.live(generation)) this.code.set(code);
     } catch (e) {
-      this.alert.show(errorText(e), errorTone(e));
+      if (this.live(generation)) this.alert.show(errorText(e), errorTone(e));
     } finally {
       this.codeBusy.set(false);
       // «Привязать Telegram» gives way to the code (FM21)
-      if (this.alive()) afterNextRender(() => restoreFocus(opener), { injector: this.injector });
+      if (this.live(generation)) afterNextRender(() => restoreFocus(opener), { injector: this.injector });
     }
   }
 }
@@ -559,7 +586,7 @@ export class TwoFactorCardComponent {
   private readonly session = inject(SessionService);
   private readonly toasts = inject(ToastService);
   /** FM25: UI steps of an action only while this card stands. */
-  private readonly alive = injectAlive();
+  private readonly live = injectLive();
   protected readonly pending = signal<{ secret: string; otpauthUrl: string } | null>(null);
   protected readonly starting = signal(false);
   protected readonly f = new SchemaForm<{ code: string }, TwoFactorSetupRequest>(
@@ -573,59 +600,81 @@ export class TwoFactorCardComponent {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   private readonly injector = inject(Injector);
 
-  /** FM21: an action that removed the focused control gives the focus to its opener, else the page title. */
-  private refocus(opener: Element | null, revealed?: () => HTMLElement | null): void {
-    if (this.alive()) afterNextRender(() => restoreFocus(opener, revealed?.()), { injector: this.injector });
+  /** FM21/FM24/FM25: focus after an action (opener, or a revealed field), while this card and its session stand. */
+  private refocus(opener: Element | null, generation: number, revealed?: () => HTMLElement | null): void {
+    if (this.live(generation))
+      afterNextRender(() => restoreFocus(opener, revealed?.()), { injector: this.injector });
   }
 
   /** «Отмена»: the form goes, the focus returns to «Настроить» that revealed it (FM25; FM17 idle rule). */
   protected cancel(): void {
     const opener = document.activeElement;
     this.pending.set(null);
-    this.refocus(opener, () => this.host.querySelector<HTMLElement>('.at-card__footer > button.at-button'));
+    this.refocus(opener, this.session.generation, () =>
+      this.host.querySelector<HTMLElement>('.at-card__footer > button.at-button'),
+    );
   }
 
-  private async alreadyOn(): Promise<void> {
-    this.pending.set(null);
-    await this.session.reloadMe();
+  /** 409 (already on, another tab): the profile is re-read (never an unhandled failure — FM28). */
+  private alreadyOn(generation: number): Promise<boolean> {
+    if (this.live(generation)) this.pending.set(null);
+    return this.session.reloadMe(generation);
   }
 
   protected async start(): Promise<void> {
     this.f.alert.clear();
     const opener = document.activeElement;
+    const generation = this.session.generation;
     this.starting.set(true);
+    let res: TwoFactorSetupResponse;
     try {
-      const res = await call<TwoFactorSetupResponse>(this.session.api.POST('/auth/2fa/setup', { body: {} }));
-      if ('secret' in res && res.secret && res.otpauthUrl)
-        this.pending.set({ secret: res.secret, otpauthUrl: res.otpauthUrl });
-      else await this.alreadyOn();
+      res = await call<TwoFactorSetupResponse>(this.session.api.POST('/auth/2fa/setup', { body: {} }));
     } catch (e) {
-      if (e instanceof ApiProblem && e.status === 409) await this.alreadyOn();
-      else {
+      this.starting.set(false);
+      if (e instanceof ApiProblem && e.status === 409) void this.alreadyOn(generation);
+      else if (this.live(generation)) {
         if (e instanceof ApiProblem && e.status === 429) this.startWait.start(retryAfterOf(e));
         this.f.alert.show(errorText(e), errorTone(e));
       }
-    } finally {
-      this.starting.set(false);
-      this.refocus(opener, () => document.getElementById('totp-code'));
+      this.refocus(opener, generation);
+      return;
     }
+    this.starting.set(false);
+    if (!('secret' in res && res.secret && res.otpauthUrl)) {
+      void this.alreadyOn(generation);
+      return;
+    }
+    if (!this.live(generation)) return;
+    // FM27: a reopened setup starts clean — no code and no error of the previous one
+    this.f.reset({ code: '' });
+    this.pending.set({ secret: res.secret, otpauthUrl: res.otpauthUrl });
+    this.refocus(opener, generation, () => document.getElementById('totp-code'));
   }
 
   protected readonly confirm = async (body: TwoFactorSetupRequest): Promise<void> => {
     const opener = document.activeElement;
+    const generation = this.session.generation;
     try {
       await call<TwoFactorSetupResponse>(this.session.api.POST('/auth/2fa/setup', { body }));
+    } catch (e) {
+      if (e instanceof ApiProblem && e.status === 409) void this.alreadyOn(generation);
+      else if (!this.live(generation)) return;
+      else if (e instanceof ApiProblem && e.code === 'INVALID_TWO_FACTOR_CODE')
+        this.f.setError('code', 'errors.INVALID_TWO_FACTOR_CODE');
+      else this.f.fail(e);
+      this.refocus(opener, generation);
+      return;
+    }
+    // Done (FM28): «on» at once, the success said; the profile re-read after it never fails the change
+    const me = this.session.me();
+    if (me) this.session.setMe({ ...me, totpEnabled: true }, generation);
+    if (this.live(generation)) {
       this.pending.set(null);
       this.f.reset({ code: '' });
-      await this.session.reloadMe();
-      if (this.alive()) this.toasts.push({ tone: 'ok', text: t('profile.twoFactorEnabled') });
-    } catch (e) {
-      if (e instanceof ApiProblem && e.code === 'INVALID_TWO_FACTOR_CODE')
-        this.f.setError('code', 'errors.INVALID_TWO_FACTOR_CODE');
-      else if (e instanceof ApiProblem && e.status === 409) await this.alreadyOn();
-      else this.f.fail(e);
+      this.toasts.push({ tone: 'ok', text: t('profile.twoFactorEnabled') });
+      this.refocus(opener, generation);
     }
-    this.refocus(opener);
+    await this.session.reloadMe(generation);
   };
 }
 
