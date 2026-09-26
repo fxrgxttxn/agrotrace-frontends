@@ -15,7 +15,11 @@ export interface TestMock {
 
 export function useMock(opts: { rateLimits?: boolean } = {}): TestMock {
   let t = Date.parse('2026-10-14T10:00:00Z');
-  const api = createMockApi({ now: () => t, loadAsset: nodeAssetLoader, rateLimits: opts.rateLimits ?? false });
+  // Persisted to an in-memory Storage with verification: any request that changes the state without marking the
+  // store dirty (FM8) fails the suite.
+  const data = new Map<string, string>();
+  const storage = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v), removeItem: (k: string) => void data.delete(k) } as Storage;
+  const api = createMockApi({ now: () => t, loadAsset: nodeAssetLoader, rateLimits: opts.rateLimits ?? false, persist: storage, blobStore: null, lock: null, verifyPersistence: true });
   const server = setupServer(...api.handlers);
   beforeAll(async () => {
     server.listen({ onUnhandledRequest: 'error' });

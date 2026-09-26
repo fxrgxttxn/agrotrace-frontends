@@ -5,8 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { inject } from 'vitest';
 import { operationTable } from '../scripts/contract-table.js';
 import { OPERATIONS } from '../src/contract/operations.generated.js';
-import { createMockApi, DEMO_PASSWORD } from '../src/index.js';
+import { createMockApi, DEMO_PASSWORD, type CrossTabLock, type MockApi } from '../src/index.js';
 import { readXlsx, writeXlsx } from '../src/lib/xlsx.js';
+import { Store } from '../src/store/store.js';
 import { contractErrors } from './helpers/client.js';
 import { nodeAssetLoader } from './helpers/assets.js';
 
@@ -129,6 +130,122 @@ describe('one backend per origin (FM3)', () => {
     expect(after.items.some((x: { name: string }) => x.name === 'Общее поле')).toBe(false);
     a.dispose();
     b.dispose();
+  });
+
+  /** A lock shared by the "tabs" of a test — what navigator.locks is to the tabs of an origin. */
+  const sharedLock = (): CrossTabLock => {
+    let q: Promise<unknown> = Promise.resolve();
+    return <T,>(fn: () => Promise<T>) => {
+      const next = q.then(fn);
+      q = next.catch(() => undefined);
+      return next;
+    };
+  };
+  const fieldNames = async (api: MockApi, token: string, re: RegExp) =>
+    ((await (await api.handle(req('/fields?size=100', { token }))).json()).items as { name: string }[]).map((x) => x.name).filter((n) => re.test(n)).sort();
+
+  it('FM8: concurrent writes of two tabs are all kept (20/20), also while a tab only reads', async () => {
+    const { storage } = memoryStorage();
+    const { blobs } = memoryBlobs();
+    const opts = { now: () => T0, loadAsset: nodeAssetLoader, persist: storage, blobStore: blobs, lock: sharedLock(), verifyPersistence: true };
+    const a = createMockApi(opts);
+    const b = createMockApi(opts);
+    await Promise.all([a.ready, b.ready]);
+    const token = (await (await a.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }))).json()).accessToken;
+    const create = (api: MockApi, name: string) => api.handle(req('/fields', { method: 'POST', token, json: { name, areaHa: '1.00', regionCode: '33' } }));
+    const statuses = (await Promise.all(Array.from({ length: 10 }, (_, i) => [create(a, `A${i}`), create(b, `B${i}`)]).flat())).map((r) => r.status);
+    expect(statuses.every((x) => x === 201)).toBe(true);
+    await Promise.all([...Array.from({ length: 10 }, (_, i) => create(a, `C${i}`)), ...Array.from({ length: 30 }, () => b.handle(req('/fields?size=1', { token })))]);
+    const c = createMockApi(opts);
+    await c.ready;
+    expect(await fieldNames(c, token, /^[ABC]\d$/)).toHaveLength(30);
+    for (const x of [a, b, c]) x.dispose();
+  });
+
+  it('FM8: every write primitive of the store marks it dirty', () => {
+    const s = new Store(() => T0);
+    const region = { id: '00000000-0000-4000-8000-0000000000aa', code: '99', name: 'X' };
+    const steps: [string, () => void][] = [
+      ['insert', () => void s.insert('regions', region)],
+      ['patch', () => void s.patch(region, { name: 'Y' })],
+      ['remove', () => s.remove('regions', region)],
+      ['kvSet', () => s.kvSet('k', 1, null)],
+      ['kvDel', () => s.kvDel('k')],
+      ['id', () => void s.id('x')],
+      ['markDirty', () => s.markDirty()],
+    ];
+    for (const [name, step] of steps) {
+      s.dirty = false;
+      step();
+      expect(s.dirty, name).toBe(true);
+    }
+    // A key that expires is deleted on read — also a change.
+    s.kvSet('ttl', 1, 1);
+    const later = new Store(() => T0 + 5_000);
+    later.kv = s.kv;
+    expect(later.kvGet('ttl')).toBeUndefined();
+    expect(later.dirty, 'expiry on read').toBe(true);
+  });
+
+  it('FM8: a request that changes nothing writes nothing', async () => {
+    const { storage } = memoryStorage();
+    let writes = 0;
+    const counting = { getItem: storage.getItem, removeItem: storage.removeItem, setItem: (k: string, v: string) => ((writes += 1), storage.setItem(k, v)) } as Storage;
+    const api = createMockApi({ now: () => T0, loadAsset: nodeAssetLoader, persist: counting, blobStore: null, rateLimits: false, lock: sharedLock(), verifyPersistence: true });
+    await api.ready;
+    const token = (await (await api.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }))).json()).accessToken;
+    const w = writes;
+    for (let i = 0; i < 5; i++) expect((await api.handle(req('/fields?size=5', { token }))).status).toBe(200);
+    expect(writes).toBe(w);
+    await api.handle(req('/fields', { method: 'POST', token, json: { name: 'W', areaHa: '1.00', regionCode: '33' } }));
+    expect(writes).toBeGreaterThan(w);
+    api.dispose();
+  });
+
+  it('FM8: without a lock the pending idempotency mark is published before the operation runs', async () => {
+    const { storage, data } = memoryStorage();
+    const seen: string[] = [];
+    const spying = { getItem: storage.getItem, removeItem: storage.removeItem, setItem: (k: string, v: string) => (k === 'agrotrace-mock-api' && seen.push(v), storage.setItem(k, v)) } as Storage;
+    const api = createMockApi({ now: () => T0, loadAsset: nodeAssetLoader, persist: spying, blobStore: null, lock: null });
+    await api.ready;
+    const token = (await (await api.handle(req('/auth/login', { method: 'POST', json: { email: 'zarya.head@agrotrace.test', password: DEMO_PASSWORD } }))).json()).accessToken;
+    const org = (part: string) => api.store.t.organizations.find((o) => o.name.includes(part))!;
+    const b = api.store.t.batches.find((x) => x.holder_org_id === org('Заря').id && x.status === 'Approved' && x.deleted_at === null)!;
+    seen.length = 0;
+    const body = { receiverOrgId: org('Мелькомбинат').id, items: [{ batchId: b.id, massDeclaredKg: b.mass_kg }] };
+    const r = await api.handle(req('/waybills', { method: 'POST', token, headers: { 'Idempotency-Key': 'fm8-pending-01' }, json: body }));
+    expect(r.status).toBe(201);
+    const marks = seen.map((json) => (JSON.parse(json).kv as [string, { value: { state: string } }][]).find(([k]) => k.endsWith(':fm8-pending-01'))?.[1].value.state);
+    expect(marks).toEqual(['pending', 'done']);
+    expect(data.get('agrotrace-mock-api')).toContain('"state":"done"');
+    api.dispose();
+  });
+
+  it('FM8: a reset in one tab empties what the other tab believes is in the blob store', async () => {
+    const { storage } = memoryStorage();
+    const { blobs, m } = memoryBlobs();
+    const opts = { now: () => T0, loadAsset: nodeAssetLoader, persist: storage, blobStore: blobs, lock: sharedLock() };
+    const a = createMockApi(opts);
+    const b = createMockApi(opts);
+    await Promise.all([a.ready, b.ready]);
+    const upload = async (api: MockApi, bytes: Uint8Array) => {
+      const token = (await (await api.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }))).json()).accessToken;
+      const form = new FormData();
+      form.set('file', new File([bytes], 'a.webp'));
+      return (await (await api.handle(req('/me/avatar', { method: 'PUT', token, body: form }))).json()) as { id: string; url: string };
+    };
+    const first = await upload(b, webp);
+    await a.reset();
+    const other = webp.slice();
+    other[other.length - 1]! ^= 1;
+    const second = await upload(b, other);
+    // The world is replayed with the same ids: the new upload gets the id of the old one — its bytes must be stored.
+    expect(second.id).toBe(first.id);
+    expect(m.get(second.id)).toEqual(other);
+    const c = createMockApi(opts);
+    await c.ready;
+    expect(new Uint8Array(await (await c.handle(req(second.url.replace('/api/v1', '')))).arrayBuffer())).toEqual(other);
+    for (const x of [a, b, c]) x.dispose();
   });
 
   it('a storage failure (quota) is reported, never silent, and the request still answers', async () => {
