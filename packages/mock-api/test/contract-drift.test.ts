@@ -82,6 +82,12 @@ describe('uploads (P14): 400 form → 413 → 404/403 → 415', () => {
       `<svg xmlns="http://example.com/other"/>`,
       `<s:svg xmlns:s="http://www.w3.org/2000/svg"/>`,
       `<svg ${NS}><g></svg>`,
+      // Round 2: not well-formed namespace-aware XML — refused, never a 500.
+      `<svg ${NS}><text>&#x110000;</text></svg>`,
+      `<svg ${NS}><text>&#0;</text></svg>`,
+      `<svg ${NS}><text>a & b</text></svg>`,
+      `<svg ${NS}><text>]]></text></svg>`,
+      `<svg ${NS}><rect q:x="1"/></svg>`,
     ]) {
       const r = await put(bad);
       expect(r.status, bad).toBe(415);
@@ -136,7 +142,10 @@ describe('admin, dictionaries, SSE, headers', () => {
     const t = await mock.login('inspector@agrotrace.test');
     const res = await mock.api.handle(new Request(`${BASE}/events/stream?access_token=${t}&lastEventId=abc`));
     expect(res.status).toBe(200);
+    expect(mock.api.openStreams).toBe(1);
+    // The client going away (EventSource.close) cancels the body: the stream and its timers are released.
     await res.body!.cancel();
+    expect(mock.api.openStreams).toBe(0);
   });
 
   it('X-Request-Id and X-Backend on every response; the request id lands in the audit row', async () => {

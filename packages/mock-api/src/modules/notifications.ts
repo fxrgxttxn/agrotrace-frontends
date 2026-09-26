@@ -72,6 +72,11 @@ export class EventHub {
     for (const s of this.streams) if (s.userId === userId) s.send(this.unread(userId));
   }
 
+  /** SSE streams open now (a stream is gone once its client cancels it or it is closed). */
+  get openCount(): number {
+    return this.streams.size;
+  }
+
   /** Closes every stream (reset / stop). */
   closeAll(): void {
     for (const s of [...this.streams]) s.close();

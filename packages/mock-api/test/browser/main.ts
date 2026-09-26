@@ -1,5 +1,6 @@
 // Browser check of @agrotrace/mock-api: the service-worker path, images, SSE and one backend per origin (FM3).
-// The page runs the step named by the URL hash: #login (full tour), #refresh, #logout, #file=<url>.
+// The page runs the step named by the URL hash: #login (full tour), #refresh, #logout, #file=<url>, #idle (only
+// starts the mock; the check script then drives fetches from the page — the two-tab write race of FM8).
 import { startBrowserMock } from '../../src/browser.js';
 
 const out: Record<string, unknown> = {};
@@ -46,6 +47,11 @@ async function tour() {
       setTimeout(() => resolve('timeout'), 5000);
     }),
   );
+  // The closed EventSource must cancel the mock's stream through the service worker: none is left open.
+  const api = (globalThis as { __agrotraceMock?: { openStreams: number } }).__agrotraceMock!;
+  const deadline = Date.now() + 3000;
+  while (api.openStreams > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+  log('sseOpenAfterClose', api.openStreams);
   log('public', (await (await fetch(`/api/v1/public/batches/${page.items[0].publicCode}`)).json()).safety);
   log('avatarUrl', upBody.url);
 }

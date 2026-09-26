@@ -92,6 +92,8 @@ export interface MockApi {
   totp(email: string): string;
   /** Emulates the user sending `/start <code>` to the Telegram bot: links the account of the code. */
   linkTelegram(code: string): Promise<boolean>;
+  /** SSE streams (`streamEvents`) open in this tab. */
+  readonly openStreams: number;
   /** The last persistence failure (e.g. the storage quota), null — none. */
   readonly persistError: unknown;
   /** Stops SSE streams, timers and listeners. */
@@ -241,6 +243,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     },
     get persistError() {
       return persistError;
+    },
+    get openStreams() {
+      return hub.openCount;
     },
     handle,
     mailbox,

@@ -40,6 +40,41 @@ const b1 = JSON.parse(await (await open('refresh')).textContent('#result'));
 const b2 = JSON.parse(await (await open(`file=${encodeURIComponent(tour.avatarUrl)}`)).textContent('#result'));
 const a2 = JSON.parse(await (await open('logout')).textContent('#result'));
 const b3 = JSON.parse(await (await open('refresh', true)).textContent('#result'));
-console.log(JSON.stringify({ tour, tabBRefresh: b1.refresh, tabBReadsUpload: b2.file, logoutInA: a2.logout, tabBAfterLogout: b3.refresh, errors }, null, 2));
+
+// FM8: two tabs write at the same time (10 creates each), then one writes while the other only reads; every write
+// must be kept (the reviewer's probe lost half of them before the Web Locks serialization).
+const [ra, rb] = [await open('idle'), await open('idle')];
+const token = await ra.evaluate(async () => {
+  const r = await fetch('/api/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'petrov@agrotrace.test', password: 'agrotrace-demo' }) });
+  return (await r.json()).accessToken;
+});
+const burst = (page, prefix, n) =>
+  page.evaluate(
+    ({ token, prefix, n }) =>
+      Promise.all(
+        Array.from({ length: n }, async (_, i) =>
+          (await fetch('/api/v1/fields', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ name: `${prefix}${i}`, areaHa: '1.00', regionCode: '33' }) })).status,
+        ),
+      ),
+    { token, prefix, n },
+  );
+const reads = (page, n) =>
+  page.evaluate(
+    async ({ token, n }) => {
+      for (let i = 0; i < n; i++) await fetch('/api/v1/fields?size=1', { headers: { Authorization: `Bearer ${token}` } });
+    },
+    { token, n },
+  );
+const [sa, sb] = await Promise.all([burst(ra, 'A', 10), burst(rb, 'B', 10)]);
+const [sc] = await Promise.all([burst(ra, 'C', 10), reads(rb, 30)]);
+const rc = await open('idle');
+const persisted = await rc.evaluate(async (token) => {
+  const r = await fetch('/api/v1/fields?size=100', { headers: { Authorization: `Bearer ${token}` } });
+  return (await r.json()).items.map((x) => x.name).filter((n) => /^[ABC]\d$/.test(n)).length;
+}, token);
+const persistErrors = await Promise.all([ra, rb].map((p) => p.evaluate(() => String(globalThis.__agrotraceMock?.persistError ?? null))));
+const race = { statuses: [...sa, ...sb, ...sc].every((s) => s === 201) ? '30 x 201' : [...sa, ...sb, ...sc], persisted, expected: 30, persistErrors };
+
+console.log(JSON.stringify({ tour, tabBRefresh: b1.refresh, tabBReadsUpload: b2.file, logoutInA: a2.logout, tabBAfterLogout: b3.refresh, race, errors }, null, 2));
 await browser.close();
 server.close();
