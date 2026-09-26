@@ -50,6 +50,14 @@ describe('session start-up', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Панель' })).toBeInTheDocument();
   });
 
+  it('a retry that fails again: the focus is on «Повторить» of the new screen (FM10)', async () => {
+    server.use(http.post(`${API_BASE}/auth/refresh`, () => new HttpResponse(null, { status: 503 })));
+    renderApp('/');
+    await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' });
+    await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Повторить' })).toHaveFocus());
+  });
+
   it('a network error of the refresh is transient too', async () => {
     server.use(http.post(`${API_BASE}/auth/refresh`, () => HttpResponse.error(), { once: true }));
     renderApp('/');

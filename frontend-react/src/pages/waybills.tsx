@@ -6,7 +6,15 @@ import { ApiProblem, type Schemas } from '@agrotrace/api-client';
 import { checkDiscrepancy, compareDecimalStrings, gramsToKg, kgToGrams } from '@agrotrace/domain';
 import { enumLabel, formatDecimal, formatLocalDateTime, formatPercent } from '@agrotrace/i18n';
 import { WaybillAcceptSchema, WaybillCreateSchema, WaybillRejectSchema } from '@agrotrace/validation';
-import { applyProblem, call, errorText, errorTone, useCountdown, useFormAlert } from '../app/api';
+import {
+  applyProblem,
+  call,
+  errorText,
+  errorTone,
+  retryAfterOf,
+  useCountdown,
+  useFormAlert,
+} from '../app/api';
 import { DateFilter } from '../app/DateFilter';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
@@ -467,7 +475,7 @@ function WaybillNewForm({ batches }: { batches: BatchItem[] }) {
     alert.clear();
     setBusy(true);
     try {
-      const waybill = await idempotent((key) =>
+      const waybill = await idempotent(body, (key) =>
         call<Waybill>(api.POST('/waybills', { params: { header: { 'Idempotency-Key': key } }, body })),
       );
       queryClient.setQueryData(['waybill', waybill.id], waybill);
@@ -586,13 +594,25 @@ function WaybillNewForm({ batches }: { batches: BatchItem[] }) {
 
 // ── /waybills/:id ────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** Text of a failed change of an existing waybill; a stale card (VERSION_CONFLICT, a state that moved on) is re-read. */
-function useWaybillProblem(id: string) {
+interface Problem {
+  text: string;
+  tone: 'danger' | 'attention';
+}
+
+/** Failures of the waybill's actions (ruling FM13): the text of the failure, the card re-read when it is stale
+ * (VERSION_CONFLICT, INVALID_TRANSITION, a batch the rule BR-06 stopped, a waybill gone), one page-level message at a
+ * time in the global toast region — it stays when the acceptance form or a dialog goes away — and, after a re-read,
+ * the focus on a live element (the page title) when the focused control disappeared. */
+function useWaybillProblems(id: string) {
   const queryClient = useQueryClient();
-  return (e: unknown): { text: string; tone: 'danger' | 'attention' } => {
+  const alert = useFormAlert();
+  const refocus = useRef(false);
+  const describe = (e: unknown): Problem => {
     const reread = () => {
+      refocus.current = true;
       void queryClient.invalidateQueries({ queryKey: ['waybill', id] });
       void queryClient.invalidateQueries({ queryKey: ['waybills'] });
+      void queryClient.invalidateQueries({ queryKey: ['batches'] });
     };
     if (e instanceof ApiProblem && e.code === 'VERSION_CONFLICT') {
       reread();
@@ -614,8 +634,19 @@ function useWaybillProblem(id: string) {
             tone: 'danger',
           };
     }
-    if (e instanceof ApiProblem && e.status === 404) reread();
+    if (e instanceof ApiProblem && (e.rule === 'BR-06' || e.status === 404)) reread();
     return { text: errorText(e), tone: errorTone(e) };
+  };
+  return {
+    alert,
+    /** Describes the failure (re-reading when stale) and shows it as the page message. */
+    fail: (e: unknown): Problem => {
+      const p = describe(e);
+      alert.show(p.text, p.tone);
+      return p;
+    },
+    describe,
+    refocus,
   };
 }
 
@@ -625,9 +656,10 @@ export function WaybillPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
-  const problem = useWaybillProblem(id);
+  const problems = useWaybillProblems(id);
   const idempotentSend = useIdempotency();
   const [sending, setSending] = useState(false);
+  const [sendWait, startSendWait] = useCountdown();
   const [dialog, setDialog] = useState<'delete' | 'reject' | null>(null);
 
   const query = useQuery({
@@ -636,6 +668,24 @@ export function WaybillPage() {
     retry: retryTransient,
   });
   const waybill = query.data;
+  const can = (a: Schemas['WaybillActionName']) => Boolean(waybill?.actions.includes(a));
+
+  // A dialog whose action the re-read card no longer allows closes (its message stays on the page).
+  const rejectAllowed = can('reject');
+  const deleteAllowed = can('delete');
+  useEffect(() => {
+    if ((dialog === 'reject' && !rejectAllowed) || (dialog === 'delete' && !deleteAllowed)) setDialog(null);
+  }, [dialog, rejectAllowed, deleteAllowed]);
+  // After a re-read the focused control may be gone (the acceptance form of a waybill accepted elsewhere, a closed
+  // dialog's opener): the focus goes to the page title instead of the document body.
+  useEffect(() => {
+    if (!problems.refocus.current || !waybill) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || !active.isConnected) {
+      problems.refocus.current = false;
+      document.querySelector<HTMLElement>('h1.at-page__title')?.focus();
+    }
+  });
 
   const changed = (next: Waybill) => {
     queryClient.setQueryData(['waybill', next.id], next);
@@ -661,12 +711,11 @@ export function WaybillPage() {
       </Page>
     );
 
-  const can = (a: Schemas['WaybillActionName']) => Boolean(waybill?.actions.includes(a));
-
   const send = async (w: Waybill) => {
+    problems.alert.clear();
     setSending(true);
     try {
-      const next = await idempotentSend((key) =>
+      const next = await idempotentSend({ id: w.id, version: w.version }, (key) =>
         call<Waybill>(
           api.POST('/waybills/{id}/send', {
             params: { path: { id: w.id }, header: { 'If-Match': w.version, 'Idempotency-Key': key } },
@@ -676,7 +725,8 @@ export function WaybillPage() {
       changed(next);
       toast.push({ tone: 'ok', text: t('waybills.sent', { number: next.number }) });
     } catch (e) {
-      toast.push(problem(e));
+      if (e instanceof ApiProblem && e.status === 429) startSendWait(retryAfterOf(e));
+      problems.fail(e);
     } finally {
       setSending(false);
     }
@@ -690,8 +740,16 @@ export function WaybillPage() {
         (can('send') || can('delete') || can('reject')) && (
           <>
             {can('send') && (
-              <Button variant="primary" icon="truck" busy={sending} onClick={() => void send(waybill)}>
-                {enumLabel(t, 'WaybillActionName', 'send')}
+              <Button
+                variant="primary"
+                icon="truck"
+                busy={sending}
+                disabled={sendWait > 0}
+                onClick={() => void send(waybill)}
+              >
+                {sendWait > 0
+                  ? t('auth.retryIn', { seconds: sendWait })
+                  : enumLabel(t, 'WaybillActionName', 'send')}
               </Button>
             )}
             {can('delete') && (
@@ -720,8 +778,17 @@ export function WaybillPage() {
         <div style={GAP}>
           <WaybillSummary waybill={waybill} />
           <WaybillItems waybill={waybill} />
-          {/* A new version (re-read after a conflict) starts the acceptance again from the card. */}
-          {can('accept') && <AcceptForm key={waybill.version} waybill={waybill} onDone={changed} />}
+          {/* Not keyed by the version: a re-read after a conflict keeps what the person typed (FM13). */}
+          {can('accept') && (
+            <AcceptForm
+              waybill={waybill}
+              onDone={(next) => {
+                changed(next);
+                toast.push({ tone: 'ok', text: t('waybills.accepted', { number: next.number }) });
+              }}
+              problems={problems}
+            />
+          )}
         </div>
       )}
       {waybill && (
@@ -729,6 +796,7 @@ export function WaybillPage() {
           <DeleteDialog
             open={dialog === 'delete'}
             waybill={waybill}
+            problems={problems}
             onClose={() => setDialog(null)}
             onDone={() => {
               setDialog(null);
@@ -741,6 +809,7 @@ export function WaybillPage() {
           <RejectDialog
             open={dialog === 'reject'}
             waybill={waybill}
+            problems={problems}
             onClose={() => setDialog(null)}
             onDone={(next) => {
               setDialog(null);
@@ -849,11 +918,26 @@ export function discrepancyOf(declaredKg: string, actualText: string) {
   return 'error' in r ? null : r;
 }
 
-function AcceptForm({ waybill, onDone }: { waybill: Waybill; onDone: (next: Waybill) => void }) {
+/** The discrepancy as shown: its percent, except when rounding would hide that it is over the threshold (a 2.004%
+ * discrepancy rounds to «2,00%» while the act is required — FM13): then «больше 2%», from the domain's comparison. */
+export function discrepancyText(d: { percent: string; actRequired: boolean }): string {
+  return d.actRequired && compareDecimalStrings(d.percent, '2.00') <= 0
+    ? t('waybills.overLimit')
+    : formatPercent(d.percent, LOCALE);
+}
+
+type Problems = ReturnType<typeof useWaybillProblems>;
+
+function AcceptForm({
+  waybill,
+  onDone,
+  problems,
+}: {
+  waybill: Waybill;
+  onDone: (next: Waybill) => void;
+  problems: Problems;
+}) {
   const { api } = useSession();
-  const toast = useToast();
-  const alert = useFormAlert();
-  const problem = useWaybillProblem(waybill.id);
   const idempotent = useIdempotency();
   const [busy, setBusy] = useState(false);
   const [wait, startWait] = useCountdown();
@@ -907,45 +991,42 @@ function AcceptForm({ waybill, onDone }: { waybill: Waybill; onDone: (next: Wayb
   const actual = form.watch('actual');
 
   const submit = form.handleSubmit(async (values) => {
-    alert.clear();
+    problems.alert.clear();
     setBusy(true);
+    // The version of the card as it is now (a re-read after a conflict brings a new one).
+    const version = waybill.version;
+    const body = toBody(values) as Schemas['WaybillAccept'];
     try {
-      const next = await idempotent((key) =>
+      const next = await idempotent({ version, body }, (key) =>
         call<Waybill>(
           api.POST('/waybills/{id}/accept', {
-            params: {
-              path: { id: waybill.id },
-              header: { 'If-Match': waybill.version, 'Idempotency-Key': key },
-            },
-            body: toBody(values) as Schemas['WaybillAccept'],
+            params: { path: { id: waybill.id }, header: { 'If-Match': version, 'Idempotency-Key': key } },
+            body,
           }),
         ),
       );
       onDone(next);
-      toast.push({ tone: 'ok', text: t('waybills.accepted', { number: next.number }) });
     } catch (e) {
       if (e instanceof ApiProblem && e.code === 'VALIDATION') {
         applyProblem(e, {
           form,
           fields: items.flatMap((i) => [`actual.${i.batch.id}`, `act.${i.batch.id}`] as const),
-          alert: alert.show,
+          alert: problems.alert.show,
           alias: (path) => {
             const m = /^items\[(\d+)\]\.(massActualKg|discrepancyAct)$/.exec(path);
             const item = m ? items[Number(m[1])] : undefined;
             return item && m ? `${m[2] === 'massActualKg' ? 'actual' : 'act'}.${item.batch.id}` : path;
           },
         });
-      } else if (e instanceof ApiProblem && e.status === 429) {
-        applyProblem(e, { alert: alert.show, onRateLimit: startWait });
       } else {
+        if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
         // BR-07 by the server's own count: the act of that batch is what is missing.
         if (e instanceof ApiProblem && e.rule === 'BR-07' && typeof e.params?.publicCode === 'string') {
           const code = e.params.publicCode;
           const item = items.find((i) => i.batch.publicCode === code);
           if (item) form.setError(`act.${item.batch.id}`, { type: 'server', message: 'validation.required' });
         }
-        const p = problem(e);
-        alert.show(p.text, p.tone);
+        problems.fail(e);
       }
     } finally {
       setBusy(false);
@@ -997,7 +1078,7 @@ function AcceptForm({ waybill, onDone }: { waybill: Waybill; onDone: (next: Wayb
                     {d && (
                       <>
                         <span>
-                          {t('waybills.discrepancy')}: {formatPercent(d.percent, LOCALE)}
+                          {t('waybills.discrepancy')}: {discrepancyText(d)}
                         </span>
                         {d.actRequired && <Chip tone="attention">{t('waybills.actRequired')}</Chip>}
                       </>
@@ -1029,21 +1110,36 @@ function AcceptForm({ waybill, onDone }: { waybill: Waybill; onDone: (next: Wayb
 
 // ── Dialogs ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+/** A failure shown inside a modal dialog (the page's toast region is behind it, README «Диалог»). */
+function DialogMessage({ text }: { text: string | null }) {
+  return text ? (
+    <p className="at-field__error" role="alert" style={{ margin: 0 }}>
+      {text}
+    </p>
+  ) : null;
+}
+
 function DeleteDialog({
   open,
   waybill,
+  problems,
   onClose,
   onDone,
 }: {
   open: boolean;
   waybill: Waybill;
+  problems: Problems;
   onClose: () => void;
   onDone: () => void;
 }) {
   const { api } = useSession();
-  const toast = useToast();
-  const problem = useWaybillProblem(waybill.id);
   const [busy, setBusy] = useState(false);
+  const [wait, startWait] = useCountdown();
+  const [message, setMessage] = useState<string | null>(null);
+  const close = () => {
+    setMessage(null);
+    onClose();
+  };
   const remove = async () => {
     setBusy(true);
     try {
@@ -1054,8 +1150,8 @@ function DeleteDialog({
       );
       onDone();
     } catch (e) {
-      onClose();
-      toast.push(problem(e));
+      if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
+      setMessage(problems.fail(e).text);
     } finally {
       setBusy(false);
     }
@@ -1063,49 +1159,49 @@ function DeleteDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={close}
       title={t('waybills.deleteTitle', { number: waybill.number })}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             {t('action.cancel')}
           </Button>
-          <Button variant="danger" busy={busy} onClick={() => void remove()}>
-            {enumLabel(t, 'WaybillActionName', 'delete')}
+          <Button variant="danger" busy={busy} disabled={wait > 0} onClick={() => void remove()}>
+            {wait > 0 ? t('auth.retryIn', { seconds: wait }) : enumLabel(t, 'WaybillActionName', 'delete')}
           </Button>
         </>
       }
-    />
+    >
+      {message && <DialogMessage text={message} />}
+    </Dialog>
   );
 }
 
-/** Refusal (spec §9.3: an irreversible action in its own dialog, the key parameter repeated — the waybill number). */
+/** Refusal (spec §9.3: an irreversible action in its own dialog, the key parameter repeated — the waybill number,
+ * README «Диалог»). A failure keeps what was typed; a stale card is re-read and the confirmation uses its new version. */
 function RejectDialog({
   open,
   waybill,
+  problems,
   onClose,
   onDone,
 }: {
   open: boolean;
   waybill: Waybill;
+  problems: Problems;
   onClose: () => void;
   onDone: (next: Waybill) => void;
 }) {
   const { api } = useSession();
-  const toast = useToast();
-  const problem = useWaybillProblem(waybill.id);
   const [reason, setReason] = useState('');
   const [number, setNumber] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [wait, startWait] = useCountdown();
   const matches = number.trim().toUpperCase() === waybill.number;
-  const reset = () => {
-    setReason('');
-    setNumber('');
-    setError(null);
-  };
   const close = () => {
-    reset();
+    setMessage(null);
     onClose();
   };
   const reject = async () => {
@@ -1113,6 +1209,7 @@ function RejectDialog({
     if (!check.success)
       return setError(t(reason.trim() ? check.error.issues[0]!.message : 'validation.required'));
     setBusy(true);
+    setMessage(null);
     try {
       const next = await call<Waybill>(
         api.POST('/waybills/{id}/reject', {
@@ -1120,14 +1217,15 @@ function RejectDialog({
           body: { reason },
         }),
       );
-      reset();
+      setReason('');
+      setNumber('');
       onDone(next);
     } catch (e) {
       const key = e instanceof ApiProblem && e.code === 'VALIDATION' ? e.errors?.reason?.[0] : undefined;
       if (key) setError(t(key));
       else {
-        close();
-        toast.push(problem(e));
+        if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
+        setMessage(problems.fail(e).text);
       }
     } finally {
       setBusy(false);
@@ -1143,13 +1241,14 @@ function RejectDialog({
           <Button variant="ghost" onClick={close}>
             {t('action.cancel')}
           </Button>
-          <Button variant="danger" busy={busy} disabled={!matches} onClick={() => void reject()}>
-            {enumLabel(t, 'WaybillActionName', 'reject')}
+          <Button variant="danger" busy={busy} disabled={!matches || wait > 0} onClick={() => void reject()}>
+            {wait > 0 ? t('auth.retryIn', { seconds: wait }) : enumLabel(t, 'WaybillActionName', 'reject')}
           </Button>
         </>
       }
     >
       <div style={FORM_GRID}>
+        <DialogMessage text={message} />
         <Field id="reject-reason" label={t('waybills.rejectReason')} error={error}>
           <Textarea
             rows={3}

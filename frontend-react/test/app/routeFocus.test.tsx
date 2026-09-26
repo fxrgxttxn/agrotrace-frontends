@@ -57,6 +57,28 @@ describe('focus on route change', () => {
     await waitFor(() => expect(document.activeElement).toBe(h1('Поля')));
   });
 
+  it('a redirect back to the same pathname renders the page anew: its title is focused (FM7)', async () => {
+    const { router } = renderApp('/');
+    await screen.findByRole('heading', { level: 1, name: 'Панель' });
+    // Signed in: /login sends back to «/».
+    await act(async () => {
+      await router.navigate('/login');
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+    await waitFor(() => expect(document.activeElement).toBe(h1('Панель')));
+    // On /403, another forbidden route comes back to /403.
+    await act(async () => {
+      await router.navigate('/recalls');
+    });
+    await waitFor(() => expect(document.activeElement).toBe(h1('Нет доступа')));
+    (document.activeElement as HTMLElement).blur();
+    await act(async () => {
+      await router.navigate('/complaints');
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/403'));
+    await waitFor(() => expect(document.activeElement).toBe(h1('Нет доступа')));
+  });
+
   it('a link to a route of another role: the redirect to /403 focuses its title (FM7)', async () => {
     const { router } = renderApp('/batches');
     await screen.findByRole('heading', { level: 1, name: 'Партии' });

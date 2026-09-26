@@ -283,6 +283,13 @@ th[aria-sort='descending'] > .at-table__sort::after {
     text-align: start;
   }
 
+  /* A cell holding a form field (README «Таблица»: поле в ячейке): the label above, the field at the full card width,
+     so a long mass (123 456 789,000 кг) is not clipped at 360 px. */
+  .at-table[data-cards] td:has(> .at-field) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-1);
+  }
+
   /* Title cell (code + product) and status sit on the card's first line, without labels. */
   .at-table[data-cards] td[data-primary] {
     display: block;

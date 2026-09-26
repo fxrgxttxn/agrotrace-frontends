@@ -7,6 +7,9 @@ import { t } from './i18n';
 import { Button, Empty, PageLoading } from '../ui';
 import { AuthLayout } from './layouts';
 
+/** Set by «Повторить»: when the retry ends on this screen again, the new button gets the focus (FM10). */
+let retried = false;
+
 /** Screen shown when the session cannot be restored for a transient reason (R61): retry, not a logout. */
 export function Unavailable() {
   const { restore, state } = useSession();
@@ -19,6 +22,13 @@ export function Unavailable() {
   // A disabled button drops the focus; when the wait is over, the focus goes to the button that can act now.
   const button = useRef<HTMLButtonElement>(null);
   const waited = useRef(false);
+  // A failed retry (loading → unavailable) remounts this screen: the focus goes back to «Повторить».
+  useEffect(() => {
+    if (retried) {
+      retried = false;
+      button.current?.focus();
+    }
+  }, []);
   useEffect(() => {
     if (wait > 0) waited.current = true;
     else if (waited.current) {
@@ -32,7 +42,15 @@ export function Unavailable() {
         art="empty-search"
         text={retryAfter ? t('errors.RATE_LIMITED') : t('errors.BACKEND_UNAVAILABLE')}
         action={
-          <Button ref={button} variant="primary" disabled={wait > 0} onClick={() => void restore()}>
+          <Button
+            ref={button}
+            variant="primary"
+            disabled={wait > 0}
+            onClick={() => {
+              retried = true;
+              void restore();
+            }}
+          >
             {wait > 0 ? t('auth.retryIn', { seconds: wait }) : t('action.retry')}
           </Button>
         }

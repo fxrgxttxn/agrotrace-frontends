@@ -92,7 +92,8 @@
     "uploading": "Uploading {name}",
     "searching": "Searching",
     "legend": "Legend",
-    "progressValue": "{value} of {max}"
+    "progressValue": "{value} of {max}",
+    "chunkFailed": "The page could not be loaded."
   },
   "theme": {
     "label": "Theme",
@@ -703,6 +704,7 @@
     "repeatNumber": "Waybill number to confirm",
     "acceptance": "Acceptance",
     "actRequired": "Over 2%: a report is required",
+    "overLimit": "over 2%",
     "versionConflict": "The waybill has changed: the data is reloaded — check it and try again",
     "stateChanged": "The waybill is already «{status}»: the data is reloaded",
     "batchState": "Batch {publicCode} is «{status}»: this action is not available for it now"
@@ -825,7 +827,7 @@
     "writeOff": "Confirm Seizure"
   },
   "waybillAction": {
-    "send": "Send",
+    "send": "Ship",
     "delete": "Delete Draft",
     "accept": "Accept",
     "reject": "Reject"
@@ -968,7 +970,7 @@
     "TWO_FACTOR_REQUIRED": "A two-factor code is required",
     "INVALID_TWO_FACTOR_CODE": "Incorrect two-factor code",
     "TOKEN_EXPIRED": "Your session expired — sign in again",
-    "IDEMPOTENCY_KEY_REUSED": "This idempotency key was already used for a different request",
+    "IDEMPOTENCY_KEY_REUSED": "The form data changed after a failure — send it again",
     "INVALID_IDEMPOTENCY_KEY": "Invalid idempotency key",
     "CAPTCHA_FAILED": "ALTCHA verification failed",
     "GRAPH_CYCLE": "This operation would create a cycle in the traceability chain",

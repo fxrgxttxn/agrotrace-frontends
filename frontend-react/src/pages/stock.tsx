@@ -54,6 +54,8 @@ type BatchStatus = Schemas['BatchStatus'];
 const SIZE = 20;
 const GAP = { display: 'grid', gap: 'var(--sp-5)' } as const;
 const MASS = /^\d{1,9}\.\d{3}$/;
+/** Value of a status select while the URL holds several statuses. */
+const SEVERAL = '__several';
 
 const retryTransient = (n: number, e: unknown) => !(e instanceof ApiProblem && e.status < 500) && n < 2;
 /** A mass for an input: `12480.000` → `12480,000` (normalizeDecimal reads it back). */
@@ -215,10 +217,16 @@ function StatusFilter({ statuses, own }: { statuses: BatchStatus[]; own: ReturnT
   return (
     <Field id="filter-status" label={t('batches.status')}>
       <Select
-        value={own.chosen.length === 1 ? own.chosen[0] : ''}
+        value={own.chosen.length === 1 ? own.chosen[0] : own.chosen.length > 1 ? SEVERAL : ''}
         onChange={(e) => own.list.set({ status: e.target.value })}
       >
         <option value="">{t('filters.any')}</option>
+        {/* Several statuses come only from a link; the select says so (README «Страница»). */}
+        {own.chosen.length > 1 && (
+          <option value={SEVERAL} disabled>
+            {t('filters.several', { count: own.chosen.length })}
+          </option>
+        )}
         {statuses.map((s) => (
           <option key={s} value={s}>
             {enumLabel(t, 'BatchStatus', s)}
@@ -230,6 +238,8 @@ function StatusFilter({ statuses, own }: { statuses: BatchStatus[]; own: ReturnT
 }
 
 export function StockPage() {
+  // Row actions: small buttons in the table, the regular size (44 px touch target) on the cards below 768 px (FM13).
+  const rowSize = useWide() ? ('s' as const) : undefined;
   const { processor, retailer } = useRoles();
   const statuses = stockStatuses(processor, retailer);
   const own = useOwnBatches('stock', statuses, STOCK_SPEC, '/stock');
@@ -269,12 +279,12 @@ export function StockPage() {
     return (
       <>
         {processor && allowed.has('process') && (
-          <ButtonLink size="s" variant="primary" to={`/processing/new?batchId=${b.id}`}>
+          <ButtonLink size={rowSize} variant="primary" to={`/processing/new?batchId=${b.id}`}>
             {label('process')}
           </ButtonLink>
         )}
         {processor && allowed.has('ship') && (
-          <ButtonLink size="s" to={`/waybills/new?batchId=${b.id}`}>
+          <ButtonLink size={rowSize} to={`/waybills/new?batchId=${b.id}`}>
             {label('ship')}
           </ButtonLink>
         )}
@@ -284,7 +294,7 @@ export function StockPage() {
             .map((a) => (
               <Button
                 key={a}
-                size="s"
+                size={rowSize}
                 variant={a === 'putOnSale' ? 'primary' : 'secondary'}
                 busy={transition.busy === b.id}
                 onClick={() => void transition.run(b, a)}
@@ -793,7 +803,7 @@ function BalanceView({ balance }: { balance: ReturnType<typeof checkMassBalance>
         {balance.ok ? (
           <p style={{ margin: 0 }}>{t('processing.balanceOk', { allowedKg: mass(balance.allowedKg) })}</p>
         ) : (
-          <p className="at-field__error" style={{ margin: 0 }}>
+          <p style={{ margin: 0, color: 'var(--status-attention-fg)', fontWeight: 500 }}>
             {t('rules.BR-04', {
               outputKg: mass(balance.outputKg),
               allowedKg: mass(balance.allowedKg),
@@ -822,6 +832,7 @@ function qrStatuses(processor: boolean): BatchStatus[] {
 }
 
 export function QrPage() {
+  const rowSize = useWide() ? ('s' as const) : undefined;
   const { api } = useSession();
   const { processor } = useRoles();
   const toast = useToast();
@@ -918,7 +929,7 @@ export function QrPage() {
               actions={(b) =>
                 b.qrGeneratedAt ? (
                   <Button
-                    size="s"
+                    size={rowSize}
                     icon="download"
                     aria-label={t('qr.downloadOf', { code: b.publicCode })}
                     onClick={() => setShown({ batch: b, links: null })}
@@ -927,7 +938,7 @@ export function QrPage() {
                   </Button>
                 ) : (
                   <Button
-                    size="s"
+                    size={rowSize}
                     variant="primary"
                     icon="qr"
                     busy={busy === b.id}
