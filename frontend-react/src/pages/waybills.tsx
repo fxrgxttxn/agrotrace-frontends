@@ -35,6 +35,7 @@ import {
   CellField,
   Chip,
   Dialog,
+  DialogMessage,
   Empty,
   Field,
   Input,
@@ -1119,15 +1120,6 @@ function AcceptForm({
 }
 
 // ── Dialogs ──────────────────────────────────────────────────────────────────────────────────────────────────────────
-
-/** A failure shown inside a modal dialog (the page's toast region is behind it, README «Диалог»). */
-function DialogMessage({ text }: { text: string | null }) {
-  return text ? (
-    <p className="at-field__error" role="alert" style={{ margin: 0 }}>
-      {text}
-    </p>
-  ) : null;
-}
 
 function DeleteDialog({
   open,

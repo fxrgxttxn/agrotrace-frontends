@@ -23,6 +23,10 @@
     "adminUsers": "Users",
     "more": "More"
   },
+  "navShort": {
+    "labTests": "Samples",
+    "recallTasks": "Tasks"
+  },
   "page": {
     "dashboard": "Dashboard",
     "profile": "Profile",
@@ -791,7 +795,8 @@
     "testFailed": "The test did not load.",
     "notFound": "Test not found.",
     "toList": "To the sample queue",
-    "summary": "Sample",
+    "active": "Active",
+    "showAll": "All tests",
     "sample": "Register the sample",
     "sampled": "Sample of batch {code} registered",
     "results": "Indicators",
@@ -810,6 +815,8 @@
     "failTitle": "Limits exceeded: batch {code}",
     "failText": "The batch will be blocked, and a recall of it and its derived batches will start.",
     "failConfirm": "Batch code to confirm",
+    "failSubmit": "Enter and start the recall",
+    "normsChanged": "The test limits have changed: the card was refreshed. Check the values and try again.",
     "versionConflict": "The test has changed: the card was refreshed. Check the values and try again.",
     "stateChanged": "The test is already «{status}»: the card was refreshed.",
     "protocol": "Test report",

@@ -181,3 +181,20 @@
     min-width: 0;
   }
 }
+
+/* A short fact about the list or the page next to «Фильтры» on narrow screens (e.g. the period a dashboard shows):
+   the filter fields that say it are collapsed there. From 768 px the fields are visible, so the note is not shown. */
+.at-page__note {
+  align-self: center;
+  margin: 0;
+  color: var(--c-ink-muted);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 768px) {
+  .at-page__note {
+    display: none;
+  }
+}

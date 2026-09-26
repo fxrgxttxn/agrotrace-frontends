@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { server } from '../setup';
-import { contractExample, contractResponse, type Json } from '../msw/fromContract';
+import { http, HttpResponse } from 'msw';
+import { API_BASE, contractExample, contractResponse, type Json } from '../msw/fromContract';
 import { asMe } from '../msw/data';
 import { renderApp } from '../app/renderApp';
 import { mountBars } from '../../src/charts/echarts';
@@ -201,8 +202,59 @@ describe('/ — inspector', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Панель' })).toHaveFocus();
   });
 
-  it('a failed load: the text and «Повторить»', async () => {
+  it('FM20: a window longer than 366 days is refused before any request, with the contract text', async () => {
+    const seen: URLSearchParams[] = [];
+    server.use(
+      asMe({ roles: ['INSPECTOR'] }),
+      contractResponse('getDashboard', {
+        body: inspector(),
+        onRequest: (r) => void seen.push(new URL(r.url).searchParams),
+      }),
+    );
+    const { router } = await open('/?from=2025-01-01&to=2026-01-02');
+    expect(await screen.findByText('Слишком длинный диапазон дат')).toBeInTheDocument();
+    expect(seen).toEqual([]);
+    await userEvent.click(screen.getByRole('button', { name: 'Сбросить фильтры' }));
+    await waitFor(() => expect(router.state.location.search).toBe(''));
+    await waitFor(() => expect(seen).toHaveLength(1));
+    // Exactly 366 days (2025-01-01 … 2026-01-01 inclusive) is allowed.
+    router.navigate('/?from=2025-01-01&to=2026-01-01');
+    await waitFor(() => expect(seen.at(-1)!.get('to')).toBe('2026-01-01'));
+  });
+
+  it('403: said without «Повторить» (a retry cannot help)', async () => {
     server.use(asMe({ roles: ['INSPECTOR'] }), contractResponse('getDashboard', { status: 403 }));
+    await open();
+    expect(await screen.findByText('Недостаточно прав для этого действия')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Повторить' })).toBeNull();
+  });
+
+  it('below 768 px the applied period is shown next to «Фильтры»', async () => {
+    server.use(asMe({ roles: ['INSPECTOR'] }), contractResponse('getDashboard', { body: inspector() }));
+    await open();
+    expect(await screen.findByText('26.08.2026 — 24.09.2026')).toHaveClass('at-page__note');
+  });
+
+  it('a chart that could not be drawn says so and offers «Повторить»', async () => {
+    server.use(asMe({ roles: ['INSPECTOR'] }), contractResponse('getDashboard', { body: inspector() }));
+    mounted.mockImplementationOnce(() => {
+      throw new Error('chunk failed');
+    });
+    await open();
+    const card = (
+      await screen.findByRole('heading', { level: 2, name: 'Доля брака по продуктам' })
+    ).closest<HTMLElement>('.at-card')!;
+    expect(await within(card).findByRole('alert')).toHaveTextContent('График не загрузился.');
+    await userEvent.click(within(card).getByRole('button', { name: 'Повторить' }));
+    await waitFor(() => expect(within(card).queryByRole('alert')).toBeNull());
+    expect(card.querySelector('.at-chart__canvas[role="img"]')).not.toBeNull();
+  });
+
+  it('a failed load (network): the text and «Повторить»', async () => {
+    server.use(
+      asMe({ roles: ['INSPECTOR'] }),
+      http.get(`${API_BASE}/analytics/dashboard`, () => HttpResponse.error()),
+    );
     await open();
     expect(await screen.findByText('Показатели не загрузились.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Повторить' })).toBeInTheDocument();

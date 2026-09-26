@@ -2,8 +2,8 @@ import type { ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
 import { compareCodePoints } from '@agrotrace/domain';
-import { enumLabel, formatDecimal, formatPercent } from '@agrotrace/i18n';
-import { call } from '../app/api';
+import { enumLabel, formatDate, formatDecimal, formatPercent } from '@agrotrace/i18n';
+import { call, errorText } from '../app/api';
 import { DateFilter } from '../app/DateFilter';
 import { LOCALE, t } from '../app/i18n';
 import { isBadListQuery, useListParams, type ListSpec } from '../app/listState';
@@ -12,9 +12,11 @@ import { BarChart } from '../charts/BarChart';
 import type { Bar } from '../charts/bars';
 import {
   AreaLoading,
+  Button,
   Card,
   CardBody,
   CardHeader,
+  Empty,
   LoadFailed,
   Metric,
   Page,
@@ -41,7 +43,8 @@ const SPEC: ListSpec = { sort: [], dates: ['from', 'to'] };
 const METRICS = {
   display: 'grid',
   gap: 'var(--sp-4)',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 14rem), 1fr))',
+  // Narrow enough for five tiles in one row at 1280 px (the lab dashboard): no orphan tile there.
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr))',
 } as const;
 const CHARTS = {
   display: 'grid',
@@ -51,6 +54,14 @@ const CHARTS = {
 } as const;
 /** Bars of the regions chart before the rest folds into «Другие» (README «Дашборд»). */
 const REGION_BARS = 10;
+/** Longest window of the contract (`getDashboard`: longer — 400 `validation.range.tooLong`), days inclusive. */
+const MAX_WINDOW_DAYS = 366;
+const DAY_MS = 86_400_000;
+
+/** A window the server would refuse as too long (both ends given; a single end gets a 30-day window). */
+export function windowTooLong(from: string, to: string): boolean {
+  return Boolean(from && to) && (Date.parse(to) - Date.parse(from)) / DAY_MS + 1 > MAX_WINDOW_DAYS;
+}
 
 const retryTransient = (n: number, e: unknown) => !(e instanceof ApiProblem && e.status < 500) && n < 2;
 const int = (n: number) => formatDecimal(String(n), LOCALE);
@@ -68,8 +79,11 @@ export function DashboardPage() {
   const list = useListParams('/', SPEC);
   const from = list.get('from');
   const to = list.get('to');
+  // Checked before asking (ruling FM20): the contract's own message, and «Сбросить фильтры».
+  const tooLong = windowTooLong(from, to);
 
   const query = useQuery({
+    enabled: !tooLong,
     queryKey: ['dashboard', scope, { from, to }],
     queryFn: () =>
       call<Dashboard>(
@@ -85,6 +99,27 @@ export function DashboardPage() {
   const busy = query.isFetching;
 
   const content = () => {
+    if (tooLong)
+      return (
+        <Card>
+          <Empty
+            art="empty-search"
+            text={t('validation.range.tooLong')}
+            action={
+              <Button variant="primary" onClick={list.reset}>
+                {t('filters.reset')}
+              </Button>
+            }
+          />
+        </Card>
+      );
+    // 403: a retry cannot help — the reason, no button.
+    if (!data && query.error instanceof ApiProblem && query.error.status === 403)
+      return (
+        <Card>
+          <Empty art="forbidden" text={errorText(query.error)} />
+        </Card>
+      );
     if (!data && query.isError)
       return (
         <LoadFailed
@@ -117,6 +152,7 @@ export function DashboardPage() {
     <Page title={t('page.dashboard')}>
       <PageToolbar
         count={[from, to].filter(Boolean).length}
+        note={!tooLong && period && `${formatDate(period.from, LOCALE)} — ${formatDate(period.to, LOCALE)}`}
         filters={
           <>
             <DateFilter
@@ -150,10 +186,11 @@ function HoursMetric({ label, hours }: { label: string; hours: string | null }) 
   );
 }
 
-function ChartCard({ title, children }: { title: string; children: ReactNode }) {
-  // A grid item may shrink below its content (the table view scrolls inside its own wrap, never the page).
+function ChartCard({ title, wide, children }: { title: string; wide?: boolean; children: ReactNode }) {
+  // A grid item may shrink below its content (the table view scrolls inside its own wrap, never the page); `wide` —
+  // the card takes the whole row (the third chart of the inspector, never an orphan beside an empty cell).
   return (
-    <Card style={{ minWidth: 0 }}>
+    <Card style={{ minWidth: 0, ...(wide ? { gridColumn: '1 / -1' } : {}) }}>
       <CardHeader title={title} />
       <CardBody>{children}</CardBody>
     </Card>
@@ -247,7 +284,7 @@ function InspectorView({ data }: { data: Inspector }) {
           nameHeader={t('dashboard.farm')}
           items={data.rejectedShare.byFarm}
         />
-        <ChartCard title={regionTitle}>
+        <ChartCard title={regionTitle} wide>
           {regions.bars.length === 0 ? (
             <NoData text={t('dashboard.noViolations')} />
           ) : (

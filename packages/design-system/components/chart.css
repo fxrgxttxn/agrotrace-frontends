@@ -87,3 +87,12 @@
   font: 400 var(--fs-13) / var(--lh-13) var(--font-body) !important;
   font-variant-numeric: tabular-nums;
 }
+
+/* The library could not be loaded or draw: the text (role="alert") and a small «Повторить». */
+.at-chart__failed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) 0;
+}

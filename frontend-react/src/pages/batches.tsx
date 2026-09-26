@@ -14,7 +14,15 @@ import {
 } from '@agrotrace/i18n';
 import { BatchCreateSchema } from '@agrotrace/validation';
 import { canAccess } from '../app/access';
-import { call, errorText, errorTone, retryAfterOf, useCountdown, useFocusAfterWait } from '../app/api';
+import {
+  call,
+  errorText,
+  errorTone,
+  retryAfterOf,
+  useCountdown,
+  useFocusAfterWait,
+  useFormAlert,
+} from '../app/api';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
@@ -39,6 +47,7 @@ import {
   CardHeader,
   Chip,
   Dialog,
+  DialogMessage,
   Empty,
   Field,
   InputGroup,
@@ -728,6 +737,7 @@ function AssignLabDialog({
   const { api } = useSession();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const alert = useFormAlert();
   const [labOrgId, setLabOrgId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -745,6 +755,7 @@ function AssignLabDialog({
     if (!labOrgId) return setError(t('validation.required'));
     setBusy(true);
     setMessage(null);
+    alert.clear();
     try {
       const test = await call<Schemas['LabTest']>(
         api.POST('/lab-tests', { body: { batchId: batch.id, labOrgId } }),
@@ -757,7 +768,9 @@ function AssignLabDialog({
       if (key) setError(t(key));
       else {
         if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
+        // Said in the dialog (the page toast region is behind the modal) and as the page message (README «Диалог»).
         setMessage(errorText(e));
+        alert.show(errorText(e), errorTone(e));
       }
     } finally {
       setBusy(false);
@@ -786,11 +799,7 @@ function AssignLabDialog({
       }
     >
       <div style={{ display: 'grid', gap: 'var(--sp-4)' }}>
-        {message && (
-          <p className="at-field__error" role="alert" style={{ margin: 0 }}>
-            {message}
-          </p>
-        )}
+        <DialogMessage text={message} />
         <OrgPicker
           id="assign-lab"
           label={t('field.labOrgId')}

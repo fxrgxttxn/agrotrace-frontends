@@ -116,3 +116,13 @@ export function Dialog({
     </dialog>
   );
 }
+
+/** A failure shown inside a modal dialog (README «Диалог»: the page's toast region is behind the modal, so the dialog
+ * says it itself; the page keeps its own message too). Nothing while there is no failure. */
+export function DialogMessage({ text }: { text: string | null | undefined }) {
+  return text ? (
+    <p className="at-field__error" role="alert" style={{ margin: 0 }}>
+      {text}
+    </p>
+  ) : null;
+}

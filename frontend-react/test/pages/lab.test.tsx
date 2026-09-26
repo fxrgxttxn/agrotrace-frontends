@@ -91,6 +91,45 @@ describe('/lab/tests', () => {
     expect(within(links[1]!.closest('tr')!).getByText('Просрочен')).toHaveAttribute('data-tone', 'danger');
     expect(query!.get('page')).toBe('1');
     expect(query!.has('sort')).toBe(false);
+    // FM20: without `status` in the URL the queue shows the tests still to do.
+    expect(query!.getAll('status')).toEqual(['QUEUED', 'SAMPLED', 'ESCALATED']);
+  });
+
+  it('FM20: «Все» is an explicit choice (status=all, nothing sent); «Активные» goes back to the default', async () => {
+    const seen: URLSearchParams[] = [];
+    server.use(
+      asLab(),
+      contractResponse('listLabTests', {
+        body: pageOf([listItem()]),
+        onRequest: (r) => void seen.push(new URL(r.url).searchParams),
+      }),
+    );
+    const { router } = await open('/lab/tests', 'Очередь проб');
+    await screen.findAllByRole('link', { name: 'AT-2026-000123' });
+    await openFilters();
+    expect(screen.getByLabelText('Статус')).toHaveValue('');
+    expect(screen.getByRole('option', { name: 'Активные' })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Статус'), 'Все');
+    await waitFor(() => expect(seen.at(-1)!.has('status')).toBe(false));
+    expect(new URLSearchParams(router.state.location.search).get('status')).toBe('all');
+    await userEvent.selectOptions(screen.getByLabelText('Статус'), 'Активные');
+    await waitFor(() => expect(router.state.location.search).toBe(''));
+    expect(screen.getByLabelText('Статус')).toHaveValue('');
+  });
+
+  it('an empty active queue offers every test', async () => {
+    const seen: URLSearchParams[] = [];
+    server.use(
+      asLab(),
+      contractResponse('listLabTests', {
+        body: pageOf([]),
+        onRequest: (r) => void seen.push(new URL(r.url).searchParams),
+      }),
+    );
+    const { router } = await open('/lab/tests', 'Очередь проб');
+    await userEvent.click(await screen.findByRole('button', { name: 'Все анализы' }));
+    await waitFor(() => expect(new URLSearchParams(router.state.location.search).get('status')).toBe('all'));
+    await waitFor(() => expect(seen.at(-1)!.has('status')).toBe(false));
   });
 
   it('filters go to the server and stay in the URL; unknown values are dropped', async () => {
@@ -105,7 +144,7 @@ describe('/lab/tests', () => {
     const { router } = await open('/lab/tests?status=BAD&overdue=maybe&sort=version,asc', 'Очередь проб');
     await screen.findAllByRole('link', { name: 'AT-2026-000123' });
     expect(router.state.location.search).toBe('');
-    expect(seen.at(-1)!.has('status')).toBe(false);
+    expect(seen.at(-1)!.getAll('status')).toEqual(['QUEUED', 'SAMPLED', 'ESCALATED']);
     await openFilters();
     await userEvent.selectOptions(screen.getByLabelText('Статус'), 'Ожидает отбора пробы');
     await waitFor(() => expect(seen.at(-1)!.getAll('status')).toEqual(['QUEUED']));
@@ -242,7 +281,7 @@ describe('/lab/tests/:id — results', () => {
     const dialog = await screen.findByRole('dialog', {
       name: 'Превышение нормативов: партия AT-2026-000123',
     });
-    const confirm = within(dialog).getByRole('button', { name: 'Внести результаты' });
+    const confirm = within(dialog).getByRole('button', { name: 'Внести и запустить отзыв' });
     expect(confirm).toBeDisabled();
     await userEvent.type(within(dialog).getByLabelText('Код партии для подтверждения'), 'at-2026-000123');
     await userEvent.click(confirm);
@@ -284,17 +323,175 @@ describe('/lab/tests/:id — results', () => {
     await waitFor(() => expect(ifMatch).toEqual(['2', '3']));
   });
 
-  it('a 400 of the indicator set: the rule text as the form message', async () => {
+  it('FM20: a 400 of the indicator set re-reads the card, says so, keeps the values of the norms that stayed', async () => {
+    let reads = 0;
+    const CADMIUM = '5e7a9c1e-3b5d-4f7a-9c1e-3b5d7f9a1c3e';
+    const base = pending();
     server.use(
       asLab(),
-      contractResponse('getLabTest', { body: pending() }),
+      contractResponse('getLabTest', { body: base, once: true, onRequest: () => void reads++ }),
+      contractResponse('getLabTest', {
+        onRequest: () => void reads++,
+        body: pending({
+          version: 3,
+          norms: [
+            base.norms[0],
+            { indicatorId: CADMIUM, name: 'Кадмий', unit: 'мг/кг', maxValue: '0.100000' },
+          ],
+        }),
+      }),
       contractResponse('submitLabResults', { status: 400, example: 'mismatch' }),
     );
     await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
     await userEvent.type(await screen.findByLabelText('Значение: Нитраты'), '450');
     await userEvent.type(screen.getByLabelText('Значение: Свинец'), '0,15');
     await userEvent.click(screen.getByRole('button', { name: 'Внести результаты' }));
-    await waitFor(() => expect(toastText()).toContain('Набор показателей не совпадает с нормативом анализа'));
+    await waitFor(() => expect(toastText()).toContain('Нормативы анализа изменились'));
+    expect(await screen.findByLabelText('Значение: Кадмий')).toHaveValue('');
+    expect(reads).toBe(2);
+    expect(screen.getByLabelText('Значение: Нитраты')).toHaveValue('450');
+    expect(screen.queryByLabelText('Значение: Свинец')).toBeNull();
+  });
+
+  it('INVALID_TRANSITION (results already entered): the done card, the state said, the focus on the title', async () => {
+    server.use(
+      asLab(),
+      contractResponse('getLabTest', { body: pending(), once: true }),
+      contractResponse('getLabTest', { body: done({ actions: [] }) }),
+      contractResponse('submitLabResults', { status: 409, example: 'invalidTransition' }),
+    );
+    await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
+    await userEvent.type(await screen.findByLabelText('Значение: Нитраты'), '450');
+    await userEvent.type(screen.getByLabelText('Значение: Свинец'), '0,15');
+    await userEvent.click(screen.getByRole('button', { name: 'Внести результаты' }));
+    await waitFor(() => expect(toastText()).toContain('Анализ уже в статусе «Завершён»'));
+    await waitFor(() => expect(screen.queryByLabelText('Значение: Нитраты')).toBeNull());
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Анализ AT-2026-000123' })).toHaveFocus(),
+    );
+  });
+
+  it('a 400 on one value (results[1].value) is that row field error', async () => {
+    server.use(
+      asLab(),
+      contractResponse('getLabTest', { body: pending() }),
+      contractResponse('submitLabResults', {
+        status: 400,
+        body: {
+          type: '/problems/validation',
+          title: 'Validation failed',
+          status: 400,
+          code: 'VALIDATION',
+          errors: { 'results[1].value': ['validation.decimal.format'] },
+        },
+      }),
+    );
+    await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
+    await userEvent.type(await screen.findByLabelText('Значение: Нитраты'), '450');
+    await userEvent.type(screen.getByLabelText('Значение: Свинец'), '0,15');
+    await userEvent.click(screen.getByRole('button', { name: 'Внести результаты' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Значение: Свинец')).toHaveAccessibleDescription(
+        'Недопустимый формат числа',
+      ),
+    );
+    expect(screen.getByLabelText('Значение: Свинец')).toHaveFocus();
+    expect(screen.getByLabelText('Значение: Нитраты')).not.toHaveAccessibleDescription();
+  });
+
+  it('429: the wait on «Внести результаты», the focus comes back to it (FM17); a 403 is said, values stay', async () => {
+    server.use(
+      asLab(),
+      contractResponse('getLabTest', { body: pending() }),
+      contractResponse('submitLabResults', { status: 429, headers: { 'Retry-After': '1' }, once: true }),
+      contractResponse('submitLabResults', { status: 403 }),
+    );
+    await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
+    await userEvent.type(await screen.findByLabelText('Значение: Нитраты'), '450');
+    await userEvent.type(screen.getByLabelText('Значение: Свинец'), '0,15');
+    await userEvent.click(screen.getByRole('button', { name: 'Внести результаты' }));
+    expect(await screen.findByRole('button', { name: /^Повторить через 1 с$/ })).toBeDisabled();
+    expect(toastText() + toastText('polite')).toContain('повторите через 1 с');
+    const button = await screen.findByRole('button', { name: 'Внести результаты' }, { timeout: 3000 });
+    await waitFor(() => expect(button).toHaveFocus());
+    await userEvent.click(button);
+    await waitFor(() => expect(toastText()).toContain('Недостаточно прав'));
+    expect(toastText()).not.toBe('');
+    expect(screen.getByLabelText('Значение: Нитраты')).toHaveValue('450');
+  });
+
+  it('a conflict while the FAIL dialog is open: said in the dialog, the confirmation then uses the new version', async () => {
+    const ifMatch: (string | null)[] = [];
+    server.use(
+      asLab(),
+      contractResponse('getLabTest', { body: pending(), once: true }),
+      contractResponse('getLabTest', { body: pending({ version: 3 }) }),
+      contractResponse('submitLabResults', {
+        status: 409,
+        example: 'versionConflict',
+        once: true,
+        onRequest: (r) => void ifMatch.push(r.headers.get('If-Match')),
+      }),
+      contractResponse('submitLabResults', {
+        body: done(),
+        onRequest: (r) => void ifMatch.push(r.headers.get('If-Match')),
+      }),
+    );
+    await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
+    await userEvent.type(await screen.findByLabelText('Значение: Нитраты'), '612');
+    await userEvent.type(screen.getByLabelText('Значение: Свинец'), '0,15');
+    await userEvent.click(screen.getByRole('button', { name: 'Внести результаты' }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Превышение нормативов: партия AT-2026-000123',
+    });
+    await userEvent.type(within(dialog).getByLabelText('Код партии для подтверждения'), 'AT-2026-000123');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Внести и запустить отзыв' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Анализ изменился');
+    await new Promise((r) => setTimeout(r, 200));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Внести и запустить отзыв' }));
+    await waitFor(() => expect(ifMatch).toEqual(['2', '3']));
+  });
+
+  it('a re-read under the open FAIL dialog that no longer concludes FAIL closes it', async () => {
+    const base = pending();
+    server.use(
+      asLab(),
+      contractResponse('getLabTest', { body: base, once: true }),
+      contractResponse('getLabTest', {
+        body: pending({ version: 3, norms: [{ ...base.norms[0], maxValue: '1000.000000' }, base.norms[1]] }),
+      }),
+      contractResponse('submitLabResults', { status: 409, example: 'versionConflict' }),
+    );
+    await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
+    await userEvent.type(await screen.findByLabelText('Значение: Нитраты'), '612');
+    await userEvent.type(screen.getByLabelText('Значение: Свинец'), '0,15');
+    await userEvent.click(screen.getByRole('button', { name: 'Внести результаты' }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Превышение нормативов: партия AT-2026-000123',
+    });
+    await userEvent.type(within(dialog).getByLabelText('Код партии для подтверждения'), 'AT-2026-000123');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Внести и запустить отзыв' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByText('Заключение: Соответствует нормативам')).toBeInTheDocument();
+    expect(screen.getByLabelText('Значение: Нитраты')).toHaveValue('612');
+  });
+
+  it('only plain decimals are compared (the domain rule, never Number()): «1e3» is not a value', async () => {
+    server.use(asLab(), contractResponse('getLabTest', { body: pending() }));
+    await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
+    const nitrates = await screen.findByLabelText('Значение: Нитраты');
+    const row = nitrates.closest('tr')!;
+    // Number('1e3') = 1000 > 500 would read «Превышение»; the contract Decimal has no exponent.
+    await userEvent.type(nitrates, '1e3');
+    expect(within(row).queryByText('Превышение')).toBeNull();
+    expect(within(row).queryByText('В норме')).toBeNull();
+    // At the limit, exactly: 500.000000 is not over 500 (BR-02: strictly greater), 500,000001 is.
+    await userEvent.clear(nitrates);
+    await userEvent.type(nitrates, '500,000000');
+    expect(within(row).getByText('В норме')).toBeInTheDocument();
+    await userEvent.clear(nitrates);
+    await userEvent.type(nitrates, '500,000001');
+    expect(within(row).getByText('Превышение')).toBeInTheDocument();
   });
 
   it('a product without norms: the reason, no form', async () => {
@@ -382,10 +579,69 @@ describe('/lab/tests/:id — protocol', () => {
     await waitFor(() => expect(protocol.getByRole('alert')).toHaveTextContent('10 МБ'));
     expect(sent).toBe(1);
   });
+
+  it('while uploading the file shows its progress; a 415 is said on the file and as the page message', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      asLab(),
+      contractResponse('getLabTest', { body: pending() }),
+      contractResponse('uploadLabProtocol', { status: 415, onRequest: () => held }),
+    );
+    await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
+    const protocol = within(card('Протокол испытаний'));
+    await userEvent.upload(protocol.getByLabelText('Файл'), pdf(1000));
+    await userEvent.click(protocol.getByRole('button', { name: 'Загрузить' }));
+    const progress = await protocol.findByRole('progressbar', { name: 'Загрузка protokol.pdf' });
+    expect(progress).not.toHaveAttribute('value');
+    release();
+    await waitFor(() => expect(protocol.getByRole('alert')).toHaveTextContent('PDF'));
+    expect(protocol.queryByRole('progressbar')).toBeNull();
+    expect(toastText()).toContain('PDF');
+  });
+
+  it('429: the upload waits with a countdown and the page says why; the file stays', async () => {
+    server.use(
+      asLab(),
+      contractResponse('getLabTest', { body: pending() }),
+      contractResponse('uploadLabProtocol', { status: 429, headers: { 'Retry-After': '1' } }),
+    );
+    await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
+    const protocol = within(card('Протокол испытаний'));
+    await userEvent.upload(protocol.getByLabelText('Файл'), pdf(1000));
+    await userEvent.click(protocol.getByRole('button', { name: 'Загрузить' }));
+    expect(await protocol.findByRole('button', { name: /^Повторить через 1 с$/ })).toBeDisabled();
+    expect(toastText() + toastText('polite')).toContain('повторите через 1 с');
+    expect(protocol.getByText('protokol.pdf')).toBeInTheDocument();
+    const button = await protocol.findByRole('button', { name: 'Загрузить' }, { timeout: 3000 });
+    await waitFor(() => expect(button).toHaveFocus());
+  });
 });
 
 describe('/batches/:id — unscheduled test (INSPECTOR)', () => {
   const BATCH_ID = '1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c';
+
+  it('a failure of the assignment is said in the dialog and as the page message', async () => {
+    server.use(
+      asMe({ roles: ['INSPECTOR'] }),
+      contractResponse('listOrganizations', {
+        body: pageOf([{ ...LAB_ORG, region: { code: '23', name: 'Краснодарский край' } }]),
+      }),
+      contractResponse('getOrganization'),
+      contractResponse('createLabTest', { status: 403 }),
+    );
+    await open(`/batches/${BATCH_ID}`, 'AT-2026-000123');
+    await userEvent.click(screen.getByRole('button', { name: 'Назначить анализ' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Внеплановый анализ партии AT-2026-000123' });
+    await userEvent.type(within(dialog).getByRole('combobox', { name: 'Лаборатория' }), 'Куб');
+    await userEvent.click(
+      await within(await screen.findByRole('listbox', { name: 'Лаборатория' })).findByRole('option'),
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Назначить анализ' }));
+    const inDialog = await within(dialog).findByRole('alert');
+    expect(inDialog.textContent).not.toBe('');
+    expect(toastText()).toBe(inDialog.textContent);
+  });
 
   it('«Назначить анализ»: a laboratory from the directory, POST /lab-tests, the tests tab', async () => {
     let body: Json | null = null;

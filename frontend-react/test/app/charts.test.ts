@@ -66,12 +66,24 @@ describe('bar chart options', () => {
     expect(escapeHtml(`a&"'`)).toBe('a&amp;&quot;&#39;');
   });
 
-  it('motion only when allowed (150 ms ease-out); labels get at most ~40% of a narrow canvas', () => {
+  it('motion only when allowed (150 ms ease-out); names left of the axis when wide, above the bars below 480 px', () => {
     expect(opts().animation).toBe(true);
     expect(opts().animationDuration).toBe(150);
     expect(opts({ width: 320, reducedMotion: true }).animation).toBe(false);
-    expect(opts({ width: 320, reducedMotion: true }).yAxis.axisLabel.width).toBe(128);
-    expect(opts({ width: 1200, reducedMotion: false }).yAxis.axisLabel.width).toBe(180);
+    // Wide: the names get up to half the canvas (240 px at most) left of the axis.
+    expect(opts({ width: 1200, reducedMotion: false }).yAxis.axisLabel.width).toBe(240);
+    expect(opts({ width: 400 * 1.2, reducedMotion: false }).yAxis.axisLabel.inside).toBeUndefined();
+    // Narrow (< 480 px): the names stand above thinner bars and have the whole width.
+    const narrow = opts({ width: 320, reducedMotion: true });
+    expect(narrow.yAxis.axisLabel).toMatchObject({
+      inside: true,
+      align: 'left',
+      verticalAlign: 'bottom',
+      width: 256,
+    });
+    expect(narrow.series[0].barMaxWidth).toBe(12);
+    // The first tick («0%») is centred on the axis: room for its left half.
+    expect(narrow.grid.left).toBe(12);
     // Few ticks when narrow (360 px: the ticks of 0–21% collided); overlapping ones are dropped.
     expect(opts({ width: 300, reducedMotion: false }).xAxis.splitNumber).toBe(3);
     expect(opts().xAxis.splitNumber).toBe(5);

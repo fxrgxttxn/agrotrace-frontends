@@ -40,7 +40,7 @@ export {
 } from './Table';
 export { Pagination, pageWindow } from './Pagination';
 export { Tabs, type TabDef } from './Tabs';
-export { Dialog, type DialogProps } from './Dialog';
+export { Dialog, DialogMessage, type DialogProps } from './Dialog';
 export { ToastProvider, useToast, TOAST_HIDE_MS, type ToastInput, type ToastTone } from './Toasts';
 export { Page, PageLoading } from './Page';
 export { Qr, qrPath } from './Qr';

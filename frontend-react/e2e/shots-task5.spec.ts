@@ -33,11 +33,18 @@ async function shots(page: Page, name: string, ready: () => Promise<void>) {
       // The chart redraws after a theme or width change (ResizeObserver, MutationObserver): let it settle.
       await page.waitForTimeout(400);
       expect(await horizontalOverflow(page), `${name} ${width}`).toBeLessThanOrEqual(0);
+      // A full-page capture stitches viewport tiles: a fixed bottom bar covers content of the next tile (the footer
+      // button of a long card went missing at 360 px). For the capture only, it stands at the end of the page.
+      const unfix = await page.addStyleTag({ content: '.at-bottom-nav { position: static !important; }' });
+      // The first full-page capture after typing left a stale tile (the card footer blank) in Chromium: a discarded
+      // warm-up capture, then the one kept.
+      await page.screenshot({ fullPage: true, animations: 'disabled' });
       await page.screenshot({
         path: `${SHOTS}/${name}-${width}-${theme}.png`,
         fullPage: true,
         animations: 'disabled',
       });
+      await unfix.evaluate((n) => (n as Element).remove());
     }
 }
 

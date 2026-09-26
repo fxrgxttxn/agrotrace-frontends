@@ -68,9 +68,16 @@ export interface BarLayout {
 
 /** Longest bar thickness (dataviz: ≤ 24 px, never filling the band). */
 export const BAR_MAX_WIDTH = 20;
+/** Below this canvas width the names stand above their bars. */
+export const NARROW = 480;
+/** Bar thickness when the name stands above it (the band holds both). */
+export const BAR_MAX_WIDTH_NARROW = 12;
 
 export function barOptions(bars: readonly Bar[], c: ChartColors, layout: BarLayout): Record<string, unknown> {
-  const labelWidth = Math.max(72, Math.min(180, Math.round(layout.width * 0.4)));
+  // Below 480 px the names stand above their bars (the whole width is theirs); wider, they are left of the axis and
+  // get up to half the canvas (240 px at most) — a name is cut only when even that is too short.
+  const narrow = layout.width < NARROW;
+  const labelWidth = Math.max(72, Math.min(240, Math.round(layout.width * 0.5)));
   const text = { fontFamily: c.font, fontSize: 12 };
   return {
     animation: !layout.reducedMotion,
@@ -79,7 +86,9 @@ export function barOptions(bars: readonly Bar[], c: ChartColors, layout: BarLayo
     animationEasing: 'cubicOut',
     animationEasingUpdate: 'cubicOut',
     aria: { enabled: false },
-    grid: { left: 8, right: 56, top: 4, bottom: 4, containLabel: true },
+    grid: narrow
+      ? { left: 12, right: 56, top: 16, bottom: 4, containLabel: true }
+      : { left: 8, right: 56, top: 4, bottom: 4, containLabel: true },
     tooltip: {
       trigger: 'axis',
       confine: true,
@@ -100,7 +109,7 @@ export function barOptions(bars: readonly Bar[], c: ChartColors, layout: BarLayo
       type: 'value',
       ...(layout.integer ? { minInterval: 1 } : {}),
       // Few ticks on a narrow canvas; ticks that would still touch are dropped (every value is also at its bar).
-      splitNumber: layout.width < 480 ? 3 : 5,
+      splitNumber: narrow ? 3 : 5,
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: {
@@ -117,13 +126,27 @@ export function barOptions(bars: readonly Bar[], c: ChartColors, layout: BarLayo
       data: bars.map((b) => b.label),
       axisLine: { lineStyle: { color: c.grid, width: 1 } },
       axisTick: { show: false },
-      axisLabel: { ...text, color: c.axis, width: labelWidth, overflow: 'truncate', ellipsis: '…' },
+      axisLabel: narrow
+        ? {
+            ...text,
+            color: c.axis,
+            // Inside the plot, left-aligned, its baseline 10 px above the band centre: over the (thinner) bar.
+            inside: true,
+            align: 'left',
+            verticalAlign: 'bottom',
+            padding: [0, 0, 10, 0],
+            margin: 0,
+            width: Math.max(72, layout.width - 64),
+            overflow: 'truncate',
+            ellipsis: '…',
+          }
+        : { ...text, color: c.axis, width: labelWidth, overflow: 'truncate', ellipsis: '…' },
     },
     series: [
       {
         type: 'bar',
         data: bars.map((b) => b.value),
-        barMaxWidth: BAR_MAX_WIDTH,
+        barMaxWidth: narrow ? BAR_MAX_WIDTH_NARROW : BAR_MAX_WIDTH,
         itemStyle: { color: c.series, borderRadius: [0, 4, 4, 0] },
         emphasis: { itemStyle: { color: c.seriesHover } },
         label: {

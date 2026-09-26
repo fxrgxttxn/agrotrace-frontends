@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { t } from '../app/i18n';
-import { Table, type Column } from '../ui';
+import { Button, Table, type Column } from '../ui';
 import { useThemeVersion } from '../ui/fullscreen';
 import { chartSummary, type Bar } from './bars';
 import type { ChartView } from './echarts';
@@ -71,6 +71,8 @@ function ChartCanvas({
 }) {
   const el = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
+  // «Повторить» after a failure: a new attempt (the chunk request is made again, `loadCharts`).
+  const [attempt, setAttempt] = useState(0);
   const theme = useThemeVersion();
   const format = useRef(axisFormat);
   format.current = axisFormat;
@@ -83,10 +85,14 @@ function ChartCanvas({
     loadCharts().then(
       ({ mountBars }) => {
         if (cancelled || !el.current) return;
-        view = mountBars(el.current, JSON.parse(data) as Bar[], {
-          integer,
-          axisFormat: format.current && ((v: number) => format.current!(v)),
-        });
+        try {
+          view = mountBars(el.current, JSON.parse(data) as Bar[], {
+            integer,
+            axisFormat: format.current && ((v: number) => format.current!(v)),
+          });
+        } catch {
+          setFailed(true);
+        }
       },
       () => !cancelled && setFailed(true),
     );
@@ -94,14 +100,26 @@ function ChartCanvas({
       cancelled = true;
       view?.destroy();
     };
-  }, [data, integer, theme]);
+  }, [data, integer, theme, attempt, failed]);
 
   if (failed)
     return (
       <div className="at-chart__canvas">
-        <p role="alert" style={{ margin: 0, padding: 'var(--sp-4) 0' }}>
-          {t('dashboard.chartFailed')}
-        </p>
+        <div className="at-chart__failed">
+          <p role="alert" style={{ margin: 0 }}>
+            {t('dashboard.chartFailed')}
+          </p>
+          <Button
+            variant="secondary"
+            size="s"
+            onClick={() => {
+              setFailed(false);
+              setAttempt((n) => n + 1);
+            }}
+          >
+            {t('action.retry')}
+          </Button>
+        </div>
       </div>
     );
   return <div className="at-chart__canvas" role="img" aria-label={chartSummary(title, bars)} ref={el}></div>;

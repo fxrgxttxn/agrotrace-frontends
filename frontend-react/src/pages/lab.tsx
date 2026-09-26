@@ -35,6 +35,7 @@ import {
   CellField,
   Chip,
   Dialog,
+  DialogMessage,
   Empty,
   Field,
   FileField,
@@ -75,12 +76,20 @@ const STACK = { display: 'grid', gap: 'var(--sp-4)' } as const;
 const STATUSES: readonly Status[] = ['QUEUED', 'SAMPLED', 'ESCALATED', 'DONE', 'CANCELLED'];
 const REASONS: readonly Reason[] = ['RISK', 'PLANNED', 'COMPLAINT', 'INSPECTOR'];
 const SEVERAL = '__several';
+/** The queue opens on the tests still to do (ruling FM20); every status is the explicit `status=all`. */
+const ACTIVE: readonly Status[] = ['QUEUED', 'SAMPLED', 'ESCALATED'];
+const ALL = 'all';
 /** Contract limit of the report (uploadLabProtocol): ≤ 10 485 760 bytes inclusive, PDF by content. */
 const PROTOCOL_MAX_BYTES = 10485760;
 
 const SPEC: ListSpec = {
   sort: ['dueAt', 'createdAt', 'completedAt'],
-  enums: { status: STATUSES, reason: REASONS, conclusion: ['PASS', 'FAIL'], overdue: ['true', 'false'] },
+  enums: {
+    status: [...STATUSES, ALL],
+    reason: REASONS,
+    conclusion: ['PASS', 'FAIL'],
+    overdue: ['true', 'false'],
+  },
   dates: ['from', 'to'],
   texts: ['q'],
 };
@@ -161,7 +170,11 @@ export function LabTestsPage() {
   const { api } = useSession();
   const list = useListParams('/lab/tests', SPEC);
   const q = list.get('q');
-  const status = list.params.getAll('status');
+  const statusParam = list.params.getAll('status');
+  // No `status` in the URL — the active tests; `all` — every status; otherwise the chosen ones.
+  const status: string[] = statusParam.includes(ALL) ? [ALL] : statusParam;
+  const sentStatus: readonly Status[] =
+    status[0] === ALL ? [] : status.length ? (status as Status[]) : ACTIVE;
   const reason = list.params.getAll('reason');
   const conclusion = list.get('conclusion');
   const overdue = list.get('overdue');
@@ -187,7 +200,7 @@ export function LabTestsPage() {
               size: SIZE,
               ...(sort ? { sort: `${sort.field},${sort.dir}` } : {}),
               ...(q ? { q } : {}),
-              ...(status.length ? { status: status as Status[] } : {}),
+              ...(sentStatus.length ? { status: [...sentStatus] } : {}),
               ...(reason.length ? { reason: reason as Reason[] } : {}),
               ...(conclusion ? { conclusion: conclusion as Conclusion } : {}),
               ...(overdue ? { overdue: overdue === 'true' } : {}),
@@ -243,7 +256,7 @@ export function LabTestsPage() {
   ];
 
   /** A single select over a repeatable filter; several values from a link show as «Несколько (N)». */
-  const multi = (key: 'status' | 'reason', values: string[], all: readonly string[], enumName: string) => (
+  const multi = (key: 'reason', values: string[], all: readonly string[], enumName: string) => (
     <Select
       value={values.length === 1 ? values[0] : values.length > 1 ? SEVERAL : ''}
       onChange={(e) => list.set({ [key]: e.target.value })}
@@ -293,9 +306,9 @@ export function LabTestsPage() {
               art="empty-lab"
               text={t('lab.empty')}
               action={
-                <ButtonLink variant="primary" to="/">
-                  {t('action.home')}
-                </ButtonLink>
+                <Button variant="primary" onClick={() => list.set({ status: ALL })}>
+                  {t('lab.showAll')}
+                </Button>
               }
             />
           )}
@@ -335,7 +348,23 @@ export function LabTestsPage() {
         filters={
           <>
             <Field id="filter-status" label={t('labTests.status')}>
-              {multi('status', status, STATUSES, 'LabTestStatus')}
+              <Select
+                value={status.length === 1 ? status[0] : status.length > 1 ? SEVERAL : ''}
+                onChange={(e) => list.set({ status: e.target.value })}
+              >
+                <option value="">{t('lab.active')}</option>
+                <option value={ALL}>{t('filters.any')}</option>
+                {status.length > 1 && (
+                  <option value={SEVERAL} disabled>
+                    {t('filters.several', { count: status.length })}
+                  </option>
+                )}
+                {STATUSES.map((v) => (
+                  <option key={v} value={v}>
+                    {enumLabel(t, 'LabTestStatus', v)}
+                  </option>
+                ))}
+              </Select>
             </Field>
             <Field id="filter-reason" label={t('labTests.reason')}>
               {multi('reason', reason, REASONS, 'LabTestReason')}
@@ -400,6 +429,12 @@ function useLabProblems(id: string) {
       const from = String(e.params?.from ?? '');
       return { text: t('lab.stateChanged', { status: enumLabel(t, 'LabTestStatus', from) }), tone: 'danger' };
     }
+    // The indicator set no longer matches the norms (a norm was added or removed meanwhile): the card is read again
+    // like a version conflict (ruling FM20); the values of the norms that stayed are kept.
+    if (isNormsMismatch(e)) {
+      reread();
+      return { text: t('lab.normsChanged'), tone: 'danger' };
+    }
     if (e instanceof ApiProblem && e.status === 404) reread();
     return { text: errorText(e), tone: errorTone(e) };
   };
@@ -415,6 +450,11 @@ function useLabProblems(id: string) {
   };
 }
 type Problems = ReturnType<typeof useLabProblems>;
+
+const isNormsMismatch = (e: unknown) =>
+  e instanceof ApiProblem &&
+  e.code === 'VALIDATION' &&
+  Boolean(e.errors?.results?.includes('validation.results.mismatch'));
 
 export function LabTestPage() {
   const { id = '' } = useParams();
@@ -505,15 +545,9 @@ export function LabTestPage() {
           </CardBody>
         </Card>
       );
-    // Keyed by the set of norms only: a re-read after a conflict keeps what was typed (FM13).
-    return (
-      <ResultsForm
-        key={test.norms.map((n) => n.indicatorId).join()}
-        test={test}
-        problems={problems}
-        onDone={changed}
-      />
-    );
+    // Not keyed: a re-read after a conflict or a changed set of norms keeps what was typed for the norms that stayed
+    // (FM13, FM20).
+    return <ResultsForm test={test} problems={problems} onDone={changed} />;
   };
 
   return (
@@ -674,10 +708,13 @@ function ResultsForm({
   const [wait, startWait] = useCountdown();
   const submitRef = useFocusAfterWait(wait);
   const [confirming, setConfirming] = useState<ResultValues | null>(null);
+  // The norms of the card as it is now (a re-read may change them; the form, not keyed, keeps its values).
+  const current = useRef(norms);
+  current.current = norms;
 
   // The request lists the norms in their order: server paths `results[i]` point back to them.
   const toBody = (v: ResultValues) => ({
-    results: norms.map((n) => ({
+    results: current.current.map((n) => ({
       indicatorId: n.indicatorId,
       value: decimalOf(v.values[n.indicatorId] ?? '') ?? v.values[n.indicatorId] ?? '',
     })),
@@ -685,13 +722,13 @@ function ResultsForm({
 
   const resolver: Resolver<ResultValues> = async (values) => {
     const errs: Record<string, FieldError> = {};
-    for (const n of norms)
+    for (const n of current.current)
       if ((values.values[n.indicatorId] ?? '').trim() === '')
         errs[n.indicatorId] = fieldError('validation.required');
     const res = LabResultsInputSchema.safeParse(toBody(values));
     for (const issue of res.success ? [] : res.error.issues) {
       const [head, index] = issue.path;
-      const norm = head === 'results' && typeof index === 'number' ? norms[index] : undefined;
+      const norm = head === 'results' && typeof index === 'number' ? current.current[index] : undefined;
       if (norm) errs[norm.indicatorId] ??= fieldError(issue.message);
     }
     if (Object.keys(errs).length === 0) return { values, errors: {} };
@@ -705,6 +742,11 @@ function ResultsForm({
   // RHF's watch() hands back the same (mutated) object: the live check reads a copy each render.
   const snapshot = { ...form.watch('values') };
   const preview = previewConclusion(norms, snapshot);
+  // A re-read under the open FAIL confirmation (new norms) that no longer concludes FAIL closes it.
+  const stillFail = confirming ? previewConclusion(norms, confirming.values) === 'FAIL' : true;
+  useEffect(() => {
+    if (!stillFail) setConfirming(null);
+  }, [stillFail]);
 
   /** Sends the values; a failure to show in the confirmation dialog is returned (it stays open). */
   const send = async (v: ResultValues): Promise<string | null> => {
@@ -730,7 +772,7 @@ function ResultsForm({
       });
       return null;
     } catch (e) {
-      if (e instanceof ApiProblem && e.code === 'VALIDATION') {
+      if (e instanceof ApiProblem && e.code === 'VALIDATION' && !isNormsMismatch(e)) {
         setConfirming(null);
         applyProblem(e, {
           form,
@@ -871,17 +913,13 @@ function FailDialog({
             disabled={!matches || wait > 0}
             onClick={() => void onConfirm().then(setMessage)}
           >
-            {wait > 0 ? t('auth.retryIn', { seconds: wait }) : t('action.submitResults')}
+            {wait > 0 ? t('auth.retryIn', { seconds: wait }) : t('lab.failSubmit')}
           </Button>
         </>
       }
     >
       <div style={STACK}>
-        {message && (
-          <p className="at-field__error" role="alert" style={{ margin: 0 }}>
-            {message}
-          </p>
-        )}
+        <DialogMessage text={message} />
         <p style={{ margin: 0 }}>{t('lab.failText')}</p>
         <Field id="fail-code" label={t('lab.failConfirm')}>
           <Input mono autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} />
@@ -904,6 +942,8 @@ function ProtocolCard({ test, canUpload }: { test: LabTest; canUpload: boolean }
   const alert = useFormAlert();
   const [picked, setPicked] = useState<{ file: File; error?: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [wait, startWait] = useCountdown();
+  const uploadRef = useFocusAfterWait(wait);
   const protocol = test.protocol;
 
   // The server checks the PDF signature and the size again (415 / 413); the client says it before sending.
@@ -937,8 +977,10 @@ function ProtocolCard({ test, canUpload }: { test: LabTest; canUpload: boolean }
       else if (e instanceof ApiProblem && e.code === 'UNSUPPORTED_MEDIA_TYPE') error = unsupportedText();
       else if (e instanceof ApiProblem && e.code === 'VALIDATION' && e.errors?.file?.[0])
         error = t(e.errors.file[0]);
+      if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
+      // The file says what is wrong with it; the page says it too (the toast region reads it out).
       if (error) setPicked((p) => (p ? { ...p, error } : p));
-      else alert.show(errorText(e), errorTone(e));
+      alert.show(error ?? errorText(e), error ? 'danger' : errorTone(e));
     } finally {
       setBusy(false);
     }
@@ -953,6 +995,7 @@ function ProtocolCard({ test, canUpload }: { test: LabTest; canUpload: boolean }
           sizeText: picked.error ?? formatBytes(picked.file.size, LOCALE),
           error: Boolean(picked.error),
           kind: 'PDF',
+          ...(busy ? { progress: null } : {}),
         },
       ]
     : [];
@@ -990,8 +1033,19 @@ function ProtocolCard({ test, canUpload }: { test: LabTest; canUpload: boolean }
       </CardBody>
       {canUpload && picked && !picked.error && (
         <CardFooter>
-          <Button variant="primary" icon="upload" busy={busy} onClick={() => void upload()}>
-            {protocol ? t('lab.protocolReplace') : t('action.upload')}
+          <Button
+            ref={uploadRef}
+            variant="primary"
+            icon="upload"
+            busy={busy}
+            disabled={wait > 0}
+            onClick={() => void upload()}
+          >
+            {wait > 0
+              ? t('auth.retryIn', { seconds: wait })
+              : protocol
+                ? t('lab.protocolReplace')
+                : t('action.upload')}
           </Button>
         </CardFooter>
       )}

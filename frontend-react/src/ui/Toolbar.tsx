@@ -34,10 +34,13 @@ export function PageToolbar({
   search,
   filters,
   count = 0,
+  note,
 }: {
   search?: ToolbarSearch;
   filters?: ReactNode;
   count?: number;
+  /** A short fact next to «Фильтры» (`at-page__note`, shown by CSS below 768 px only). */
+  note?: ReactNode;
 }) {
   const wide = useWide();
   const [opened, setOpened] = useState(false);
@@ -109,6 +112,7 @@ export function PageToolbar({
           <div className="at-page__filters-body">{filters}</div>
         </details>
       )}
+      {note && <p className="at-page__note">{note}</p>}
     </div>
   );
 }

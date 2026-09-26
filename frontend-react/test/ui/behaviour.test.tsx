@@ -376,3 +376,17 @@ describe('helpers', () => {
     expect(initials('ООО «Кубанский мукомол»')).toBe('ОК');
   });
 });
+
+describe('Radio (ruling F13)', () => {
+  it('the choice is the checked property, not an attribute', async () => {
+    const { Radio } = await import('../../src/ui');
+    const { container } = render(
+      <Radio name="theme" value="system" checked onChange={() => {}}>
+        Системная
+      </Radio>,
+    );
+    const input = container.querySelector('input')!;
+    expect(input.checked).toBe(true);
+    expect(input.hasAttribute('checked')).toBe(false);
+  });
+});
