@@ -154,3 +154,22 @@ export function applyProblem<F extends FieldValues>(e: unknown, o: ApplyOptions<
 export function errorTone(e: unknown): 'danger' | 'attention' {
   return e instanceof ApiProblem && e.status === 429 ? 'attention' : 'danger';
 }
+
+/** The action button a 429 wait disabled (its focus dropped to the page): it gets the focus back when it can act again
+ * (as the «Повторить» of the unavailable screen, F8). Put the returned ref on the button. */
+export function useFocusAfterWait(wait: number) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const held = useRef(false);
+  useEffect(() => {
+    if (wait > 0) {
+      if (!held.current) {
+        const active = document.activeElement;
+        held.current = active === ref.current || !active || active === document.body;
+      }
+    } else if (held.current) {
+      held.current = false;
+      ref.current?.focus();
+    }
+  }, [wait]);
+  return ref;
+}

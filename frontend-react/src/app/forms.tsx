@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { forwardRef, type ReactNode } from 'react';
 import { useForm, type FieldValues, type Path, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z, type ZodTypeAny } from 'zod';
@@ -12,26 +12,23 @@ import { Button } from '../ui/Button';
 export const FORM_GRID = { display: 'grid', gap: 'var(--sp-4)' } as const;
 
 /** Submit button: busy while sending, disabled with a countdown after a 429. */
-export function Submit({
-  busy,
-  wait,
-  children,
-  variant = 'primary',
-  form,
-}: {
-  busy: boolean;
-  wait: number;
-  children: ReactNode;
-  variant?: 'primary' | 'secondary';
-  /** Id of the form when the button stands outside it (dialog actions). */
-  form?: string;
-}) {
+export const Submit = forwardRef<
+  HTMLButtonElement,
+  {
+    busy: boolean;
+    wait: number;
+    children: ReactNode;
+    variant?: 'primary' | 'secondary';
+    /** Id of the form when the button stands outside it (dialog actions). */
+    form?: string;
+  }
+>(function Submit({ busy, wait, children, variant = 'primary', form }, ref) {
   return (
-    <Button type="submit" form={form} variant={variant} busy={busy} disabled={wait > 0}>
+    <Button ref={ref} type="submit" form={form} variant={variant} busy={busy} disabled={wait > 0}>
       {wait > 0 ? t('auth.retryIn', { seconds: wait }) : children}
     </Button>
   );
-}
+});
 
 /** The pieces every form needs: the RHF form on its shared schema, the form message, the 429 countdown and `fail`
  * (puts a failed submit on the form, see `applyProblem`). */

@@ -60,7 +60,7 @@ export function buildRoutes(core: SessionCore, EventSourceImpl?: typeof EventSou
       errorElement: <RouteError />,
       children: [
         ...AUTH_ROUTES.map((r) => {
-          const Page = lazyPage(r.path, r.load, r.title, true);
+          const Page = lazyPage(r.load, r.title, true);
           return {
             path: r.path,
             element: GUEST_ONLY.has(r.path) ? (
@@ -81,7 +81,7 @@ export function buildRoutes(core: SessionCore, EventSourceImpl?: typeof EventSou
             </RequireAuth>
           ),
           children: CABINET_ROUTES.map((r) => {
-            const Page = lazyPage(r.path, r.load, r.title);
+            const Page = lazyPage(r.load, r.title);
             return {
               path: r.path,
               element: (

@@ -514,6 +514,52 @@ describe('/waybills/:id — conflicts (FM13)', () => {
     await waitFor(() => expect(ifMatch).toEqual(['2', '3']));
   });
 
+  it('reject: after a failure and «Отмена» the reopened dialog is empty and asks for the number again', async () => {
+    server.use(asProcessor(), contractResponse('rejectWaybill', { status: 409, example: 'versionConflict' }));
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Отказаться' }));
+    let dialog = await screen.findByRole('dialog', { name: 'Отказ от накладной WB-2026-000017' });
+    await userEvent.type(within(dialog).getByLabelText('Причина отказа'), 'Причина');
+    await userEvent.type(
+      within(dialog).getByLabelText('Номер накладной для подтверждения'),
+      'WB-2026-000017',
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Отказаться' }));
+    await within(dialog).findByRole('alert');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Отказаться' }));
+    dialog = await screen.findByRole('dialog', { name: 'Отказ от накладной WB-2026-000017' });
+    expect(within(dialog).getByLabelText('Причина отказа')).toHaveValue('');
+    expect(within(dialog).getByLabelText('Номер накладной для подтверждения')).toHaveValue('');
+    expect(within(dialog).getByRole('button', { name: 'Отказаться' })).toBeDisabled();
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+
+  it('delete 429: the wait on the confirmation button, the reason in the dialog', async () => {
+    server.use(
+      contractResponse('getWaybill', { body: draft() }),
+      contractResponse('deleteWaybill', { status: 429, headers: { 'Retry-After': '2' } }),
+    );
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Удалить черновик' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Удалить черновик WB-2026-000017' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Удалить черновик' }));
+    expect(await within(dialog).findByRole('button', { name: /^Повторить через [12] с$/ })).toBeDisabled();
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('повторите через 2 с');
+  });
+
+  it('a 429 wait on «Отгрузить»: the button gets the focus back when it can act again', async () => {
+    server.use(
+      contractResponse('getWaybill', { body: draft() }),
+      contractResponse('sendWaybill', { status: 429, headers: { 'Retry-After': '1' } }),
+    );
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Отгрузить' }));
+    expect(await screen.findByRole('button', { name: /^Повторить через 1 с$/ })).toBeDisabled();
+    const button = await screen.findByRole('button', { name: 'Отгрузить' }, { timeout: 3000 });
+    await waitFor(() => expect(button).toHaveFocus());
+  });
+
   it('reject 429: the wait is on the confirmation button and said in the dialog', async () => {
     server.use(
       asProcessor(),

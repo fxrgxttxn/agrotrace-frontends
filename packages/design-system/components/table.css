@@ -350,4 +350,17 @@ th[aria-sort='descending'] > .at-table__sort::after {
   .at-table[data-cards] td.at-table__actions > .at-button {
     flex: 1 1 auto;
   }
+
+  /* Row actions on a card keep the regular size — a 44 px target (ruling FM13) — whatever size the table row asks for. */
+  .at-table[data-cards] td.at-table__actions > .at-button[data-size='s'] {
+    min-height: var(--touch);
+    padding: 0 var(--sp-4);
+    gap: var(--sp-2);
+    font-size: var(--fs-14);
+    line-height: var(--lh-14);
+  }
+
+  .at-table[data-cards] td.at-table__actions > .at-button[data-size='s']::before {
+    content: none;
+  }
 }

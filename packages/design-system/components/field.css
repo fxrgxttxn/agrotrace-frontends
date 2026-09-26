@@ -23,6 +23,13 @@
   font: 500 var(--fs-13) / var(--lh-13) var(--font-body);
 }
 
+/* A warning that does not block the action (a live check before sending, e.g. the mass balance). */
+.at-field__warning {
+  margin: 0;
+  color: var(--status-attention-fg);
+  font: 500 var(--fs-13) / var(--lh-13) var(--font-body);
+}
+
 /* Group of checkboxes / radios: <fieldset class="at-field"><legend class="at-field__label">…</legend>. */
 .at-field__options {
   display: flex;

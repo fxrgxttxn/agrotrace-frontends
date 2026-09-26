@@ -238,8 +238,6 @@ function StatusFilter({ statuses, own }: { statuses: BatchStatus[]; own: ReturnT
 }
 
 export function StockPage() {
-  // Row actions: small buttons in the table, the regular size (44 px touch target) on the cards below 768 px (FM13).
-  const rowSize = useWide() ? ('s' as const) : undefined;
   const { processor, retailer } = useRoles();
   const statuses = stockStatuses(processor, retailer);
   const own = useOwnBatches('stock', statuses, STOCK_SPEC, '/stock');
@@ -279,12 +277,12 @@ export function StockPage() {
     return (
       <>
         {processor && allowed.has('process') && (
-          <ButtonLink size={rowSize} variant="primary" to={`/processing/new?batchId=${b.id}`}>
+          <ButtonLink size="s" variant="primary" to={`/processing/new?batchId=${b.id}`}>
             {label('process')}
           </ButtonLink>
         )}
         {processor && allowed.has('ship') && (
-          <ButtonLink size={rowSize} to={`/waybills/new?batchId=${b.id}`}>
+          <ButtonLink size="s" to={`/waybills/new?batchId=${b.id}`}>
             {label('ship')}
           </ButtonLink>
         )}
@@ -294,7 +292,7 @@ export function StockPage() {
             .map((a) => (
               <Button
                 key={a}
-                size={rowSize}
+                size="s"
                 variant={a === 'putOnSale' ? 'primary' : 'secondary'}
                 busy={transition.busy === b.id}
                 onClick={() => void transition.run(b, a)}
@@ -803,7 +801,7 @@ function BalanceView({ balance }: { balance: ReturnType<typeof checkMassBalance>
         {balance.ok ? (
           <p style={{ margin: 0 }}>{t('processing.balanceOk', { allowedKg: mass(balance.allowedKg) })}</p>
         ) : (
-          <p style={{ margin: 0, color: 'var(--status-attention-fg)', fontWeight: 500 }}>
+          <p className="at-field__warning">
             {t('rules.BR-04', {
               outputKg: mass(balance.outputKg),
               allowedKg: mass(balance.allowedKg),
@@ -832,7 +830,6 @@ function qrStatuses(processor: boolean): BatchStatus[] {
 }
 
 export function QrPage() {
-  const rowSize = useWide() ? ('s' as const) : undefined;
   const { api } = useSession();
   const { processor } = useRoles();
   const toast = useToast();
@@ -929,7 +926,7 @@ export function QrPage() {
               actions={(b) =>
                 b.qrGeneratedAt ? (
                   <Button
-                    size={rowSize}
+                    size="s"
                     icon="download"
                     aria-label={t('qr.downloadOf', { code: b.publicCode })}
                     onClick={() => setShown({ batch: b, links: null })}
@@ -938,7 +935,7 @@ export function QrPage() {
                   </Button>
                 ) : (
                   <Button
-                    size={rowSize}
+                    size="s"
                     variant="primary"
                     icon="qr"
                     busy={busy === b.id}

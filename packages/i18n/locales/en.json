@@ -92,8 +92,7 @@
     "uploading": "Uploading {name}",
     "searching": "Searching",
     "legend": "Legend",
-    "progressValue": "{value} of {max}",
-    "chunkFailed": "The page could not be loaded."
+    "progressValue": "{value} of {max}"
   },
   "theme": {
     "label": "Theme",
@@ -290,7 +289,8 @@
     "reports": "No data for this report.",
     "search": "Nothing found.",
     "forbidden": "This section is not available to your role.",
-    "notFound": "There is no such page."
+    "notFound": "There is no such page.",
+    "pageLoadFailed": "The page could not be loaded."
   },
   "status": {
     "batch": {

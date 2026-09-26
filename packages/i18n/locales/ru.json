@@ -92,8 +92,7 @@
     "uploading": "Загрузка {name}",
     "searching": "Поиск",
     "legend": "Обозначения",
-    "progressValue": "{value} из {max}",
-    "chunkFailed": "Не удалось загрузить страницу."
+    "progressValue": "{value} из {max}"
   },
   "theme": {
     "label": "Тема",
@@ -290,7 +289,8 @@
     "reports": "Данных для отчёта нет.",
     "search": "Ничего не найдено.",
     "forbidden": "Этот раздел недоступен для вашей роли.",
-    "notFound": "Такой страницы нет."
+    "notFound": "Такой страницы нет.",
+    "pageLoadFailed": "Не удалось загрузить страницу."
   },
   "status": {
     "batch": {

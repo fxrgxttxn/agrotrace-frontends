@@ -13,6 +13,7 @@ import {
   errorTone,
   retryAfterOf,
   useCountdown,
+  useFocusAfterWait,
   useFormAlert,
 } from '../app/api';
 import { DateFilter } from '../app/DateFilter';
@@ -660,6 +661,7 @@ export function WaybillPage() {
   const idempotentSend = useIdempotency();
   const [sending, setSending] = useState(false);
   const [sendWait, startSendWait] = useCountdown();
+  const sendRef = useFocusAfterWait(sendWait);
   const [dialog, setDialog] = useState<'delete' | 'reject' | null>(null);
 
   const query = useQuery({
@@ -678,14 +680,18 @@ export function WaybillPage() {
   }, [dialog, rejectAllowed, deleteAllowed]);
   // After a re-read the focused control may be gone (the acceptance form of a waybill accepted elsewhere, a closed
   // dialog's opener): the focus goes to the page title instead of the document body.
+  // The flag is spent by each re-read (the check runs after a dialog closed by it has returned its focus).
+  const refocus = problems.refocus;
   useEffect(() => {
-    if (!problems.refocus.current || !waybill) return;
-    const active = document.activeElement;
-    if (!active || active === document.body || !active.isConnected) {
-      problems.refocus.current = false;
-      document.querySelector<HTMLElement>('h1.at-page__title')?.focus();
-    }
-  });
+    if (!refocus.current || !waybill) return;
+    refocus.current = false;
+    const timer = setTimeout(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body || !active.isConnected)
+        document.querySelector<HTMLElement>('h1.at-page__title')?.focus();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [waybill, refocus]);
 
   const changed = (next: Waybill) => {
     queryClient.setQueryData(['waybill', next.id], next);
@@ -741,6 +747,7 @@ export function WaybillPage() {
           <>
             {can('send') && (
               <Button
+                ref={sendRef}
                 variant="primary"
                 icon="truck"
                 busy={sending}
@@ -941,6 +948,7 @@ function AcceptForm({
   const idempotent = useIdempotency();
   const [busy, setBusy] = useState(false);
   const [wait, startWait] = useCountdown();
+  const submitRef = useFocusAfterWait(wait);
   const items = waybill.items;
 
   const toBody = (v: AcceptValues) => ({
@@ -1100,7 +1108,7 @@ function AcceptForm({
         </form>
       </CardBody>
       <CardFooter>
-        <Submit busy={busy} wait={wait} form="waybill-accept">
+        <Submit ref={submitRef} busy={busy} wait={wait} form="waybill-accept">
           {enumLabel(t, 'WaybillActionName', 'accept')}
         </Submit>
       </CardFooter>
@@ -1136,10 +1144,11 @@ function DeleteDialog({
   const [busy, setBusy] = useState(false);
   const [wait, startWait] = useCountdown();
   const [message, setMessage] = useState<string | null>(null);
-  const close = () => {
-    setMessage(null);
-    onClose();
-  };
+  const confirmRef = useFocusAfterWait(wait);
+  useEffect(() => {
+    if (!open) setMessage(null);
+  }, [open]);
+  const close = () => onClose();
   const remove = async () => {
     setBusy(true);
     try {
@@ -1166,7 +1175,13 @@ function DeleteDialog({
           <Button variant="ghost" onClick={close}>
             {t('action.cancel')}
           </Button>
-          <Button variant="danger" busy={busy} disabled={wait > 0} onClick={() => void remove()}>
+          <Button
+            ref={confirmRef}
+            variant="danger"
+            busy={busy}
+            disabled={wait > 0}
+            onClick={() => void remove()}
+          >
             {wait > 0 ? t('auth.retryIn', { seconds: wait }) : enumLabel(t, 'WaybillActionName', 'delete')}
           </Button>
         </>
@@ -1200,10 +1215,17 @@ function RejectDialog({
   const [busy, setBusy] = useState(false);
   const [wait, startWait] = useCountdown();
   const matches = number.trim().toUpperCase() === waybill.number;
-  const close = () => {
+  const confirmRef = useFocusAfterWait(wait);
+  // What was typed lives only while the dialog is open (a failure keeps it); any close clears it, so a reopened
+  // dialog asks for the number again.
+  useEffect(() => {
+    if (open) return;
+    setReason('');
+    setNumber('');
+    setError(null);
     setMessage(null);
-    onClose();
-  };
+  }, [open]);
+  const close = () => onClose();
   const reject = async () => {
     const check = WaybillRejectSchema.safeParse({ reason });
     if (!check.success)
@@ -1241,7 +1263,13 @@ function RejectDialog({
           <Button variant="ghost" onClick={close}>
             {t('action.cancel')}
           </Button>
-          <Button variant="danger" busy={busy} disabled={!matches || wait > 0} onClick={() => void reject()}>
+          <Button
+            ref={confirmRef}
+            variant="danger"
+            busy={busy}
+            disabled={!matches || wait > 0}
+            onClick={() => void reject()}
+          >
             {wait > 0 ? t('auth.retryIn', { seconds: wait }) : enumLabel(t, 'WaybillActionName', 'reject')}
           </Button>
         </>
