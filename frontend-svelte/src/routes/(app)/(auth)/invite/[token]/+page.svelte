@@ -1,8 +1,7 @@
 <script lang="ts">
-  import { t } from '$lib/app/i18n';
-  import Page from '$lib/ui/Page.svelte';
-
-  // Placeholder of the screen (S2 builds it, like React's Task 2).
+  import { page } from '$app/state';
+  import InvitePage from '$lib/pages/InvitePage.svelte';
 </script>
 
-<Page title={t('page.invite')} main style="max-width: 30rem" />
+<!-- A new token is a new link: the screen starts over. -->
+{#key page.params.token}<InvitePage />{/key}

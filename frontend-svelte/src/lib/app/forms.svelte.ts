@@ -5,124 +5,241 @@ import { Countdown, errorText, retryAfterOf } from './api.svelte';
 import { t } from './i18n';
 import { toasts } from '../ui/toast-store.svelte';
 
-// Forms (spec §9.2 for Svelte: native forms + the shared Zod schemas of @agrotrace/validation). Error messages are
-// i18n keys (from the schemas and from the server's `errors`), translated where they are shown. A failed submit is put
-// on the form like the React app does (`applyProblem` there): 400 `errors` under the fields (`items[1].batchId` paths),
-// `_root` and unknown paths as one form-level message, 429 → a countdown on the submit, anything else → its text.
+// Forms (spec §9.2 for Svelte: native forms + the shared Zod schemas of @agrotrace/validation through the `use:form`
+// action). Error messages are i18n keys (from the schemas and from the server's `errors`), translated where they are
+// shown. The behaviour of the React forms (React Hook Form + zodResolver, the reference):
+//   - nothing is checked before the first submit; from then on the error of a field follows its every change;
+//   - a server error of a field stays until that field changes;
+//   - a failed submit focuses the first invalid field in form order;
+//   - 400 `errors` go under the fields the form renders (`admin.email`, `items[1].batchId` paths), `_root` and other
+//     paths become one form-level message (a toast, ruling F7), replaced on the next submit and gone with the form;
+//   - a 429 disables the submit with a countdown (attention toast), the submit takes the focus back when the wait is
+//     over (FM17: only when the focus is free — `Submit.svelte`);
+//   - nothing is trimmed (R36): the body is exactly what was typed.
 
 /** One form-level message at a time (an error toast, `role="alert"`): a new submit or message replaces it. */
 export class FormAlert {
   #id: number | null = null;
 
-  show(text: string, tone: 'danger' | 'attention' = 'danger'): void {
+  show = (text: string, tone: 'danger' | 'attention' = 'danger'): void => {
     this.clear();
     this.#id = toasts.push({ tone, text });
-  }
+  };
 
-  clear(): void {
+  clear = (): void => {
     if (this.#id !== null) toasts.dismiss(this.#id);
     this.#id = null;
-  }
+  };
 }
 
-/** A form on a shared schema: `values`, `errors` (path → i18n key), `busy`, the 429 countdown and the form message.
- * `fields` lists the rendered field paths in DOM order (the first invalid one takes the focus); each field's control
- * has the id `idOf(path)`. */
-export class SchemaForm<F extends Record<string, unknown>> {
+/** Error paths of a Zod issue list: `['admin','email']` → `admin.email`, `['items',1,'batchId']` → `items[1].batchId`;
+ * the first message of each path. */
+function issuesByPath(schema: ZodTypeAny, value: unknown): Record<string, string> {
+  const parsed = schema.safeParse(value);
+  if (parsed.success) return {};
+  const out: Record<string, string> = {};
+  for (const issue of parsed.error.issues) {
+    const path = issue.path
+      .map((p: string | number) => (typeof p === 'number' ? `[${p}]` : p))
+      .join('.')
+      .replace(/\.\[/g, '[');
+    if (!(path in out)) out[path] = issue.message;
+  }
+  return out;
+}
+
+export interface SchemaFormOptions<F, B> {
+  /** The shared schema of the request body. */
+  schema: ZodTypeAny;
+  /** Initial values of the controls (texts, selects). */
   values: F;
-  errors = $state<Record<string, string>>({});
+  /** Field paths the form renders, as the `name` of their controls (server errors on other paths are the message). */
+  fields: readonly string[];
+  /** The request body of the values (default: the values as they are), checked by the schema. */
+  toWire?: (values: F) => unknown;
+  /** Sends the checked body; a thrown error is put on the form (`fail`). */
+  send: (body: B) => Promise<void>;
+}
+
+/** A form on a shared schema. Controls bind to `values` and carry `name` = their path; `<form use:form={f}>` wires the
+ * submit and the change tracking. */
+export class SchemaForm<F extends Record<string, unknown>, B = F> {
+  values: F;
+  /** Sending (the submit is `aria-busy`). */
   busy = $state(false);
   readonly wait = new Countdown();
   readonly alert = new FormAlert();
-
-  readonly schema: ZodTypeAny;
   readonly fields: readonly string[];
-  readonly idOf: (path: string) => string;
 
-  constructor(schema: ZodTypeAny, initial: F, fields: readonly string[], idOf?: (path: string) => string) {
-    this.schema = schema;
-    this.fields = fields;
-    this.idOf = idOf ?? ((p) => p.replace(/[.[\]]+/g, '-').replace(/-$/, ''));
-    this.values = $state(initial);
+  #client = $state<Record<string, string>>({});
+  #server = $state<Record<string, string>>({});
+  #submitted = $state(false);
+  #node: HTMLFormElement | null = null;
+  readonly #schema: ZodTypeAny;
+  readonly #toWire: (values: F) => unknown;
+  readonly #send: (body: B) => Promise<void>;
+
+  constructor(o: SchemaFormOptions<F, B>) {
+    this.values = $state(o.values);
+    this.fields = o.fields;
+    this.#schema = o.schema;
+    this.#toWire = o.toWire ?? ((v) => v);
+    this.#send = o.send;
   }
 
-  /** Translated error of a field (or `null`). */
-  error(path: string): string | null {
-    const key = this.errors[path];
-    return key ? t(key) : null;
+  /** Translated error of a field (`null` — none). */
+  error = (path: string): string | null => {
+    const server = this.#server[path];
+    if (server) return t(server);
+    const client = this.#submitted ? this.#client[path] : undefined;
+    return client ? t(client) : null;
+  };
+
+  /** Puts an error (an i18n key or a ready text) under a field and focuses the first invalid field. */
+  setError(path: string, message: string): void {
+    this.#server = { ...this.#server, [path]: message };
+    void this.#focusFirstInvalid();
   }
 
-  /** Client-side check on the schema; marks and focuses the first invalid field. */
-  async validate(): Promise<F | null> {
-    const parsed = this.schema.safeParse($state.snapshot(this.values));
-    if (parsed.success) {
-      this.errors = {};
-      return parsed.data as F;
+  /** Back to `values` (after a successful save): no errors until the next submit. */
+  reset(values: F): void {
+    for (const k of Object.keys(values) as (keyof F)[]) this.values[k] = values[k];
+    this.#submitted = false;
+    this.#client = {};
+    this.#server = {};
+  }
+
+  /** The control named `path` changed: its server error goes, its client error follows the value (after a submit). */
+  changed(path: string): void {
+    if (path in this.#server) {
+      const rest = { ...this.#server };
+      delete rest[path];
+      this.#server = rest;
     }
-    const errors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const path = issue.path
-        .map((p: string | number) => (typeof p === 'number' ? `[${p}]` : p))
-        .join('.')
-        .replace(/\.\[/g, '[');
-      if (!(path in errors)) errors[path] = issue.message;
-    }
-    this.errors = errors;
-    await this.#focusFirst(Object.keys(errors));
-    return null;
+    if (!this.#submitted) return;
+    const now = issuesByPath(this.#schema, this.#toWire($state.snapshot(this.values) as F))[path];
+    if (now === this.#client[path]) return;
+    const next = { ...this.#client };
+    if (now) next[path] = now;
+    else delete next[path];
+    this.#client = next;
   }
 
-  /** Runs `send` with the valid values: busy while sending, failures put on the form. */
-  submit(send: (values: F) => Promise<void>): (e: SubmitEvent) => Promise<void> {
-    return async (e) => {
-      e.preventDefault();
-      if (this.busy || this.wait.left > 0) return;
-      this.alert.clear();
-      const values = await this.validate();
-      if (!values) return;
-      this.busy = true;
-      try {
-        await send(values);
-      } catch (err) {
-        await this.fail(err);
-      } finally {
-        this.busy = false;
-      }
-    };
-  }
-
-  /** Puts a failed submit on the form: field errors, a form-level message, or the rate-limit countdown. */
-  async fail(e: unknown): Promise<void> {
-    if (e instanceof ApiProblem && e.code === 'VALIDATION' && e.errors) {
-      const rest: string[] = [];
-      const marked: Record<string, string> = {};
-      for (const [path, keys] of Object.entries(e.errors)) {
-        const key = keys[0];
-        if (!key) continue;
-        if (this.fields.includes(path)) marked[path] = key;
-        else rest.push(t(key));
-      }
-      this.errors = marked;
-      const first = await this.#focusFirst(Object.keys(marked));
-      if (rest.length) this.alert.show(rest.join('. '));
-      else if (!first) this.alert.show(errorText(e));
+  /** The submit: checks the shared schema, then sends the body (busy meanwhile); a failure goes on the form. */
+  async submit(e?: Event): Promise<void> {
+    e?.preventDefault();
+    if (this.busy || this.wait.left > 0) return;
+    this.#submitted = true;
+    this.#server = {};
+    const wire = this.#toWire($state.snapshot(this.values) as F);
+    const parsed = this.#schema.safeParse(wire);
+    if (!parsed.success) {
+      this.#client = issuesByPath(this.#schema, wire);
+      await this.#focusFirstInvalid();
       return;
     }
-    if (e instanceof ApiProblem && e.status === 429) {
-      const seconds = retryAfterOf(e);
-      this.wait.start(seconds);
-      this.alert.show(t('auth.rateLimited', { seconds }), 'attention');
-      return;
+    this.#client = {};
+    this.alert.clear();
+    this.busy = true;
+    try {
+      await this.#send(parsed.data as B);
+    } catch (err) {
+      this.fail(err);
+    } finally {
+      this.busy = false;
     }
-    this.alert.show(errorText(e));
+  }
+
+  /** Puts a failed request on the form: field errors, a form-level message, or the rate-limit countdown. */
+  fail(e: unknown): void {
+    applyProblem(e, {
+      alert: this.alert.show,
+      onRateLimit: (seconds) => this.wait.start(seconds),
+      fields: this.fields,
+      mark: (marks) => {
+        this.#server = marks;
+        void this.#focusFirstInvalid();
+      },
+    });
+  }
+
+  /** `use:form`: the form element (focus of the first invalid field). */
+  attach(node: HTMLFormElement | null): void {
+    this.#node = node;
   }
 
   /** Focus goes to the first invalid field in the order of the form (not of the answer). */
-  async #focusFirst(paths: string[]): Promise<string | undefined> {
-    const first = this.fields.find((f) => paths.includes(f));
-    if (!first) return undefined;
+  async #focusFirstInvalid(): Promise<void> {
     await tick();
-    document.getElementById(this.idOf(first))?.focus();
-    return first;
+    this.#node?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
   }
+}
+
+/** `<form use:form={f}>`: no browser validation, the submit runs `f.submit`, a changed control (`name` = its path)
+ * updates its error; the form message goes with the form. */
+export function form<F extends Record<string, unknown>, B>(node: HTMLFormElement, f: SchemaForm<F, B>) {
+  let current = f;
+  current.attach(node);
+  node.noValidate = true;
+  const submit = (e: SubmitEvent) => void current.submit(e);
+  const change = (e: Event) => {
+    const name = (e.target as { name?: unknown } | null)?.name;
+    if (typeof name === 'string' && name) current.changed(name);
+  };
+  node.addEventListener('submit', submit);
+  node.addEventListener('input', change);
+  node.addEventListener('change', change);
+  return {
+    update(next: SchemaForm<F, B>) {
+      current.attach(null);
+      current = next;
+      current.attach(node);
+    },
+    destroy() {
+      node.removeEventListener('submit', submit);
+      node.removeEventListener('input', change);
+      node.removeEventListener('change', change);
+      current.attach(null);
+      current.alert.clear();
+      current.wait.stop();
+    },
+  };
+}
+
+export interface ApplyOptions {
+  alert: (text: string, tone?: 'danger' | 'attention') => void;
+  /** Called for a 429 with the seconds to wait. */
+  onRateLimit?: (seconds: number) => void;
+  /** Field paths the form renders; absent — an action without a form (every error is the message). */
+  fields?: readonly string[];
+  /** Shows server errors under fields (path → i18n key). */
+  mark?: (errors: Record<string, string>) => void;
+}
+
+/** Puts a failed request on a form or an action: field errors, a form-level message, or the rate-limit countdown
+ * (React's `applyProblem`). */
+export function applyProblem(e: unknown, o: ApplyOptions): void {
+  if (e instanceof ApiProblem && e.code === 'VALIDATION' && e.errors) {
+    const rest: string[] = [];
+    const fields = o.fields ?? [];
+    const marks: Record<string, string> = {};
+    for (const [path, keys] of Object.entries(e.errors)) {
+      const key = keys[0];
+      if (!key) continue;
+      if (o.mark && fields.includes(path)) marks[path] ??= key;
+      else rest.push(t(key));
+    }
+    const marked = Object.keys(marks).length > 0;
+    if (marked) o.mark?.(marks);
+    if (rest.length) o.alert(rest.join('. '));
+    else if (!marked) o.alert(errorText(e));
+    return;
+  }
+  if (e instanceof ApiProblem && e.status === 429) {
+    const seconds = retryAfterOf(e);
+    o.onRateLimit?.(seconds);
+    o.alert(t('auth.rateLimited', { seconds }), 'attention');
+    return;
+  }
+  o.alert(errorText(e));
 }

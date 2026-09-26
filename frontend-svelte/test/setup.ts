@@ -62,6 +62,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  sessionStorage.clear();
   document.documentElement.removeAttribute('data-theme');
   server.resetHandlers();
 });

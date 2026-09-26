@@ -1,5 +1,6 @@
 import { ApiProblem, type ProblemBody } from '@agrotrace/api-client';
-import { problemMessage } from '@agrotrace/i18n';
+import { enumLabel, problemMessage } from '@agrotrace/i18n';
+import { tick } from 'svelte';
 import { t } from './i18n';
 
 // Calling the API from screens: every call goes through `call()` (api-client's typed result → data or ApiProblem),
@@ -45,8 +46,12 @@ export function retryAfterOf(p: ApiProblem): number {
 export function errorText(e: unknown): string {
   if (e instanceof ApiProblem) {
     if (e.code === 'FORBIDDEN' && typeof e.params?.reason === 'string') {
-      const key = `auth.forbidden.${e.params.reason}`;
-      const text = t(key);
+      // The other side of an operation (NOT_HOLDER, NOT_SENDER, NOT_RECEIVER) or a state (BATCH_STATUS): the reason's
+      // own text, with the batch code when the answer names it.
+      const code = typeof e.params.publicCode === 'string' ? e.params.publicCode : null;
+      const status = typeof e.params.status === 'string' ? enumLabel(t, 'BatchStatus', e.params.status) : '';
+      const key = `auth.forbidden.${e.params.reason}${code ? '_CODE' : ''}`;
+      const text = t(key, { publicCode: code ?? '', status });
       if (text !== key) return text;
     }
     if (e.status === 429) return t('auth.rateLimited', { seconds: retryAfterOf(e) });
@@ -83,4 +88,35 @@ export class Countdown {
     if (this.#timer) clearInterval(this.#timer);
     this.#timer = null;
   }
+}
+
+/** Ruling FM17: when a wait ends, the waiting button takes the focus only if nothing else holds it — the focus is on
+ * the body, on that button, or on an element that left the document. A field the person moved to keeps it. */
+export function focusIfIdle(button: HTMLElement | null | undefined): void {
+  if (!button) return;
+  const active = document.activeElement;
+  if (!active || active === document.body || active === button || !active.isConnected) button.focus();
+}
+
+/** The action button a 429 wait disabled (its focus dropped to the page) gets the focus back when it can act again, by
+ * the FM17 rule. Call during component initialisation. */
+export function focusAfterWait(left: () => number, button: () => HTMLElement | null | undefined): void {
+  let waited = false;
+  $effect(() => {
+    if (left() > 0) waited = true;
+    else if (waited) {
+      waited = false;
+      focusIfIdle(button());
+    }
+  });
+}
+
+/** Ruling FM21: an action removed (or a dialog closed over) the focused control — the focus goes to `opener` if it is
+ * still in the document, else to the page title. Only when the focus was lost (nothing else took it). */
+export async function restoreFocus(opener: HTMLElement | null | undefined): Promise<void> {
+  await tick();
+  const active = document.activeElement;
+  if (active && active !== document.body && active.isConnected) return;
+  if (opener?.isConnected && !(opener as HTMLButtonElement).disabled) opener.focus();
+  else document.querySelector<HTMLElement>('h1.at-page__title')?.focus({ preventScroll: true });
 }

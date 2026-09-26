@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import { Countdown } from '../app/api.svelte';
+  import { Countdown, focusAfterWait } from '../app/api.svelte';
   import { t } from '../app/i18n';
   import { session } from '../app/session.svelte';
   import Button from '../ui/Button.svelte';
@@ -24,16 +24,13 @@
     if (session.takeUserRetry()) button?.focus();
   });
 
-  // A disabled button drops the focus; when the wait is over, the focus goes to the button that can act now (as React).
+  // A disabled button drops the focus; when the wait is over, the focus goes to the button that can act now (as React),
+  // unless the person moved it elsewhere meanwhile (FM17).
   let button: HTMLElement | null = $state(null);
-  let waited = false;
-  $effect(() => {
-    if (wait.left > 0) waited = true;
-    else if (waited) {
-      waited = false;
-      button?.focus();
-    }
-  });
+  focusAfterWait(
+    () => wait.left,
+    () => button,
+  );
 </script>
 
 <AuthLayout title={t('page.unavailable')}>

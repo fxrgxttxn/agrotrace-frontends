@@ -59,7 +59,7 @@ class Live {
         text: notificationMessage(n.type, payload, 'title', t),
         detail: notificationMessage(n.type, payload, 'body', t),
       });
-      cache.invalidate(['notifications']);
+      void cache.invalidate(['notifications']);
     }
   }
 }

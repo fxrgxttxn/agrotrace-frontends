@@ -1,5 +1,6 @@
 import { render } from '@testing-library/svelte';
 import { afterEach } from 'vitest';
+import { cache } from '../../src/lib/app/cache.svelte';
 import { live } from '../../src/lib/app/live.svelte';
 import { resetRouteFocus } from '../../src/lib/app/routeFocus';
 import { resetSession, session } from '../../src/lib/app/session.svelte';
@@ -52,6 +53,7 @@ export async function renderApp(path: string) {
   router.reset();
   resetRouteFocus();
   toasts.reset();
+  cache.clear();
   live.EventSourceImpl = FakeEventSource as unknown as typeof EventSource;
   const s = resetSession();
   history.replaceState(null, '', '/');

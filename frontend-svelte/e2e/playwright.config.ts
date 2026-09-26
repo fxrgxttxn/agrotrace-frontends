@@ -6,12 +6,15 @@ import { defineConfig, devices } from '@playwright/test';
 // so the stand's host is mapped to the gateway container. No API server: the API answers come from the contract
 // examples (e2e/contract.ts), as the mock backend will give them.
 const gateway = (await lookup('gateway-svelte')).address;
-// The React stand (host port 8089), for the cross-framework visual comparison only (e2e/compare.spec.ts).
+// The React (host port 8089) and Angular (8090) stands, for the cross-framework comparisons only (e2e/compare*.spec.ts).
 const host = await lookup('host.docker.internal').then(
   (r) => r.address,
   () => null,
 );
-const rules = [...(host ? [`MAP react-express.localhost ${host}`] : []), `MAP *.localhost ${gateway}`];
+const rules = [
+  ...(host ? [`MAP react-express.localhost ${host}`, `MAP angular-mock.localhost ${host}`] : []),
+  `MAP *.localhost ${gateway}`,
+];
 
 export default defineConfig({
   testDir: '.',

@@ -1,8 +1,5 @@
 <script lang="ts">
-  import { t } from '$lib/app/i18n';
-  import Page from '$lib/ui/Page.svelte';
-
-  // Placeholder of the screen (S2 builds it, like React's Task 2).
+  import TwoFactorPage from '$lib/pages/TwoFactorPage.svelte';
 </script>
 
-<Page title={t('page.twoFactor')} main style="max-width: 30rem" />
+<TwoFactorPage />
