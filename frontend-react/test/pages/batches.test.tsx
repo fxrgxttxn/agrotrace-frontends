@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import userEvent from '@testing-library/user-event';
 import { server } from '../setup';
@@ -153,6 +153,21 @@ describe('/batches/new', () => {
     expect(toastText('polite')).toContain(
       'Партия AT-2026-000123 зарегистрирована и направлена на анализ: Пестициды за последние 30 дней',
     );
+  });
+
+  it('FM26: an answer that arrives after the person left the form neither navigates nor toasts', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(dictionaries(), contractResponse('createBatch', { onRequest: () => held }));
+    const { router } = await open('/batches/new', 'Новая партия');
+    await fill();
+    await userEvent.click(screen.getByRole('button', { name: 'Зарегистрировать партию' }));
+    await act(() => router.navigate('/batches'));
+    await screen.findByRole('heading', { level: 1, name: 'Партии' });
+    release();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(router.state.location.pathname).toBe('/batches');
+    expect(toastText('polite')).not.toContain('зарегистрирована');
   });
 
   it('no lab test needed: the batch is approved', async () => {

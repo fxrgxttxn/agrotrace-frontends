@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFieldArray, useForm, type FieldErrors, type Resolver } from 'react-hook-form';
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
@@ -9,7 +9,7 @@ import { ProcessingRequestSchema } from '@agrotrace/validation';
 import { applyProblem, call, errorText, errorTone, useCountdown, useFormAlert } from '../app/api';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit } from '../app/forms';
-import { useCacheWriter } from '../app/cache';
+import { useCacheWriter, useScreenNavigate, useScreenToast } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
 import { useMe, useSession } from '../app/session';
@@ -38,7 +38,6 @@ import {
   Stepper,
   Table,
   TablePrimary,
-  useToast,
   useWide,
   type Column,
 } from '../ui';
@@ -83,7 +82,7 @@ type Transition = 'putOnSale' | 'sell';
 /** Performs a batch transition of the stock: re-reads the batch, checks its own `actions`, sends If-Match `version`. */
 function useBatchTransition() {
   const { api } = useSession();
-  const toast = useToast();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   const cache = useCacheWriter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -149,6 +148,7 @@ function useOwnBatches(key: string, statuses: BatchStatus[], spec: ListSpec, pat
       key,
       { page: list.page, sort: list.params.get('sort'), q, chosen, productId, statuses },
     ],
+    meta: { failed: 'stock.failed' },
     queryFn: () =>
       call<Schemas['BatchPage']>(
         api.GET('/batches', {
@@ -399,6 +399,7 @@ export function ProcessingPage() {
   const products = useDictionary('products');
   const inputs = useQuery({
     queryKey: ['batches', 'processable'],
+    meta: { failed: 'processing.formFailed' },
     queryFn: () =>
       call<Schemas['BatchPage']>(
         api.GET('/batches', {
@@ -446,8 +447,8 @@ export function ProcessingPage() {
 function ProcessingWizard({ batches, products }: { batches: BatchItem[]; products: Schemas['Product'][] }) {
   const { api } = useSession();
   const [params] = useSearchParams();
-  const navigate = useNavigate();
-  const toast = useToast();
+  const navigate = useScreenNavigate();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   const cache = useCacheWriter();
   const alert = useFormAlert();
@@ -835,7 +836,7 @@ function qrStatuses(processor: boolean): BatchStatus[] {
 export function QrPage() {
   const { api } = useSession();
   const { processor } = useRoles();
-  const toast = useToast();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   const statuses = qrStatuses(processor);
   const own = useOwnBatches('qr', statuses, QR_SPEC, '/qr');
@@ -979,6 +980,7 @@ function QrView({ batch, links }: { batch: BatchItem; links: QrLinks | null }) {
   // An existing QR: the signed links come with the batch documents (R91), the files are not generated again.
   const docs = useQuery({
     queryKey: ['batch', batch.id, 'documents'],
+    meta: { failed: 'qr.linksFailed' },
     enabled: links === null,
     queryFn: () =>
       call<Schemas['BatchDocuments']>(

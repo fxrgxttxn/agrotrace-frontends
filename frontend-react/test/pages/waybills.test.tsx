@@ -413,6 +413,26 @@ describe('/waybills/:id — conflicts (FM13)', () => {
     await waitFor(() => expect(ifMatch).toEqual(['2', '3']));
   });
 
+  it('the refocus after a re-read never takes the focus from a field the person moved to', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      asProcessor(),
+      contractResponse('getWaybill', { body: sentWaybill(), once: true }),
+      contractResponse('getWaybill', { body: sentWaybill({ version: 3 }), onRequest: () => held }),
+      contractResponse('acceptWaybill', { status: 409, example: 'versionConflict' }),
+    );
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    const actual = await screen.findByLabelText('Фактическая масса AT-2026-000123');
+    await userEvent.click(screen.getByRole('button', { name: 'Принять' }));
+    await waitFor(() => expect(toastText()).toContain('Накладная изменилась'));
+    // While the card is being read again, the person goes to the mass field.
+    await userEvent.click(actual);
+    release();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(actual).toHaveFocus();
+  });
+
   it('accepted elsewhere (INVALID_TRANSITION): the form goes, the message stays, the focus is on the page title', async () => {
     server.use(
       asProcessor(),

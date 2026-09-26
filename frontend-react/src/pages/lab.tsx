@@ -18,7 +18,7 @@ import {
 } from '../app/api';
 import { DateFilter } from '../app/DateFilter';
 import { Submit } from '../app/forms';
-import { useCacheWriter } from '../app/cache';
+import { useCacheWriter, useScreenToast } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { CONCLUSION_TONE, LAB_STATUS_TONE } from '../app/labTests';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
@@ -50,7 +50,6 @@ import {
   Select,
   Table,
   TablePrimary,
-  useToast,
   type Column,
   type FileItem,
 } from '../ui';
@@ -209,6 +208,7 @@ export function LabTestsPage() {
       'labTests',
       { page: list.page, sort: list.params.get('sort'), q, status, reason, conclusion, overdue, from, to },
     ],
+    meta: { failed: 'lab.failed' },
     queryFn: () =>
       call<Schemas['LabTestPage']>(
         api.GET('/lab-tests', {
@@ -479,7 +479,7 @@ const isNormsMismatch = (e: unknown) =>
 export function LabTestPage() {
   const { id = '' } = useParams();
   const { api } = useSession();
-  const toast = useToast();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   const cache = useCacheWriter();
   const problems = useLabProblems(id);
@@ -489,6 +489,7 @@ export function LabTestPage() {
 
   const query = useQuery({
     queryKey: ['labTest', id],
+    meta: { failed: 'lab.testFailed' },
     queryFn: () => call<LabTest>(api.GET('/lab-tests/{id}', { params: { path: { id } } })),
     retry: retryTransient,
   });
@@ -723,7 +724,7 @@ function ResultsForm({
   onDone: (next: LabTest) => void;
 }) {
   const { api } = useSession();
-  const toast = useToast();
+  const toast = useScreenToast();
   const norms = test.norms;
   const [busy, setBusy] = useState(false);
   const [wait, startWait] = useCountdown();
@@ -782,9 +783,14 @@ function ResultsForm({
     seenSet.current = normSet;
     const empty = current.current.find((n) => !(form.getValues(`values.${n.indicatorId}`) ?? '').trim());
     if (!empty) return;
-    const timer = setTimeout(() => form.setFocus(`values.${empty.indicatorId}`), 0);
+    // FM25: only if the focus is idle — on the body, gone, or on the button that sent the values.
+    const timer = setTimeout(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body || !active.isConnected || active === submitRef.current)
+        form.setFocus(`values.${empty.indicatorId}`);
+    }, 0);
     return () => clearTimeout(timer);
-  }, [normSet, form]);
+  }, [normSet, form, submitRef]);
 
   /** Sends the values; a failure to show in the confirmation dialog is returned (it stays open). */
   const send = async (v: ResultValues): Promise<string | null> => {
@@ -975,7 +981,7 @@ const unsupportedText = () => t('files.unsupported', { allowed: 'PDF' });
 
 function ProtocolCard({ test, canUpload }: { test: LabTest; canUpload: boolean }) {
   const { api } = useSession();
-  const toast = useToast();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   const alert = useFormAlert();
   const [picked, setPicked] = useState<{ file: File; error?: string } | null>(null);

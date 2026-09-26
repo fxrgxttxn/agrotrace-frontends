@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
 import { enumLabel, formatBytes, formatDecimal, formatLocalDate, formatLocalDateTime } from '@agrotrace/i18n';
@@ -8,7 +8,7 @@ import { call, errorText, errorTone, useFormAlert } from '../app/api';
 import { addDays } from '../app/dates';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
-import { useCacheWriter } from '../app/cache';
+import { useCacheWriter, useScreenNavigate, useScreenToast } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
 import { momentCheck, momentDefaults, MomentInput, momentWire } from '../app/MomentInput';
@@ -38,7 +38,6 @@ import {
   Select,
   Table,
   Textarea,
-  useToast,
   type Column,
   type FileItem,
 } from '../ui';
@@ -99,6 +98,7 @@ export function FieldsPage() {
 
   const query = useQuery({
     queryKey: ['fields', { page: list.page, sort: list.params.get('sort'), q, regionCode, organizationId }],
+    meta: { failed: 'fields.failed' },
     queryFn: () =>
       call<Schemas['FieldPage']>(
         api.GET('/fields', {
@@ -252,7 +252,7 @@ export function FieldsPage() {
               <Select value={regionCode} onChange={(e) => list.set({ regionCode: e.target.value })}>
                 <option value="">{t('filters.any')}</option>
                 {(regions.data ?? []).map((r) => (
-                  <option key={r.code} value={r.code}>
+                  <option key={r.id} value={r.code}>
                     {r.name}
                   </option>
                 ))}
@@ -442,7 +442,7 @@ function FieldFormReady({
             {t('ui.choose')}
           </option>
           {regions.map((r) => (
-            <option key={r.code} value={r.code}>
+            <option key={r.id} value={r.code}>
               {r.name}
             </option>
           ))}
@@ -479,8 +479,8 @@ function FieldFormReady({
 // ── /fields/new ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export function FieldNewPage() {
-  const navigate = useNavigate();
-  const toast = useToast();
+  const navigate = useScreenNavigate();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   return (
     <Page title={t('page.fieldNew')}>
@@ -509,8 +509,8 @@ export function FieldPage() {
   const regions = useDictionary('regions');
   const { api } = useSession();
   const { farmer, overseer } = useViewer();
-  const navigate = useNavigate();
-  const toast = useToast();
+  const navigate = useScreenNavigate();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   const cache = useCacheWriter();
   const [dialog, setDialog] = useState<'edit' | 'delete' | null>(null);
@@ -521,6 +521,7 @@ export function FieldPage() {
 
   const query = useQuery({
     queryKey: ['field', id],
+    meta: { failed: 'fields.failed' },
     queryFn: () => call<FieldT>(api.GET('/fields/{id}', { params: { path: { id } } })),
     retry: retryTransient,
   });
@@ -680,7 +681,7 @@ function Treatments({ field, farmer }: { field: FieldT; farmer: boolean }) {
   const list = useListParams(`/fields/${field.id}`, TREATMENTS_SPEC);
   const now = useNow();
   const queryClient = useQueryClient();
-  const toast = useToast();
+  const toast = useScreenToast();
   // The dialog stays mounted while it closes (the native close returns the focus to the button that opened it).
   const [editing, setEditingState] = useState<{ tr?: Treatment; key: number; open: boolean } | null>(null);
   const setEditing = (target: Treatment | 'new' | null) => {
@@ -699,6 +700,7 @@ function Treatments({ field, farmer }: { field: FieldT; farmer: boolean }) {
 
   const query = useQuery({
     queryKey: ['treatments', field.id, { page: list.page, sort: list.params.get('sort') }],
+    meta: { failed: 'treatments.failed' },
     queryFn: () =>
       call<Schemas['TreatmentPage']>(
         api.GET('/fields/{id}/treatments', {

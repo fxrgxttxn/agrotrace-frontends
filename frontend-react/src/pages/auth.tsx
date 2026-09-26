@@ -378,6 +378,7 @@ export function RegisterPage() {
   const [outcome, setOutcome] = useState<RegisterOrganizationResponse['status'] | null>(null);
   const regions = useQuery({
     queryKey: ['public', 'regions'],
+    meta: { failed: 'auth.regionsFailed' },
     queryFn: () => call<Region[]>(api.GET('/public/regions')),
     staleTime: Infinity,
   });

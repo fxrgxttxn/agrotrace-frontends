@@ -3,7 +3,7 @@ import type { FieldValues, Path, UseFormReturn } from 'react-hook-form';
 import { ApiProblem, type ProblemBody } from '@agrotrace/api-client';
 import { enumLabel, problemMessage } from '@agrotrace/i18n';
 import { t } from './i18n';
-import { useToast } from '../ui/Toasts';
+import { useScreenToast } from './cache';
 
 // Calling the API from screens: every call goes through `call()` (api-client's typed result → data or ApiProblem),
 // the server's `Retry-After` of a 429 is kept on the problem, and forms map a problem onto their fields
@@ -90,7 +90,8 @@ export function useFormAlert(): {
   show: (text: string, tone?: 'danger' | 'attention') => void;
   clear: () => void;
 } {
-  const toast = useToast();
+  // FM26: a message of a screen that is gone (or of an ended session) is not shown.
+  const toast = useScreenToast();
   const id = useRef<number | null>(null);
   const clear = useCallback(() => {
     if (id.current !== null) toast.dismiss(id.current);

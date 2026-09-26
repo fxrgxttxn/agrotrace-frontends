@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { File as NodeFile } from 'node:buffer';
 import { server } from '../setup';
@@ -182,6 +182,31 @@ describe('/lab/tests', () => {
 });
 
 describe('/lab/tests/:id — results', () => {
+  it('FM26: a sample answer after the person left the card is silent (no toast on the next screen)', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      asLab(),
+      contractResponse('getLabTest', {
+        body: pending({
+          status: 'QUEUED',
+          sampledAt: null,
+          actions: ['sample', 'submitResults', 'uploadProtocol'],
+        }),
+      }),
+      contractResponse('registerLabSample', { body: pending({ version: 3 }), onRequest: () => held }),
+      contractResponse('listLabTests', { body: pageOf([]) }),
+    );
+    const { router } = await open(`/lab/tests/${TEST_ID}`, 'Анализ AT-2026-000123');
+    await userEvent.click(await screen.findByRole('button', { name: 'Зарегистрировать пробу' }));
+    await act(() => router.navigate('/lab/tests'));
+    await screen.findByRole('heading', { level: 1, name: 'Очередь проб' });
+    release();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(toastText('polite')).not.toContain('зарегистрирована');
+    expect(router.state.location.pathname).toBe('/lab/tests');
+  });
+
   it('register the sample: POST with If-Match, the card changes', async () => {
     let ifMatch: string | null = null;
     server.use(

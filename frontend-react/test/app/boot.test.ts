@@ -48,3 +48,22 @@ describe('reload-once guard (FM15)', () => {
     expect(afterChunkFailure(at())).toBe('reload');
   });
 });
+
+describe('reload-once guard without sessionStorage (FM26)', () => {
+  it('the mark lives in the history entry: one reload, then the failure — never a loop', () => {
+    const reload = vi.fn();
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, reload } as Location);
+    vi.spyOn(window, 'sessionStorage', 'get').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    const at = `${location.pathname}${location.search}`;
+    expect(afterChunkFailure(at)).toBe('reload');
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(afterChunkFailure(at)).toBe('failed');
+    expect(reload).toHaveBeenCalledTimes(1);
+    chunkLoaded();
+    expect(afterChunkFailure(at)).toBe('reload');
+    chunkLoaded();
+    vi.restoreAllMocks();
+  });
+});

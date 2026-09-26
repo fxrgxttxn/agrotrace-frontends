@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, matchPath, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, matchPath, useParams, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiProblem, newIdempotencyKey, withVariant, type Schemas } from '@agrotrace/api-client';
 import { BATCH_STATUSES } from '@agrotrace/domain';
@@ -25,7 +25,7 @@ import {
 } from '../app/api';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
-import { useCacheWriter } from '../app/cache';
+import { useCacheWriter, useScreenNavigate, useScreenToast } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
 import { momentCheck, momentDefaults, MomentInput, momentWire } from '../app/MomentInput';
@@ -62,7 +62,6 @@ import {
   TablePrimary,
   Tabs,
   Timeline,
-  useToast,
   type Column,
   type Tone,
 } from '../ui';
@@ -165,6 +164,7 @@ export function BatchesPage() {
 
   const query = useQuery({
     queryKey: ['batches', { page: list.page, sort: list.params.get('sort'), q, ...filters }],
+    meta: { failed: 'batches.failed' },
     queryFn: () =>
       call<Schemas['BatchPage']>(
         api.GET('/batches', {
@@ -438,6 +438,7 @@ export function BatchNewPage() {
   const products = useDictionary('products');
   const fields = useQuery({
     queryKey: ['fields', 'all'],
+    meta: { failed: 'batches.formFailed' },
     queryFn: () =>
       call<Schemas['FieldPage']>(api.GET('/fields', { params: { query: { size: 100, sort: 'name,asc' } } })),
     retry: retryTransient,
@@ -481,8 +482,8 @@ export function BatchNewPage() {
 function BatchNewForm({ fields, products }: { fields: Schemas['Field'][]; products: Schemas['Product'][] }) {
   const { api } = useSession();
   const [params] = useSearchParams();
-  const navigate = useNavigate();
-  const toast = useToast();
+  const navigate = useScreenNavigate();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   const cache = useCacheWriter();
   const wanted = params.get('fieldId') ?? '';
@@ -625,6 +626,7 @@ export function BatchPage() {
 
   const query = useQuery({
     queryKey: ['batch', id],
+    meta: { failed: 'batches.failed' },
     queryFn: () => call<Batch>(api.GET('/batches/{id}', { params: { path: { id } } })),
     retry: retryTransient,
   });
@@ -737,7 +739,7 @@ function AssignLabDialog({
   onDone: () => void;
 }) {
   const { api } = useSession();
-  const toast = useToast();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   const alert = useFormAlert();
   const [labOrgId, setLabOrgId] = useState('');
@@ -884,6 +886,7 @@ function HistoryTab({ id }: { id: string }) {
   const { api } = useSession();
   const query = useQuery({
     queryKey: ['batch', id, 'history'],
+    meta: { failed: 'batches.historyFailed' },
     queryFn: () =>
       call<Schemas['StatusHistoryItem'][]>(api.GET('/batches/{id}/history', { params: { path: { id } } })),
     retry: retryTransient,
@@ -931,6 +934,7 @@ function PathTab({ id }: { id: string }) {
   const { api } = useSession();
   const query = useQuery({
     queryKey: ['batch', id, 'path'],
+    meta: { failed: 'batches.pathFailed' },
     queryFn: () => call<Schemas['PathStep'][]>(api.GET('/batches/{id}/path', { params: { path: { id } } })),
     retry: retryTransient,
   });
@@ -988,6 +992,7 @@ function GraphTab({ batch }: { batch: Batch }) {
   const { api } = useSession();
   const query = useQuery({
     queryKey: ['batch', batch.id, 'graph'],
+    meta: { failed: 'graph.failed' },
     queryFn: () =>
       call<Schemas['BatchGraph']>(
         api.GET('/batches/{id}/graph', { params: { path: { id: batch.id }, query: { depth: 2 } } }),
@@ -1064,6 +1069,7 @@ function TestsTab({ id, labLinks }: { id: string; labLinks: boolean }) {
   const { api } = useSession();
   const query = useQuery({
     queryKey: ['batch', id, 'tests'],
+    meta: { failed: 'labTests.failed' },
     queryFn: () =>
       call<Schemas['LabTestPage']>(
         api.GET('/lab-tests', { params: { query: { batchId: id, size: 100, sort: 'dueAt,asc' } } }),
@@ -1149,12 +1155,13 @@ const VSD_TONE: Record<Schemas['VsdImportStatus'], Tone> = {
 function DocsTab({ batch }: { batch: Batch }) {
   const { api } = useSession();
   const me = useMe();
-  const toast = useToast();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   const cache = useCacheWriter();
   const key = ['batch', batch.id, 'documents'];
   const query = useQuery({
     queryKey: key,
+    meta: { failed: 'documents.failed' },
     queryFn: () =>
       call<Schemas['BatchDocuments']>(
         api.GET('/batches/{id}/documents', { params: { path: { id: batch.id } } }),

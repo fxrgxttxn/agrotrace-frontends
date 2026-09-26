@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm, type FieldErrors, type Resolver } from 'react-hook-form';
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
@@ -18,7 +18,7 @@ import {
 } from '../app/api';
 import { DateFilter } from '../app/DateFilter';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit } from '../app/forms';
-import { useCacheWriter } from '../app/cache';
+import { useCacheWriter, useScreenNavigate, useScreenToast } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { useIdempotency } from '../app/idempotency';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
@@ -50,7 +50,6 @@ import {
   Table,
   TablePrimary,
   Textarea,
-  useToast,
   type Column,
   type Tone,
 } from '../ui';
@@ -142,6 +141,7 @@ export function WaybillsPage() {
       'waybills',
       { page: list.page, sort: list.params.get('sort'), q, status, direction, counterpartyOrgId, from, to },
     ],
+    meta: { failed: 'waybills.failed' },
     queryFn: () =>
       call<Schemas['WaybillPage']>(
         api.GET('/waybills', {
@@ -358,6 +358,7 @@ function useShippable() {
   const { api } = useSession();
   return useQuery({
     queryKey: ['batches', 'shippable'],
+    meta: { failed: 'waybills.formFailed' },
     queryFn: () =>
       call<Schemas['BatchPage']>(
         api.GET('/batches', {
@@ -416,8 +417,8 @@ function WaybillNewForm({ batches }: { batches: BatchItem[] }) {
   const { api } = useSession();
   const { me } = useRoles();
   const [params] = useSearchParams();
-  const navigate = useNavigate();
-  const toast = useToast();
+  const navigate = useScreenNavigate();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   const cache = useCacheWriter();
   const alert = useFormAlert();
@@ -657,8 +658,8 @@ function useWaybillProblems(id: string) {
 export function WaybillPage() {
   const { id = '' } = useParams();
   const { api } = useSession();
-  const navigate = useNavigate();
-  const toast = useToast();
+  const navigate = useScreenNavigate();
+  const toast = useScreenToast();
   const queryClient = useQueryClient();
   const cache = useCacheWriter();
   const problems = useWaybillProblems(id);
@@ -670,6 +671,7 @@ export function WaybillPage() {
 
   const query = useQuery({
     queryKey: ['waybill', id],
+    meta: { failed: 'waybills.failed' },
     queryFn: () => call<Waybill>(api.GET('/waybills/{id}', { params: { path: { id } } })),
     retry: retryTransient,
   });

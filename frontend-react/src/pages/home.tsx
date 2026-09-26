@@ -85,6 +85,7 @@ export function DashboardPage() {
   const query = useQuery({
     enabled: !tooLong,
     queryKey: ['dashboard', scope, { from, to }],
+    meta: { failed: 'dashboard.failed' },
     queryFn: () =>
       call<Dashboard>(
         api.GET('/analytics/dashboard', {

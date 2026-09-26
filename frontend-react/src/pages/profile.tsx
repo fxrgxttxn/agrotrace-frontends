@@ -24,7 +24,7 @@ import {
   useFormAlert,
 } from '../app/api';
 import { errorOf, FORM_GRID, Submit, useSchemaForm } from '../app/forms';
-import { useCacheWriter } from '../app/cache';
+import { useCacheWriter, useScreenToast } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { useMe, useSession } from '../app/session';
 import { ThemeSwitch } from '../shell/ThemeSwitch';
@@ -44,7 +44,6 @@ import {
   Page,
   Qr,
   Switch,
-  useToast,
   type FileItem,
 } from '../ui';
 
@@ -95,7 +94,7 @@ interface PersonalValues {
 
 function PersonalCard({ me }: { me: Me }) {
   const { api, setMe } = useSession();
-  const toast = useToast();
+  const toast = useScreenToast();
   const { form, alert, wait, fail } = useSchemaForm<PersonalValues>(
     MeUpdateSchema,
     { fullName: me.fullName, phone: me.phone },
@@ -182,7 +181,7 @@ interface Picked {
 
 function AvatarCard({ me }: { me: Me }) {
   const { api, reloadMe } = useSession();
-  const toast = useToast();
+  const toast = useScreenToast();
   const alert = useFormAlert();
   const [picked, setPicked] = useState<Picked | null>(null);
   const [busy, setBusy] = useState<'upload' | 'delete' | null>(null);
@@ -296,13 +295,14 @@ const CHANNELS_KEY = ['me', 'channels'] as const;
 function ChannelsCard() {
   const { api } = useSession();
   const cache = useCacheWriter();
-  const toast = useToast();
+  const toast = useScreenToast();
   const alert = useFormAlert();
   const [code, setCode] = useState<TelegramCode | null>(null);
   const [saving, setSaving] = useState(false);
   const [codeBusy, setCodeBusy] = useState(false);
   const channels = useQuery({
     queryKey: CHANNELS_KEY,
+    meta: { failed: 'profile.channelsFailed' },
     queryFn: () => call<NotificationChannels>(api.GET('/me/channels')),
     // While a link code is out, watch for the bot to confirm the link.
     refetchInterval: code ? 5000 : false,
@@ -423,7 +423,7 @@ const groupSecret = (s: string) => s.replace(/(.{4})(?=.)/g, '$1 ');
 
 function TwoFactorCard({ me }: { me: Me }) {
   const { api, reloadMe } = useSession();
-  const toast = useToast();
+  const toast = useScreenToast();
   const [pending, setPending] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [starting, setStarting] = useState(false);
   const { form, alert, wait, fail } = useSchemaForm<TwoFactorSetupRequest>(
@@ -438,7 +438,9 @@ function TwoFactorCard({ me }: { me: Me }) {
   // FM24: «Настроить» reveals the code form — the focus goes to its field; «Отмена» removes it — back to «Настроить».
   const [backToSetup, setBackToSetup] = useState(false);
   useEffect(() => {
-    if (pending) form.setFocus('code');
+    // FM25: only if nothing else holds the focus (the removed «Настроить» leaves it on the body).
+    const active = document.activeElement;
+    if (pending && (!active || active === document.body || !active.isConnected)) form.setFocus('code');
   }, [pending, form]);
   useEffect(() => {
     if (!backToSetup) return;

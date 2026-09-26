@@ -81,6 +81,7 @@
     "loading": "Loading"
   },
   "ui": {
+    "refreshFailed": "The data did not refresh — the previous data is shown.",
     "choose": "Choose",
     "openCalendar": "Open calendar",
     "selectAll": "Select all",
