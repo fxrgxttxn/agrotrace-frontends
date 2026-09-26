@@ -20,6 +20,7 @@ export function hitRateLimit(m: Mock, scope: Scope, subject: string): void {
   const key = `rl:${scope}:${subject}:${start}`;
   const entry = m.store.kv.get(key);
   const count = (entry && (entry.expiresAt === null || entry.expiresAt > m.store.now()) ? (entry.value as number) : 0) + 1;
+  m.store.markDirty();
   m.store.kv.set(key, { value: count, expiresAt: (start + rule.windowSec) * 1000 });
   if (count > rule.limit)
     throw new ApiError(429, 'RATE_LIMITED', {

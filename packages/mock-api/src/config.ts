@@ -35,3 +35,16 @@ export interface MockMail {
   token: string;
   at: string;
 }
+
+/**
+ * Runs `fn` while no other tab of the origin runs one (FM8): the Web Locks API in browsers
+ * (`navigator.locks.request('agrotrace-mock-api', {mode: 'exclusive'}, fn)`); tests inject their own.
+ */
+export type CrossTabLock = <T>(fn: () => Promise<T>) => Promise<T>;
+
+/** The Web Locks lock of the origin; null where the API is absent (each tab then only queues its own requests). */
+export function webLock(name = 'agrotrace-mock-api'): CrossTabLock | null {
+  const locks = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks;
+  if (!locks) return null;
+  return <T>(fn: () => Promise<T>) => locks.request(name, { mode: 'exclusive' }, fn) as Promise<T>;
+}

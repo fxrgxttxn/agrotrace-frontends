@@ -18,6 +18,14 @@ import { ApiError } from './problem.js';
 
 const PREFIX = '/api/v1';
 const IDEMPOTENCY_TTL_SEC = 86_400;
+const IDEMPOTENCY_PENDING_TTL_SEC = 60;
+
+interface IdemEntry {
+  fingerprint: string;
+  state: 'pending' | 'done';
+  status?: number;
+  body?: unknown;
+}
 
 interface Route {
   op: OperationMeta;
@@ -46,6 +54,8 @@ export interface RouterHooks {
   beforeEach: () => Promise<void>;
   /** Runs after every request, whatever its method (persistence of any change, GET side effects included). */
   afterEach: () => Promise<void>;
+  /** Publishes the state mid-request (the pending idempotency mark) — needed only when tabs are not serialized by a lock. */
+  checkpoint: () => Promise<void>;
 }
 
 export function createRouter(m: Mock, handlers: Record<string, Handler>, hooks: RouterHooks) {
@@ -110,35 +120,47 @@ export function createRouter(m: Mock, handlers: Record<string, Handler>, hooks: 
     const op = route.op;
     const handler = handlers[op.operationId];
     if (!handler) return problemResponse(new ApiError(404, 'NOT_FOUND'));
+    let pending: string | null = null;
     try {
       await hooks.beforeEach();
       m.store.requestId = requestId;
       const principal = authenticate(op, request, url);
 
-      let idem: { key: string; fingerprint: string } | null = null;
       if (op.idempotent) {
         const key = request.headers.get('Idempotency-Key') ?? '';
         const body = await request.clone().text();
         const fingerprint = sha256hex(`${request.method} ${raw}\n${body}`);
         const storeKey = `idem:${principal!.userId}:${key}`;
-        const stored = m.store.kvGet<{ fingerprint: string; status: number; body: unknown }>(storeKey) ?? null;
+        const stored = m.store.kvGet<IdemEntry>(storeKey) ?? null;
         const decision = idempotencyDecision({ key, stored, fingerprint }).decision;
         if (decision === 'INVALID_KEY') throw new ApiError(400, 'INVALID_IDEMPOTENCY_KEY');
         if (decision === 'CONFLICT') throw new ApiError(409, 'IDEMPOTENCY_KEY_REUSED');
-        if (decision === 'REPLAY') return json(stored!.status, stored!.body, { 'Idempotent-Replayed': 'true' });
-        idem = { key: storeKey, fingerprint };
+        if (decision === 'REPLAY' && stored!.state === 'pending')
+          throw new ApiError(409, 'IDEMPOTENCY_KEY_IN_PROGRESS', { headers: { 'Retry-After': '1' } });
+        if (decision === 'REPLAY') return json(stored!.status!, stored!.body, { 'Idempotent-Replayed': 'true' });
+        // R48 `SET NX EX 60`: the pending mark is published before the operation runs, so another tab that is not
+        // serialized with this one by a lock (no Web Locks) answers IDEMPOTENCY_KEY_IN_PROGRESS meanwhile.
+        m.store.kvSet(storeKey, { fingerprint, state: 'pending' } satisfies IdemEntry, IDEMPOTENCY_PENDING_TTL_SEC);
+        pending = storeKey;
+        await hooks.checkpoint();
       }
 
       const ctx = makeCtx(m, request, url, op, params, principal);
-      const response = await m.store.runAsync(op.operationId, principal?.userId ?? null, async () => handler(ctx));
-      if (idem && response.status >= 200 && response.status < 300) {
+      // The operation's refusal (a thrown ApiError, already rolled back) becomes its response here, so the rule below —
+      // only a 2xx is kept (R48) — is what decides for every outcome.
+      const response = await m.store
+        .runAsync(op.operationId, principal?.userId ?? null, async () => handler(ctx))
+        .catch((e: unknown) => {
+          if (e instanceof ApiError) return problemResponse(e);
+          throw e;
+        });
+      if (pending && response.status >= 200 && response.status < 300) {
         const body = response.headers.get('Content-Type')?.startsWith('application/json')
           ? ((await response.clone().json()) as unknown)
           : null;
-        m.store.kv.set(idem.key, {
-          value: { fingerprint: idem.fingerprint, state: 'done', status: response.status, body },
-          expiresAt: m.store.now() + IDEMPOTENCY_TTL_SEC * 1000,
-        });
+        const { fingerprint } = m.store.kvGet<IdemEntry>(pending)!;
+        m.store.kvSet(pending, { fingerprint, state: 'done', status: response.status, body } satisfies IdemEntry, IDEMPOTENCY_TTL_SEC);
+        pending = null;
       }
       return response;
     } catch (e) {
@@ -146,6 +168,8 @@ export function createRouter(m: Mock, handlers: Record<string, Handler>, hooks: 
       console.error('[mock-api]', op.operationId, e);
       return problemResponse(new ApiError(500, 'INTERNAL'));
     } finally {
+      // Not kept (a non-2xx answer or a crash): the key is free again.
+      if (pending) m.store.kvDel(pending);
       await hooks.afterEach();
     }
   }

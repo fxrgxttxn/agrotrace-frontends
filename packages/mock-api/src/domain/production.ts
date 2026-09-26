@@ -37,6 +37,7 @@ export function transition(store: Store, b: BatchRow, to: BatchStatus, reason: s
 }
 
 export function nextBatchCode(store: Store): string {
+  store.markDirty();
   store.seq.batch += 1;
   return formatBatchCode({ year: new Date(store.now()).getUTCFullYear(), seq: store.seq.batch }).code;
 }

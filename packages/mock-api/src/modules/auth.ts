@@ -100,6 +100,7 @@ function newRefreshToken(m: Mock, userId: string): { id: string; token: string }
 
 function session(m: Mock, u: UserRow): Response {
   const { token } = newRefreshToken(m, u.id);
+  m.store.markDirty();
   m.store.cookies.set('at_refresh', token);
   return json(
     200,
@@ -122,7 +123,10 @@ function refreshCookie(ctx: Ctx): string | null {
 }
 
 function clearCookie(ctx: Ctx): void {
-  if (ctx.request.headers.get('cookie') === null) ctx.store.cookies.delete('at_refresh');
+  if (ctx.request.headers.get('cookie') === null) {
+    ctx.store.markDirty();
+    ctx.store.cookies.delete('at_refresh');
+  }
 }
 
 const totpUsedKey = (userId: string, step: number): string => `totp-used:${userId}:${step}`;
@@ -276,7 +280,10 @@ export const authHandlers: Record<string, Handler> = {
     }
     const next = newRefreshToken(ctx, u.id);
     ctx.store.patch(row, { revoked_at: iso(now), replaced_by: next.id });
-    if (ctx.request.headers.get('cookie') === null) ctx.store.cookies.set('at_refresh', next.token);
+    if (ctx.request.headers.get('cookie') === null) {
+      ctx.store.markDirty();
+      ctx.store.cookies.set('at_refresh', next.token);
+    }
     return json(
       200,
       { accessToken: accessTokenFor(ctx, u), expiresIn: ACCESS_TTL_SEC },

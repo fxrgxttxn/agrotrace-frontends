@@ -112,18 +112,32 @@ export class SharedState {
     const store = json ? deserialize(json, this.clock) : null;
     this.version = version;
     this.lastJson = json;
+    // The loaded snapshot is the truth of what the blob store holds (a reset in another tab emptied it).
+    this.inBlobs.clear();
     if (store) for (const f of store.t.files) if (f.content.type === 'blob') this.inBlobs.add(f.id);
     return store;
   }
 
-  /** Writes the state when it changed. Throws when the storage refuses it (quota) — the caller reports it. */
-  async save(store: Store): Promise<void> {
+  /**
+   * Writes the state when it changed — the store's dirty flag (FM8): a request that changed nothing writes nothing.
+   * With `verify` a clean store is serialized anyway and must equal the last snapshot (tests: catches a write that
+   * bypassed `Store.dirty`). Throws when the storage refuses it (quota) — the caller reports it.
+   */
+  async save(store: Store, verify = false): Promise<void> {
+    if (!store.dirty && this.lastJson !== null) {
+      if (verify && serialize(store, this.inBlobs) !== this.lastJson) throw new Error('mock-api: the state changed but Store.dirty was not set');
+      return;
+    }
     if (this.blobs) await storeBlobs(store, this.blobs, this.inBlobs);
     const json = serialize(store, this.inBlobs);
-    if (json === this.lastJson) return;
+    if (json === this.lastJson) {
+      store.dirty = false;
+      return;
+    }
     const version = hex(randomBytes(8));
     this.storage.setItem(SNAPSHOT_KEY, json);
     this.storage.setItem(VERSION_KEY, version);
+    store.dirty = false;
     this.version = version;
     this.lastJson = json;
   }

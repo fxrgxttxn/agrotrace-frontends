@@ -133,6 +133,7 @@ export const waybillsHandlers: Record<string, Handler> = {
     });
     if (Object.keys(errors).length > 0) throw validation(errors);
     for (const b of batches) if (b.holder_org_id !== p.orgId) throw forbidden({ reason: 'NOT_HOLDER', publicCode: b.public_code }, 'Not the batch holder');
+    s.markDirty();
     s.seq.waybill += 1;
     const now = s.nowIso();
     const w = s.insert('waybills', {

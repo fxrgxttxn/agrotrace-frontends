@@ -41,6 +41,7 @@ export function notify(store: Store, type: NotificationType, recipients: Recipie
       add(active.filter((u) => u.organization_id === org && u.is_org_admin).map((u) => u.id));
     for (const role of recipients.roles ?? []) add(active.filter((u) => u.roles.includes(role)).map((u) => u.id));
     for (const userId of ids) {
+      store.markDirty();
       store.seq.notification += 1;
       const row: NotificationRow = {
         id: store.id('notification'),

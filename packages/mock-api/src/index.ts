@@ -8,7 +8,7 @@
  *   setupWorker(...api.handlers).start({ onUnhandledRequest: 'bypass' });   // or startBrowserMock() (./browser)
  */
 import { delay, http, type HttpHandler } from 'msw';
-import type { BlobStore, MockConfig, MockMail } from './config.js';
+import { webLock, type BlobStore, type CrossTabLock, type MockConfig, type MockMail } from './config.js';
 import { renderGenerated } from './domain/documents.js';
 import { runSchedulers } from './domain/scheduler.js';
 import { totpNow } from './domain/tokens.js';
@@ -38,7 +38,7 @@ import { buildSeed } from './store/seed.js';
 import type { Store } from './store/store.js';
 
 export { DEMO_PASSWORD } from './store/seed.js';
-export type { BlobStore, MockMail } from './config.js';
+export type { BlobStore, CrossTabLock, MockMail } from './config.js';
 export { solveChallenge } from './domain/altcha.js';
 export { totpNow } from './domain/tokens.js';
 
@@ -54,6 +54,13 @@ export interface MockApiOptions {
   persist?: false | 'session' | 'local' | Storage;
   /** Where persisted upload bytes live (default: IndexedDB when available; null — inside the snapshot). */
   blobStore?: BlobStore | null;
+  /**
+   * Serializes requests across the tabs of the origin (FM8): read-through, the request and the write run under it, so
+   * no tab overwrites another's change. Default: the Web Locks API when the state is persisted; null — per tab only.
+   */
+  lock?: CrossTabLock | null;
+  /** Testing aid: a request that did not mark the store dirty must not have changed the snapshot (throws otherwise). */
+  verifyPersistence?: boolean;
   /** `PUBLIC_BASE_URL` for QR codes and e-mail links (default: `location.origin` in a browser, else `http://localhost`). */
   publicBaseUrl?: string;
   /** Reads bundled assets by URL (default: `fetch`). Tests in Node pass a file reader. */
@@ -183,31 +190,39 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   const save = async (): Promise<void> => {
     if (!shared) return;
     try {
-      await shared.save(m.store);
+      await shared.save(m.store, options.verifyPersistence ?? false);
       persistError = null;
     } catch (e) {
+      if (options.verifyPersistence) throw e;
       // FM3: never silent — the state of this tab is no longer shared (quota, private mode).
       persistError = e;
       console.error('[mock-api] the state could not be persisted; other tabs will not see this change', e);
     }
   };
 
-  const init = async (): Promise<void> => {
-    await renderGenerated(cfg, m.store);
-    await save();
-  };
-  let ready = init();
+  const lock: CrossTabLock | null = options.lock !== undefined ? options.lock : storage ? webLock() : null;
   const router = createRouter(m, handlers, {
     beforeEach: async () => {
       await readThrough();
       runSchedulers(m.store);
     },
     afterEach: save,
+    checkpoint: lock ? async () => undefined : save,
   });
+  /** Runs `fn` alone: across the tabs of the origin (the lock) and within this tab (the router's queue). */
+  const serial = <T>(fn: () => Promise<T>): Promise<T> => (lock ? lock(() => router.exclusive(fn)) : router.exclusive(fn));
+
+  const init = async (): Promise<void> => {
+    // A tab started at the same moment may have written the world first: it is adopted, not overwritten.
+    await readThrough();
+    await renderGenerated(cfg, m.store);
+    await save();
+  };
+  let ready = serial(init);
   const handle = async (request: Request): Promise<Response> => {
     await ready;
     if (options.delayMs) await delay(options.delayMs);
-    return router.handle(request);
+    return lock ? lock(() => router.handle(request)) : router.handle(request);
   };
 
   // Another tab wrote: adopt it right away, so this tab's SSE streams deliver its notifications.
@@ -230,13 +245,14 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     handle,
     mailbox,
     reset() {
-      ready = router.exclusive(async () => {
+      ready = serial(async () => {
         hub.closeAll();
         await shared?.clear();
         m.store = fresh();
         hub.attach(m.store);
         mailbox.length = 0;
-        await init();
+        await renderGenerated(cfg, m.store);
+        await save();
       });
       return ready;
     },
@@ -246,7 +262,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       return totpNow(secret, now());
     },
     linkTelegram(code) {
-      return router.exclusive(async () => {
+      return serial(async () => {
         await readThrough();
         const entry = m.store.kvTake<{ userId: string }>(`tgcode:${code}`);
         const u = entry ? m.store.get('users', entry.userId) : undefined;

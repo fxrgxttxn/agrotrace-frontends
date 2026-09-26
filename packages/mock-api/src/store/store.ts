@@ -94,6 +94,11 @@ export class Store {
   seq: Sequences = { batch: 0, waybill: 0, notification: 0, audit: 0, id: 0 };
   /** The mock browser's cookie jar (`at_refresh`), used when the request carries no Cookie header. */
   cookies = new Map<string, string>();
+  /**
+   * Set by every write (and by `markDirty` at the few direct writes: counters, the cookie jar, sequences); the shared
+   * snapshot is written only when it is set (FM8) and clears it.
+   */
+  dirty = false;
   /** X-Request-Id of the request being handled (written into audit rows). */
   requestId: string | null = null;
   private op: Operation | null = null;
@@ -111,8 +116,14 @@ export class Store {
 
   /** A deterministic id for a new row (UUID v5 of the mock namespace and a counter). */
   id(kind: string): string {
+    this.dirty = true;
     this.seq.id += 1;
     return uuidV5(MOCK_NAMESPACE, `${kind}:${this.seq.id}`);
+  }
+
+  /** For the few writes that bypass `insert`/`patch`/`kv*` (counters, the cookie jar, sequences). */
+  markDirty(): void {
+    this.dirty = true;
   }
 
   // ── lookups ──
@@ -153,6 +164,7 @@ export class Store {
   // ── writes (undo-logged inside an operation) ──
 
   insert<T extends TableName>(table: T, row: Tables[T][number]): Tables[T][number] {
+    this.dirty = true;
     const list = this.t[table] as Row[];
     list.push(row);
     this.indexAdd(table, row);
@@ -165,6 +177,7 @@ export class Store {
   }
 
   patch<R extends object>(row: R, changes: Partial<R>): R {
+    this.dirty = true;
     const before: Partial<R> = {};
     for (const k of Object.keys(changes) as (keyof R)[]) before[k] = row[k];
     Object.assign(row, changes);
@@ -176,6 +189,7 @@ export class Store {
     const list = this.t[table] as Row[];
     const i = list.indexOf(row);
     if (i < 0) return;
+    this.dirty = true;
     list.splice(i, 1);
     this.indexDrop(table, row);
     this.op?.undo.push(() => {
@@ -191,12 +205,14 @@ export class Store {
     if (!e) return undefined;
     if (e.expiresAt !== null && e.expiresAt <= this.now()) {
       this.kv.delete(key);
+      this.dirty = true;
       return undefined;
     }
     return e.value as V;
   }
 
   kvSet(key: string, value: unknown, ttlSec: number | null): void {
+    this.dirty = true;
     const prev = this.kv.get(key);
     this.kv.set(key, { value, expiresAt: ttlSec === null ? null : this.now() + ttlSec * 1000 });
     this.op?.undo.push(() => (prev ? this.kv.set(key, prev) : this.kv.delete(key)));
@@ -205,6 +221,7 @@ export class Store {
   kvDel(key: string): void {
     const prev = this.kv.get(key);
     if (!prev) return;
+    this.dirty = true;
     this.kv.delete(key);
     this.op?.undo.push(() => this.kv.set(key, prev));
   }
