@@ -155,7 +155,7 @@ describe('/batches/new', () => {
     );
   });
 
-  it('FM26: an answer that arrives after the person left the form neither navigates nor toasts', async () => {
+  it('FM26/FM29: an answer after the person left the form does not navigate; its success is still said (same session)', async () => {
     let release: () => void = () => {};
     const held = new Promise<void>((r) => (release = r));
     server.use(dictionaries(), contractResponse('createBatch', { onRequest: () => held }));
@@ -167,7 +167,7 @@ describe('/batches/new', () => {
     release();
     await new Promise((r) => setTimeout(r, 150));
     expect(router.state.location.pathname).toBe('/batches');
-    expect(toastText('polite')).not.toContain('зарегистрирована');
+    expect(toastText('polite')).toContain('зарегистрирована');
   });
 
   it('no lab test needed: the batch is approved', async () => {

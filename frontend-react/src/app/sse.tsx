@@ -14,7 +14,7 @@ import { notificationMessage } from '@agrotrace/i18n';
 import { t } from './i18n';
 import { apiBaseUrl, useSession } from './session';
 import { useToast } from '../ui/Toasts';
-import { useScreenAlive } from './cache';
+import { useScreenScope } from './cache';
 
 // Live notifications (spec §9.2 «useEventSource», rulings R33/R63): while signed in, one `GET /events/stream` through
 // api-client's openEventStream — `reauth` and dead connections refresh through the same single-flight refresh as
@@ -31,11 +31,12 @@ export function useUnread(): number {
 }
 
 /** Sets the counter from an answer that carries it (`UnreadCount` of `POST /notifications/read`) — bound to the
- * screen and its session (FM25/FM26): a late answer after sign-out or after leaving the screen does not touch the bell. */
+ * session (FM25, FM26 amendment): a late answer after sign-out or a user switch does not touch the bell; the same
+ * person's answer after leaving the screen still does (the count is true). */
 export function useSetUnread(): (count: number) => void {
   const set = useContext(UnreadContext).set;
-  const alive = useScreenAlive();
-  return useCallback((count: number) => void (alive() && set(count)), [set, alive]);
+  const { sameSession } = useScreenScope();
+  return useCallback((count: number) => void (sameSession() && set(count)), [set, sameSession]);
 }
 
 export interface EventSourceOptions {
@@ -110,9 +111,13 @@ export function invalidateEvenInFlight(client: QueryClient, queryKey: QueryKey):
   const inFlight = client
     .getQueryCache()
     .findAll({ queryKey })
-    // Queries on screen are refetched by the invalidation itself (the running fetch is replaced); the others keep
-    // their running fetch, whose answer must not count as fresh.
-    .filter((q) => q.state.fetchStatus === 'fetching' && q.getObserversCount() === 0);
+    // A query on screen that already has data is refetched by the invalidation itself (the running fetch is replaced);
+    // the others — off screen, or a first read still on its way (it cannot be replaced) — keep their running fetch,
+    // whose answer must not count as fresh: it is invalidated on arrival (read again at once when on screen).
+    .filter(
+      (q) =>
+        q.state.fetchStatus === 'fetching' && (q.getObserversCount() === 0 || q.state.data === undefined),
+    );
   void client.invalidateQueries({ queryKey });
   for (const q of inFlight)
     void q.promise?.finally(() => void client.invalidateQueries({ queryKey: q.queryKey, exact: true }));

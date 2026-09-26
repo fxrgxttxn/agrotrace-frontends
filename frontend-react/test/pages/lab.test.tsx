@@ -182,7 +182,7 @@ describe('/lab/tests', () => {
 });
 
 describe('/lab/tests/:id — results', () => {
-  it('FM26: a sample answer after the person left the card is silent (no toast on the next screen)', async () => {
+  it('FM26/FM29: a sample answer after the person left the card: no navigation, the success still said in the app region', async () => {
     let release: () => void = () => {};
     const held = new Promise<void>((r) => (release = r));
     server.use(
@@ -203,7 +203,7 @@ describe('/lab/tests/:id — results', () => {
     await screen.findByRole('heading', { level: 1, name: 'Очередь проб' });
     release();
     await new Promise((r) => setTimeout(r, 150));
-    expect(toastText('polite')).not.toContain('зарегистрирована');
+    expect(toastText('polite')).toContain('Проба партии AT-2026-000123 зарегистрирована');
     expect(router.state.location.pathname).toBe('/lab/tests');
   });
 

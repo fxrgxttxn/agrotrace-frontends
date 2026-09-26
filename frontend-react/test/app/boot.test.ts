@@ -67,3 +67,22 @@ describe('reload-once guard without sessionStorage (FM26)', () => {
     vi.restoreAllMocks();
   });
 });
+
+describe('reload-once guard: a stale mark of an earlier chain (FM29)', () => {
+  it('after a page of this document loaded fine, a mark left on a history entry does not block a new reload', () => {
+    const reload = vi.fn();
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, reload } as Location);
+    vi.spyOn(window, 'sessionStorage', 'get').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    const at = `${location.pathname}${location.search}`;
+    expect(afterChunkFailure(at)).toBe('reload');
+    // The entry keeps its mark; in the next document another page loads fine, then the person comes back here.
+    window.history.replaceState({ 'at:chunk-reload': at }, '');
+    chunkLoaded();
+    window.history.replaceState({ 'at:chunk-reload': at }, '');
+    expect(afterChunkFailure(at)).toBe('reload');
+    expect(reload).toHaveBeenCalledTimes(2);
+    vi.restoreAllMocks();
+  });
+});

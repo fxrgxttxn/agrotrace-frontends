@@ -55,18 +55,25 @@ const historyMark: Mark = {
 
 const mark = (): Mark => sessionMark() ?? historyMark;
 
+/** A page of this document loaded fine: a mark found later belongs to an earlier chain (a history entry keeps its
+ * state: coming back to the entry that failed must not count as «already reloaded»). */
+let loadedHere = false;
+
 /** After a chunk of `target` failed: reloads (and returns `'reload'`) once per failure chain; `'superseded'` — the
  * person is elsewhere now, nothing to do; `'failed'` — the reload already happened, show the failure. */
 export function afterChunkFailure(target: string): 'reload' | 'superseded' | 'failed' {
   if (here() !== target) return 'superseded';
   const m = mark();
-  if (m.get() === target) return 'failed';
+  if (m.get() === target && !loadedHere) return 'failed';
   m.set(target);
+  // The next document starts a fresh count (in a browser this document ends here).
+  loadedHere = false;
   window.location.reload();
   return 'reload';
 }
 
 /** A page loaded fine: the failure chain is over. */
 export function chunkLoaded(): void {
+  loadedHere = true;
   mark().clear();
 }

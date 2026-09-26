@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { isCancelledError, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, type ReactNode } from 'react';
 import { ApiProblem } from '@agrotrace/api-client';
 import { ToastProvider, useToast } from '../ui';
@@ -30,8 +30,13 @@ function RefetchFailures({ client }: { client: QueryClient }) {
         if (event.type !== 'updated' || event.action.type !== 'error') return;
         const query = event.query;
         if (query.state.data === undefined || query.getObserversCount() === 0) return;
-        const key = typeof query.meta?.failed === 'string' ? query.meta.failed : 'ui.refreshFailed';
         const e = event.action.error;
+        // FM29: a cancellation (a session that ended cancels its queries) and a 401 (the auth flow already acted:
+        // refresh, or the login screen) are not failures to report; nor is a query of an ended session (cleared).
+        if (isCancelledError(e) || (e instanceof DOMException && e.name === 'AbortError')) return;
+        if (e instanceof ApiProblem && e.status === 401) return;
+        if (client.getQueryCache().get(query.queryHash) !== query) return;
+        const key = typeof query.meta?.failed === 'string' ? query.meta.failed : 'ui.refreshFailed';
         toast.push({
           tone: e instanceof ApiProblem && e.status === 429 ? 'attention' : 'danger',
           text: t(key),

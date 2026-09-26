@@ -546,3 +546,24 @@ describe('/register', () => {
     expect(await screen.findByRole('option', { name: 'Краснодарский край' })).toBeInTheDocument();
   });
 });
+
+describe('anonymous screens and session events (FM29)', () => {
+  it('another tab’s logout reaching /login never silences its form: a wrong password is still said', async () => {
+    guest();
+    server.use(contractResponse('login', { status: 401, example: 'invalidCredentials' }));
+    await openLogin();
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    await new Promise((r) => setTimeout(r, 100));
+    other.close();
+    await fillLogin();
+    await waitFor(() => expect(alertText()).toBe('Неверный email или пароль'));
+  });
+
+  it('a typed /login/2fa outside the login flow goes to /login (FM27)', async () => {
+    guest();
+    const { router } = renderApp('/login/2fa?next=%2Ffields');
+    await screen.findByRole('heading', { level: 1, name: 'Вход' });
+    expect(router.state.location.pathname).toBe('/login');
+  });
+});

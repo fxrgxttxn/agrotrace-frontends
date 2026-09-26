@@ -21,7 +21,8 @@ import {
 } from '@agrotrace/api-client';
 import { call, retryAfterOf } from './api';
 import { t } from './i18n';
-import { resetSessionCache } from './cache';
+import { cacheGeneration, resetSessionCache, setSessionActive } from './cache';
+import { trackRequest } from './actions';
 import { useToast } from '../ui/Toasts';
 
 // Session (spec §9.2 «Context + useReducer», rulings R32/R61/R62): the access token lives in memory only
@@ -55,7 +56,13 @@ export function createSessionCore(fetchImpl?: typeof fetch): SessionCore {
     baseUrl: apiBaseUrl(),
     session: store,
     onAuthLost: () => onAuthLost.current(),
-    ...(fetchImpl ? { fetch: fetchImpl } : {}),
+    // Requests an own action started are counted to it (FM26: the focus rescue follows the person's actions); the
+    // event stream is not a request of an action.
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+      const run = () => (fetchImpl ?? globalThis.fetch)(input, init);
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      return url.includes('/events/stream') ? run() : trackRequest(run);
+    },
   });
   return { store, api, onAuthLost };
 }
@@ -134,6 +141,18 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
 
   const loadMe = useCallback(() => call<Me>(api.GET('/me')), [api]);
 
+  // Whether a signed-in session is on — kept in step with every «authenticated» transition, synchronously, so screens
+  // that render in the same commit know they belong to a session (FM29) and late writes can be told apart (FM28).
+  const authed = useRef(false);
+  const becomeAuthenticated = useCallback(
+    (me: Me) => {
+      authed.current = true;
+      setSessionActive(queryClient, true);
+      dispatch({ type: 'authenticated', me });
+    },
+    [queryClient],
+  );
+
   const restore = useCallback(async () => {
     booting.current = true;
     dispatch({ type: 'loading' });
@@ -143,7 +162,7 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
         dispatch({ type: 'anonymous' });
         return;
       }
-      dispatch({ type: 'authenticated', me: await loadMe() });
+      becomeAuthenticated(await loadMe());
     } catch (e) {
       // R61: a network error, a 5xx or a rate limit (429 of /auth/refresh or /me) is not a logout — the session is kept
       // and a retry is offered (after Retry-After for a 429) instead of the login screen.
@@ -162,7 +181,7 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     } finally {
       booting.current = false;
     }
-  }, [api, store, loadMe]);
+  }, [api, store, loadMe, becomeAuthenticated]);
 
   const toLogin = useCallback(() => {
     const next = safeNext(here.current);
@@ -175,7 +194,11 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
   const endLocally = useCallback(
     (loggedOut = false) => {
       store.set(null);
-      resetSessionCache(queryClient);
+      // FM29: only a signed-in session that really ends bumps the generation (another tab's logout reaching a tab that
+      // is already on /login changes nothing — its login form must keep speaking).
+      if (authed.current) resetSessionCache(queryClient);
+      authed.current = false;
+      setSessionActive(queryClient, false);
       dispatch({ type: 'anonymous', loggedOut });
     },
     [store, queryClient],
@@ -218,9 +241,9 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
       // A new session starts on an empty cache (FM24: nothing of a previous person, their late writes dropped).
       resetSessionCache(queryClient);
       store.set(result.accessToken);
-      dispatch({ type: 'authenticated', me: result.user as Me });
+      becomeAuthenticated(result.user as Me);
     },
-    [store, queryClient],
+    [store, queryClient, becomeAuthenticated],
   );
 
   const signOut = useCallback(
@@ -237,11 +260,19 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     [api, endLocally, navigate],
   );
 
+  // FM28: a session state write never revives an ended session nor lands in the next person's: a re-read that
+  // answers after the session ended (or another started) is dropped; so is a profile handed in by a late answer.
   const reloadMe = useCallback(async () => {
-    dispatch({ type: 'authenticated', me: await loadMe() });
-  }, [loadMe]);
+    const gen = cacheGeneration(queryClient);
+    const me = await loadMe();
+    if (!authed.current || cacheGeneration(queryClient) !== gen) return;
+    dispatch({ type: 'authenticated', me });
+  }, [loadMe, queryClient]);
 
-  const setMe = useCallback((me: Me) => dispatch({ type: 'authenticated', me }), []);
+  const setMe = useCallback((me: Me) => {
+    if (!authed.current) return;
+    dispatch({ type: 'authenticated', me });
+  }, []);
 
   const value = useMemo<Session>(
     () => ({ state, api, store, signIn, signOut, reloadMe, setMe, restore }),

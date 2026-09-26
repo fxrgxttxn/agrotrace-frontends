@@ -338,7 +338,7 @@ describe('stale-while-revalidate and late answers (FM24, FM25, FM26)', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Уведомления' })).not.toHaveFocus();
   });
 
-  it('a mark-read answer arriving after the person left the screen does not touch the bell', async () => {
+  it('a mark-read answer arriving after the person left the screen still sets the bell (same session, FM26 amendment)', async () => {
     let release: () => void = () => {};
     const held = new Promise<void>((r) => (release = r));
     server.use(
@@ -355,6 +355,79 @@ describe('stale-while-revalidate and late answers (FM24, FM25, FM26)', () => {
     await screen.findByRole('heading', { level: 1, name: 'Профиль' });
     release();
     await new Promise((r) => setTimeout(r, 100));
-    expect(screen.getByRole('link', { name: 'Уведомления, непрочитанных: 2' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: 'Уведомления, непрочитанных: 2' })).toBeNull(),
+    );
+  });
+});
+
+describe('round 4: cancellations, own actions, live events mid-fetch (FM25, FM26, FM29)', () => {
+  it('a refetch cancelled by the end of the session (another tab signs out) never toasts on /login', async () => {
+    server.use(contractResponse('listNotifications', { body: pageOf([note(1)]) }));
+    await open();
+    await screen.findByRole('link', { name: 'Изъять партию AT-2026-000001' });
+    // The next read hangs; a live event starts it; meanwhile the session ends in another tab.
+    server.use(http.get(`${API_BASE}/notifications`, () => new Promise<never>(() => {})));
+    act(() => FakeEventSource.last!.emit('notification', note(2), '2'));
+    await new Promise((r) => setTimeout(r, 50));
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    await screen.findByRole('heading', { level: 1, name: 'Вход' });
+    other.close();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(document.querySelector('.at-toast-region[role="alert"]')!.textContent).not.toContain(
+      'Уведомления не загрузились.',
+    );
+  });
+
+  it('an own action whose answer takes longer than 2 s still hands the focus to the title', async () => {
+    server.use(
+      contractResponse('listNotifications', { body: pageOf([note(12), note(11)]) }),
+      contractResponse('markNotificationsRead', {
+        body: { count: 1 },
+        onRequest: () => new Promise((r) => setTimeout(r, 2500)),
+      }),
+    );
+    await open();
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: 'Выбрать «Изъять партию AT-2026-000011»' }),
+    );
+    screen.getByRole('button', { name: 'Отметить прочитанным' }).focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(
+      () => expect(screen.getByRole('heading', { level: 1, name: 'Уведомления' })).toHaveFocus(),
+      { timeout: 5000 },
+    );
+  });
+
+  it('a live event while the shown list is still being read: it is read again after (FM25)', async () => {
+    let reads = 0;
+    let release: () => void = () => {};
+    server.use(
+      contractResponse('listNotifications', { body: pageOf([note(1)]), onRequest: () => void reads++ }),
+    );
+    await open();
+    await screen.findByRole('link', { name: 'Изъять партию AT-2026-000001' });
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      contractResponse('listNotifications', {
+        body: pageOf([note(1)]),
+        once: true,
+        onRequest: async () => {
+          reads++;
+          await held;
+        },
+      }),
+      contractResponse('listNotifications', {
+        body: pageOf([note(2), note(1)]),
+        onRequest: () => void reads++,
+      }),
+    );
+    // A tab change starts a read of the list; the event arrives while it runs.
+    await userEvent.click(screen.getByRole('tab', { name: /Непрочитанные/ }));
+    await waitFor(() => expect(reads).toBe(2));
+    act(() => FakeEventSource.last!.emit('notification', note(2), '2'));
+    release();
+    expect(await screen.findByRole('link', { name: 'Изъять партию AT-2026-000002' })).toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ApiProblem,
@@ -24,7 +24,7 @@ import {
   useFormAlert,
 } from '../app/api';
 import { errorOf, FORM_GRID, Submit, useSchemaForm } from '../app/forms';
-import { useCacheWriter, useScreenToast } from '../app/cache';
+import { useCacheWriter, useScreenAlive, useScreenScope, useScreenToast } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { useMe, useSession } from '../app/session';
 import { ThemeSwitch } from '../shell/ThemeSwitch';
@@ -92,8 +92,25 @@ interface PersonalValues {
   phone: string | null;
 }
 
+/** The profile read again after a change that succeeded (FM28): the success is already said; a failed re-read keeps
+ * the shown profile and tries again a little later (a few times, while the screen and its session last) — it never
+ * turns the success into an error. */
+function useRefreshMe(): () => void {
+  const { reloadMe } = useSession();
+  const alive = useScreenAlive();
+  return useCallback(() => {
+    const attempt = (left: number) => {
+      reloadMe().catch(() => {
+        if (left > 0) setTimeout(() => alive() && attempt(left - 1), 3000);
+      });
+    };
+    attempt(2);
+  }, [reloadMe, alive]);
+}
+
 function PersonalCard({ me }: { me: Me }) {
   const { api, setMe } = useSession();
+  const scope = useScreenScope();
   const toast = useScreenToast();
   const { form, alert, wait, fail } = useSchemaForm<PersonalValues>(
     MeUpdateSchema,
@@ -110,6 +127,8 @@ function PersonalCard({ me }: { me: Me }) {
     if (Object.keys(body).length === 0) return;
     try {
       const next = await call<Me>(api.PATCH('/me', { body }));
+      // FM28: the answer of an ended session (or of the previous person) never becomes the profile shown.
+      if (!scope.sameSession()) return;
       setMe(next);
       form.reset({ fullName: next.fullName, phone: next.phone });
       toast.push({ tone: 'ok', text: t('profile.saved') });
@@ -180,7 +199,8 @@ interface Picked {
 }
 
 function AvatarCard({ me }: { me: Me }) {
-  const { api, reloadMe } = useSession();
+  const { api } = useSession();
+  const refreshMe = useRefreshMe();
   const toast = useScreenToast();
   const alert = useFormAlert();
   const [picked, setPicked] = useState<Picked | null>(null);
@@ -207,8 +227,8 @@ function AvatarCard({ me }: { me: Me }) {
       body.append('file', picked.file);
       await call(api.PUT('/me/avatar', { body: body as never }));
       setPicked(null);
-      await reloadMe();
       toast.push({ tone: 'ok', text: t('profile.avatarSaved') });
+      refreshMe();
     } catch (e) {
       let error: string | undefined;
       if (e instanceof ApiProblem && e.code === 'FILE_TOO_LARGE')
@@ -231,8 +251,8 @@ function AvatarCard({ me }: { me: Me }) {
     setBusy('delete');
     try {
       await call(api.DELETE('/me/avatar'));
-      await reloadMe();
       toast.push({ tone: 'ok', text: t('profile.avatarDeleted') });
+      refreshMe();
     } catch (e) {
       alert.show(errorText(e), errorTone(e));
     } finally {
@@ -422,7 +442,8 @@ function ChannelsCard() {
 const groupSecret = (s: string) => s.replace(/(.{4})(?=.)/g, '$1 ');
 
 function TwoFactorCard({ me }: { me: Me }) {
-  const { api, reloadMe } = useSession();
+  const { api } = useSession();
+  const refreshMe = useRefreshMe();
   const toast = useScreenToast();
   const [pending, setPending] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [starting, setStarting] = useState(false);
@@ -448,9 +469,9 @@ function TwoFactorCard({ me }: { me: Me }) {
     setupRef.current?.focus();
   }, [backToSetup, setupRef]);
 
-  const alreadyOn = async () => {
+  const alreadyOn = () => {
     setPending(null);
-    await reloadMe();
+    refreshMe();
   };
 
   const start = async () => {
@@ -458,11 +479,12 @@ function TwoFactorCard({ me }: { me: Me }) {
     setStarting(true);
     try {
       const res = await call<TwoFactorSetupResponse>(api.POST('/auth/2fa/setup', { body: {} }));
-      if ('secret' in res && res.secret && res.otpauthUrl)
+      if ('secret' in res && res.secret && res.otpauthUrl) {
+        form.reset({ code: '' });
         setPending({ secret: res.secret, otpauthUrl: res.otpauthUrl });
-      else await alreadyOn();
+      } else alreadyOn();
     } catch (e) {
-      if (e instanceof ApiProblem && e.status === 409) await alreadyOn();
+      if (e instanceof ApiProblem && e.status === 409) alreadyOn();
       else if (e instanceof ApiProblem && e.status === 429) {
         startStartWait(retryAfterOf(e));
         alert.show(errorText(e), errorTone(e));
@@ -478,8 +500,8 @@ function TwoFactorCard({ me }: { me: Me }) {
       await call<TwoFactorSetupResponse>(api.POST('/auth/2fa/setup', { body }));
       setPending(null);
       form.reset({ code: '' });
-      await reloadMe();
       toast.push({ tone: 'ok', text: t('profile.twoFactorEnabled') });
+      refreshMe();
     } catch (e) {
       if (e instanceof ApiProblem && e.code === 'INVALID_TWO_FACTOR_CODE') {
         form.setError(
@@ -487,7 +509,7 @@ function TwoFactorCard({ me }: { me: Me }) {
           { type: 'server', message: 'errors.INVALID_TWO_FACTOR_CODE' },
           { shouldFocus: true },
         );
-      } else if (e instanceof ApiProblem && e.status === 409) await alreadyOn();
+      } else if (e instanceof ApiProblem && e.status === 409) alreadyOn();
       else fail(e);
     }
   });
@@ -538,7 +560,10 @@ function TwoFactorCard({ me }: { me: Me }) {
             <Button
               variant="ghost"
               onClick={() => {
+                // FM27: reopening starts clean — no code, no error of the previous attempt.
                 setPending(null);
+                form.reset({ code: '' });
+                alert.clear();
                 setBackToSetup(true);
               }}
             >
