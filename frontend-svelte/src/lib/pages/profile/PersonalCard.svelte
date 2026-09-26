@@ -3,6 +3,7 @@
   import type { Me } from '@agrotrace/api-client';
   import { MeUpdateSchema } from '@agrotrace/validation';
   import { call } from '../../app/api.svelte';
+  import { cache } from '../../app/cache.svelte';
   import { form, SchemaForm } from '../../app/forms.svelte';
   import { t } from '../../app/i18n';
   import { session } from '../../app/session.svelte';
@@ -43,10 +44,13 @@
       if (values.fullName !== current.fullName) body.fullName = values.fullName;
       if (values.phone !== current.phone) body.phone = values.phone;
       if (Object.keys(body).length === 0) return;
+      const generation = cache.generation;
       const next = await call<Me>(session.api.PATCH('/me', { body }));
-      session.setMe(next);
-      f.reset(initial(next));
+      // FM26: the profile of this session only; the form steps only while the form is on screen
+      if (!session.setMe(next, generation)) return;
+      // FM29: a success of this session is said even if the card is gone; the form is reset only while it is shown
       toasts.push({ tone: 'ok', text: t('profile.saved') });
+      if (f.alive()) f.reset(initial(next));
     },
   });
 

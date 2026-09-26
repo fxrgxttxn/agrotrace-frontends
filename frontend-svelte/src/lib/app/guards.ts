@@ -27,10 +27,17 @@ export function requireRole(path: string): () => Promise<void> {
   };
 }
 
-/** Auth screens (login, 2FA): a signed-in user goes where `next` says (or home). */
-export async function guestOnly(url: URL): Promise<void> {
+/** Auth screens (login, 2FA): a signed-in user goes where `next` says (or home). The move itself is made by the page
+ * (`GuestOnly.svelte`), not by a `load` redirect: Back to a login entry after signing in is a popstate navigation, and
+ * SvelteKit keeps the URL of the entry when a popstate `load` redirects (the address bar said /login while the
+ * profile showed). The page replaces the entry instead — as React's <Navigate replace> does. */
+export async function guestOnly(): Promise<void> {
   await session.start();
-  if (session.status === 'authenticated') redirect(307, safeNext(url.searchParams.get('next')));
+}
+
+/** Where a signed-in visitor of an auth screen goes (`null`: stays). */
+export function guestTarget(url: URL): string | null {
+  return session.status === 'authenticated' ? safeNext(url.searchParams.get('next')) : null;
 }
 
 /** Whether the signed-in user may see the cabinet route at `pathname` (the same rule as `requireRole`). The cabinet

@@ -67,7 +67,7 @@
       tabindex={on ? 0 : -1}
       type="button"
       onclick={() => onselect(tab.id)}
-      >{tab.label}{#if tab.count !== undefined} <span class="at-tabs__count">{tab.count}</span>{/if}</button
+      >{tab.count === undefined ? tab.label : `${tab.label} `}{#if tab.count !== undefined}<span class="at-tabs__count">{tab.count}</span>{/if}</button
     >
   {/each}
 </div>

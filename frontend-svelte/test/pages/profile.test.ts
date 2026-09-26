@@ -138,7 +138,7 @@ describe('avatar', () => {
     await waitFor(() => expect(politeText()).toBe('Аватар обновлён'));
     expect(contentType).toMatch(/^multipart\/form-data; boundary=/);
     expect(sent).toContain('name="file"; filename="me.png"\r\nContent-Type: image/png');
-    expect(meCalls).toBeGreaterThan(before);
+    await waitFor(() => expect(meCalls).toBeGreaterThan(before));
     expect(avatar.queryByText('me.png')).not.toBeInTheDocument();
   });
 

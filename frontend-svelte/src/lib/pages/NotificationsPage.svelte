@@ -3,11 +3,12 @@
   import { page } from '$app/state';
   import type { ApiNotification, NotificationPage, UnreadCount } from '@agrotrace/api-client';
   import { formatLocalDateTime } from '@agrotrace/i18n';
-  import { call, restoreFocus } from '../app/api.svelte';
-  import { cache, query } from '../app/cache.svelte';
+  import { call } from '../app/api.svelte';
+  import { cache, query, screenAlive } from '../app/cache.svelte';
   import { applyProblem, FormAlert } from '../app/forms.svelte';
   import { goto } from '../app/goto';
   import { LOCALE, t } from '../app/i18n';
+  import { userAction } from '../app/focusRescue';
   import { live } from '../app/live.svelte';
   import { session } from '../app/session.svelte';
   import Button from '../ui/Button.svelte';
@@ -32,17 +33,25 @@
   const tab: Tab = $derived(page.url.searchParams.get('tab') === 'unread' ? 'unread' : 'all');
   const pageNo = $derived(Math.max(1, Math.floor(Number(page.url.searchParams.get('page'))) || 1));
 
+  // The request is built from its key (never from the screen's current tab/page): a retry asks for what it started with.
   const list = query(
     () => ['notifications', tab, pageNo],
-    () =>
+    ([, keyTab, keyPage]) =>
       call<NotificationPage>(
         session.api.GET('/notifications', {
           params: {
-            query: { page: pageNo, size: SIZE, sort: 'seq,desc', ...(tab === 'unread' ? { isRead: false } : {}) },
+            query: {
+              page: Number(keyPage),
+              size: SIZE,
+              sort: 'seq,desc',
+              ...(keyTab === 'unread' ? { isRead: false } : {}),
+            },
           },
         }),
       ),
+    { failed: 'notifications.failed' },
   );
+  const alive = screenAlive();
   const items = $derived(list.data?.items ?? []);
 
   // A selection belongs to the rows on screen: another page or tab starts empty.
@@ -80,23 +89,27 @@
     return first.items[0]?.seq ?? Math.max(...items.map((n) => n.seq));
   }
 
-  async function mark(kind: 'ids' | 'all', e: MouseEvent) {
-    const opener = e.currentTarget as HTMLElement;
+  async function mark(kind: 'ids' | 'all') {
     if (kind === 'all' && items.length === 0) return;
     alert.clear();
     marking = kind;
+    const generation = cache.generation;
     try {
       const body = kind === 'ids' ? { ids: [...selected] } : { upToSeq: await newestSeq() };
       const res = await call<UnreadCount>(session.api.POST('/notifications/read', { body }));
-      live.unread = res.count;
-      selected = new Set();
+      // FM25/FM26: the lists of this session are refreshed even if the screen is gone; the bell and the selection
+      // only while it is on screen
+      if (cache.generation !== generation) return;
+      if (alive()) {
+        live.unread = res.count;
+        selected = new Set();
+      }
       await cache.invalidate(['notifications']);
     } catch (err) {
-      applyProblem(err, { alert: alert.show });
+      if (alive()) applyProblem(err, { alert: alert.show });
     } finally {
       marking = null;
     }
-    void restoreFocus(opener);
   }
 
   const columns: Column<ApiNotification>[] = [
@@ -127,7 +140,7 @@
     <Card>
       <Empty art="empty-search" text={t('notifications.failed')}>
         {#snippet action()}
-          <Button variant="primary" busy={list.fetching} onclick={() => void list.refetch()}>{t('action.retry')}</Button>
+          <Button variant="primary" busy={list.fetching} onclick={() => void userAction(list.refetch)}>{t('action.retry')}</Button>
         {/snippet}
       </Empty>
     </Card>
@@ -175,13 +188,13 @@
 <Page title={t('page.notifications')}>
   {#snippet actions()}
     {#if selected.size > 0}
-      <Button busy={marking === 'ids'} onclick={(e: MouseEvent) => void mark('ids', e)}>{t('action.markRead')}</Button>
+      <Button busy={marking === 'ids'} onclick={() => void userAction(() => mark('ids'))}>{t('action.markRead')}</Button>
     {/if}
     <Button
       variant="primary"
       busy={marking === 'all'}
       disabled={items.length === 0 || (live.unread === 0 && !items.some((n) => !n.isRead))}
-      onclick={(e: MouseEvent) => void mark('all', e)}>{t('action.markAllRead')}</Button
+      onclick={() => void userAction(() => mark('all'))}>{t('action.markAllRead')}</Button
     >
   {/snippet}
   <Tabs

@@ -32,6 +32,12 @@ const note = (seq: number, isRead = false) => ({
 });
 const pageOf = (items: unknown[], total = items.length, page = 1) => ({ items, page, size: 20, total });
 const h1 = (name: string) => screen.getByRole('heading', { level: 1, name });
+const problem400Code = () => ({
+  type: '/problems/invalid-two-factor-code',
+  title: 'INVALID_TWO_FACTOR_CODE',
+  status: 400,
+  code: 'INVALID_TWO_FACTOR_CODE',
+});
 const guest = () => server.use(contractResponse('refreshToken', { status: 401 }));
 
 describe('FM21 data loading', () => {
@@ -111,14 +117,19 @@ describe('FM21 data loading', () => {
     expect(screen.getByRole('button', { name: 'Повторить' })).toBeInTheDocument();
   });
 
-  it('while another page loads the previous rows stay (busy); a failed refetch of the same key keeps them', async () => {
+  it('a failed refetch of the same key keeps the rows and says so in a toast (FM24)', async () => {
     server.use(contractResponse('listNotifications', { body: pageOf([note(12)]) }));
     await renderApp('/notifications');
     await screen.findByRole('link', { name: 'Изъять партию AT-2026-000012' });
     server.use(contractResponse('listNotifications', { status: 400 }));
     await cache.invalidate(['notifications']);
     expect(screen.getByRole('link', { name: 'Изъять партию AT-2026-000012' })).toBeInTheDocument();
-    expect(screen.queryByText('Уведомления не загрузились.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Повторить' })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.querySelector('.at-toast-region[role="alert"] .at-toast__text')).toHaveTextContent(
+        'Уведомления не загрузились.',
+      ),
+    );
   });
 });
 
@@ -136,8 +147,13 @@ describe('FM21 focus after an action removed the focused control', () => {
     await waitFor(() => expect(h1('Уведомления')).toHaveFocus());
   });
 
-  it('2FA: «Отмена» removes the form — the page title gets the focus', async () => {
-    server.use(asMe({ roles: ['ADMIN'] }), contractResponse('setupTwoFactor', { example: 'pending' }));
+  it('2FA (FM24/FM25/FM27): «Настроить» → the code field; «Отмена» → «Настроить»; reopened clean', async () => {
+    server.use(
+      asMe({ roles: ['ADMIN'] }),
+      contractResponse('setupTwoFactor', { example: 'pending', once: true }),
+      contractResponse('setupTwoFactor', { status: 400, body: problem400Code(), once: true }),
+      contractResponse('setupTwoFactor', { example: 'pending' }),
+    );
     await renderApp('/profile');
     await screen.findByRole('heading', { level: 1, name: 'Профиль' });
     const card = () =>
@@ -145,8 +161,36 @@ describe('FM21 focus after an action removed the focused control', () => {
         screen.getByRole('heading', { level: 2, name: 'Двухфакторная аутентификация' }).closest('article')!,
       );
     await userEvent.click(card().getByRole('button', { name: 'Настроить' }));
-    await userEvent.click(await card().findByRole('button', { name: 'Отмена' }));
-    await waitFor(() => expect(h1('Профиль')).toHaveFocus());
+    await waitFor(() => expect(card().getByLabelText('Код из приложения')).toHaveFocus());
+    await userEvent.type(card().getByLabelText('Код из приложения'), '000000');
+    await userEvent.click(card().getByRole('button', { name: 'Включить' }));
+    await waitFor(() =>
+      expect(card().getByLabelText('Код из приложения')).toHaveAttribute('aria-invalid', 'true'),
+    );
+    await userEvent.click(card().getByRole('button', { name: 'Отмена' }));
+    await waitFor(() => expect(card().getByRole('button', { name: 'Настроить' })).toHaveFocus());
+    await userEvent.click(card().getByRole('button', { name: 'Настроить' }));
+    const field = await card().findByLabelText('Код из приложения');
+    expect(field).not.toHaveAttribute('aria-invalid');
+    expect(field).toHaveValue('');
+  });
+
+  it('2FA start 429 (FM17): the focus is not moved during the wait; «Настроить» takes it back', async () => {
+    server.use(
+      asMe({ roles: ['ADMIN'] }),
+      contractResponse('setupTwoFactor', { status: 429, headers: { 'Retry-After': '1' } }),
+    );
+    await renderApp('/profile');
+    await screen.findByRole('heading', { level: 1, name: 'Профиль' });
+    const card = within(
+      screen.getByRole('heading', { level: 2, name: 'Двухфакторная аутентификация' }).closest('article')!,
+    );
+    await userEvent.click(card.getByRole('button', { name: 'Настроить' }));
+    await card.findByRole('button', { name: 'Повторить через 1 с' });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(h1('Профиль')).not.toHaveFocus();
+    const setup = await card.findByRole('button', { name: 'Настроить' }, { timeout: 2500 });
+    await waitFor(() => expect(setup).toHaveFocus());
   });
 });
 

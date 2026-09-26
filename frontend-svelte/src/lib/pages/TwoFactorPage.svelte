@@ -14,7 +14,7 @@
   import Submit from '../ui/Submit.svelte';
   import { toasts } from '../ui/toast-store.svelte';
   import AuthLayout from './AuthLayout.svelte';
-  import { dropChallenge, storedChallenge } from './challenge';
+  import { dropChallenge, keepChallenge, storedChallenge } from './challenge';
   import { FORM_GRID, LINKS } from './layout';
 
   /** `/login/2fa` — the TOTP step of a login (`challengeId` from the login answer, kept in the history state; a reload
@@ -23,7 +23,8 @@
   const valid = typeof challengeId === 'string';
 
   onMount(() => {
-    if (!valid) void goto(`/login${page.url.search}`, { replaceState: true });
+    if (typeof challengeId === 'string') keepChallenge(challengeId); // the entry is committed now: a reload of it finds the challenge (FM27)
+    else void goto(`/login${page.url.search}`, { replaceState: true });
   });
 
   const isProblem = (e: unknown, code: string): e is ApiProblem => e instanceof ApiProblem && e.code === code;
@@ -41,10 +42,13 @@
     fields: ['code'],
     send: async (body) => {
       try {
-        session.signIn(await call<LoginSuccess>(session.api.POST('/auth/2fa/verify', { body })));
+        const data = await call<LoginSuccess>(session.api.POST('/auth/2fa/verify', { body }));
+        const here = f.alive(); // FM26: a late answer moves nobody
         dropChallenge();
-        await goto(safeNext(page.url.searchParams.get('next')), { replaceState: true });
+        session.signIn(data);
+        if (here) await goto(safeNext(page.url.searchParams.get('next')), { replaceState: true });
       } catch (e) {
+        if (!f.alive()) return;
         if (isProblem(e, 'INVALID_TWO_FACTOR_CODE')) {
           const left = Number(e.params?.attemptsLeft);
           if (left > 0) f.setError('code', t('auth.attemptsLeft', { count: left }));

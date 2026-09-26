@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { onMount, type Snippet } from 'svelte';
   import { afterNavigate, beforeNavigate } from '$app/navigation';
   import { navigating, page } from '$app/state';
+  import { focusRescue } from '$lib/app/focusRescue';
   import { live } from '$lib/app/live.svelte';
   import { keepFocusFor, restoreKeptFocus } from '$lib/app/routeFocus';
   import { cabinetRoute } from '$lib/app/routes';
@@ -15,6 +16,9 @@
   let { children }: { children: Snippet } = $props();
 
   theme.load();
+
+  // FM21/FM24/FM26: focus that the person's own action removed goes to the page title.
+  onMount(focusRescue);
 
   // README «Фокус при смене маршрута»: a query-only change (back/forward included) keeps focus where it was.
   beforeNavigate(({ from, to }) => keepFocusFor(from?.url, to?.url));

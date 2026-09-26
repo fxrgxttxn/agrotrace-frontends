@@ -88,3 +88,9 @@ export function restoreKeptFocus(): void {
     el.focus({ preventScroll: true });
   else document.querySelector<HTMLElement>('h1.at-page__title')?.focus({ preventScroll: true });
 }
+
+/** The page on screen is replaced by a redirect made after it rendered (a signed-in visitor of /login sent on): the
+ * page it lands on counts as a new one and takes the focus — unless this is still the first load of the app. */
+export function redirectedAfterRender(): void {
+  if (state.last !== null) state.last = '';
+}

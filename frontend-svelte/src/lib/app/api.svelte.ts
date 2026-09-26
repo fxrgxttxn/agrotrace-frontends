@@ -111,12 +111,21 @@ export function focusAfterWait(left: () => number, button: () => HTMLElement | n
   });
 }
 
-/** Ruling FM21: an action removed (or a dialog closed over) the focused control — the focus goes to `opener` if it is
- * still in the document, else to the page title. Only when the focus was lost (nothing else took it). */
-export async function restoreFocus(opener: HTMLElement | null | undefined): Promise<void> {
+/** Ruling FM24/FM25: an action revealed a form — its first field takes the focus, only if nothing else holds it (the
+ * body, the control that revealed it, or a control that left the page). */
+export async function focusRevealed(
+  field: () => HTMLElement | null | undefined,
+  opener?: Element | null,
+): Promise<void> {
   await tick();
   const active = document.activeElement;
-  if (active && active !== document.body && active.isConnected) return;
-  if (opener?.isConnected && !(opener as HTMLButtonElement).disabled) opener.focus();
-  else document.querySelector<HTMLElement>('h1.at-page__title')?.focus({ preventScroll: true });
+  if (!active || active === document.body || active === opener || !active.isConnected) field()?.focus();
+}
+
+/** FM29: a request cancelled on purpose (the screen or the session went away) is not a failure: nothing is shown. */
+export function isCancellation(e: unknown): boolean {
+  const name = (e as { name?: unknown } | null)?.name;
+  return (
+    name === 'AbortError' || name === 'CancelledError' || (e as Error | null)?.message === 'session ended'
+  );
 }

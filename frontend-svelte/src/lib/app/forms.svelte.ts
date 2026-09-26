@@ -1,7 +1,10 @@
 import { tick } from 'svelte';
 import type { ZodTypeAny } from 'zod';
 import { ApiProblem } from '@agrotrace/api-client';
-import { Countdown, errorText, retryAfterOf } from './api.svelte';
+import { cache } from './cache.svelte';
+import { userAction } from './focusRescue';
+import { session } from './session.svelte';
+import { Countdown, errorText, errorTone, isCancellation, retryAfterOf } from './api.svelte';
 import { t } from './i18n';
 import { toasts } from '../ui/toast-store.svelte';
 
@@ -24,6 +27,11 @@ export class FormAlert {
   show = (text: string, tone: 'danger' | 'attention' = 'danger'): void => {
     this.clear();
     this.#id = toasts.push({ tone, text });
+  };
+
+  /** The text of a failed request (a 429 in the attention tone); nothing for a cancellation (FM29). */
+  problem = (e: unknown): void => {
+    if (!isCancellation(e)) this.show(errorText(e), errorTone(e));
   };
 
   clear = (): void => {
@@ -78,6 +86,8 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
   readonly #schema: ZodTypeAny;
   readonly #toWire: (values: F) => unknown;
   readonly #send: (body: B) => Promise<void>;
+  /** Session generation of the latest submit. */
+  #born: number | null = null;
 
   constructor(o: SchemaFormOptions<F, B>) {
     this.values = $state(o.values);
@@ -129,6 +139,8 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
   async submit(e?: Event): Promise<void> {
     e?.preventDefault();
     if (this.busy || this.wait.left > 0) return;
+    // FM29: a form of an anonymous screen (login, 2FA, reset…) is never silenced by the session generation
+    this.#born = session.status === 'authenticated' ? cache.generation : null;
     this.#submitted = true;
     this.#server = {};
     const wire = this.#toWire($state.snapshot(this.values) as F);
@@ -142,7 +154,8 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
     this.alert.clear();
     this.busy = true;
     try {
-      await this.#send(parsed.data as B);
+      // the person's own action (FM26): what its answer removes hands the focus to the page title
+      await userAction(() => this.#send(parsed.data as B));
     } catch (err) {
       this.fail(err);
     } finally {
@@ -152,6 +165,7 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
 
   /** Puts a failed request on the form: field errors, a form-level message, or the rate-limit countdown. */
   fail(e: unknown): void {
+    if (!this.alive()) return; // FM26: a late failure after the form or its session is gone is silent
     applyProblem(e, {
       alert: this.alert.show,
       onRateLimit: (seconds) => this.wait.start(seconds),
@@ -161,6 +175,12 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
         void this.#focusFirstInvalid();
       },
     });
+  }
+
+  /** FM26: the form is still on screen and its session still lasts — after an `await`, the UI steps of a submit
+   * (navigation, toast, focus, message) run only while this is true. */
+  alive(): boolean {
+    return this.#node !== null && (this.#born === null || cache.generation === this.#born);
   }
 
   /** `use:form`: the form element (focus of the first invalid field). */
@@ -219,6 +239,7 @@ export interface ApplyOptions {
 /** Puts a failed request on a form or an action: field errors, a form-level message, or the rate-limit countdown
  * (React's `applyProblem`). */
 export function applyProblem(e: unknown, o: ApplyOptions): void {
+  if (isCancellation(e)) return; // FM29: nothing to say about a request cancelled on purpose
   if (e instanceof ApiProblem && e.code === 'VALIDATION' && e.errors) {
     const rest: string[] = [];
     const fields = o.fields ?? [];

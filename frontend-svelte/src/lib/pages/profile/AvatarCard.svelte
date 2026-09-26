@@ -2,9 +2,11 @@
   import { onDestroy } from 'svelte';
   import { ApiProblem, withVariant, type Me } from '@agrotrace/api-client';
   import { formatBytes } from '@agrotrace/i18n';
-  import { call, errorText, errorTone, restoreFocus } from '../../app/api.svelte';
+  import { call } from '../../app/api.svelte';
+  import { cache, screenAlive } from '../../app/cache.svelte';
   import { FormAlert } from '../../app/forms.svelte';
   import { LOCALE, t } from '../../app/i18n';
+  import { userAction } from '../../app/focusRescue';
   import { session } from '../../app/session.svelte';
   import Avatar from '../../ui/Avatar.svelte';
   import Button from '../../ui/Button.svelte';
@@ -39,6 +41,7 @@
     error?: string;
   }
 
+  const alive = screenAlive();
   const alert = new FormAlert();
   let picked = $state<Picked | null>(null);
   let busy = $state<'upload' | 'delete' | null>(null);
@@ -62,19 +65,27 @@
     picked = { file, url: URL.createObjectURL(file), error };
   }
 
-  async function upload(e: MouseEvent) {
-    const opener = e.currentTarget as HTMLElement;
+  /** After a successful change (FM28/FM29): in the session it was made in, the success is said (even if the card is
+   * gone) and the profile is re-read — a failed re-read never turns the success into an error. */
+  function changed(text: string, generation: number): void {
+    if (cache.generation !== generation) return;
+    toasts.push({ tone: 'ok', text });
+    void session.reloadMe();
+  }
+
+  async function upload() {
     if (!picked || picked.error) return;
     alert.clear();
     busy = 'upload';
+    const generation = cache.generation;
     try {
       const body = new FormData();
       body.append('file', picked.file);
       await call(session.api.PUT('/me/avatar', { body: body as never }));
-      drop();
-      await session.reloadMe();
-      toasts.push({ tone: 'ok', text: t('profile.avatarSaved') });
+      if (alive()) drop();
+      changed(t('profile.avatarSaved'), generation);
     } catch (err) {
+      if (!alive()) return;
       let error: string | undefined;
       if (err instanceof ApiProblem && err.code === 'FILE_TOO_LARGE')
         error = tooLargeText(Number(err.params?.maxBytes) || AVATAR_MAX_BYTES);
@@ -85,27 +96,24 @@
       else if (err instanceof ApiProblem && err.code === 'VALIDATION' && err.errors?.file?.[0])
         error = t(err.errors.file[0]);
       if (error && picked) picked = { ...picked, error };
-      else if (!error) alert.show(errorText(err), errorTone(err));
+      else if (!error) alert.problem(err);
     } finally {
       busy = null;
     }
-    void restoreFocus(opener);
   }
 
-  async function remove(e: MouseEvent) {
-    const opener = e.currentTarget as HTMLElement;
+  async function remove() {
     alert.clear();
     busy = 'delete';
+    const generation = cache.generation;
     try {
       await call(session.api.DELETE('/me/avatar'));
-      await session.reloadMe();
-      toasts.push({ tone: 'ok', text: t('profile.avatarDeleted') });
+      changed(t('profile.avatarDeleted'), generation);
     } catch (err) {
-      alert.show(errorText(err), errorTone(err));
+      if (alive()) alert.problem(err);
     } finally {
       busy = null;
     }
-    void restoreFocus(opener);
   }
 
   const items: FileItem[] = $derived(
@@ -131,7 +139,7 @@
       <div style={ROW}>
         <Avatar name={me.fullName} src={me.avatarUrl ? withVariant(me.avatarUrl, 96) : null} size="l" />
         {#if me.avatarUrl}
-          <Button variant="ghost" icon="trash" busy={busy === 'delete'} onclick={(e: MouseEvent) => void remove(e)}
+          <Button variant="ghost" icon="trash" busy={busy === 'delete'} onclick={() => void userAction(remove)}
             >{t('profile.deleteAvatar')}</Button
           >
         {/if}
@@ -151,7 +159,7 @@
   </CardBody>
   {#if picked && !picked.error}
     <CardFooter>
-      <Button variant="primary" icon="upload" busy={busy === 'upload'} onclick={(e: MouseEvent) => void upload(e)}
+      <Button variant="primary" icon="upload" busy={busy === 'upload'} onclick={() => void userAction(upload)}
         >{t('action.upload')}</Button
       >
     </CardFooter>

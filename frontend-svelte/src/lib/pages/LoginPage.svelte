@@ -14,7 +14,7 @@
   import Input from '../ui/Input.svelte';
   import Submit from '../ui/Submit.svelte';
   import AuthLayout from './AuthLayout.svelte';
-  import { dropChallenge, keepChallenge } from './challenge';
+  import { dropChallenge } from './challenge';
   import { FORM_GRID, LINKS } from './layout';
 
   /** `/login` — email and password; TOTP users continue on `/login/2fa`. Sends exactly what was typed (R36). */
@@ -28,14 +28,16 @@
     send: async (body) => {
       try {
         const data = await call<LoginResponse>(session.api.POST('/auth/login', { body }));
+        // FM26: the person may have left the screen meanwhile — the answer then moves nobody
+        const here = f.alive();
         if (data.twoFactorRequired) {
-          keepChallenge(data.challengeId);
-          await goto(`/login/2fa${page.url.search}`, { state: { challengeId: data.challengeId } });
+          if (here) await goto(`/login/2fa${page.url.search}`, { state: { challengeId: data.challengeId } });
           return;
         }
         session.signIn(data);
-        await goto(safeNext(page.url.searchParams.get('next')), { replaceState: true });
+        if (here) await goto(safeNext(page.url.searchParams.get('next')), { replaceState: true });
       } catch (e) {
+        if (!f.alive()) return;
         if (e instanceof ApiProblem && e.code === 'ACCOUNT_LOCKED' && typeof e.params?.lockedUntil === 'string')
           f.alert.show(t('auth.lockedUntil', { time: formatLocalTime(e.params.lockedUntil, LOCALE) }));
         else throw e;

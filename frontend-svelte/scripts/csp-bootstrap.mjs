@@ -28,11 +28,23 @@ function __agrotraceBootFailed(error) {
   var key = 'agrotrace-chunk-reload';
   var here = location.pathname + location.search;
   var tried = here;
-  try { tried = sessionStorage.getItem(key); } catch (e) {}
+  var inName = false;
+  var prefix = key + '=';
+  try {
+    tried = sessionStorage.getItem(key);
+  } catch (e) {
+    // FM26: no sessionStorage — the mark lives in the tab's window.name, which a reload keeps (chunkFailure.ts)
+    inName = true;
+    tried = window.name.indexOf(prefix) === 0 ? window.name.slice(prefix.length) : null;
+  }
   if (tried !== here) {
     try {
-      sessionStorage.setItem(key, here);
-      sessionStorage.setItem('agrotrace-focus-title', '1');
+      if (inName) {
+        window.name = prefix + here;
+      } else {
+        sessionStorage.setItem(key, here);
+        sessionStorage.setItem('agrotrace-focus-title', '1');
+      }
       location.reload();
       return;
     } catch (e) {}

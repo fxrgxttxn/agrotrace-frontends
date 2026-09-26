@@ -5,6 +5,7 @@
   import { FOREVER, query } from '../app/cache.svelte';
   import { form, SchemaForm } from '../app/forms.svelte';
   import { t } from '../app/i18n';
+  import { userAction } from '../app/focusRescue';
   import { session } from '../app/session.svelte';
   import Button from '../ui/Button.svelte';
   import Card from '../ui/Card.svelte';
@@ -29,7 +30,7 @@
   const regions = query(
     () => ['public', 'regions'],
     () => call<Region[]>(session.api.GET('/public/regions')),
-    { freshMs: FOREVER },
+    { freshMs: FOREVER, failed: 'auth.regionsFailed' },
   );
 
   type Values = Omit<RegisterOrganizationRequest, 'name'> & { name: string };
@@ -83,7 +84,7 @@
             {#if regions.failed}
               <div style={LINKS}>
                 <p role="alert">{t('auth.regionsFailed')}</p>
-                <Button size="s" busy={regions.fetching} onclick={() => void regions.refetch()}
+                <Button size="s" busy={regions.fetching} onclick={() => void userAction(regions.refetch)}
                   >{t('action.retry')}</Button
                 >
               </div>

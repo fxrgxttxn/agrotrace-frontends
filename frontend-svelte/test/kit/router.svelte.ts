@@ -263,7 +263,8 @@ class TestRouter {
         this.#index += 1;
       }
     }
-    history.replaceState(null, '', url.pathname + url.search + url.hash);
+    // as SvelteKit: the entry carries its index (lib/pages/challenge.ts keys a 2FA challenge by it)
+    history.replaceState({ 'sveltekit:history': this.#index }, '', url.pathname + url.search + url.hash);
 
     let merged: Record<string, unknown> = {};
     const chain: ChainNode[] = [];

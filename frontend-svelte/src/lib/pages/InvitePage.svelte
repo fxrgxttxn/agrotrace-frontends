@@ -33,6 +33,7 @@
         dead = true;
         return;
       }
+      if (!f.alive()) return; // FM26: a late answer moves nobody
       toasts.push({ tone: 'ok', text: t('auth.inviteDone') });
       await goto('/login', { replaceState: true });
     },

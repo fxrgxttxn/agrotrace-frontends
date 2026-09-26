@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { ANONYMOUS, mockApi } from './contract';
+import { ANONYMOUS, contractExample, mockApi } from './contract';
 import { cspViolations, horizontalOverflow, unexpected, watch } from './helpers';
 
 // S2 screens with the REAL SvelteKit router of the build (ruling FM7: focus and history are verified here): the 2FA
@@ -139,4 +139,56 @@ test('profile and notifications at 360 px: no console errors, no CSP violations,
   }
   expect(await cspViolations(page)).toEqual([]);
   expect(unexpected(w)).toEqual([]);
+});
+
+test('Back after signing in through 2FA ends on the target page with its title focused (as React/Angular)', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context, { ...ANONYMOUS, login: { body: CHALLENGE } });
+  await page.goto('/password/forgot');
+  await page.goto('/login?next=%2Fprofile');
+  await page.getByLabel('Email').fill('inspector.head@agrotrace.test');
+  await page.getByLabel('Пароль').fill('agrotrace-demo');
+  await page.getByRole('button', { name: 'Войти' }).click();
+  await expect(h1(page, 'Код подтверждения')).toBeVisible();
+  await page.getByLabel('Код из приложения').fill('482915');
+  await page.getByRole('button', { name: 'Подтвердить' }).click();
+  await expect(h1(page, 'Профиль')).toBeFocused();
+  await page.goBack(); // the login entry: a signed-in visitor goes on to `next`, replacing it
+  await expect(page).toHaveURL(/\/profile$/);
+  await expect(h1(page, 'Профиль')).toBeFocused();
+  await page.goBack();
+  await expect(h1(page, 'Восстановление пароля')).toBeVisible();
+});
+
+test('a typed /login/2fa (another entry) goes to /login even while a challenge is kept (FM27)', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context, { ...ANONYMOUS, login: { body: CHALLENGE } });
+  await toTwoFactor(page);
+  await page.goto('/password/forgot'); // the person leaves, then types the 2FA address (a new entry)
+  await expect(h1(page, 'Восстановление пароля')).toBeVisible();
+  await page.goto('/login/2fa?next=%2Fbatches');
+  await expect(h1(page, 'Вход')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/login');
+});
+
+test('2FA start 429 (FM17): the focus stays off the title during the wait, «Настроить» takes it back', async ({
+  page,
+  context,
+}) => {
+  const me = contractExample('getMe').body as Record<string, unknown>;
+  await mockApi(context, {
+    getMe: { body: { ...me, roles: ['ADMIN'] } },
+    setupTwoFactor: { status: 429, headers: { 'Retry-After': '2' } },
+  });
+  await page.goto('/profile');
+  const setup = page.getByRole('button', { name: 'Настроить' });
+  await setup.click();
+  await expect(page.getByRole('button', { name: /^Повторить через \d с$/ })).toBeDisabled();
+  await page.waitForTimeout(500);
+  await expect(h1(page, 'Профиль')).not.toBeFocused();
+  await expect(setup).toBeFocused({ timeout: 4000 });
 });

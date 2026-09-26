@@ -37,43 +37,62 @@ export function isChunkError(error: unknown): boolean {
 const here = () => `${location.pathname}${location.search}`;
 const target = (url: URL) => `${url.pathname}${url.search}`;
 
-function mark(): string | null {
+interface Mark {
+  get(): string | null;
+  set(target: string): void;
+  clear(): void;
+}
+
+function sessionMark(): Mark | null {
   try {
-    return sessionStorage.getItem(KEY);
+    const store = sessionStorage;
+    store.getItem(KEY);
+    return {
+      get: () => store.getItem(KEY),
+      set: (value) => store.setItem(KEY, value),
+      clear: () => store.removeItem(KEY),
+    };
   } catch {
-    return here(); // no storage, no loop guard: behave as «already tried» — never reload automatically
+    return null;
   }
 }
 
+/** FM26: without sessionStorage the mark lives in the tab's `window.name`, which a reload keeps — the one reload still
+ * happens and never loops. (React keeps it in the history entry's state; SvelteKit rewrites that state on its start
+ * navigation, so the mark would be lost there and the reload would loop.) The boot script uses the same carrier. */
+const PREFIX = `${KEY}=`;
+const windowNameMark: Mark = {
+  get: () => (window.name.startsWith(PREFIX) ? window.name.slice(PREFIX.length) : null),
+  set: (value) => {
+    window.name = `${PREFIX}${value}`;
+  },
+  clear: () => {
+    if (window.name.startsWith(PREFIX)) window.name = '';
+  },
+};
+
+const mark = (): Mark => sessionMark() ?? windowNameMark;
+
 /** The error page of a chunk failure: is the one automatic full load about to start (show the loading page)? */
 export function reloadPending(error: { message: string } | null): boolean {
-  return error?.message === CHUNK_FAILED && mark() !== here();
+  return error?.message === CHUNK_FAILED && mark().get() !== here();
 }
 
 /** `afterNavigate` of the root layout: a committed chunk failure → the one full load (or, already tried, the error page
  * stays); a page shown → the mark is spent. */
 export function afterPageShown(error: { message: string } | null): void {
   if (error?.message === CHUNK_FAILED) {
-    if (mark() === here()) {
+    const m = mark();
+    if (m.get() === here()) {
       clearTitleFocus();
       return;
     }
-    try {
-      sessionStorage.setItem(KEY, here());
-    } catch {
-      return;
-    }
+    m.set(here());
     markTitleFocus();
     location.reload(); // committed: the current entry IS the target — a reload replaces it and keeps the #fragment
     return;
   }
-  if (!error) {
-    try {
-      sessionStorage.removeItem(KEY);
-    } catch {
-      // storage unavailable
-    }
-  }
+  if (!error) mark().clear();
   // The focus flag belongs to the first page of this document only (its title has read it by now, routeFocus.ts): a
   // page without a title to take it (the public QR page) must not leave it for a later document.
   clearTitleFocus();

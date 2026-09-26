@@ -2,10 +2,11 @@
   import { onDestroy } from 'svelte';
   import { ApiProblem, type NotificationChannels, type TelegramCode } from '@agrotrace/api-client';
   import { formatLocalTime } from '@agrotrace/i18n';
-  import { call, errorText, errorTone, restoreFocus } from '../../app/api.svelte';
-  import { query } from '../../app/cache.svelte';
+  import { call } from '../../app/api.svelte';
+  import { cache, query, screenAlive } from '../../app/cache.svelte';
   import { FormAlert } from '../../app/forms.svelte';
   import { LOCALE, t } from '../../app/i18n';
+  import { userAction } from '../../app/focusRescue';
   import { session } from '../../app/session.svelte';
   import Button from '../../ui/Button.svelte';
   import Card from '../../ui/Card.svelte';
@@ -18,6 +19,7 @@
   /** Notification channels (FR-NOTIF-02/03): Email and Telegram switches (Telegram only once linked), the Telegram link
    * code with the bot, the command and the expiry (local time); while a code is out the channels are asked for every
    * 5 s to see the link confirmed; the code is dropped at `expiresAt`. */
+  const alive = screenAlive();
   const alert = new FormAlert();
   onDestroy(() => alert.clear());
 
@@ -28,7 +30,7 @@
   const channels = query(
     () => ['me', 'channels'],
     () => call<NotificationChannels>(session.api.GET('/me/channels')),
-    { refetchInterval: () => (code ? 5000 : false) },
+    { refetchInterval: () => (code ? 5000 : false), failed: 'profile.channelsFailed' },
   );
   const linked = $derived(channels.data?.telegramLinked ?? false);
 
@@ -58,28 +60,32 @@
   async function save(next: { email: boolean; telegram: boolean }) {
     alert.clear();
     saving = true;
+    // FM24/FM26: the answer belongs to the session it was asked in — a late answer after a logout (or another person's
+    // login) never lands in the next session's cache or screen
+    const generation = cache.generation;
     try {
-      channels.set(await call<NotificationChannels>(session.api.PUT('/me/channels', { body: next })));
+      channels.set(await call<NotificationChannels>(session.api.PUT('/me/channels', { body: next })), generation);
     } catch (e) {
+      if (!alive()) return;
       const key = e instanceof ApiProblem ? (e.errors?.telegram?.[0] ?? e.errors?.email?.[0]) : undefined;
-      alert.show(key ? t(key) : errorText(e), errorTone(e));
+      if (key) alert.show(t(key));
+      else alert.problem(e);
     } finally {
       saving = false;
     }
   }
 
-  async function newCode(e: MouseEvent) {
-    const opener = e.currentTarget as HTMLElement;
+  async function newCode() {
     alert.clear();
     codeBusy = true;
     try {
-      code = await call<TelegramCode>(session.api.POST('/me/telegram-code'));
+      const answer = await call<TelegramCode>(session.api.POST('/me/telegram-code'));
+      if (alive()) code = answer;
     } catch (err) {
-      alert.show(errorText(err), errorTone(err));
+      if (alive()) alert.problem(err);
     } finally {
       codeBusy = false;
     }
-    void restoreFocus(opener);
   }
 </script>
 
@@ -90,7 +96,7 @@
       <div style={FORM_GRID}>
         <p>{t('profile.channelsFailed')}</p>
         <div>
-          <Button busy={channels.fetching} onclick={() => void channels.refetch()}>{t('action.retry')}</Button>
+          <Button busy={channels.fetching} onclick={() => void userAction(channels.refetch)}>{t('action.retry')}</Button>
         </div>
       </div>
     {:else if !channels.data}
@@ -101,13 +107,13 @@
     {:else}
       {@const data = channels.data}
       <div style={FORM_GRID}>
-        <Switch checked={data.email} disabled={saving} onchange={(v) => void save({ email: v, telegram: data.telegram })}
+        <Switch checked={data.email} disabled={saving} onchange={(v) => void userAction(() => save({ email: v, telegram: data.telegram }))}
           >{t('field.email')}</Switch
         >
         <Switch
           checked={data.telegram}
           disabled={saving || (!data.telegramLinked && !data.telegram)}
-          onchange={(v) => void save({ email: data.email, telegram: v })}>{t('field.telegram')}</Switch
+          onchange={(v) => void userAction(() => save({ email: data.email, telegram: v }))}>{t('field.telegram')}</Switch
         >
         {#if code}
           <div style={FORM_GRID}>
@@ -120,12 +126,12 @@
                 target="_blank"
                 rel="noopener noreferrer">{t('profile.openTelegram')}</Button
               >
-              <Button variant="ghost" busy={codeBusy} onclick={(e: MouseEvent) => void newCode(e)}>{t('profile.newCode')}</Button>
+              <Button variant="ghost" busy={codeBusy} onclick={() => void userAction(newCode)}>{t('profile.newCode')}</Button>
             </div>
           </div>
         {:else if !data.telegramLinked}
           <div>
-            <Button busy={codeBusy} onclick={(e: MouseEvent) => void newCode(e)}>{t('profile.linkTelegram')}</Button>
+            <Button busy={codeBusy} onclick={() => void userAction(newCode)}>{t('profile.linkTelegram')}</Button>
           </div>
         {/if}
       </div>

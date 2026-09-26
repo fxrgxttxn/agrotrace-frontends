@@ -636,3 +636,55 @@ test('round 3: focus inside main does not fall to <body> while the next page loa
   release();
   await expect(h1(page, 'Поля')).toBeFocused();
 });
+
+test('FM26: without sessionStorage a failing page chunk still gets its one reload (the mark in the history state)', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  await context.addInitScript(() => {
+    Object.defineProperty(window, 'sessionStorage', {
+      get() {
+        throw new DOMException('blocked', 'SecurityError');
+      },
+    });
+  });
+  const documents: string[] = [];
+  page.on('request', (r) => {
+    if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+  });
+  let failures = 1;
+  await context.route(`**${FIELDS_CHUNK}`, (route) =>
+    failures-- > 0 ? route.abort('failed') : route.continue(),
+  );
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await expect(h1(page, 'Поля')).toBeVisible();
+  expect(documents).toEqual(['/batches', '/fields']);
+});
+
+test('FM26: without sessionStorage a chunk that keeps failing reloads once, never loops', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  await context.addInitScript(() => {
+    Object.defineProperty(window, 'sessionStorage', {
+      get() {
+        throw new DOMException('blocked', 'SecurityError');
+      },
+    });
+  });
+  const documents: string[] = [];
+  page.on('request', (r) => {
+    if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+  });
+  await context.route(`**${FIELDS_CHUNK}`, (route) => route.abort('failed'));
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await expect(page.locator('.at-shell__main .at-empty__text')).toHaveText('Не удалось загрузить страницу.');
+  await page.waitForTimeout(1000);
+  expect(documents).toEqual(['/batches', '/fields']);
+});

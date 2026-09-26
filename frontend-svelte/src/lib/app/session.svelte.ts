@@ -77,7 +77,8 @@ export class Session {
     if (typeof BroadcastChannel !== 'undefined') {
       this.#channel = new BroadcastChannel(SESSION_CHANNEL);
       this.#channel.onmessage = (e: MessageEvent) => {
-        if ((e.data as { type?: string } | null)?.type === 'logout') {
+        // FM29: a tab without a session (on /login, /register…) has nothing to end and stays where it is
+        if ((e.data as { type?: string } | null)?.type === 'logout' && this.status !== 'anonymous') {
           this.#end(true);
           void goto('/login', { replaceState: true });
         }
@@ -108,14 +109,19 @@ export class Session {
   async restore(): Promise<void> {
     this.#booting = true;
     this.#set('loading');
+    // FM28: a restore overtaken by a logout (another tab) or a login never installs its late answer
+    const generation = cache.generation;
     try {
       const token = this.store.get() ?? (await this.api.refresh());
+      if (generation !== cache.generation) return;
       if (!token) {
         this.#set('anonymous');
         return;
       }
-      this.#authenticated(await call<Me>(this.api.GET('/me')));
+      const me = await call<Me>(this.api.GET('/me'));
+      if (generation === cache.generation) this.#authenticated(me);
     } catch (e) {
+      if (generation !== cache.generation) return;
       // R61/F8: a network error, a 5xx or a rate limit (429 of /auth/refresh or /me) is not a logout — the session is
       // kept and a retry is offered (after Retry-After for a 429) instead of the login screen.
       if (e instanceof ApiProblem && e.status === 429)
@@ -133,6 +139,8 @@ export class Session {
 
   /** Installs a successful login (`POST /auth/login` or `/auth/2fa/verify`). */
   signIn(result: LoginSuccess): void {
+    // a new session: nothing of an earlier one (its cache, its late answers) belongs to it (FM24)
+    cache.clear();
     this.store.set(result.accessToken);
     this.#authenticated(result.user as Me);
   }
@@ -149,14 +157,27 @@ export class Session {
     await goto(to, { replaceState: true });
   }
 
-  /** Reloads `/me` (after a profile change). */
-  async reloadMe(): Promise<void> {
-    this.#authenticated(await call<Me>(this.api.GET('/me')));
+  /** Re-reads `/me` after a profile change. Ruling FM28: bound to the session it was asked in (a late answer after a
+   * logout or another person's login is dropped and never revives a session), retried like any GET (FM21), and never
+   * an error — a failed re-read keeps the profile on screen (the change itself succeeded). Resolves whether the
+   * profile was updated. */
+  async reloadMe(): Promise<boolean> {
+    const generation = cache.generation;
+    if (this.status !== 'authenticated') return false;
+    try {
+      const me = await cache.fetch(['me'], () => call<Me>(this.api.GET('/me')));
+      return this.setMe(me, generation);
+    } catch {
+      return false;
+    }
   }
 
-  /** Installs a profile the API just returned (`PATCH /me`). */
-  setMe(me: Me): void {
+  /** Installs a profile the API returned (`PATCH /me`, a re-read) — only in the session it was asked in (FM28:
+   * `generation` captured before the request) and only while that session is signed in. */
+  setMe(me: Me, generation: number): boolean {
+    if (generation !== cache.generation || this.status !== 'authenticated') return false;
     this.#authenticated(me);
+    return true;
   }
 
   /** Stops the API client and the tab channel (tests; a page never ends its session object). */
@@ -184,7 +205,9 @@ export class Session {
   /** `loggedOut`: an explicit logout (here or in another tab) goes to a plain /login. */
   #end(loggedOut: boolean): void {
     this.store.set(null);
-    cache.clear();
+    // FM29: only a session that actually ends bumps the generation (an anonymous tab hearing another tab's logout
+    // keeps its forms alive)
+    if (this.status !== 'anonymous') cache.clear();
     this.#set('anonymous');
     this.loggedOut = loggedOut;
   }
