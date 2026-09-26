@@ -56,7 +56,6 @@ function walk(node: Node, out: string[], depth: number): void {
   const attrs = [...el.attributes]
     .filter((a) => !skip.includes(a.name))
     .map((a) => [a.name, a.name === 'class' ? withoutNgClasses(a.value) : a.value] as const)
-    .filter(([name, value]) => name !== 'class' || value !== '')
     .map(([name, value]) => `${name}="${name === 'style' ? normStyle(value) : value}"`)
     .sort();
   out.push(`${pad}<${tag}${attrs.length ? ' ' + attrs.join(' ') : ''}>`);
@@ -113,8 +112,7 @@ export function readmeMenuIcons(): Map<string, string> {
 /** Ruling FM9: Angular's form-state classes (`ng-untouched`, `ng-pristine`, `ng-valid`, …) are tolerated on controls;
  * they are the only thing the comparison drops (no style may target them). */
 function withoutNgClasses(value: string): string {
-  return value
-    .split(/\s+/)
-    .filter((c) => c && !/^ng-/.test(c))
-    .join(' ');
+  // Only `ng-*` tokens (with the one space that separated each) go; every other character of the value — spacing
+  // included, an attribute left empty included — stays, the same on both sides of the comparison.
+  return value.replace(/(^| )ng-[^ ]*/g, '').replace(/^ /, '');
 }

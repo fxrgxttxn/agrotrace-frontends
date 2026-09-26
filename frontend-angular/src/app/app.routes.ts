@@ -5,8 +5,11 @@ import {
   ForbiddenStandalonePage,
   NotFoundPage,
   NotFoundStandalonePage,
+  PageLoadFailedPage,
+  PageLoadFailedStandalonePage,
   UnavailablePage,
 } from '../pages/errors';
+import { resilientLoad } from './chunk';
 import { guestOnly, requireRole, signedIn, toLoginOrUnavailable } from './guards';
 import { AUTH_ROUTES, CABINET_ROUTES } from './routes';
 import { SHELL_PAGE_LOADERS } from './navigation';
@@ -41,7 +44,8 @@ export function buildRoutes(devRoutes: Routes = []): Routes {
       path: r.path.slice(1),
       pathMatch: 'full' as const,
       canActivate: [requireRole(r.access)],
-      loadComponent: r.load,
+      data: { title: r.title },
+      loadComponent: resilientLoad(r.load, PageLoadFailedPage),
     })),
     { path: '403', component: ForbiddenPage },
     { path: '**', component: NotFoundPage },
@@ -50,7 +54,8 @@ export function buildRoutes(devRoutes: Routes = []): Routes {
   return [
     ...AUTH_ROUTES.map((r) => ({
       path: r.path.slice(1),
-      loadComponent: r.load,
+      data: { title: r.title },
+      loadComponent: resilientLoad(r.load, PageLoadFailedStandalonePage),
       canActivate: GUEST_ONLY.has(r.path) ? [guestOnly] : [],
     })),
     { path: 'p', children: [{ path: '**', component: PublicReloadComponent }] },

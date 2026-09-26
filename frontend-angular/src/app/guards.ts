@@ -34,10 +34,12 @@ export const toLoginOrUnavailable: CanActivateFn = (_route, state) => {
 };
 
 export function requireRole(access: Access): CanActivateFn {
-  return () => {
+  return (_route, state) => {
+    const router = inject(Router);
     const me = inject(SessionService).me();
-    if (!me) return false;
-    return canAccess(me, access) || replaceWith(inject(Router), '/403');
+    // Never a plain `false` (it would cancel and roll the eager URL back, FM11): no session here means the login.
+    if (!me) return replaceWith(router, loginUrl(state.url));
+    return canAccess(me, access) || replaceWith(router, '/403');
   };
 }
 

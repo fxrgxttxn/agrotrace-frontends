@@ -255,3 +255,30 @@ export class ShellComponent {
     this.moreOpen.set(false);
   }
 }
+
+/** The shell drawn by the root while a signed-in user enters the cabinet from a screen outside it and the page chunk
+ * is still loading (FM11): the same navigation, topbar and `aria-current` as the shell, the loading page in main. The
+ * routed shell replaces it once the page is there. */
+@Component({
+  selector: 'div.at-shell[frame]',
+  standalone: true,
+  imports: [SidebarComponent, TopbarComponent, BottomNavComponent, PageLoadingComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `@if (me(); as me) {
+    <a class="at-shell__skip" href="#main">{{ t('shell.skip') }}</a>
+    <nav class="at-sidebar" [items]="items()"></nav>
+    <header class="at-topbar" [me]="me" [unread]="unread()"></header>
+    <main class="at-shell__main" id="main" tabindex="-1"><div class="at-page" [loading]="true"></div></main>
+    <nav class="at-bottom-nav" [items]="items()" [open]="false"></nav>
+  }`,
+})
+export class ShellFrameComponent {
+  protected readonly t = t;
+  readonly frame = input(true);
+  protected readonly me = inject(SessionService).me;
+  protected readonly unread = inject(LiveEventsService).unread;
+  protected readonly items = computed(() => {
+    const me = this.me();
+    return me ? navFor(me) : [];
+  });
+}

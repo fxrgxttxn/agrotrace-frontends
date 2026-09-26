@@ -17,12 +17,23 @@ export class OutletDirective extends RouterOutlet {
     super();
     effect(() => {
       const loadingIn = this.navigation.loadingIn();
-      const hide = loadingIn !== null && loadingIn === this.level();
+      const level = this.level();
+      const hide =
+        loadingIn !== null && (loadingIn === level || (loadingIn === 'enter-shell' && level === 'root'));
       const ref = (this as unknown as { activated: ComponentRef<unknown> | null }).activated;
       const host = ref?.location.nativeElement as HTMLElement | undefined;
       if (!host) return;
-      if (hide) host.setAttribute('hidden', '');
-      else host.removeAttribute('hidden');
+      // `hidden` alone loses to a component's own `display` (`.at-shell` is a grid): also `display: none` and `inert`.
+      if (hide) {
+        host.setAttribute('hidden', '');
+        host.setAttribute('inert', '');
+        host.style.setProperty('display', 'none');
+      } else {
+        host.removeAttribute('hidden');
+        host.removeAttribute('inert');
+        host.style.removeProperty('display');
+        if (host.getAttribute('style') === '') host.removeAttribute('style');
+      }
     });
   }
 }

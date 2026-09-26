@@ -8,7 +8,11 @@ import { createSessionCore, SESSION_CORE } from './session';
 
 /** The URL changes when a navigation starts (FM10: URL and `aria-current` at once, the loading page while the page
  * chunk loads); guard redirects replace the refused entry (guards.ts). Shared with the tests. */
-export const ROUTER_CONFIG = withRouterConfig({ urlUpdateStrategy: 'eager' });
+export const ROUTER_CONFIG = withRouterConfig({
+  urlUpdateStrategy: 'eager',
+  // A cancelled / failed navigation returns to the entry it came from (history.go), never a replaceState over it.
+  canceledNavigationResolution: 'computed',
+});
 
 /** Providers of the cabinet app (tests build the same set with their own session core and routes). */
 export function appConfig(devRoutes: Routes = []): ApplicationConfig {

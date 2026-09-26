@@ -9,7 +9,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { countdown } from '../app/api';
 import { t } from '../app/i18n';
 import { SessionService } from '../app/session';
@@ -168,3 +168,42 @@ export class UnavailablePage {
     await this.router.navigateByUrl(this.router.url, { onSameUrlNavigation: 'reload', replaceUrl: true });
   }
 }
+
+// FM11: a page whose chunk could not be loaded even after one full reload — at the target URL, inside the shell
+// (div.at-page) or outside it (main.at-page); the page title comes from the route (`data.title`), «Повторить» reloads.
+const PAGE_LOAD_FAILED = `<div class="at-page__header" [pageTitle]="title"></div>
+  <article class="at-card">
+    <div class="at-empty" [art]="'empty-search'" [text]="t('empty.pageLoadFailed')">
+      <button class="at-button" [variant]="'primary'" (click)="reload()">{{ t('action.retry') }}</button>
+    </div>
+  </article>`;
+
+abstract class PageLoadFailedBase {
+  protected readonly t = t;
+  protected readonly title = t(
+    (inject(ActivatedRoute).snapshot.data['title'] as string | undefined) ?? 'page.notFound',
+  );
+
+  protected reload(): void {
+    location.reload();
+  }
+}
+
+@Component({
+  selector: 'div.at-page',
+  standalone: true,
+  imports: [...UI],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: PAGE_LOAD_FAILED,
+})
+export class PageLoadFailedPage extends PageLoadFailedBase {}
+
+@Component({
+  selector: 'main.at-page',
+  standalone: true,
+  imports: [...UI],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: AUTH_PAGE_HOST,
+  template: PAGE_LOAD_FAILED,
+})
+export class PageLoadFailedStandalonePage extends PageLoadFailedBase {}

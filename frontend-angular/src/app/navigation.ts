@@ -1,4 +1,4 @@
-import { DestroyRef, inject, Injectable, signal } from '@angular/core';
+import { DestroyRef, inject, Injectable, Injector, signal } from '@angular/core';
 import {
   NavigationCancel,
   NavigationEnd,
@@ -9,6 +9,7 @@ import {
   type Route,
 } from '@angular/router';
 import { pathnameOf } from './route-focus';
+import { SessionService } from './session';
 
 /** `loadComponent` of the routes that render inside the cabinet shell (filled by app.routes.ts; the router copies
  * route objects, their loader functions stay the same). */
@@ -24,16 +25,25 @@ export class NavigationService {
   private readonly router = inject(Router);
   /** Pathname being shown or navigated to. */
   readonly pathname = signal(pathnameOf(this.router.url));
-  /** Which outlet shows the loading page while a lazy page chunk loads (`null` — none). */
-  readonly loadingIn = signal<'shell' | 'root' | null>(null);
+  /** Where the loading page stands while a lazy page chunk loads: in the shell's main (`shell`), in a shell frame the
+   * root draws when a signed-in user enters the shell from a screen outside it (`enter-shell`, FM11), at the root
+   * (`root`); `null` — nothing loads. */
+  readonly loadingIn = signal<'shell' | 'root' | 'enter-shell' | null>(null);
   /** The cabinet shell is on screen (set by it). */
   shellActive = false;
+  private readonly injector = inject(Injector);
+
+  private whereLoading(route: Route): 'shell' | 'root' | 'enter-shell' {
+    if (!isShellPage(route)) return 'root';
+    if (this.shellActive) return 'shell';
+    // resolved lazily: the session service itself depends on the router
+    return this.injector.get(SessionService).status() === 'authenticated' ? 'enter-shell' : 'root';
+  }
 
   constructor() {
     const sub = this.router.events.subscribe((e) => {
       if (e instanceof NavigationStart) this.pathname.set(pathnameOf(e.url));
-      else if (e instanceof RouteConfigLoadStart)
-        this.loadingIn.set(this.shellActive && isShellPage(e.route) ? 'shell' : 'root');
+      else if (e instanceof RouteConfigLoadStart) this.loadingIn.set(this.whereLoading(e.route));
       else if (e instanceof NavigationEnd) {
         this.pathname.set(pathnameOf(e.urlAfterRedirects));
         this.loadingIn.set(null);
