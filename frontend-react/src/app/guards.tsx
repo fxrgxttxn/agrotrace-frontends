@@ -1,5 +1,5 @@
-import { useCountdown } from './api';
-import { Suspense, useEffect, useRef, type ReactNode } from 'react';
+import { useCountdown, useFocusAfterWait } from './api';
+import { Suspense, useEffect, type ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { canAccess, type Access } from './access';
 import { safeNext, useSession } from './session';
@@ -19,23 +19,15 @@ export function Unavailable() {
   useEffect(() => {
     if (retryAfter) startWait(retryAfter);
   }, [retryAfter, startWait]);
-  // A disabled button drops the focus; when the wait is over, the focus goes to the button that can act now.
-  const button = useRef<HTMLButtonElement>(null);
-  const waited = useRef(false);
+  // A disabled button drops the focus; when the wait is over, the focus goes to the button that can act now (FM17).
+  const button = useFocusAfterWait(wait);
   // A failed retry (loading → unavailable) remounts this screen: the focus goes back to «Повторить».
   useEffect(() => {
     if (retried) {
       retried = false;
       button.current?.focus();
     }
-  }, []);
-  useEffect(() => {
-    if (wait > 0) waited.current = true;
-    else if (waited.current) {
-      waited.current = false;
-      button.current?.focus();
-    }
-  }, [wait]);
+  }, [button]);
   return (
     <AuthLayout title={t('page.unavailable')}>
       <Empty

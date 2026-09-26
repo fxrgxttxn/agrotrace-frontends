@@ -680,10 +680,12 @@ export function WaybillPage() {
   }, [dialog, rejectAllowed, deleteAllowed]);
   // After a re-read the focused control may be gone (the acceptance form of a waybill accepted elsewhere, a closed
   // dialog's opener): the focus goes to the page title instead of the document body.
-  // The flag is spent by each re-read (the check runs after a dialog closed by it has returned its focus).
+  // The flag is spent by each re-read (the check runs after a dialog closed by it has returned its focus) — keyed by
+  // the fetch time, not the data: a re-read answering the same card keeps the same object (structural sharing).
   const refocus = problems.refocus;
+  const readAt = Math.max(query.dataUpdatedAt, query.errorUpdatedAt);
   useEffect(() => {
-    if (!refocus.current || !waybill) return;
+    if (!refocus.current || !readAt) return;
     refocus.current = false;
     const timer = setTimeout(() => {
       const active = document.activeElement;
@@ -691,7 +693,7 @@ export function WaybillPage() {
         document.querySelector<HTMLElement>('h1.at-page__title')?.focus();
     }, 0);
     return () => clearTimeout(timer);
-  }, [waybill, refocus]);
+  }, [readAt, refocus]);
 
   const changed = (next: Waybill) => {
     queryClient.setQueryData(['waybill', next.id], next);

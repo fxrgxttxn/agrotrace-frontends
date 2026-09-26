@@ -14,16 +14,17 @@ describe('bootstrap failure (FM15)', () => {
   it('the static texts equal the i18n ones', () => {
     const t = createT('ru');
     expect(BOOT_TEXTS).toEqual({
-      title: t('page.unavailable'),
       text: t('empty.pageLoadFailed'),
       retry: t('action.retry'),
     });
   });
 
-  it('renders the page title, one line and «Повторить»', () => {
+  it('FM17: no title — at-page > at-card > at-empty with one line and «Повторить»', () => {
     const root = document.createElement('div');
     renderBootFailure(root);
-    expect(root.querySelector('h1.at-page__title')?.textContent).toBe('Сервис недоступен');
+    expect(root.querySelector('h1')).toBeNull();
+    expect(root.textContent).not.toContain('Сервис недоступен');
+    expect(root.querySelector('main.at-page > article.at-card > div.at-empty')).not.toBeNull();
     expect(root.querySelector('.at-empty__text')?.textContent).toBe('Не удалось загрузить страницу.');
     const button = root.querySelector<HTMLButtonElement>('button.at-button[data-variant="primary"]')!;
     expect(button.textContent).toBe('Повторить');

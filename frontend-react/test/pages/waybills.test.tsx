@@ -481,6 +481,28 @@ describe('/waybills/:id — conflicts (FM13)', () => {
     await waitFor(() => expect(reads).toBe(2));
   });
 
+  it('an identical re-read spends the refocus flag: a later send does not pull the focus to the title', async () => {
+    let reads = 0;
+    server.use(
+      // The re-read answers the same card: structural sharing keeps the same object.
+      contractResponse('getWaybill', { body: draft(), onRequest: () => void reads++ }),
+      contractResponse('deleteWaybill', { status: 409, example: 'versionConflict' }),
+      contractResponse('sendWaybill', { body: draft({ status: 'SENT', version: 2, actions: [] }) }),
+    );
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Удалить черновик' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Удалить черновик WB-2026-000017' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Удалить черновик' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Накладная изменилась');
+    await waitFor(() => expect(reads).toBe(2));
+    await new Promise((r) => setTimeout(r, 50));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Отгрузить' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Отгрузить' })).toBeNull());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole('heading', { level: 1, name: 'WB-2026-000017' })).not.toHaveFocus();
+  });
+
   it('reject VERSION_CONFLICT keeps the reason and the number; the confirmation then uses the new version', async () => {
     const ifMatch: (string | null)[] = [];
     server.use(
@@ -558,6 +580,21 @@ describe('/waybills/:id — conflicts (FM13)', () => {
     expect(await screen.findByRole('button', { name: /^Повторить через 1 с$/ })).toBeDisabled();
     const button = await screen.findByRole('button', { name: 'Отгрузить' }, { timeout: 3000 });
     await waitFor(() => expect(button).toHaveFocus());
+  });
+
+  it('FM17: the end of the wait never takes the focus from a control the person moved to', async () => {
+    server.use(
+      contractResponse('getWaybill', { body: draft() }),
+      contractResponse('sendWaybill', { status: 429, headers: { 'Retry-After': '1' } }),
+    );
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Отгрузить' }));
+    expect(await screen.findByRole('button', { name: /^Повторить через 1 с$/ })).toBeDisabled();
+    const other = screen.getByRole('button', { name: 'Удалить черновик' });
+    other.focus();
+    await screen.findByRole('button', { name: 'Отгрузить' }, { timeout: 3000 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(other).toHaveFocus();
   });
 
   it('reject 429: the wait is on the confirmation button and said in the dialog', async () => {

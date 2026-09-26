@@ -155,20 +155,25 @@ export function errorTone(e: unknown): 'danger' | 'attention' {
   return e instanceof ApiProblem && e.status === 429 ? 'attention' : 'danger';
 }
 
+/** Ruling FM17: when a wait ends, the waiting button takes the focus only if nothing else holds it — the focus is on
+ * the body, on that button, or on an element that left the document. A field the person moved to keeps it. */
+export function focusIfIdle(button: HTMLElement | null): void {
+  if (!button) return;
+  const active = document.activeElement;
+  if (!active || active === document.body || active === button || !active.isConnected) button.focus();
+}
+
 /** The action button a 429 wait disabled (its focus dropped to the page): it gets the focus back when it can act again
- * (as the «Повторить» of the unavailable screen, F8). Put the returned ref on the button. */
+ * (as the «Повторить» of the unavailable screen, F8), by the FM17 rule (`focusIfIdle`). Put the returned ref on the
+ * button. */
 export function useFocusAfterWait(wait: number) {
   const ref = useRef<HTMLButtonElement>(null);
-  const held = useRef(false);
+  const waited = useRef(false);
   useEffect(() => {
-    if (wait > 0) {
-      if (!held.current) {
-        const active = document.activeElement;
-        held.current = active === ref.current || !active || active === document.body;
-      }
-    } else if (held.current) {
-      held.current = false;
-      ref.current?.focus();
+    if (wait > 0) waited.current = true;
+    else if (waited.current) {
+      waited.current = false;
+      focusIfIdle(ref.current);
     }
   }, [wait]);
   return ref;

@@ -353,11 +353,22 @@ th[aria-sort='descending'] > .at-table__sort::after {
 
   /* Row actions on a card keep the regular size — a 44 px target (ruling FM13) — whatever size the table row asks for. */
   .at-table[data-cards] td.at-table__actions > .at-button[data-size='s'] {
+    min-width: var(--touch);
     min-height: var(--touch);
     padding: 0 var(--sp-4);
     gap: var(--sp-2);
     font-size: var(--fs-14);
     line-height: var(--lh-14);
+  }
+
+  /* …with the regular 20 px icon, and an icon-only button stays a square without padding. */
+  .at-table[data-cards] td.at-table__actions > .at-button[data-size='s'] .at-button__icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .at-table[data-cards] td.at-table__actions > .at-button[data-size='s'][data-icon-only] {
+    padding: 0;
   }
 
   .at-table[data-cards] td.at-table__actions > .at-button[data-size='s']::before {
