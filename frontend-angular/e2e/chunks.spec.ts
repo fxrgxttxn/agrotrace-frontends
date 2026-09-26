@@ -179,6 +179,13 @@ test('FM15: the app chunk itself fails at start: one reload, then a plain messag
   await expect(page.getByText('Не удалось загрузить страницу.')).toBeVisible();
   await page.waitForTimeout(500);
   expect(documents).toEqual(['/login', '/login']);
+  // FM17: README markup (at-page / at-card / at-empty, primary at-button), no title; FM18: index.html's own static
+  // fallback is gone (our script ran)
+  await expect(
+    page.locator('main.at-page > article.at-card > .at-empty > button.at-button[data-variant="primary"]'),
+  ).toHaveText('Повторить');
+  await expect(page.locator('h1')).toHaveCount(0);
+  await expect(page.locator('#boot-fallback')).toHaveCount(0);
   const retry = page.getByRole('button', { name: 'Повторить' });
   await expect(retry).toBeVisible();
   expect(await page.evaluate(() => sessionStorage.getItem('agrotrace-chunk-reload'))).toBeNull();
@@ -226,4 +233,32 @@ test('entering the shell from the login with a slow page chunk: shell, loading p
   await expect(page.locator('main.at-page')).toBeHidden(); // the login page is not on screen
   await expect(page.locator(h1('Поля'))).toBeFocused({ timeout: 8000 });
   await expect(page.locator('.at-shell')).toHaveCount(1);
+});
+
+test('FM18: the entry script itself cannot load — index.html shows its static fallback after 10 s, a JS-free retry', async ({
+  page,
+}) => {
+  await mockApi(page, { signedIn: false });
+  const entry = /\/assets\/main-[^/]*\.js$/;
+  await page.route(entry, (route) => route.abort());
+  await page.goto('/batches?page=2');
+  const fallback = page.locator('#boot-fallback');
+  await expect(fallback).toBeAttached();
+  await expect(fallback).toBeHidden();
+  await expect(fallback).toBeVisible({ timeout: 12000 });
+  await expect(fallback.locator('.at-empty__text')).toHaveText('Не удалось загрузить страницу.');
+  const retry = fallback.getByRole('link', { name: 'Повторить' });
+  await expect(retry).toHaveAttribute('href', '');
+  await page.unroute(entry);
+  await retry.click();
+  await expect(page).toHaveURL(/\/login\?next=/);
+  await expect(page.locator(h1('Вход'))).toBeVisible();
+  await expect(fallback).toHaveCount(0);
+});
+
+test('FM18: a normal start removes the static fallback at once', async ({ page }) => {
+  await mockApi(page, { signedIn: false });
+  await page.goto('/login');
+  await expect(page.locator(h1('Вход'))).toBeVisible();
+  await expect(page.locator('#boot-fallback')).toHaveCount(0);
 });

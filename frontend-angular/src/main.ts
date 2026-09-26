@@ -1,32 +1,40 @@
 import { applyTheme, readTheme } from './app/theme';
+import { PAGE_LOAD_FAILED, RETRY } from './boot-texts.generated';
 import { currentUrl, reloadOnce, writeReloadMark } from './reload-mark';
 
 // Single entry of index.html (the build emits only `<script type="module" src>` — no inline script: gateway CSP
 // `script-src 'self'`, and `inlineCritical: false` keeps the stylesheet link free of inline handlers, R89). The public
 // QR pages (/p/*) load their own light chunk without any cabinet code (spec §9.6); everything else loads the cabinet.
+
+// FM18: index.html's static fallback (shown by CSS after 10 s if this script never runs) is not needed — we run.
+document.getElementById('boot-fallback')?.remove();
 applyTheme(readTheme());
 
-/** Ruling FM15: an app chunk that cannot be loaded reloads the document once; failing again, a plain static message
- * with «Повторить» instead of a blank page (no framework, no i18n bundle here: the text is fixed Russian, FM14). */
+/** Rulings FM15 / FM17: an app chunk that cannot be loaded reloads the document once; failing again, a plain static
+ * screen instead of a blank page — README markup (at-page / at-card / at-empty, a primary at-button), no title, the
+ * texts from @agrotrace/i18n at build time (scripts/boot-fallback.mjs; no i18n bundle here). */
 function failed(): void {
   const main = document.createElement('main');
   main.className = 'at-page';
   main.id = 'main';
   main.tabIndex = -1;
   main.style.maxWidth = '30rem';
+  const card = document.createElement('article');
+  card.className = 'at-card';
   const empty = document.createElement('div');
   empty.className = 'at-empty';
   const text = document.createElement('p');
   text.className = 'at-empty__text';
-  text.textContent = 'Не удалось загрузить страницу.';
+  text.textContent = PAGE_LOAD_FAILED;
   const retry = document.createElement('button');
   retry.className = 'at-button';
   retry.type = 'button';
   retry.dataset['variant'] = 'primary';
-  retry.textContent = 'Повторить';
+  retry.textContent = RETRY;
   retry.addEventListener('click', () => location.reload());
   empty.append(text, retry);
-  main.append(empty);
+  card.append(empty);
+  main.append(card);
   document.body.append(main);
 }
 
