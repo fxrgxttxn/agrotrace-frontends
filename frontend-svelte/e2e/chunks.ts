@@ -63,3 +63,6 @@ export function nodeFile(routeFile: string): string {
   if (!key) throw new Error(`no route node for ${routeFile}`);
   return `/${manifest[key]!.file}`;
 }
+
+/** The kit's start-up entry chunks (`start`, `app`), which the boot script imports. */
+export const entryFiles: string[] = entries.map((k) => `/${manifest[k]!.file}`);

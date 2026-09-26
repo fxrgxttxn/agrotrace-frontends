@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { reloadPage } from '../app/chunkFailure';
+  import { reloadPage, reloadPending } from '../app/chunkFailure';
   import { t } from '../app/i18n';
   import { cabinetRoute } from '../app/routes';
   import Button from '../ui/Button.svelte';
@@ -16,12 +16,12 @@
   const title = $derived(t(cabinetRoute(page.url.pathname)?.title ?? 'page.notFound'));
 </script>
 
-{#if page.error?.message === 'reloading'}
+{#if reloadPending(page.error)}
   <PageLoading />
 {:else}
   <Page {title} main={standalone} style={standalone ? 'max-width: 30rem' : undefined}>
     <Card>
-      <Empty art="empty-search" text={t('empty.pageLoad')}>
+      <Empty art="empty-search" text={t('empty.pageLoadFailed')}>
         {#snippet action()}
           <Button variant="primary" onclick={reloadPage}>{t('action.retry')}</Button>
         {/snippet}

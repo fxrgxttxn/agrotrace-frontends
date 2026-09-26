@@ -14,6 +14,45 @@ const out = process.argv[2] ?? 'build';
 const APP_DIR = 'assets';
 const INLINE = /<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g;
 
+// FM15: the start-up chunks themselves failed (the kit entry or the app manifest) — the same reload-once guard as the
+// pages (src/lib/app/chunkFailure.ts: sessionStorage `agrotrace-chunk-reload` = the URL), then a plain static message
+// «Не удалось загрузить страницу.» with «Повторить» (a reload), never a blank page.
+const BOOT_FAILED = `function __agrotraceBootFailed(error, element) {
+  var key = 'agrotrace-chunk-reload';
+  var here = location.pathname + location.search;
+  var tried = here;
+  try { tried = sessionStorage.getItem(key); } catch (e) {}
+  if (tried !== here) {
+    try { sessionStorage.setItem(key, here); location.replace(here); return; } catch (e) {}
+  }
+  console.warn('AgroTrace: start-up failed', error);
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text) node.textContent = text;
+    return node;
+  }
+  var main = el('main', 'at-page');
+  main.id = 'main';
+  main.tabIndex = -1;
+  var header = el('div', 'at-page__header');
+  var h1 = el('h1', 'at-page__title', 'AgroTrace');
+  h1.tabIndex = -1;
+  header.appendChild(h1);
+  var empty = el('div', 'at-empty');
+  empty.appendChild(el('p', 'at-empty__text', ${JSON.stringify('Не удалось загрузить страницу.')}));
+  var button = el('button', 'at-button', ${JSON.stringify('Повторить')});
+  button.type = 'button';
+  button.setAttribute('data-variant', 'primary');
+  button.addEventListener('click', function () { location.reload(); });
+  empty.appendChild(button);
+  main.appendChild(header);
+  main.appendChild(empty);
+  element.replaceChildren(main);
+}
+`;
+const START = /\]\)\.then\(\(\[kit, app\]\) => \{\s*kit\.start\(app, element\);\s*\}\);/;
+
 function htmlFiles(dir) {
   return readdirSync(dir).flatMap((name) => {
     const p = join(dir, name);
@@ -33,8 +72,13 @@ for (const page of pages) {
       throw new Error(`csp-bootstrap: unexpected inline <script${attrs}> in ${page}`);
     if (!code.includes('.start(') || !code.includes('document.currentScript'))
       throw new Error(`csp-bootstrap: unexpected inline script in ${page}:\n${code}`);
-    const js = code.trim().replace(/import\((["'])\.\/(?=assets\/)/g, 'import($1/');
+    let js = code.trim().replace(/import\((["'])\.\/(?=assets\/)/g, 'import($1/');
     if (/import\((["'])\.\//.test(js)) throw new Error(`csp-bootstrap: relative import left in ${page}`);
+    if (!START.test(js)) throw new Error(`csp-bootstrap: unexpected start-up call in ${page}:\n${js}`);
+    js = `${BOOT_FAILED}${js.replace(
+      START,
+      ']).then(([kit, app]) => kit.start(app, element)).catch((e) => __agrotraceBootFailed(e, element));',
+    )}`;
     const hash = createHash('sha256').update(js).digest('hex').slice(0, 10);
     const dir = join(out, APP_DIR, 'immutable', 'entry');
     mkdirSync(dir, { recursive: true });

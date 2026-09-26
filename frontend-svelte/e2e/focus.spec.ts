@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { nodeFile } from './chunks';
+import { entryFiles, nodeFile } from './chunks';
 import { ANONYMOUS, mockApi } from './contract';
 import { watch } from './helpers';
 
@@ -355,4 +355,107 @@ test('FM11: entering the shell from /login?next= with a slow chunk shows the she
   release();
   await expect(h1(page, 'Поля')).toBeFocused();
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+});
+
+// ── Ruling FM15: stale failures, no cached failure, bootstrap failures ────────────────────────────────────────────
+
+/** Holds the fields page chunk until `fail()`/`pass()`; counts document loads. */
+async function heldChunk(page: Page, context: import('@playwright/test').BrowserContext) {
+  let settle: (ok: boolean) => void = () => {};
+  const decided = new Promise<boolean>((r) => (settle = r));
+  const documents: string[] = [];
+  page.on('request', (r) => {
+    if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+  });
+  await context.route(`**${FIELDS_CHUNK}`, async (route) =>
+    (await decided) ? route.continue() : route.abort('failed'),
+  );
+  return { documents, fail: () => settle(false), pass: () => settle(true) };
+}
+
+test('FM15: a failing load superseded by another click never reloads the page the user is on', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  const chunk = await heldChunk(page, context);
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  const before = await page.evaluate(() => history.length);
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await page.waitForTimeout(150);
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Накладные' }).click();
+  await expect(h1(page, 'Накладные')).toBeVisible();
+  chunk.fail();
+  await page.waitForTimeout(800);
+  await expect(page).toHaveURL(/\/waybills$/);
+  await expect(h1(page, 'Накладные')).toBeVisible();
+  expect(chunk.documents).toEqual(['/batches']);
+  expect(await page.evaluate(() => history.length)).toBe(before + 1);
+  expect(await page.evaluate(() => sessionStorage.getItem('agrotrace-chunk-reload'))).toBeNull();
+});
+
+test('FM15: Back during a failing load never reloads the page the user returns to', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  const chunk = await heldChunk(page, context);
+  await page.goto('/batches');
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Накладные' }).click();
+  await expect(h1(page, 'Накладные')).toBeFocused();
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await page.waitForTimeout(150);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/batches$/);
+  chunk.fail();
+  await page.waitForTimeout(800);
+  await expect(page).toHaveURL(/\/batches$/);
+  await expect(h1(page, 'Партии')).toBeVisible();
+  expect(chunk.documents).toEqual(['/batches']);
+});
+
+test('FM15: after a failure the error state is not kept — the next navigation retries (fresh document)', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  const documents: string[] = [];
+  page.on('request', (r) => {
+    if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+  });
+  await context.route(`**${FIELDS_CHUNK}`, (route) => route.abort('failed'));
+  await page.goto('/batches');
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await expect(page.locator('main .at-empty__text')).toHaveText('Не удалось загрузить страницу.');
+  expect(documents).toEqual(['/batches', '/fields']);
+  await context.unroute(`**${FIELDS_CHUNK}`); // the chunk is back (e.g. the network returned)
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Накладные' }).click();
+  await expect(h1(page, 'Накладные')).toBeVisible();
+  expect(documents).toEqual(['/batches', '/fields', '/waybills']); // a fresh document after the failure
+  await page.locator('.at-sidebar').getByRole('link', { name: 'Поля' }).click();
+  await expect(h1(page, 'Поля')).toBeFocused(); // imported now, in-app
+  expect(documents).toEqual(['/batches', '/fields', '/waybills']);
+  expect(await page.evaluate(() => sessionStorage.getItem('agrotrace-chunk-reload'))).toBeNull();
+});
+
+test('FM15: a failing start-up chunk (public page) — one reload, then a static message with «Повторить»', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  const documents: string[] = [];
+  page.on('request', (r) => {
+    if (r.resourceType() === 'document') documents.push(new URL(r.url()).pathname);
+  });
+  const start = entryFiles.find((f) => /\/entry\/start\./.test(f))!;
+  await context.route(`**${start}`, (route) => route.abort('failed'));
+  await page.goto('/p/AT-2026-000123');
+  await expect(page.locator('main .at-empty__text')).toHaveText('Не удалось загрузить страницу.');
+  await expect(page.getByRole('button', { name: 'Повторить' })).toBeVisible();
+  expect(documents).toEqual(['/p/AT-2026-000123', '/p/AT-2026-000123']);
+  await context.unroute(`**${start}`);
+  await page.getByRole('button', { name: 'Повторить' }).click();
+  await expect(h1(page, 'Партия')).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem('agrotrace-chunk-reload'))).toBeNull();
 });

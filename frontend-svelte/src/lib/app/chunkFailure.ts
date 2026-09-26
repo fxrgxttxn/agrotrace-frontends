@@ -1,13 +1,24 @@
-// Ruling FM11: a page chunk that fails to load (a dynamic import error — a redeploy removed it, the network dropped)
-// gets ONE full-document load of the target URL; if that fails too, the error page of the route group shows
-// «Не удалось загрузить страницу» with «Повторить» (a reload). A sessionStorage guard keyed by the target URL prevents
-// reload loops.
+// Rulings FM11/FM15: a page chunk that fails to load (a dynamic import error — a redeploy removed it, the network
+// dropped) gets ONE full-document load of the target URL; if that fails too, the error page of the route group shows
+// «Не удалось загрузить страницу.» with «Повторить» (a reload).
 //
-// History: the full load happens only after SvelteKit has committed the failed navigation (its error page is shown,
-// the target URL is the current history entry — pushed for a link/`goto`, already current for back/forward and at
-// start-up), and it REPLACES that entry: the history is exactly what a successful navigation would have left.
+// - Everything is decided when SvelteKit COMMITS the failed navigation (its error page is shown, the target is the
+//   current location): a navigation superseded by another click or by Back never commits, so it never reloads the page
+//   the user is on and leaves no mark.
+// - The reload mark (sessionStorage, the target URL) allows at most one reload per failure chain; the first navigation
+//   of a document that shows a page clears it.
+// - The reload replaces the (target) history entry: the history is what a successful navigation would have left.
+// - The browser keeps a failed module in the document's module map, so the same document can never import it again:
+//   after a committed chunk failure, the next link/`goto` navigation is a full document load (the import is retried).
+// - The bootstrap (kit entry chunks) has the same guard in the post-build boot script (scripts/csp-bootstrap.mjs).
 
 const KEY = 'agrotrace-chunk-reload';
+
+/** A chunk failure was committed in this document: later in-app navigations load a fresh document. */
+let failedHere = false;
+
+/** The message `handleError` gives a chunk failure (the error pages recognise it). */
+export const CHUNK_FAILED = 'chunk';
 
 /** A module script that could not be fetched/evaluated (Chromium, Firefox, WebKit wordings; Vite's CSS preload). */
 export function isChunkError(error: unknown): boolean {
@@ -15,31 +26,34 @@ export function isChunkError(error: unknown): boolean {
   return /dynamically imported module|Importing a module script failed|Unable to preload CSS/i.test(message);
 }
 
-function guard(): string | null {
+const here = () => `${location.pathname}${location.search}`;
+const target = (url: URL) => `${url.pathname}${url.search}`;
+
+function mark(): string | null {
   try {
     return sessionStorage.getItem(KEY);
   } catch {
-    return null;
+    return here(); // no storage, no loop guard: behave as «already tried» — never reload automatically
   }
 }
 
-/** `handleError`: whether the one full load of `url` is still to be tried (the guard is armed then). */
-export function armReload(url: URL): boolean {
-  const target = `${url.pathname}${url.search}`;
-  if (guard() === target) return false;
-  try {
-    sessionStorage.setItem(KEY, target);
-    return true;
-  } catch {
-    return false; // no storage, no loop guard: no automatic reload
-  }
+/** The error page of a chunk failure: is the one automatic full load about to start (show the loading page)? */
+export function reloadPending(error: { message: string } | null): boolean {
+  return error?.message === CHUNK_FAILED && mark() !== here();
 }
 
-/** `afterNavigate` of the root layout: the error page of an armed failure is committed — load the document again;
- * a page that loaded spends the guard. */
+/** `afterNavigate` of the root layout: a committed chunk failure → the one full load (or, already tried, the error page
+ * stays); a page shown → the mark is spent. */
 export function afterPageShown(error: { message: string } | null): void {
-  if (error?.message === 'reloading') {
-    location.replace(`${location.pathname}${location.search}`);
+  if (error?.message === CHUNK_FAILED) {
+    failedHere = true;
+    if (mark() === here()) return;
+    try {
+      sessionStorage.setItem(KEY, here());
+    } catch {
+      return;
+    }
+    location.replace(here());
     return;
   }
   if (!error) {
@@ -49,6 +63,15 @@ export function afterPageShown(error: { message: string } | null): void {
       // storage unavailable
     }
   }
+}
+
+/** `beforeNavigate` of the root layout: after a committed chunk failure in this document, an in-app link/`goto` to
+ * another URL becomes a full document load (a fresh module map retries the import). */
+export function fullLoadAfterFailure(type: string, to: URL | null | undefined, cancel: () => void): void {
+  if (!failedHere || !to || (type !== 'link' && type !== 'goto') || to.origin !== location.origin) return;
+  if (target(to) === here()) return;
+  cancel();
+  location.assign(`${target(to)}${to.hash}`);
 }
 
 /** «Повторить» on the failure page: a plain reload of the current URL. */
