@@ -3,6 +3,7 @@ import { distinctUntilChanged, EMPTY, map, Observable, Subject, switchMap } from
 import { openEventStream, type ApiNotification, type StreamEvent } from '@agrotrace/api-client';
 import { notificationMessage } from '@agrotrace/i18n';
 import { t } from './i18n';
+import { NOTIFICATIONS_KEY, QueryCache } from './query';
 import { apiBaseUrl, SessionService } from './session';
 import { ToastService } from './ui/toasts';
 
@@ -23,6 +24,7 @@ export class LiveEventsService {
   private readonly toasts = inject(ToastService);
   private readonly zone = inject(NgZone);
   private readonly EventSourceImpl = inject(EVENT_SOURCE);
+  private readonly cache = inject(QueryCache);
 
   /** Unread notifications (bell counter): from SSE `unread`, or from an answer that carries it. */
   readonly unread = signal(0);
@@ -76,6 +78,8 @@ export class LiveEventsService {
         text: notificationMessage(n.type, payload, 'title', t),
         detail: notificationMessage(n.type, payload, 'body', t),
       });
+      // every cached notification list is out of date, wherever the user is (FM24); a list on screen reloads
+      this.cache.invalidate(NOTIFICATIONS_KEY);
       this.notifications$.next(n);
     }
   }

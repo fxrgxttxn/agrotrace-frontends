@@ -19,7 +19,7 @@ import { restoreFocus } from '../app/focus';
 import { applyProblem, formAlert } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { LiveEventsService } from '../app/live-events';
-import { injectQuery, QueryCache } from '../app/query';
+import { injectQuery, NOTIFICATIONS_KEY, QueryCache } from '../app/query';
 import { CABINET_ROUTES, matchPath } from '../app/routes';
 import { SessionService } from '../app/session';
 import {
@@ -225,22 +225,25 @@ export class NotificationsPage {
 
   protected readonly tab = computed<Tab>(() => (this.query().get('tab') === 'unread' ? 'unread' : 'all'));
   protected readonly page = computed(() => Math.max(1, Math.floor(Number(this.query().get('page'))) || 1));
-  /** The list of the tab / page in the URL (FM21: shared cache, retries, previous rows only while loading). */
+  /** The list of the tab / page in the URL (FM21/FM24: shared cache, retries of exactly this tab / page, stale rows
+   * while they are asked for again). */
   private readonly list = injectQuery(
-    () => `notifications?tab=${this.tab()}&page=${this.page()}`,
-    () =>
-      call<NotificationPage>(
-        this.session.api.GET('/notifications', {
-          params: {
-            query: {
-              page: this.page(),
-              size: SIZE,
-              sort: 'seq,desc',
-              ...(this.tab() === 'unread' ? { isRead: false } : {}),
-            },
-          },
-        }),
-      ),
+    () => {
+      const tab = this.tab();
+      const page = this.page();
+      return {
+        key: `${NOTIFICATIONS_KEY}tab=${tab}&page=${page}`,
+        load: () =>
+          call<NotificationPage>(
+            this.session.api.GET('/notifications', {
+              params: {
+                query: { page, size: SIZE, sort: 'seq,desc', ...(tab === 'unread' ? { isRead: false } : {}) },
+              },
+            }),
+          ),
+      };
+    },
+    { failedText: t('notifications.failed') },
   );
   protected readonly data = this.list.data;
   protected readonly failed = this.list.failed;
@@ -305,7 +308,7 @@ export class NotificationsPage {
   }
 
   private reload(): Promise<void> {
-    this.cache.invalidate('notifications?');
+    this.cache.invalidate(NOTIFICATIONS_KEY);
     return this.list.refetch();
   }
 

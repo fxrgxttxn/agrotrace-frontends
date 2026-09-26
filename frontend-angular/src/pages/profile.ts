@@ -397,10 +397,13 @@ export class ChannelsCardComponent {
   private readonly toasts = inject(ToastService);
   private readonly alert = formAlert();
   private readonly injector = inject(Injector);
-  /** FM21: the shared query (cache 30 s, retries); polled while a link code is out. */
+  /** FM21/FM24: the shared query (cache 30 s, retries, stale shown while refetched); polled while a code is out. */
   private readonly channelsQuery = injectQuery(
-    () => 'me/channels',
-    () => call<NotificationChannels>(this.session.api.GET('/me/channels')),
+    () => ({
+      key: 'me/channels',
+      load: () => call<NotificationChannels>(this.session.api.GET('/me/channels')),
+    }),
+    { failedText: t('profile.channelsFailed') },
   );
   protected readonly data = this.channelsQuery.data;
   protected readonly failed = this.channelsQuery.failed;
@@ -447,9 +450,8 @@ export class ChannelsCardComponent {
     this.alert.clear();
     this.saving.set(true);
     try {
-      this.channelsQuery.set(
-        await call<NotificationChannels>(this.session.api.PUT('/me/channels', { body: next })),
-      );
+      const write = this.channelsQuery.writer();
+      write(await call<NotificationChannels>(this.session.api.PUT('/me/channels', { body: next })));
     } catch (e) {
       const key =
         e instanceof ApiProblem ? (e.errors?.['telegram']?.[0] ?? e.errors?.['email']?.[0]) : undefined;
@@ -561,8 +563,8 @@ export class TwoFactorCardComponent {
   private readonly injector = inject(Injector);
 
   /** FM21: an action that removed the focused control gives the focus to its opener, else the page title. */
-  private refocus(opener: Element | null): void {
-    afterNextRender(() => restoreFocus(opener), { injector: this.injector });
+  private refocus(opener: Element | null, revealed?: () => HTMLElement | null): void {
+    afterNextRender(() => restoreFocus(opener, revealed?.()), { injector: this.injector });
   }
 
   protected cancel(): void {
@@ -593,7 +595,7 @@ export class TwoFactorCardComponent {
       }
     } finally {
       this.starting.set(false);
-      this.refocus(opener);
+      this.refocus(opener, () => document.getElementById('totp-code'));
     }
   }
 

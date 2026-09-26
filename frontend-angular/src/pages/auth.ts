@@ -589,8 +589,7 @@ export class RegisterPage {
   protected readonly outcome = signal<RegisterOrganizationResponse['status'] | null>(null);
   /** The public regions dictionary (FM21: cached until the page is reloaded, retried). */
   private readonly regionsQuery = injectQuery(
-    () => 'public/regions',
-    () => call<Region[]>(this.session.api.GET('/public/regions')),
+    () => ({ key: 'public/regions', load: () => call<Region[]>(this.session.api.GET('/public/regions')) }),
     { freshMs: FOREVER },
   );
   protected readonly regions = computed(() => this.regionsQuery.data() ?? []);

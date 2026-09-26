@@ -15,8 +15,14 @@ export function focusLost(): boolean {
 
 /** Ruling FM21: after a dialog closes or an action removed the focused control, the focus goes back to the opener if
  * it is still on the page, else to the page title — and only when the focus is lost (never taken from elsewhere).
- * Call it after the view shows the result (`afterNextRender`). */
-export function restoreFocus(opener: Element | null | undefined): void {
+ * `revealed`: the first field of a form the action just showed (FM24) — it takes the focus first. Call it after the
+ * view shows the result (`afterNextRender`). */
+export function restoreFocus(opener: Element | null | undefined, revealed?: HTMLElement | null): void {
+  // FM24: an action that revealed a new form or dialog gives its first field the focus
+  if (revealed?.isConnected) {
+    revealed.focus();
+    return;
+  }
   if (!focusLost()) return;
   if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
   else document.querySelector<HTMLElement>('.at-page:not([hidden]) h1.at-page__title')?.focus();
