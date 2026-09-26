@@ -56,6 +56,7 @@ export {
   type ToastTone,
 } from './toasts';
 export { PageHeaderComponent, PageLoadingComponent, EmptyComponent } from './page';
+// QrComponent (uqr) is imported from './qr' by the screens that draw one — not in UI, so the shell chunk stays without it.
 
 import { LinkDirective } from './link';
 import { ButtonComponent } from './button';

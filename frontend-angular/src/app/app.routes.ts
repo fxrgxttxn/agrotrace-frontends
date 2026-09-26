@@ -10,7 +10,7 @@ import {
   UnavailablePage,
 } from '../pages/errors';
 import { resilientLoad } from './chunk';
-import { guestOnly, requireRole, signedIn, toLoginOrUnavailable } from './guards';
+import { guestOnly, requireRole, signedIn, toLoginOrUnavailable, twoFactorChallenge } from './guards';
 import { AUTH_ROUTES, CABINET_ROUTES } from './routes';
 import { SHELL_PAGE_LOADERS } from './navigation';
 import { ShellComponent } from './shell/shell';
@@ -56,7 +56,10 @@ export function buildRoutes(devRoutes: Routes = []): Routes {
       path: r.path.slice(1),
       data: { title: r.title },
       loadComponent: resilientLoad(r.load, PageLoadFailedStandalonePage),
-      canActivate: GUEST_ONLY.has(r.path) ? [guestOnly] : [],
+      canActivate: [
+        ...(GUEST_ONLY.has(r.path) ? [guestOnly] : []),
+        ...(r.path === '/login/2fa' ? [twoFactorChallenge] : []),
+      ],
     })),
     { path: 'p', children: [{ path: '**', component: PublicReloadComponent }] },
     ...devRoutes,

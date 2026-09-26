@@ -129,3 +129,12 @@ export async function mockApi(
     });
   });
 }
+
+/** The body of an operation's first 2xx example (`'GET /me'`), to build a variant of it for an override. */
+export async function exampleBody(key: string): Promise<Json> {
+  const doc = await load();
+  const [method, path] = key.split(' ') as [string, string];
+  const op = doc['paths']?.[path]?.[method.toLowerCase()] as Json | undefined;
+  if (!op) throw new Error(`No operation ${key}`);
+  return structuredClone(example(doc, op).body) as Json;
+}

@@ -11,6 +11,7 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { countdown } from '../app/api';
+import { focusIfFree } from '../app/focus';
 import { t } from '../app/i18n';
 import { SessionService } from '../app/session';
 import { UI } from '../app/ui';
@@ -140,7 +141,7 @@ export class UnavailablePage {
       if (this.wait.left() > 0) waited = true;
       else if (waited) {
         waited = false;
-        afterNextRender(() => this.retryButton()?.nativeElement.focus(), { injector: this.injector });
+        afterNextRender(() => focusIfFree(this.retryButton()?.nativeElement), { injector: this.injector });
       }
     });
     // A retry that fails again (loading → unavailable, FM10): the disabled button had dropped the focus — back to it.
@@ -148,7 +149,7 @@ export class UnavailablePage {
     effect(() => {
       const now = this.session.status();
       if (previous === 'loading' && now === 'unavailable' && this.wait.left() === 0)
-        afterNextRender(() => this.retryButton()?.nativeElement.focus(), { injector: this.injector });
+        afterNextRender(() => focusIfFree(this.retryButton()?.nativeElement), { injector: this.injector });
       previous = now;
     });
   }

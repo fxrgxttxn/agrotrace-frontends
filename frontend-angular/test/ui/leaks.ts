@@ -1,4 +1,5 @@
 import { UI } from '../../src/app/ui';
+import { QrComponent } from '../../src/app/ui/qr';
 
 // Page tests of every screen (A1–A7) call `expectNoLeakedInputs(document.body)` after rendering in production mode:
 // a wrapper input written as a static attribute (`label="…"` instead of `[label]="'…'"`) would stay in the DOM.
@@ -29,7 +30,7 @@ export function leakedInputAttributes(root: Element): string[] {
     'height',
   ]);
   const inputs = new Set<string>();
-  for (const type of UI) {
+  for (const type of [...UI, QrComponent]) {
     const def =
       (type as unknown as Record<string, { inputs?: Record<string, unknown> }>)['ɵcmp'] ??
       (type as unknown as Record<string, { inputs?: Record<string, unknown> }>)['ɵdir'];

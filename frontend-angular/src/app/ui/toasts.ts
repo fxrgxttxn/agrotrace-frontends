@@ -52,12 +52,9 @@ export class ToastService {
   standalone: true,
   imports: [ButtonComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<p class="at-toast__text">
-      {{ toast().text }}
-      @if (toast().detail) {
-        <small>{{ toast().detail }}</small>
-      }
-    </p>
+  // No whitespace around the text (as React's `{text}{detail && <small>}`): the text is exactly the message.
+  // prettier-ignore
+  template: `<p class="at-toast__text">{{ toast().text }}@if (toast().detail) {<small>{{ toast().detail }}</small>}</p>
     <button
       class="at-button"
       [variant]="'ghost'"

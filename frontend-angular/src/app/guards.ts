@@ -56,3 +56,13 @@ export const guestOnly: CanActivateFn = (route) => {
       s.status === 'authenticated' ? replaceWith(router, safeNext(route.queryParamMap.get('next'))) : true,
     );
 };
+
+/** `/login/2fa` needs the challenge of the login answer (the navigation's history state — kept on reload and back /
+ * forward); without one it is the login again, `next` kept (React: `<Navigate to="/login…" replace>`). */
+export const twoFactorChallenge: CanActivateFn = (_route, state) => {
+  const router = inject(Router);
+  const saved = router.getCurrentNavigation()?.extras.state as { challengeId?: unknown } | undefined;
+  if (typeof saved?.challengeId === 'string') return true;
+  const q = state.url.indexOf('?');
+  return replaceWith(router, `/login${q < 0 ? '' : state.url.slice(q)}`);
+};

@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/angular';
 import userEvent from '@testing-library/user-event';
 import { Location } from '@angular/common';
 import { TestBed } from '@angular/core/testing';
+import { RoutesRecognized } from '@angular/router';
 import { server } from '../setup';
 import { contractResponse } from '../msw/fromContract';
 import { renderApp } from './renderApp';
@@ -89,5 +90,22 @@ describe('focus on route change', () => {
     expect(document.activeElement).toBe(more);
     await fixture.ngZone!.run(() => router.navigateByUrl('/fields'));
     await waitFor(() => expect(document.activeElement).toBe(h1('Поля')));
+  });
+});
+
+describe('a cancelled navigation (FM16)', () => {
+  it('back on the current section (a pending navigation elsewhere superseded) focuses its title', async () => {
+    const { router, fixture } = renderApp('/batches');
+    await screen.findByRole('heading', { level: 1, name: 'Партии' });
+    // The click on «Партии» lands while the /fields page is still on its way (its URL already in the address bar —
+    // eager update at RoutesRecognized — its chunk not yet there).
+    const sub = router.events.subscribe((e) => {
+      if (e instanceof RoutesRecognized && e.url === '/fields') void router.navigateByUrl('/batches');
+    });
+    await fixture.ngZone!.run(() => router.navigateByUrl('/fields'));
+    sub.unsubscribe();
+    await waitFor(() => expect(document.activeElement).toBe(h1('Партии')));
+    expect(router.url).toBe('/batches');
+    expect(TestBed.inject(Location).path()).toBe('/batches');
   });
 });
