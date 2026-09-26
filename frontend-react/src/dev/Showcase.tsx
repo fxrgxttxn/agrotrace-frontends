@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { BATCH_STATUSES } from '@agrotrace/domain';
+import { BarChart } from '../charts/BarChart';
 import { ThemeSwitch } from '../shell/ThemeSwitch';
 import {
   Avatar,
@@ -398,7 +399,34 @@ export function Showcase() {
         </div>
         <Metric label="Масса на складе" value="212,4" unit="т" spark={[3, 5, 4, 7, 6, 9]} />
         <Metric label="Доля брака" value="2,4" unit="%" tone="danger" spark={[1, 2, 2, 3, 5, 4]} />
+        <Metric label="Задачи отзыва" value="2" delta="из них просрочено: 1" />
         <Progress id="ds-progress-danger" label="Изъято" value={2} max={12} tone="danger" />
+      </Section>
+
+      <Section id="chart" title="at-chart">
+        <Card style={{ width: 'min(100%, 36rem)' }}>
+          <CardHeader title="Доля брака по продуктам" />
+          <CardBody>
+            <BarChart
+              title="Доля брака по продуктам"
+              bars={[
+                { key: 'w', label: 'Пшеница озимая', value: 12.5, display: '12,50%' },
+                { key: 'm', label: 'Мука пшеничная высшего сорта', value: 4, display: '4,00%' },
+                { key: 'b', label: 'Ячмень', value: 0, display: '0,00%' },
+              ]}
+              columns={[
+                { key: 'name', header: 'Продукт', cell: (r: { name: string; share: string }) => r.name },
+                { key: 'share', header: 'Доля брака, %', numeric: true, cell: (r) => r.share },
+              ]}
+              rows={[
+                { name: 'Пшеница озимая', share: '12,50' },
+                { name: 'Мука пшеничная высшего сорта', share: '4,00' },
+                { name: 'Ячмень', share: '0,00' },
+              ]}
+              rowKey={(r) => r.name}
+            />
+          </CardBody>
+        </Card>
       </Section>
 
       <Section id="feedback" title="at-dialog, at-toast, at-spinner, at-skeleton, at-avatar">

@@ -42,6 +42,7 @@ import {
   useToast,
 } from '../../src/ui';
 import { canonical, canonicalHtml, readmeBlock } from './readme';
+import { BarChart } from '../../src/charts/BarChart';
 
 // Review Focus 1 / ruling F5: every wrapper renders exactly the README markup (classes, attributes, ARIA). The README
 // examples are parsed from packages/design-system/README.md and compared as they are; the only substitutions are
@@ -565,6 +566,34 @@ describe('README markup contract: data and feedback', () => {
     expect(dom(<Progress id="recall-progress" label="Подтверждено" value={7} max={12} />)).toBe(
       canonicalHtml(readmeBlock('Прогресс')),
     );
+  });
+
+  it('at-chart in its card (canvas summary, collapsed table view)', () => {
+    type Row = { name: string; tested: number; failed: number; share: string };
+    const rows: Row[] = [{ name: 'Пшеница озимая', tested: 8, failed: 1, share: '12,50' }];
+    const { container } = render(
+      <Card>
+        <CardHeader title="Доля брака по продуктам" />
+        <CardBody>
+          <BarChart
+            title="Доля брака по продуктам"
+            bars={[
+              { key: 'w', label: 'Пшеница озимая', value: 12.5, display: '12,50%' },
+              { key: 'b', label: 'Ячмень', value: 0, display: '0,00%' },
+            ]}
+            columns={[
+              { key: 'name', header: 'Продукт', primary: true, cell: (r) => r.name },
+              { key: 'tested', header: 'Проверено', numeric: true, cell: (r) => String(r.tested) },
+              { key: 'failed', header: 'С превышением', numeric: true, cell: (r) => String(r.failed) },
+              { key: 'share', header: 'Доля брака, %', numeric: true, cell: (r) => r.share },
+            ]}
+            rows={rows}
+            rowKey={(r) => r.name}
+          />
+        </CardBody>
+      </Card>,
+    );
+    expect(canonical(container.childNodes)).toBe(canonicalHtml(readmeBlock('График')));
   });
 });
 

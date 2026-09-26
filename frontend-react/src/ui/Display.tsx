@@ -113,12 +113,15 @@ export function Metric({
   unit,
   tone,
   spark,
+  delta,
 }: {
   label: ReactNode;
   value: ReactNode;
   unit?: ReactNode;
   tone?: 'danger';
   spark?: number[];
+  /** A second line under the value (`at-metric__delta`): «из них просрочено: 1». */
+  delta?: ReactNode;
 }) {
   return (
     <div className="at-metric" data-tone={tone}>
@@ -126,6 +129,7 @@ export function Metric({
       <p className="at-metric__value">
         {value}
         {unit !== undefined && <span className="at-metric__unit">{unit}</span>}
+        {delta !== undefined && <span className="at-metric__delta">{delta}</span>}
       </p>
       {spark && spark.length > 1 && (
         <div className="at-metric__spark" aria-hidden="true">

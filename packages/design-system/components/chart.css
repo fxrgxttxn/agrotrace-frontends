@@ -1,0 +1,89 @@
+/* at-chart — a bar chart (the framework wrapper mounts Apache ECharts into .at-chart__canvas) with its table view.
+   <div class="at-chart" style="--at-chart-rows: 4">
+     <div class="at-chart__canvas" role="img" aria-label="Доля брака по продуктам: …"></div>
+     <details class="at-chart__data">
+       <summary class="at-chart__data-toggle">Таблица значений</summary>
+       <div class="at-table-wrap"><table class="at-table">…</table></div>
+     </details>
+   </div>
+   The canvas height follows the number of bars (one 40 px band per bar + the axis band); marks, grid and labels take
+   their colours from the tokens (README «График»). */
+
+.at-chart {
+  display: grid;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+/* Grid items never grow past the card: the table view scrolls inside its own .at-table-wrap. */
+.at-chart > * {
+  min-width: 0;
+}
+
+.at-chart__canvas {
+  min-width: 0;
+  /* ECharts sizes its own box in px: a narrower card must not be held wide by it (the tooltip is confined). */
+  overflow: hidden;
+  height: calc(var(--at-chart-rows, 4) * 40px + 32px);
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+/* A refetch keeps the previous render, dimmed — no skeleton flash, no layout jump. */
+.at-chart[aria-busy='true'] .at-chart__canvas {
+  opacity: 0.6;
+}
+
+.at-chart__data-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--touch);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-m);
+  color: var(--c-field);
+  font: 500 var(--fs-14) / var(--lh-14) var(--font-body);
+  cursor: pointer;
+  list-style: none;
+}
+
+.at-chart__data-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.at-chart__data-toggle::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.75px solid currentColor;
+  border-bottom: 1.75px solid currentColor;
+  rotate: -45deg;
+  transition: rotate var(--dur-fast) var(--ease);
+}
+
+.at-chart__data[open] > .at-chart__data-toggle::before {
+  rotate: 45deg;
+}
+
+.at-chart__data-toggle:hover {
+  background: var(--c-surface-sunk);
+  color: var(--c-ink);
+}
+
+.at-chart__data > .at-table-wrap {
+  margin-top: var(--sp-2);
+}
+
+/* One line instead of the chart when the period has no data. */
+.at-chart__empty {
+  margin: 0;
+  padding: var(--sp-4) 0;
+  color: var(--c-ink-muted);
+}
+
+/* The ECharts tooltip (its own absolutely positioned element): the one shadow, the card radius. */
+.at-chart__tooltip {
+  border-radius: var(--r-m) !important;
+  box-shadow: var(--shadow-1) !important;
+  font: 400 var(--fs-13) / var(--lh-13) var(--font-body) !important;
+  font-variant-numeric: tabular-nums;
+}

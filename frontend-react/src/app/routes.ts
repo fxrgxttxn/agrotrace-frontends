@@ -182,7 +182,7 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/lab/tests/:id',
     title: 'page.labTest',
     access: { roles: [L] },
-    ops: ['getLabTest', 'submitLabResults'],
+    ops: ['getLabTest', 'registerLabSample', 'submitLabResults', 'uploadLabProtocol'],
     load: page(lab, 'LabTestPage'),
   },
   {

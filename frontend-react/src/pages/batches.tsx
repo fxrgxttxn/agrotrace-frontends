@@ -14,13 +14,14 @@ import {
 } from '@agrotrace/i18n';
 import { BatchCreateSchema } from '@agrotrace/validation';
 import { canAccess } from '../app/access';
-import { call, errorText, errorTone, retryAfterOf, useCountdown } from '../app/api';
+import { call, errorText, errorTone, retryAfterOf, useCountdown, useFocusAfterWait } from '../app/api';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
 import { momentCheck, momentDefaults, MomentInput, momentWire } from '../app/MomentInput';
 import { DateFilter } from '../app/DateFilter';
+import { LAB_STATUS_TONE } from '../app/labTests';
 import { OrgPicker } from '../app/OrgPicker';
 import { CABINET_ROUTES } from '../app/routes';
 import { useMe, useSession } from '../app/session';
@@ -37,6 +38,7 @@ import {
   CardFooter,
   CardHeader,
   Chip,
+  Dialog,
   Empty,
   Field,
   InputGroup,
@@ -102,6 +104,8 @@ function useViewer() {
     me,
     farmer: has('FARMER'),
     overseer: has('INSPECTOR') || has('ADMIN'),
+    /** Assigns unscheduled lab tests (x-roles of createLabTest). */
+    inspector: has('INSPECTOR'),
     participant: has('FARMER') || has('PROCESSOR') || has('RETAILER'),
     /** The viewer may open `href` (a §9.4 route of their role). */
     may: (href: string) => {
@@ -596,6 +600,17 @@ export function BatchPage() {
   const tab: Tab = (TABS as readonly string[]).includes(params.get('tab') ?? '')
     ? (params.get('tab') as Tab)
     : 'history';
+  const [assigning, setAssigning] = useState(false);
+  const showTab = (next: Tab) =>
+    setParams(
+      (cur) => {
+        const n = new URLSearchParams(cur);
+        if (next === 'history') n.delete('tab');
+        else n.set('tab', next);
+        return n;
+      },
+      { replace: true },
+    );
 
   const query = useQuery({
     queryKey: ['batch', id],
@@ -635,13 +650,19 @@ export function BatchPage() {
     <Page
       title={batch?.publicCode ?? t('page.batch')}
       actions={
-        actions.length > 0 && (
+        batch &&
+        (actions.length > 0 || viewer.inspector) && (
           <>
             {actions.map(({ a, href }, i) => (
               <ButtonLink key={a.action} variant={i === 0 ? 'primary' : 'secondary'} to={href}>
                 {enumLabel(t, 'BatchActionName', a.action)}
               </ButtonLink>
             ))}
+            {viewer.inspector && (
+              <Button variant="secondary" icon="flask" onClick={() => setAssigning(true)}>
+                {t('lab.assign')}
+              </Button>
+            )}
           </>
         )
       }
@@ -657,17 +678,7 @@ export function BatchPage() {
             label={t('batches.tabs', { code: batch.publicCode })}
             tabs={TABS.map((id) => ({ id, label: t(`batches.tab.${id}`) }))}
             selected={tab}
-            onSelect={(next) =>
-              setParams(
-                (cur) => {
-                  const n = new URLSearchParams(cur);
-                  if (next === 'history') n.delete('tab');
-                  else n.set('tab', next);
-                  return n;
-                },
-                { replace: true },
-              )
-            }
+            onSelect={(next) => showTab(next as Tab)}
             panel={(which) => {
               switch (which as Tab) {
                 case 'history':
@@ -685,7 +696,114 @@ export function BatchPage() {
           />
         </div>
       )}
+      {batch && viewer.inspector && (
+        <AssignLabDialog
+          open={assigning}
+          batch={batch}
+          onClose={() => setAssigning(false)}
+          onDone={() => {
+            setAssigning(false);
+            showTab('tests');
+          }}
+        />
+      )}
     </Page>
+  );
+}
+
+/** The inspector's unscheduled test (п. 4.3, `createLabTest`): a laboratory from the directory (type LAB). Failures
+ * stay in the dialog (the page's toast region is behind it, README «Диалог»); a 400 on the laboratory is its field's
+ * error. */
+function AssignLabDialog({
+  open,
+  batch,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  batch: Batch;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { api } = useSession();
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [labOrgId, setLabOrgId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [wait, startWait] = useCountdown();
+  const confirmRef = useFocusAfterWait(wait);
+  // What was chosen lives only while the dialog is open.
+  useEffect(() => {
+    if (open) return;
+    setLabOrgId('');
+    setError(null);
+    setMessage(null);
+  }, [open]);
+  const assign = async () => {
+    if (!labOrgId) return setError(t('validation.required'));
+    setBusy(true);
+    setMessage(null);
+    try {
+      const test = await call<Schemas['LabTest']>(
+        api.POST('/lab-tests', { body: { batchId: batch.id, labOrgId } }),
+      );
+      void queryClient.invalidateQueries({ queryKey: ['batch', batch.id, 'tests'] });
+      toast.push({ tone: 'ok', text: t('lab.assigned', { code: batch.publicCode, lab: test.lab.name }) });
+      onDone();
+    } catch (e) {
+      const key = e instanceof ApiProblem && e.code === 'VALIDATION' ? e.errors?.labOrgId?.[0] : undefined;
+      if (key) setError(t(key));
+      else {
+        if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
+        setMessage(errorText(e));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t('lab.assignTitle', { code: batch.publicCode })}
+      actions={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t('action.cancel')}
+          </Button>
+          <Button
+            ref={confirmRef}
+            variant="primary"
+            busy={busy}
+            disabled={wait > 0}
+            onClick={() => void assign()}
+          >
+            {wait > 0 ? t('auth.retryIn', { seconds: wait }) : t('lab.assign')}
+          </Button>
+        </>
+      }
+    >
+      <div style={{ display: 'grid', gap: 'var(--sp-4)' }}>
+        {message && (
+          <p className="at-field__error" role="alert" style={{ margin: 0 }}>
+            {message}
+          </p>
+        )}
+        <OrgPicker
+          id="assign-lab"
+          label={t('field.labOrgId')}
+          types={['LAB']}
+          value={labOrgId}
+          error={error}
+          onChange={(id) => {
+            setLabOrgId(id ?? '');
+            setError(null);
+          }}
+        />
+      </div>
+    </Dialog>
   );
 }
 
@@ -930,14 +1048,6 @@ function GraphTab({ batch }: { batch: Batch }) {
     </div>
   );
 }
-
-const LAB_STATUS_TONE: Record<Schemas['LabTestStatus'], Tone> = {
-  QUEUED: 'attention',
-  SAMPLED: 'move',
-  DONE: 'ok',
-  ESCALATED: 'danger',
-  CANCELLED: 'neutral',
-};
 
 function TestsTab({ id, labLinks }: { id: string; labLinks: boolean }) {
   const { api } = useSession();
