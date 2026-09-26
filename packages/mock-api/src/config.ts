@@ -20,6 +20,79 @@ export interface MockConfig {
   onMail: (mail: MockMail) => void;
   /** Where persisted upload bytes live (IndexedDB in browsers); null — kept in the snapshot. */
   blobs: BlobStore | null;
+  /** Rate-limit counters (FM19): outside the world's snapshot — counting a request is not a change of the world. */
+  counters: RateCounters;
+}
+
+/**
+ * Fixed-window rate-limit counters (R30) kept apart from the world (FM19): a request that only reads counts without
+ * making the snapshot dirty; other tabs re-read nothing and no SSE counter is pushed.
+ */
+export interface RateCounters {
+  /** INCR of `key` (a window ending at `expiresAt`, epoch ms): the new count. Expired windows are dropped. */
+  hit(key: string, expiresAt: number, now: number): number;
+  /** The live count of `key` (0: none or expired). */
+  peek(key: string, now: number): number;
+  /** Every stored key, expired ones included (tests: expired windows must not pile up). */
+  keys(): string[];
+  clear(): void;
+}
+
+type Windows = Record<string, [count: number, expiresAt: number]>;
+
+const live = (w: Windows, now: number): Windows => Object.fromEntries(Object.entries(w).filter(([, [, exp]]) => exp > now));
+
+/** Counters of one tab (Node, `persist: false`). */
+export function memoryCounters(): RateCounters {
+  let w: Windows = {};
+  return {
+    hit(key, expiresAt, now) {
+      w = live(w, now);
+      const count = (w[key]?.[0] ?? 0) + 1;
+      w[key] = [count, expiresAt];
+      return count;
+    },
+    peek: (key, now) => live(w, now)[key]?.[0] ?? 0,
+    keys: () => Object.keys(w),
+    clear: () => void (w = {}),
+  };
+}
+
+export const COUNTERS_KEY = 'agrotrace-mock-api:rate-limits';
+
+/**
+ * Counters shared by the tabs of the origin: one small JSON key next to the snapshot (a few windows; expired ones are
+ * dropped on every hit). Requests run under the cross-tab lock, so read-increment-write is not interleaved. When the
+ * storage refuses the write (quota) this tab keeps counting in memory.
+ */
+export function storageCounters(storage: Storage): RateCounters {
+  const fallback = memoryCounters();
+  const read = (): Windows => {
+    try {
+      return JSON.parse(storage.getItem(COUNTERS_KEY) ?? '{}') as Windows;
+    } catch {
+      return {};
+    }
+  };
+  return {
+    hit(key, expiresAt, now) {
+      const w = live(read(), now);
+      const count = (w[key]?.[0] ?? 0) + 1;
+      w[key] = [count, expiresAt];
+      try {
+        storage.setItem(COUNTERS_KEY, JSON.stringify(w));
+      } catch {
+        return fallback.hit(key, expiresAt, now);
+      }
+      return count;
+    },
+    peek: (key, now) => live(read(), now)[key]?.[0] ?? 0,
+    keys: () => Object.keys(read()),
+    clear() {
+      storage.removeItem(COUNTERS_KEY);
+      fallback.clear();
+    },
+  };
 }
 
 export interface BlobStore {

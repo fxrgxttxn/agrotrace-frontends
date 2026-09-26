@@ -8,7 +8,7 @@
  *   setupWorker(...api.handlers).start({ onUnhandledRequest: 'bypass' });   // or startBrowserMock() (./browser)
  */
 import { delay, http, type HttpHandler } from 'msw';
-import { webLock, type BlobStore, type CrossTabLock, type MockConfig, type MockMail } from './config.js';
+import { memoryCounters, storageCounters, webLock, type BlobStore, type CrossTabLock, type MockConfig, type MockMail, type RateCounters } from './config.js';
 import { renderGenerated } from './domain/documents.js';
 import { runSchedulers } from './domain/scheduler.js';
 import { totpNow } from './domain/tokens.js';
@@ -38,7 +38,8 @@ import { buildSeed } from './store/seed.js';
 import type { Store } from './store/store.js';
 
 export { DEMO_PASSWORD } from './store/seed.js';
-export type { BlobStore, CrossTabLock, MockMail } from './config.js';
+export type { BlobStore, CrossTabLock, MockMail, RateCounters } from './config.js';
+export { memoryCounters } from './config.js';
 export { solveChallenge } from './domain/altcha.js';
 export { totpNow } from './domain/tokens.js';
 
@@ -61,6 +62,8 @@ export interface MockApiOptions {
   lock?: CrossTabLock | null;
   /** Testing aid: a request that did not mark the store dirty must not have changed the snapshot (throws otherwise). */
   verifyPersistence?: boolean;
+  /** Rate-limit counters (default: a small key next to the snapshot when persisted, else in memory). */
+  counters?: RateCounters;
   /** `PUBLIC_BASE_URL` for QR codes and e-mail links (default: `location.origin` in a browser, else `http://localhost`). */
   publicBaseUrl?: string;
   /** Reads bundled assets by URL (default: `fetch`). Tests in Node pass a file reader. */
@@ -153,6 +156,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       options.onMail?.(mail);
     },
     blobs,
+    counters: options.counters ?? (storage ? storageCounters(storage) : memoryCounters()),
   };
   const shared = storage ? new SharedState(storage, blobs, now) : null;
   let persistError: unknown = null;
@@ -266,8 +270,15 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     reset() {
       ready = serial(async () => {
         hub.closeAll();
+        // FM19: notification ids stay monotonic across resets — the new world starts above the last id any tab saw,
+        // so a client reconnecting with an old Last-Event-ID gets the new world's notifications.
+        await readThrough();
+        const above = m.store.seq.notification;
         await shared?.clear();
+        cfg.counters.clear();
         m.store = fresh();
+        for (const n of m.store.t.notifications) n.seq += above;
+        m.store.seq.notification += above;
         hub.attach(m.store);
         mailbox.length = 0;
         await renderGenerated(cfg, m.store);

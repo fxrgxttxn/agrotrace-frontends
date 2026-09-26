@@ -118,11 +118,12 @@ export function inflateEntries(b: Uint8Array): Record<string, Uint8Array> {
 }
 
 /** Rows of the first worksheet: header (row 1) and data rows with their numbers; trailing empty cells dropped. */
-export function readXlsx(b: Uint8Array): { header: Cell[] | null; rows: { number: number; cells: Cell[] }[] } {
+export function readXlsx(b: Uint8Array, sheetIndex = 0): { header: Cell[] | null; rows: { number: number; cells: Cell[] }[] } {
   const files = inflateEntries(b);
   const text = (name: string): string | null => (files[name] ? strFromU8(files[name]!) : null);
   const workbook = text('xl/workbook.xml') ?? '';
-  const firstSheetRid = /<sheet\b[^>]*\br:id="([^"]+)"/.exec(workbook)?.[1];
+  // The import reads the first sheet; reports' tests read the others.
+  const firstSheetRid = [...workbook.matchAll(/<sheet\b[^>]*\br:id="([^"]+)"/g)][sheetIndex]?.[1];
   const rels = text('xl/_rels/workbook.xml.rels') ?? '';
   let target = 'worksheets/sheet1.xml';
   for (const m of rels.matchAll(/<Relationship\b([^>]*)\/?>/g)) {

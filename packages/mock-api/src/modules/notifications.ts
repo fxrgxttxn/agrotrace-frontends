@@ -180,7 +180,8 @@ export function notificationsHandlers(hub: EventHub): Record<string, Handler> {
       const query = ctx.url.searchParams.get('lastEventId');
       const raw = header ?? query;
       // The operation declares no 400: a value that is not a sequence number is treated as absent.
-      // An id from before a reset in another tab, above every sequence number of this world, replays nothing.
+      // Ids are monotonic across resets (FM19): an id from an earlier world is below every id of the current one, so the
+      // client gets the whole new world's notifications for its user.
       const lastSeq = raw !== null && /^\d{1,15}$/.test(raw) ? Number(raw) : null;
       return hub.open(p.userId, p.exp, lastSeq, () => ctx.store.now());
     },
