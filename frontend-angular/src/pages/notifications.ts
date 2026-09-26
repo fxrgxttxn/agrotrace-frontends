@@ -14,6 +14,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import type { ApiNotification, NotificationPage, UnreadCount } from '@agrotrace/api-client';
 import { formatLocalDateTime, notificationMessage } from '@agrotrace/i18n';
 import { canAccess, type Viewer } from '../app/access';
+import { injectAlive } from '../app/alive';
 import { call } from '../app/api';
 import { restoreFocus } from '../app/focus';
 import { applyProblem, formAlert } from '../app/forms';
@@ -250,6 +251,7 @@ export class NotificationsPage {
   protected readonly fetching = this.list.fetching;
   private readonly cache = inject(QueryCache);
   private readonly injector = inject(Injector);
+  private readonly alive = injectAlive();
   protected readonly selected = signal<Set<string>>(new Set());
   protected readonly marking = signal<'ids' | 'all' | null>(null);
 
@@ -341,18 +343,26 @@ export class NotificationsPage {
     this.alert.clear();
     this.marking.set(kind);
     const opener = document.activeElement;
+    const generation = this.cache.generation;
+    let res: UnreadCount;
     try {
       const body = kind === 'ids' ? { ids: [...this.selected()] } : { upToSeq: await this.newestSeq() };
-      const res = await call<UnreadCount>(this.session.api.POST('/notifications/read', { body }));
-      this.live.setUnread(res.count);
-      this.selected.set(new Set());
-      await this.reload();
-      // «Отметить прочитанным» went away with the selection (FM21): the opener if it is still there, else the title
-      afterNextRender(() => restoreFocus(opener), { injector: this.injector });
+      res = await call<UnreadCount>(this.session.api.POST('/notifications/read', { body }));
     } catch (e) {
-      applyProblem(e, { alert: this.alert.show });
-    } finally {
+      applyProblem(e, { alert: this.alert.show }); // (a screen that is gone shows nothing — formAlert, FM25)
       this.marking.set(null);
+      return;
     }
+    // Done: the bell of this session and the cached lists follow wherever the user is; the UI steps only on this
+    // screen, while it stands (FM25 — a success never becomes an error).
+    this.live.setUnread(res.count, generation);
+    this.cache.invalidate(NOTIFICATIONS_KEY);
+    if (!this.alive()) return;
+    this.marking.set(null);
+    this.selected.set(new Set());
+    await this.list.refetch();
+    if (!this.alive()) return;
+    // «Отметить прочитанным» went away with the selection (FM21): the opener if it is still there, else the title
+    afterNextRender(() => restoreFocus(opener), { injector: this.injector });
   }
 }

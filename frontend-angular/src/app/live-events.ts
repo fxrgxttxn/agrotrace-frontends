@@ -61,9 +61,10 @@ export class LiveEventsService {
     });
   }
 
-  /** Sets the counter from an answer that carries it (`UnreadCount` of `POST /notifications/read`). */
-  setUnread(count: number): void {
-    this.unread.set(count);
+  /** Sets the counter from an answer that carries it (`UnreadCount` of `POST /notifications/read`), taken in session
+   * `generation` (FM25: the answer of an ended session never sets the next user's bell). */
+  setUnread(count: number, generation: number): void {
+    if (generation === this.cache.generation) this.unread.set(count);
   }
 
   private handle(e: StreamEvent): void {

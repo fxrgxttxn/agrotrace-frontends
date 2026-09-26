@@ -50,6 +50,8 @@ export class QueryCache {
   private readonly entries = new Map<string, { data: unknown; at: number }>();
   private readonly inflight = new Map<string, Promise<unknown>>();
   private gen = 0;
+  /** Keys invalidated while their request was in flight. */
+  private readonly staleOnArrival = new Set<string>();
 
   constructor() {
     const sub = inject(SessionService).ended$.subscribe(() => this.clear());
@@ -74,7 +76,8 @@ export class QueryCache {
   }
 
   /** Loads `key` with `load` (the request as it was started — a retry repeats it), sharing a request already in
-   * flight; stores the answer unless the session ended meanwhile. */
+   * flight; stores the answer unless the session ended meanwhile. No request is made for an ended session (FM25: the
+   * generation is checked again after every backoff sleep). */
   fetch<T>(key: string, load: () => Promise<T>): Promise<T> {
     const running = this.inflight.get(key);
     if (running) return running as Promise<T>;
@@ -83,18 +86,23 @@ export class QueryCache {
       for (let attempt = 0; ; attempt++) {
         try {
           const data = await load();
-          this.put(key, data, generation);
+          const stale = this.staleOnArrival.delete(key);
+          if (this.put(key, data, generation) && stale) this.entries.get(key)!.at = Number.NEGATIVE_INFINITY;
           return data;
         } catch (e) {
           const delay = this.delays[attempt];
           if (delay === undefined || !retriable(e) || generation !== this.gen) throw e;
           await new Promise((r) => setTimeout(r, delay));
+          if (generation !== this.gen) throw e;
         }
       }
     })();
     this.inflight.set(key, run);
     const done = () => {
-      if (this.inflight.get(key) === run) this.inflight.delete(key);
+      if (this.inflight.get(key) === run) {
+        this.inflight.delete(key);
+        this.staleOnArrival.delete(key);
+      }
     };
     run.then(done, done);
     return run;
@@ -107,15 +115,18 @@ export class QueryCache {
     return true;
   }
 
-  /** Marks every key starting with `prefix` stale: its rows stay for the next read, which asks the server. */
+  /** Marks every key starting with `prefix` stale: its rows stay for the next read, which asks the server. A request
+   * of such a key in flight answers stale (FM25: it may predate what made the key stale). */
   invalidate(prefix: string): void {
     for (const [k, e] of this.entries) if (k.startsWith(prefix)) e.at = Number.NEGATIVE_INFINITY;
+    for (const k of this.inflight.keys()) if (k.startsWith(prefix)) this.staleOnArrival.add(k);
   }
 
   clear(): void {
     this.gen++;
     this.entries.clear();
     this.inflight.clear();
+    this.staleOnArrival.clear();
   }
 }
 
@@ -170,6 +181,7 @@ export function injectQuery<T>(spec: () => QuerySpec<T>, options: QueryOptions =
   });
 
   const run = async (s: QuerySpec<T>): Promise<void> => {
+    let again = false;
     fetching.set(true);
     try {
       const answer = await cache.fetch(s.key, s.load);
@@ -178,6 +190,8 @@ export function injectQuery<T>(spec: () => QuerySpec<T>, options: QueryOptions =
       shownKey = s.key;
       failed.set(false);
       dropToast();
+      // invalidated while it was on its way (FM25): shown, and asked for again at once — the screen is on
+      again = cache.read(s.key, freshMs)?.fresh === false;
     } catch {
       if (!alive || s !== current) return;
       if (shownKey === s.key) {
@@ -194,6 +208,7 @@ export function injectQuery<T>(spec: () => QuerySpec<T>, options: QueryOptions =
     } finally {
       if (alive && s === current) fetching.set(false);
     }
+    if (again) await run(s);
   };
 
   effect(

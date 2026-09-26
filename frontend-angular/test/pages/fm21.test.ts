@@ -119,7 +119,7 @@ describe('FM21 focus after an action removed the focused control', () => {
     await waitFor(() => expect(h1('Уведомления')).toHaveFocus());
   });
 
-  it('2FA: «Отмена» and «Включить» remove the form — the page title gets the focus', async () => {
+  it('2FA: «Отмена» removes the form — the focus returns to «Настроить» that revealed it (FM25)', async () => {
     server.use(asMe({ roles: ['ADMIN'] }), contractResponse('setupTwoFactor', { example: 'pending' }));
     renderApp('/profile');
     await screen.findByRole('heading', { level: 1, name: 'Профиль' });
@@ -129,7 +129,7 @@ describe('FM21 focus after an action removed the focused control', () => {
       );
     await userEvent.click(card().getByRole('button', { name: 'Настроить' }));
     await userEvent.click(await card().findByRole('button', { name: 'Отмена' }));
-    await waitFor(() => expect(h1('Профиль')).toHaveFocus());
+    await waitFor(() => expect(card().getByRole('button', { name: 'Настроить' })).toHaveFocus());
   });
 });
 

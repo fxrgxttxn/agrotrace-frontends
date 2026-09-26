@@ -14,6 +14,7 @@ import {
 import { AbstractControl, FormControl, FormGroup, type ValidatorFn } from '@angular/forms';
 import { ApiProblem } from '@agrotrace/api-client';
 import { countdown, errorText, retryAfterOf } from './api';
+import { injectAlive } from './alive';
 import { focusIfFree } from './focus';
 import { t } from './i18n';
 import { ToastService } from './ui/toasts';
@@ -74,9 +75,15 @@ export function formAlert(): {
     if (id !== null) toasts.dismiss(id);
     id = null;
   };
-  inject(DestroyRef).onDestroy(clear);
+  let alive = true;
+  inject(DestroyRef).onDestroy(() => {
+    alive = false;
+    clear();
+  });
   return {
+    // FM25: a message of a screen that is gone is not shown (it would stay, unowned)
     show: (text, tone = 'danger') => {
+      if (!alive) return;
       clear();
       id = toasts.push({ tone, text });
     },
@@ -128,6 +135,7 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
   private readonly version = signal(0);
   private readonly startWait: (seconds: number) => void;
   private readonly injector = inject(Injector);
+  private readonly alive = injectAlive();
   private readonly toWire: (values: V) => unknown;
   private formEl: HTMLElement | null = null;
 
@@ -182,6 +190,7 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
 
   /** Puts an error (i18n key or ready text) under a field and focuses it. */
   setError(path: string, message: string): void {
+    if (!this.alive()) return;
     this.server.update((s) => ({ ...s, [path]: message }));
     focusFirstInvalid(this.formEl, this.injector);
   }
@@ -218,6 +227,7 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
   /** A failed submit on the form: 400 `errors` under the fields it renders (the rest as the form message), a 429 as
    * the countdown on the submit, anything else as the form message. */
   fail(e: unknown): void {
+    if (!this.alive()) return; // FM25: the screen is gone — nothing to show the failure on
     applyProblem(e, {
       alert: this.alert.show,
       onRateLimit: this.startWait,

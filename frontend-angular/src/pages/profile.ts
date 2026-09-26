@@ -5,6 +5,7 @@ import {
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   inject,
   Injector,
   input,
@@ -27,6 +28,7 @@ import {
   type MeUpdate,
   type TwoFactorSetupRequest,
 } from '@agrotrace/validation';
+import { injectAlive } from '../app/alive';
 import { call, countdown, errorText, retryAfterOf } from '../app/api';
 import { restoreFocus } from '../app/focus';
 import { errorTone, FocusAfterWaitDirective, formAlert, SchemaForm } from '../app/forms';
@@ -105,6 +107,8 @@ export class PersonalCardComponent {
   readonly personal = input.required<Me>();
   private readonly session = inject(SessionService);
   private readonly toasts = inject(ToastService);
+  /** FM25: UI steps of an action only while this card stands. */
+  private readonly alive = injectAlive();
   protected readonly facts = computed<CardFact[]>(() => {
     const me = this.personal();
     return [
@@ -131,7 +135,7 @@ export class PersonalCardComponent {
       const next = await call<Me>(this.session.api.PATCH('/me', { body }));
       this.session.setMe(next);
       this.f.reset({ fullName: next.fullName, phone: next.phone ?? null });
-      this.toasts.push({ tone: 'ok', text: t('profile.saved') });
+      if (this.alive()) this.toasts.push({ tone: 'ok', text: t('profile.saved') });
     } catch (e) {
       this.f.fail(e);
     }
@@ -218,6 +222,8 @@ export class AvatarCardComponent {
   readonly avatarOf = input.required<Me>();
   private readonly session = inject(SessionService);
   private readonly toasts = inject(ToastService);
+  /** FM25: UI steps of an action only while this card stands. */
+  private readonly alive = injectAlive();
   private readonly alert = formAlert();
   private readonly injector = inject(Injector);
   protected readonly accept = AVATAR_TYPES.join(',');
@@ -277,7 +283,7 @@ export class AvatarCardComponent {
       await call(this.session.api.PUT('/me/avatar', { body: body as never }));
       this.picked.set(null);
       await this.session.reloadMe();
-      this.toasts.push({ tone: 'ok', text: t('profile.avatarSaved') });
+      if (this.alive()) this.toasts.push({ tone: 'ok', text: t('profile.avatarSaved') });
     } catch (e) {
       let error: string | undefined;
       if (e instanceof ApiProblem && e.code === 'FILE_TOO_LARGE')
@@ -304,7 +310,7 @@ export class AvatarCardComponent {
     try {
       await call(this.session.api.DELETE('/me/avatar'));
       await this.session.reloadMe();
-      this.toasts.push({ tone: 'ok', text: t('profile.avatarDeleted') });
+      if (this.alive()) this.toasts.push({ tone: 'ok', text: t('profile.avatarDeleted') });
     } catch (e) {
       this.alert.show(errorText(e), errorTone(e));
     } finally {
@@ -315,7 +321,7 @@ export class AvatarCardComponent {
 
   /** FM21: an action that removed the focused control gives the focus to its opener, else the page title. */
   private refocus(opener: Element | null): void {
-    afterNextRender(() => restoreFocus(opener), { injector: this.injector });
+    if (this.alive()) afterNextRender(() => restoreFocus(opener), { injector: this.injector });
   }
 }
 
@@ -395,6 +401,8 @@ export class ChannelsCardComponent {
   readonly channels = input(true);
   private readonly session = inject(SessionService);
   private readonly toasts = inject(ToastService);
+  /** FM25: UI steps of an action only while this card stands. */
+  private readonly alive = injectAlive();
   private readonly alert = formAlert();
   private readonly injector = inject(Injector);
   /** FM21/FM24: the shared query (cache 30 s, retries, stale shown while refetched); polled while a code is out. */
@@ -472,7 +480,7 @@ export class ChannelsCardComponent {
     } finally {
       this.codeBusy.set(false);
       // «Привязать Telegram» gives way to the code (FM21)
-      afterNextRender(() => restoreFocus(opener), { injector: this.injector });
+      if (this.alive()) afterNextRender(() => restoreFocus(opener), { injector: this.injector });
     }
   }
 }
@@ -550,6 +558,8 @@ export class TwoFactorCardComponent {
   readonly twoFactor = input.required<Me>();
   private readonly session = inject(SessionService);
   private readonly toasts = inject(ToastService);
+  /** FM25: UI steps of an action only while this card stands. */
+  private readonly alive = injectAlive();
   protected readonly pending = signal<{ secret: string; otpauthUrl: string } | null>(null);
   protected readonly starting = signal(false);
   protected readonly f = new SchemaForm<{ code: string }, TwoFactorSetupRequest>(
@@ -560,17 +570,19 @@ export class TwoFactorCardComponent {
   /** A 429 on the start step waits on its own button. */
   protected readonly startWait = countdown();
   protected readonly secret = groupSecret;
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   private readonly injector = inject(Injector);
 
   /** FM21: an action that removed the focused control gives the focus to its opener, else the page title. */
   private refocus(opener: Element | null, revealed?: () => HTMLElement | null): void {
-    afterNextRender(() => restoreFocus(opener, revealed?.()), { injector: this.injector });
+    if (this.alive()) afterNextRender(() => restoreFocus(opener, revealed?.()), { injector: this.injector });
   }
 
+  /** «Отмена»: the form goes, the focus returns to «Настроить» that revealed it (FM25; FM17 idle rule). */
   protected cancel(): void {
     const opener = document.activeElement;
     this.pending.set(null);
-    this.refocus(opener);
+    this.refocus(opener, () => this.host.querySelector<HTMLElement>('.at-card__footer > button.at-button'));
   }
 
   private async alreadyOn(): Promise<void> {
@@ -606,7 +618,7 @@ export class TwoFactorCardComponent {
       this.pending.set(null);
       this.f.reset({ code: '' });
       await this.session.reloadMe();
-      this.toasts.push({ tone: 'ok', text: t('profile.twoFactorEnabled') });
+      if (this.alive()) this.toasts.push({ tone: 'ok', text: t('profile.twoFactorEnabled') });
     } catch (e) {
       if (e instanceof ApiProblem && e.code === 'INVALID_TWO_FACTOR_CODE')
         this.f.setError('code', 'errors.INVALID_TWO_FACTOR_CODE');

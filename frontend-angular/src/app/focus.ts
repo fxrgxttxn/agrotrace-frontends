@@ -18,8 +18,9 @@ export function focusLost(): boolean {
  * `revealed`: the first field of a form the action just showed (FM24) — it takes the focus first. Call it after the
  * view shows the result (`afterNextRender`). */
 export function restoreFocus(opener: Element | null | undefined, revealed?: HTMLElement | null): void {
-  // FM24: an action that revealed a new form or dialog gives its first field the focus
-  if (revealed?.isConnected) {
+  // FM24/FM25: an action that revealed a new form or dialog gives its first field the focus — only when the focus is
+  // idle (FM17: on the page, on the control that acted, or gone), never taken from where the person went
+  if (revealed?.isConnected && (focusLost() || document.activeElement === opener)) {
     revealed.focus();
     return;
   }
