@@ -226,5 +226,13 @@
   "rootNotSvgNs": {
     "ok": false,
     "tooComplex": false
+  },
+  "xlinkRedeclEvilNested": {
+    "ok": true,
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"><g xmlns:xlink=\"http://evil.example/\"><a xlink:href=\"#r\"><rect id=\"r\"/></a></g></svg>"
+  },
+  "cdataInTitle": {
+    "ok": true,
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\"><title>x]]&gt;</title></svg>"
   }
 }

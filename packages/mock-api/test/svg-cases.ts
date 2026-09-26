@@ -64,4 +64,7 @@ export const SVG_CASES: Record<string, string> = {
   bom: `${String.fromCharCode(0xfeff)}<svg ${NS}/>`,
   textOutside: `<svg ${NS}/>\n`,
   rootNotSvgNs: `<svg xmlns="http://example.com/"/>`,
+  // Round 3 (the reviewer's comparison): the two documents where the mock differs from Express — see svg.test KNOWN.
+  xlinkRedeclEvilNested: `<svg ${NS} ${XL}><g xmlns:xlink="http://evil.example/"><a xlink:href="#r"><rect id="r"/></a></g></svg>`,
+  cdataInTitle: `<svg ${NS}><title><![CDATA[<b>x</b>]]></title></svg>`,
 };
