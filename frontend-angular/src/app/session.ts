@@ -186,12 +186,13 @@ export class SessionService {
 
   // `loggedOut`: an explicit logout (here or in another tab) goes to a plain /login — no `next` back into the cabinet.
   private endLocally(loggedOut = false): boolean {
-    // FM29: only a session that exists (signed in, being restored, or holding a token) ends — a logout broadcast
-    // reaching an anonymous tab changes nothing of its generation (its login form is never silenced)
-    const had = this.state().status !== 'anonymous' || this.store.get() !== null;
+    // FM29/FM32: only a signed-in session ends (decided by the status, never by a token another tab broadcast into
+    // the store) — an anonymous or loading tab clears the store but neither bumps the generation nor navigates: a
+    // logout broadcast never costs it the form being typed (invite, forgot, register, login)
+    const had = this.state().status === 'authenticated';
     this.store.set(null);
+    if (!had) return false; // (a loading / unavailable / anonymous tab keeps its state: its own restore decides)
     this.set(loggedOut ? { status: 'anonymous', loggedOut: true } : { status: 'anonymous' });
-    if (!had) return false;
     this.gen++;
     this.ended$.next();
     return true;

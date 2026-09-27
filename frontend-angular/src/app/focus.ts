@@ -34,6 +34,8 @@ if (typeof document !== 'undefined') {
   const mark = () => (lastInput = Date.now());
   document.addEventListener('pointerdown', mark, true);
   document.addEventListener('keydown', mark, true);
+  // activation without a pointer / key event of ours (screen readers, programmatic click) still is the person's own
+  document.addEventListener('click', mark, true);
 }
 
 /** Where an action started: the focused control, and whether the person triggered it (a click / key press) — FM26:
