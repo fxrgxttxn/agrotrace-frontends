@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { server } from '../setup';
 import { contractExample, contractResponse } from '../msw/fromContract';
@@ -281,4 +281,34 @@ describe('/qr', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Сформировать QR-код AT-2026-000123' }));
     await waitFor(() => expect(toastText()).toContain('QR-код нельзя сформировать для партии в статусе'));
   });
+});
+
+describe('late answers after leaving (FM30)', () => {
+  for (const status of [409, 429] as const)
+    it(`a ${status} of a stock action answering after the person left: no toast on the next screen`, async () => {
+      let release: () => void = () => {};
+      const held = new Promise<void>((r) => (release = r));
+      server.use(
+        asRetailer(),
+        dictionaries(),
+        contractResponse('listBatches', { body: pageOf([item({ status: 'OnSale', holder: MARKET })]) }),
+        contractResponse('getBatch', {
+          body: batch({ status: 'OnSale', actions: [{ action: 'sell', to: 'Sold' }] }),
+        }),
+        contractResponse(
+          'markBatchSold',
+          status === 409
+            ? { status: 409, example: 'versionConflict', onRequest: () => held }
+            : { status: 429, headers: { 'Retry-After': '1' }, onRequest: () => held },
+        ),
+      );
+      const { router } = await open('/stock', 'Склад');
+      await userEvent.click(await screen.findByRole('button', { name: 'Отметить реализацию' }));
+      await act(() => router.navigate('/profile'));
+      await screen.findByRole('heading', { level: 1, name: 'Профиль' });
+      release();
+      await new Promise((r) => setTimeout(r, 200));
+      expect(toastText()).toBe('');
+      expect(toastText('polite')).toBe('');
+    });
 });

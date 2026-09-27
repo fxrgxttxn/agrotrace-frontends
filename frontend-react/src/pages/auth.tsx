@@ -270,7 +270,7 @@ function ResetForm({ token, onDead }: { token: string; onDead: () => void }) {
     alert.clear();
     try {
       await call(api.POST('/auth/password/reset', { body }));
-      toast.push({ tone: 'ok', text: t('auth.resetDone') });
+      toast.done({ tone: 'ok', text: t('auth.resetDone') });
       navigate('/login', { replace: true });
     } catch (e) {
       if (deadToken(e)) onDead();
@@ -337,7 +337,7 @@ function InviteForm({ token, onDead }: { token: string; onDead: () => void }) {
     alert.clear();
     try {
       await call(api.POST('/auth/accept-invite', { body }));
-      toast.push({ tone: 'ok', text: t('auth.inviteDone') });
+      toast.done({ tone: 'ok', text: t('auth.inviteDone') });
       navigate('/login', { replace: true });
     } catch (e) {
       if (deadToken(e)) onDead();

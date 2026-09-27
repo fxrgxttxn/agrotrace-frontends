@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, type NavigateFunction, type NavigateOptions, type To } from 'react-router-dom';
 import { useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query';
-import { useToast } from '../ui/Toasts';
+import { useToast, type ToastInput } from '../ui/Toasts';
 
 // Session generation of the cache (rulings FM24, FM26, FM28, FM29): the query cache belongs to one signed-in person.
 // The generation bumps only when an authenticated session actually ends (logout, a lost session, another tab's
@@ -87,15 +87,23 @@ export function useScreenAlive(): () => boolean {
   return useScreenScope().alive;
 }
 
-/** The screen's toasts (FM29): a signed-in screen's toast shows while its session lasts, even after the person left
- * the screen (a success of the same person, in the app-level region); a screen shown without a session shows toasts
- * only while it is there. */
-export function useScreenToast(): ReturnType<typeof useToast> {
+export interface ScreenToast {
+  /** A failure, a conflict, any message about the screen: only while the screen is there and its session lasts. */
+  push: (input: ToastInput) => number;
+  /** A success of the person's action: while its session lasts, even after the screen is gone (the app-level toast
+   * region says it; for a screen without a session — password reset, invite — always). Chosen per call site. */
+  done: (input: ToastInput) => number;
+  dismiss: (id: number) => void;
+}
+
+/** The screen's toasts (rulings FM29, FM30): failures need the mounted screen; successes need only the session. */
+export function useScreenToast(): ScreenToast {
   const toast = useToast();
   const scope = useScreenScope();
   return useMemo(
     () => ({
-      push: (input) => ((scope.bound ? scope.sameSession() : scope.alive()) ? toast.push(input) : -1),
+      push: (input) => (scope.alive() ? toast.push(input) : -1),
+      done: (input) => (scope.sameSession() ? toast.push(input) : -1),
       dismiss: toast.dismiss,
     }),
     [toast, scope],

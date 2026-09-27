@@ -37,6 +37,10 @@ const ROLES = [
   { role: 'ADMIN', email: 'admin@agrotrace.test', org: 'ООО «АгроТрейс»' },
 ] as const;
 
+// The live Express does not serve the dashboard yet (Plan 1): its 404 is expected here only — remove when these specs
+// move to @agrotrace/mock-api (ruling F10).
+const NO_DASHBOARD = /^http 404 GET \/api\/v1\/analytics\/dashboard$/;
+
 const SHOTS = 'test-results/shots/task2';
 
 async function shoot(page: Page, name: string, heading: string) {
@@ -74,7 +78,7 @@ test.describe('with the live API', () => {
       await signOut(page);
       expect(await cspViolations(page)).toEqual([]);
       annotateMissing(w);
-      expect(unexpected(w)).toEqual([]);
+      expect(unexpected(w, [NO_DASHBOARD])).toEqual([]);
     });
 
   test('an unknown email or a wrong password: one message, the form stays', async ({ page }) => {
@@ -86,7 +90,7 @@ test.describe('with the live API', () => {
     );
     await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByLabel('Email')).toBeVisible();
-    expect(unexpected(w, [/^http 401 POST \/api\/v1\/auth\/login$/])).toEqual([]);
+    expect(unexpected(w, [NO_DASHBOARD, /^http 401 POST \/api\/v1\/auth\/login$/])).toEqual([]);
   });
 
   test('client checks stop the request (no API call for an invalid email)', async ({ page }) => {
@@ -156,7 +160,7 @@ test.describe('with the live API', () => {
       await page.getByLabel('Пароль').fill(password);
       await page.getByRole('button', { name: 'Принять приглашение' }).click();
       await expect(page.getByText('Приглашение устарело или уже принято.')).toBeVisible();
-      expect(unexpected(w, [/^http 400 POST \/api\/v1\/auth\/accept-invite$/])).toEqual([]);
+      expect(unexpected(w, [NO_DASHBOARD, /^http 400 POST \/api\/v1\/auth\/accept-invite$/])).toEqual([]);
     });
 
     test('a wrong password, then forgot → Mailpit link → reset → sign in with the new one', async ({
@@ -191,7 +195,7 @@ test.describe('with the live API', () => {
       await signIn(page, email, password, w);
       await expect(page.getByRole('heading', { level: 1, name: 'Панель' })).toBeVisible();
       annotateMissing(w);
-      expect(unexpected(w, [/^http 401 POST \/api\/v1\/auth\/login$/])).toEqual([]);
+      expect(unexpected(w, [NO_DASHBOARD, /^http 401 POST \/api\/v1\/auth\/login$/])).toEqual([]);
     });
 
     test('2FA: set up in the profile (QR + key), then the login asks for the code', async ({ page }) => {
@@ -242,6 +246,7 @@ test.describe('with the live API', () => {
       annotateMissing(w);
       expect(
         unexpected(w, [
+          NO_DASHBOARD,
           /^http 400 POST \/api\/v1\/auth\/2fa\/setup$/,
           /^http 401 POST \/api\/v1\/auth\/2fa\/verify$/,
         ]),
@@ -266,7 +271,7 @@ test.describe('with the live API', () => {
     await page.getByLabel('Пароль').fill('register-pass-2026');
     await page.getByRole('button', { name: 'Зарегистрироваться' }).click();
     await expect(page.getByText(/^Заявка отправлена\./)).toBeVisible({ timeout: 20000 });
-    expect(unexpected(w)).toEqual([]);
+    expect(unexpected(w, [NO_DASHBOARD])).toEqual([]);
   });
 
   test('screenshots of the guest screens and the cabinet screens of this task', async ({ page }) => {

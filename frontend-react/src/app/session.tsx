@@ -56,13 +56,9 @@ export function createSessionCore(fetchImpl?: typeof fetch): SessionCore {
     baseUrl: apiBaseUrl(),
     session: store,
     onAuthLost: () => onAuthLost.current(),
-    // Requests an own action started are counted to it (FM26: the focus rescue follows the person's actions); the
-    // event stream is not a request of an action.
-    fetch: (input: RequestInfo | URL, init?: RequestInit) => {
-      const run = () => (fetchImpl ?? globalThis.fetch)(input, init);
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      return url.includes('/events/stream') ? run() : trackRequest(run);
-    },
+    // Requests an own action started are counted to it (FM26/FM30: the focus rescue follows the person's actions).
+    fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+      trackRequest(() => (fetchImpl ?? globalThis.fetch)(input, init)),
   });
   return { store, api, onAuthLost };
 }
@@ -207,6 +203,12 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
   useEffect(() => {
     core.onAuthLost.current = () => {
       if (booting.current) return; // start-up without a cookie is simply «not signed in»
+      // FM32: only a tab that had a session (its status, never a token that merely arrived) ends one and goes to
+      // /login; an anonymous screen (invite, forgot, register) keeps its typed data.
+      if (!authed.current) {
+        store.set(null);
+        return;
+      }
       endLocally();
       toast.push({ tone: 'attention', text: t('errors.TOKEN_EXPIRED') });
       toLogin();
@@ -214,7 +216,7 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     return () => {
       core.onAuthLost.current = () => {};
     };
-  }, [core, endLocally, toLogin, toast]);
+  }, [core, endLocally, toLogin, toast, store]);
 
   useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return;
@@ -222,6 +224,12 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     channel.current = ch;
     ch.onmessage = (e: MessageEvent) => {
       if ((e.data as { type?: string } | null)?.type === 'logout') {
+        // FM32: a tab without a session (anonymous, loading, unavailable) only drops a token it may have received
+        // from another tab; it neither ends a session nor leaves its screen.
+        if (!authed.current) {
+          store.set(null);
+          return;
+        }
         endLocally(true);
         navigate('/login', { replace: true });
       }
@@ -230,7 +238,7 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
       ch.close();
       channel.current = null;
     };
-  }, [endLocally, navigate]);
+  }, [endLocally, navigate, store]);
 
   useEffect(() => {
     void restore();

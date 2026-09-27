@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import { actionOpen, noteInput } from './actions';
+import { noteInput, rescueWindow } from './actions';
 
-// Rulings FM21/FM24/FM26/FM29: when the person's own action removes the control that had the focus (a selection
+// Rulings FM21/FM24/FM26/FM29/FM30: when the person's own action removes the control that had the focus (a selection
 // cleared with its «Отметить прочитанным», a form that closed on success, a card re-rendered without it), the focus
 // does not stay on the document body: it goes to the page title `h1.at-page__title`. Only a removal that belongs to an
 // action the person triggered counts — from the key or pointer press to the answer of its requests, however long they
@@ -34,15 +34,19 @@ export function useFocusRescue(): void {
       last = e.target as Element;
     };
     const check = (again: boolean) => {
-      if (!last || !actionOpen() || !gone(last)) return;
+      if (!last || !gone(last)) return;
       const active = document.activeElement;
       if (active === last) {
         // Hidden but still focused: the browser moves the focus away at its next frame — look again then.
         if (again) nextFrame(() => nextFrame(() => check(false)));
         return;
       }
-      if (active && active !== document.body) return;
+      // FM30: a removal outside an own press / own answer (a live refresh, a passive answer) is not the person's:
+      // the lost control is forgotten, the focus is not moved — neither now nor after a later own answer.
       last = null;
+      // Someone already moved the focus (a dialog back to its opener, the screen to a better target).
+      if (active && active !== document.body) return;
+      if (!rescueWindow()) return;
       document.querySelector<HTMLElement>('h1.at-page__title')?.focus({ preventScroll: true });
     };
     let timer: ReturnType<typeof setTimeout> | null = null;

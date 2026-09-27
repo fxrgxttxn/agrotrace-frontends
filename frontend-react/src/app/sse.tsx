@@ -15,6 +15,7 @@ import { t } from './i18n';
 import { apiBaseUrl, useSession } from './session';
 import { useToast } from '../ui/Toasts';
 import { useScreenScope } from './cache';
+import { runPassive } from './actions';
 
 // Live notifications (spec §9.2 «useEventSource», rulings R33/R63): while signed in, one `GET /events/stream` through
 // api-client's openEventStream — `reauth` and dead connections refresh through the same single-flight refresh as
@@ -118,7 +119,10 @@ export function invalidateEvenInFlight(client: QueryClient, queryKey: QueryKey):
       (q) =>
         q.state.fetchStatus === 'fetching' && (q.getObserversCount() === 0 || q.state.data === undefined),
     );
-  void client.invalidateQueries({ queryKey });
+  // FM30: the reads a live event starts are passive — never the person's action for the focus rescue.
+  runPassive(() => void client.invalidateQueries({ queryKey }));
   for (const q of inFlight)
-    void q.promise?.finally(() => void client.invalidateQueries({ queryKey: q.queryKey, exact: true }));
+    void q.promise?.finally(() =>
+      runPassive(() => void client.invalidateQueries({ queryKey: q.queryKey, exact: true })),
+    );
 }

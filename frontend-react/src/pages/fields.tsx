@@ -491,7 +491,7 @@ export function FieldNewPage() {
             submitLabel={t('fields.add')}
             onSaved={(f) => {
               void queryClient.invalidateQueries({ queryKey: ['fields'] });
-              toast.push({ tone: 'ok', text: t('fields.created', { name: f.name }) });
+              toast.done({ tone: 'ok', text: t('fields.created', { name: f.name }) });
               navigate(`/fields/${f.id}`);
             }}
           />
@@ -536,7 +536,7 @@ export function FieldPage() {
       setDialog(null);
       queryClient.removeQueries({ queryKey: ['field', id] });
       void queryClient.invalidateQueries({ queryKey: ['fields'] });
-      toast.push({ tone: 'ok', text: t('fields.deleted', { name: field.name }) });
+      toast.done({ tone: 'ok', text: t('fields.deleted', { name: field.name }) });
       navigate('/fields');
     } catch (e) {
       alert.show(errorText(e), errorTone(e));
@@ -630,7 +630,7 @@ export function FieldPage() {
             setDialog(null);
             cache.set(['field', id], f);
             void queryClient.invalidateQueries({ queryKey: ['fields'] });
-            toast.push({ tone: 'ok', text: t('fields.saved', { name: f.name }) });
+            toast.done({ tone: 'ok', text: t('fields.saved', { name: f.name }) });
           }}
           wrap={(form, submit) => (
             <Dialog
@@ -882,7 +882,7 @@ function Treatments({ field, farmer }: { field: FieldT; farmer: boolean }) {
             onSaved={(created) => {
               setEditing(null);
               refresh();
-              toast.push({ tone: 'ok', text: t(created ? 'treatments.created' : 'treatments.saved') });
+              toast.done({ tone: 'ok', text: t(created ? 'treatments.created' : 'treatments.saved') });
             }}
             onClosedWindow={(until) => {
               setEditing(null);

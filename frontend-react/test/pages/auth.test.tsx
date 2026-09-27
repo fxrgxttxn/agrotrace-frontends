@@ -567,3 +567,36 @@ describe('anonymous screens and session events (FM29)', () => {
     expect(router.state.location.pathname).toBe('/login');
   });
 });
+
+describe('anonymous tabs and late answers (FM30, FM32)', () => {
+  const TOKEN = 'a'.repeat(32);
+
+  it('another tab’s logout never takes an anonymous invite screen away (typed data kept)', async () => {
+    guest();
+    const { router } = renderApp(`/invite/${TOKEN}`);
+    await screen.findByRole('heading', { level: 1, name: 'Приглашение' });
+    await userEvent.type(screen.getByLabelText('ФИО'), 'Сидорова Анна');
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    await new Promise((r) => setTimeout(r, 150));
+    other.close();
+    expect(router.state.location.pathname).toBe(`/invite/${TOKEN}`);
+    expect(screen.getByLabelText('ФИО')).toHaveValue('Сидорова Анна');
+  });
+
+  it('a password reset answering after the person left: the success is said, no navigation (FM29/FM30)', async () => {
+    guest();
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(contractResponse('resetPassword', { onRequest: () => held }));
+    const { router } = renderApp(`/password/reset/${TOKEN}`);
+    await screen.findByRole('heading', { level: 1, name: 'Новый пароль' });
+    await userEvent.type(screen.getByLabelText('Новый пароль'), 'new-password-2026');
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить пароль' }));
+    await router.navigate('/register');
+    await screen.findByRole('heading', { level: 1, name: 'Регистрация организации' });
+    release();
+    await waitFor(() => expect(politeText()).toBe('Пароль изменён — войдите с новым паролем'));
+    expect(router.state.location.pathname).toBe('/register');
+  });
+});

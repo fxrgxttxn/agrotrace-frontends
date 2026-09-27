@@ -485,7 +485,7 @@ function WaybillNewForm({ batches }: { batches: BatchItem[] }) {
       );
       cache.set(['waybill', waybill.id], waybill);
       void queryClient.invalidateQueries({ queryKey: ['waybills'] });
-      toast.push({ tone: 'ok', text: t('waybills.created', { number: waybill.number }) });
+      toast.done({ tone: 'ok', text: t('waybills.created', { number: waybill.number }) });
       navigate(`/waybills/${waybill.id}`);
     } catch (e) {
       const ids = sentIds.current;
@@ -737,7 +737,7 @@ export function WaybillPage() {
         ),
       );
       changed(next);
-      toast.push({ tone: 'ok', text: t('waybills.sent', { number: next.number }) });
+      toast.done({ tone: 'ok', text: t('waybills.sent', { number: next.number }) });
     } catch (e) {
       if (e instanceof ApiProblem && e.status === 429) startSendWait(retryAfterOf(e));
       problems.fail(e);
@@ -799,7 +799,7 @@ export function WaybillPage() {
               waybill={waybill}
               onDone={(next) => {
                 changed(next);
-                toast.push({ tone: 'ok', text: t('waybills.accepted', { number: next.number }) });
+                toast.done({ tone: 'ok', text: t('waybills.accepted', { number: next.number }) });
               }}
               problems={problems}
             />
@@ -817,7 +817,7 @@ export function WaybillPage() {
               setDialog(null);
               queryClient.removeQueries({ queryKey: ['waybill', waybill.id] });
               void queryClient.invalidateQueries({ queryKey: ['waybills'] });
-              toast.push({ tone: 'ok', text: t('waybills.deleted', { number: waybill.number }) });
+              toast.done({ tone: 'ok', text: t('waybills.deleted', { number: waybill.number }) });
               navigate('/waybills');
             }}
           />
@@ -829,7 +829,7 @@ export function WaybillPage() {
             onDone={(next) => {
               setDialog(null);
               changed(next);
-              toast.push({ tone: 'ok', text: t('waybills.rejected', { number: next.number }) });
+              toast.done({ tone: 'ok', text: t('waybills.rejected', { number: next.number }) });
             }}
           />
         </>

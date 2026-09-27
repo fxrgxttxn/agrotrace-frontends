@@ -546,7 +546,7 @@ export function LabTestPage() {
         }),
       );
       changed(next);
-      toast.push({ tone: 'ok', text: t('lab.sampled', { code: x.batch.publicCode }) });
+      toast.done({ tone: 'ok', text: t('lab.sampled', { code: x.batch.publicCode }) });
     } catch (e) {
       if (e instanceof ApiProblem && e.status === 429) startSampleWait(retryAfterOf(e));
       problems.fail(e);
@@ -786,7 +786,13 @@ function ResultsForm({
     // FM25: only if the focus is idle — on the body, gone, or on the button that sent the values.
     const timer = setTimeout(() => {
       const active = document.activeElement;
-      if (!active || active === document.body || !active.isConnected || active === submitRef.current)
+      if (
+        !active ||
+        active === document.body ||
+        !active.isConnected ||
+        active === submitRef.current ||
+        active.matches('h1.at-page__title')
+      )
         form.setFocus(`values.${empty.indicatorId}`);
     }, 0);
     return () => clearTimeout(timer);
@@ -807,7 +813,7 @@ function ResultsForm({
       );
       setConfirming(null);
       onDone(next);
-      toast.push({
+      toast.done({
         tone: 'ok',
         text:
           next.conclusion === 'FAIL'
@@ -1013,7 +1019,7 @@ function ProtocolCard({ test, canUpload }: { test: LabTest; canUpload: boolean }
       setPicked(null);
       await queryClient.invalidateQueries({ queryKey: ['labTest', test.id] });
       void queryClient.invalidateQueries({ queryKey: ['labTests'] });
-      toast.push({ tone: 'ok', text: t('lab.protocolSaved') });
+      toast.done({ tone: 'ok', text: t('lab.protocolSaved') });
     } catch (e) {
       let error: string | undefined;
       if (e instanceof ApiProblem && e.code === 'FILE_TOO_LARGE')

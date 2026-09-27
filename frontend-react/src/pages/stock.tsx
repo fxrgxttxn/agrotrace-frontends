@@ -108,7 +108,7 @@ function useBatchTransition() {
       );
       cache.set(['batch', next.id], next);
       reread();
-      toast.push({
+      toast.done({
         tone: 'ok',
         text: t(action === 'putOnSale' ? 'stock.putOnSale' : 'stock.sold', { code }),
       });
@@ -568,7 +568,7 @@ function ProcessingWizard({ batches, products }: { batches: BatchItem[]; product
         for (const b of result.outputs) cache.set(['batch', b.id], b);
         void queryClient.invalidateQueries({ queryKey: ['batches'] });
         void queryClient.invalidateQueries({ queryKey: ['batch'] });
-        toast.push({
+        toast.done({
           tone: 'ok',
           text: t('processing.done', {
             count: result.outputs.length,
@@ -852,7 +852,7 @@ export function QrPage() {
       );
       void queryClient.invalidateQueries({ queryKey: ['batches'] });
       void queryClient.invalidateQueries({ queryKey: ['batch', b.id, 'documents'] });
-      toast.push({ tone: 'ok', text: t('qr.done', { code: b.publicCode }) });
+      toast.done({ tone: 'ok', text: t('qr.done', { code: b.publicCode }) });
       setShown({ batch: b, links });
     } catch (e) {
       if (e instanceof ApiProblem && (e.status === 403 || e.status === 404))

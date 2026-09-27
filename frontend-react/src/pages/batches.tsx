@@ -512,7 +512,7 @@ function BatchNewForm({ fields, products }: { fields: Schemas['Field'][]; produc
       void queryClient.invalidateQueries({ queryKey: ['batches'] });
       void queryClient.invalidateQueries({ queryKey: ['fields'] });
       // The risk model's decision (BR-03) is the first thing the farmer needs to know.
-      toast.push(
+      toast.done(
         batch.testRequired
           ? {
               tone: 'attention',
@@ -765,7 +765,7 @@ function AssignLabDialog({
         api.POST('/lab-tests', { body: { batchId: batch.id, labOrgId } }),
       );
       void queryClient.invalidateQueries({ queryKey: ['batch', batch.id, 'tests'] });
-      toast.push({ tone: 'ok', text: t('lab.assigned', { code: batch.publicCode, lab: test.lab.name }) });
+      toast.done({ tone: 'ok', text: t('lab.assigned', { code: batch.publicCode, lab: test.lab.name }) });
       onDone();
     } catch (e) {
       const key = e instanceof ApiProblem && e.code === 'VALIDATION' ? e.errors?.labOrgId?.[0] : undefined;
@@ -1190,7 +1190,7 @@ function DocsTab({ batch }: { batch: Batch }) {
       );
       idempotency.current = null;
       cache.set<Schemas['BatchDocuments']>(key, (d) => (d ? { ...d, vsd } : d));
-      toast.push({ tone: 'ok', text: t('documents.retried') });
+      toast.done({ tone: 'ok', text: t('documents.retried') });
     } catch (e) {
       if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
       else if (e instanceof ApiProblem && e.status < 500) {

@@ -431,3 +431,18 @@ describe('round 4: cancellations, own actions, live events mid-fetch (FM25, FM26
     expect(await screen.findByRole('link', { name: 'Изъять партию AT-2026-000002' })).toBeInTheDocument();
   });
 });
+
+describe('passive refreshes never move the focus (FM30)', () => {
+  it('a key press shortly before a live refresh that removes the focused row: the focus is not moved', async () => {
+    server.use(contractResponse('listNotifications', { body: pageOf([note(12), note(11)]) }));
+    await open();
+    const link = await screen.findByRole('link', { name: 'Изъять партию AT-2026-000011' });
+    link.focus();
+    server.use(contractResponse('listNotifications', { body: pageOf([note(13), note(12)]) }));
+    await userEvent.keyboard('{Shift}');
+    act(() => FakeEventSource.last!.emit('notification', note(13), '13'));
+    await screen.findByRole('link', { name: 'Изъять партию AT-2026-000013' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.getByRole('heading', { level: 1, name: 'Уведомления' })).not.toHaveFocus();
+  });
+});

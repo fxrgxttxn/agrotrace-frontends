@@ -18,13 +18,12 @@ export interface Watch {
 const LOGIN_LIMITED = /^http 429 POST \/api\/v1\/auth\/login$/;
 
 /** Answers that are expected, not defects: the anonymous start-up refresh (401) and endpoints the Express backend does
- * not serve yet (404: SSE, notifications list, public regions, dashboard) — see `annotateMissing`. */
+ * not serve yet (404: SSE, notifications list, public regions) — see `annotateMissing`. */
 export const EXPECTED = [
   /^http 401 POST \/api\/v1\/auth\/refresh$/,
   /^http 404 GET \/api\/v1\/events\/stream$/,
   /^http 404 GET \/api\/v1\/notifications$/,
   /^http 404 GET \/api\/v1\/public\/regions$/,
-  /^http 404 GET \/api\/v1\/analytics\/dashboard$/,
 ];
 
 export function unexpected(w: Watch, alsoExpected: RegExp[] = []): string[] {

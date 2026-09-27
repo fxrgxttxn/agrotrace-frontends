@@ -642,3 +642,29 @@ describe('late answers and follow-up re-reads (FM27, FM28)', () => {
     expect(name).toHaveFocus();
   });
 });
+
+describe('known results applied at once (FM30)', () => {
+  it('2FA enabled while the re-read of the profile fails: the card says «Включена», no error', async () => {
+    let failMe = false;
+    server.use(
+      asMe({ roles: ['INSPECTOR'] }),
+      contractResponse('setupTwoFactor', { example: 'pending', once: true }),
+      contractResponse('setupTwoFactor', { example: 'enabled', onRequest: () => void (failMe = true) }),
+    );
+    await openProfile();
+    server.use(
+      http.get(`${API_BASE}/me`, () =>
+        failMe
+          ? HttpResponse.json({ status: 503 }, { status: 503 })
+          : HttpResponse.json({ ...me(), roles: ['INSPECTOR'] }),
+      ),
+    );
+    const tfa = within(card('Двухфакторная аутентификация'));
+    await userEvent.click(tfa.getByRole('button', { name: 'Настроить' }));
+    await userEvent.type(await tfa.findByLabelText('Код из приложения'), '482915');
+    await userEvent.click(tfa.getByRole('button', { name: 'Включить' }));
+    expect(await tfa.findByText('Включена')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(document.querySelector('.at-toast-region[role="alert"] .at-toast__text')).toBeNull();
+  });
+});

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ApiProblem,
   withVariant,
+  type FileRef,
   type Me,
   type NotificationChannels,
   type TelegramCode,
@@ -131,7 +132,7 @@ function PersonalCard({ me }: { me: Me }) {
       if (!scope.sameSession()) return;
       setMe(next);
       form.reset({ fullName: next.fullName, phone: next.phone });
-      toast.push({ tone: 'ok', text: t('profile.saved') });
+      toast.done({ tone: 'ok', text: t('profile.saved') });
     } catch (e) {
       fail(e);
     }
@@ -199,8 +200,9 @@ interface Picked {
 }
 
 function AvatarCard({ me }: { me: Me }) {
-  const { api } = useSession();
+  const { api, setMe } = useSession();
   const refreshMe = useRefreshMe();
+  const scope = useScreenScope();
   const toast = useScreenToast();
   const alert = useFormAlert();
   const [picked, setPicked] = useState<Picked | null>(null);
@@ -225,9 +227,11 @@ function AvatarCard({ me }: { me: Me }) {
     try {
       const body = new FormData();
       body.append('file', picked.file);
-      await call(api.PUT('/me/avatar', { body: body as never }));
+      const stored = await call<FileRef>(api.PUT('/me/avatar', { body: body as never }));
+      // FM30: the known result is applied at once (the re-read may fail); only within this session.
+      if (scope.sameSession()) setMe({ ...me, avatarUrl: stored.url });
       setPicked(null);
-      toast.push({ tone: 'ok', text: t('profile.avatarSaved') });
+      toast.done({ tone: 'ok', text: t('profile.avatarSaved') });
       refreshMe();
     } catch (e) {
       let error: string | undefined;
@@ -251,7 +255,8 @@ function AvatarCard({ me }: { me: Me }) {
     setBusy('delete');
     try {
       await call(api.DELETE('/me/avatar'));
-      toast.push({ tone: 'ok', text: t('profile.avatarDeleted') });
+      if (scope.sameSession()) setMe({ ...me, avatarUrl: null });
+      toast.done({ tone: 'ok', text: t('profile.avatarDeleted') });
       refreshMe();
     } catch (e) {
       alert.show(errorText(e), errorTone(e));
@@ -339,7 +344,7 @@ function ChannelsCard() {
   useEffect(() => {
     if (code && linked) {
       setCode(null);
-      toast.push({ tone: 'ok', text: t('profile.telegramLinked') });
+      toast.done({ tone: 'ok', text: t('profile.telegramLinked') });
     }
   }, [code, linked, toast]);
 
@@ -442,8 +447,9 @@ function ChannelsCard() {
 const groupSecret = (s: string) => s.replace(/(.{4})(?=.)/g, '$1 ');
 
 function TwoFactorCard({ me }: { me: Me }) {
-  const { api } = useSession();
+  const { api, setMe } = useSession();
   const refreshMe = useRefreshMe();
+  const scope = useScreenScope();
   const toast = useScreenToast();
   const [pending, setPending] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [starting, setStarting] = useState(false);
@@ -458,10 +464,13 @@ function TwoFactorCard({ me }: { me: Me }) {
   const setupRef = useFocusAfterWait(startWait);
   // FM24: «Настроить» reveals the code form — the focus goes to its field; «Отмена» removes it — back to «Настроить».
   const [backToSetup, setBackToSetup] = useState(false);
-  useEffect(() => {
-    // FM25: only if nothing else holds the focus (the removed «Настроить» leaves it on the body).
+  // FM25: the revealed code field takes the focus only if nothing else holds it (the removed «Настроить» leaves it on
+  // the body). A layout effect: it runs in the same commit, before the focus rescue could send the focus to the title.
+  useLayoutEffect(() => {
+    if (!pending) return;
     const active = document.activeElement;
-    if (pending && (!active || active === document.body || !active.isConnected)) form.setFocus('code');
+    if (!active || active === document.body || !active.isConnected || active.matches('h1.at-page__title'))
+      form.setFocus('code');
   }, [pending, form]);
   useEffect(() => {
     if (!backToSetup) return;
@@ -498,9 +507,11 @@ function TwoFactorCard({ me }: { me: Me }) {
     alert.clear();
     try {
       await call<TwoFactorSetupResponse>(api.POST('/auth/2fa/setup', { body }));
+      // FM30: two-factor is on — shown at once, whatever the follow-up re-read does.
+      if (scope.sameSession()) setMe({ ...me, totpEnabled: true });
       setPending(null);
       form.reset({ code: '' });
-      toast.push({ tone: 'ok', text: t('profile.twoFactorEnabled') });
+      toast.done({ tone: 'ok', text: t('profile.twoFactorEnabled') });
       refreshMe();
     } catch (e) {
       if (e instanceof ApiProblem && e.code === 'INVALID_TWO_FACTOR_CODE') {
