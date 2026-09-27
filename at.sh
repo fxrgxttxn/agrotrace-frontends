@@ -1,3 +1,6 @@
+        if [ "$front" = "angular" ]; then
+          [ -f "frontend-angular/dist-mock/index.html" ] || { echo "fe:gateway: no frontend-angular/dist-mock — run ./at fe:build angular --mock first" >&2; exit 1; }
+        fi
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -234,10 +237,11 @@ applied_migrations() {
 # `agrotrace` services:
 #   react   — `gateway-react` (compose project agrotrace-react, docker-compose.react-dev.yml, host port 8089) on the
 #             main stack's network (its API is the shared api-express).
-#   angular — `gateway-angular` (compose project agrotrace-angular, docker-compose.angular-dev.yml, host port 8090,
-#             http://angular-mock.localhost:8090/) on its own network: mock mode needs no API server (the MSW service
-#             worker of @agrotrace/mock-api answers /api/v1 in the browser once it is merged); its Playwright one-off
-#             runs in the same compose project.
+#   angular — `gateway-angular` (compose project agrotrace-angular, docker-compose.angular-dev.yml, host port 8090)
+#             on its own network: http://angular-mock.localhost:8090/ serves the mock-mode build (dist-mock, ruling
+#             FM23 — the MSW service worker of @agrotrace/mock-api answers /api/v1 in the browser, no API server);
+#             the production build (dist) is served at the other angular-* hosts (no backend on this network — its
+#             e2e answers /api/v1 in the page); its Playwright one-off runs in the same compose project.
 DCR="docker compose -f docker-compose.react-dev.yml"
 DCA="docker compose -f docker-compose.angular-dev.yml"
 
@@ -258,6 +262,9 @@ fe_gateway() (
     up)
       if [ "${AT_DRY_RUN:-}" != "1" ]; then
         [ -f "frontend-$front/dist/index.html" ] || { echo "fe:gateway: no frontend-$front/dist — run ./at fe:build $front first" >&2; exit 1; }
+        if [ "$front" = "angular" ]; then
+          [ -f "frontend-angular/dist-mock/index.html" ] || { echo "fe:gateway: no frontend-angular/dist-mock — run ./at fe:build angular --mock first" >&2; exit 1; }
+        fi
         if [ "$front" = "react" ]; then
           docker network inspect agrotrace_at >/dev/null 2>&1 \
             || { echo "fe:gateway: network agrotrace_at does not exist — start the stack first (./at up express)" >&2; exit 1; }
@@ -324,7 +331,19 @@ case "$cmd" in
   # package.json has one), so recursing here silently lints nothing.
   lint)      $T pnpm lint ;;
   typecheck) $T pnpm -r typecheck ;;
-  fmt)       $T pnpm exec prettier --write . ;;
+  # P13: explicit paths only. No arguments or any flag-like argument (`--help`, `-w`, …) is refused: prettier would
+  # read a flag as an option and still `--write` the default target, reformatting the whole repository.
+  fmt)
+    if [ $# -eq 0 ]; then
+      echo "usage: ./at fmt <path>… — formats the given files/directories with Prettier (explicit paths only)" >&2
+      exit 2
+    fi
+    for p in "$@"; do
+      case "$p" in
+        -*) echo "./at fmt: '$p' looks like an option; only paths are accepted (P13)" >&2; exit 2 ;;
+      esac
+    done
+    run $T pnpm exec prettier --write -- "$@" ;;
   # --build on every `up` (R80): a stale gateway/mercury-mock image is never silently reused —
   # docker compose skips the build step on its own for any service without a `build:` key, so this
   # is a no-op for postgres/redis/rabbitmq/minio/mailpit.
@@ -409,7 +428,8 @@ case "$cmd" in
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
   # Frontends (see fe_front above): build into frontend-<front>/dist, component tests (Vitest + MSW from the contract),
   # the Vite dev server on http://localhost:5173 (API proxied to api-express), the separate gateway, the smoke e2e.
-  fe:build)  fe_front "${1:-}"; run $T pnpm --filter "@agrotrace/frontend-$1" build ;;
+  # `fe:build <front> --mock` (ruling FM23): the mock-mode build (dist-mock/, the MSW worker of @agrotrace/mock-api).
+  fe:build)  fe_front "${1:-}"; if [ "${2:-}" = "--mock" ]; then run $T pnpm --filter "@agrotrace/frontend-$1" build:mock; else run $T pnpm --filter "@agrotrace/frontend-$1" build; fi ;;
   fe:test)   fe_front "${1:-}"; front="$1"; shift; run $T pnpm --filter "@agrotrace/frontend-$front" test "$@" ;;
   fe:dev)    fe_front "${1:-}"; if [ "$1" = "angular" ]; then run $DC run --rm -p 4200:4200 tools pnpm --filter "@agrotrace/frontend-angular" dev; else run $DC run --rm -p 5173:5173 tools pnpm --filter "@agrotrace/frontend-$1" dev; fi ;;
   fe:gateway) fe_gateway "$@" ;;

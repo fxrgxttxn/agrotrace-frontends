@@ -14,6 +14,8 @@ const geoJsonRing = z
   .min(4)
   .max(1000)
   .refine((ring) => {
+    // An empty ring is reported by min(4) alone (the refinement still runs on a "dirty" array).
+    if (ring.length === 0) return true;
     const first = ring[0]!;
     const last = ring[ring.length - 1]!;
     return first[0] === last[0] && first[1] === last[1];

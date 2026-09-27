@@ -8,9 +8,10 @@
     "ng": "ng",
     "dev": "ng serve --host 0.0.0.0 --port 4200",
     "build": "node scripts/illustrations.mjs --check && node scripts/boot-fallback.mjs --check && ng build && node scripts/postbuild.mjs",
+    "build:mock": "node scripts/illustrations.mjs --check && node scripts/boot-fallback.mjs --check && ng build -c production,mock && node scripts/postbuild.mjs --mock",
     "illustrations": "node scripts/illustrations.mjs",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.spec.json && tsc --noEmit -p e2e"
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.mock.json && tsc --noEmit -p tsconfig.spec.json && tsc --noEmit -p e2e"
   },
   "dependencies": {
     "@agrotrace/api-client": "workspace:*",
@@ -30,6 +31,7 @@
     "zone.js": "0.14.10"
   },
   "devDependencies": {
+    "@agrotrace/mock-api": "workspace:*",
     "@analogjs/vite-plugin-angular": "1.10.3",
     "@analogjs/vitest-angular": "1.10.3",
     "@angular/animations": "18.2.14",
@@ -47,7 +49,7 @@
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "jsdom": "25.0.1",
-    "msw": "2.6.4",
+    "msw": "2.15.0",
     "typescript": "~5.5.4",
     "vite": "5.4.11",
     "vitest": "^2.1.4"

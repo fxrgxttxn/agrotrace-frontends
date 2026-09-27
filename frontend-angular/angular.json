@@ -43,6 +43,13 @@
               "outputPath": { "base": "dist", "browser": "assets" },
               "deployUrl": "/assets/"
             },
+            "mock": {
+              "outputPath": { "base": "dist-mock", "browser": "assets" },
+              "tsConfig": "tsconfig.mock.json",
+              "fileReplacements": [{ "replace": "src/mock.ts", "with": "src/mock.mock.ts" }],
+              "loader": { ".svg": "file", ".webp": "file", ".ttf": "file" },
+              "allowedCommonJsDependencies": ["saxes", "xmlchars"]
+            },
             "development": {
               "optimization": false,
               "sourceMap": true,

@@ -5,11 +5,13 @@ export default tseslint.config(
   {
     ignores: [
       '**/dist/**',
+      '**/dist-mock/**',
       '**/node_modules/**',
       '**/.svelte-kit/**',
       '**/.angular/**',
       '**/coverage/**',
       'contracts/**',
+      'packages/mock-api/public/**',
     ],
   },
   // TypeScript rules for script files only (the Angular inline templates are linted as HTML below).

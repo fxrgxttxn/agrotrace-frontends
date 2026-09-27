@@ -2,9 +2,10 @@ import { lookup } from 'node:dns/promises';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { chromium, expect, test, type Browser, type Page } from '@playwright/test';
 import { exampleBody, mockApi, type Overrides } from './api';
+import { PRODUCTION } from './helpers';
 
 // Opt-in cross-framework check (AT_COMPARE=1; not part of the smoke run): every A2 screen is rendered by this Angular
-// build (angular-mock.localhost, gateway-angular) and by the React build of Plan 2 (react-express.localhost:8089 on the
+// production build (angular-express.localhost, gateway-angular) and by the React build of Plan 2 (react-express.localhost:8089 on the
 // host, gateway-react) with the SAME API answers — the contract's examples through Playwright routes — and the page
 // DOM is compared in a canonical form (attributes sorted, `ng-*` classes dropped per FM9, style declarations
 // normalised, whitespace-only text dropped). Screenshots of both at 360 / 1280 × light / dark go to
@@ -13,6 +14,7 @@ import { exampleBody, mockApi, type Overrides } from './api';
 //     playwright-angular npx --no-install playwright test -c e2e/playwright.config.ts compare-react
 
 test.skip(!process.env['AT_COMPARE'], 'opt-in: AT_COMPARE=1 (needs the React stand on host port 8089)');
+test.use(PRODUCTION);
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(300000);
 

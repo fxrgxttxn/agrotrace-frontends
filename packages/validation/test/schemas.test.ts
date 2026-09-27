@@ -640,6 +640,17 @@ describe('FieldInput geometry', () => {
     });
     expect(result.success).toBe(false);
   });
+  it('an empty ring is a minItems error, not an exception', () => {
+    const result = V.FieldInputSchema.safeParse({
+      name: 'Поле 1',
+      areaHa: '1.00',
+      regionCode: '23',
+      geometry: { type: 'Polygon', coordinates: [[]] },
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(V.toFieldErrors(result.error)).toEqual({ 'geometry.coordinates[0]': ['validation.minItems'] });
+  });
 });
 
 describe('ProductInput.mercuryCode (R81)', () => {

@@ -1,4 +1,5 @@
-import sprite from '@agrotrace/design-system/sprite.svg';
+// Always text, also in the mock build whose default `.svg` loader is `file` (the mock's organization logos are URLs).
+import sprite from '@agrotrace/design-system/sprite.svg' with { loader: 'text' };
 
 /** Puts the icon sprite once, as the first child of <body> (README «Иконки»). Parsed as SVG, not through Angular. */
 export function injectSprite(doc: Document = document): void {

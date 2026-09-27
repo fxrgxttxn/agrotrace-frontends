@@ -2,9 +2,9 @@ import { fileURLToPath } from 'node:url';
 import { bundle, loadConfig } from '@redocly/openapi-core';
 import type { BrowserContext, Page } from '@playwright/test';
 
-// The API of the smoke run, answered in the page (Playwright routes) from the contract's own examples — the same
-// source as the component tests' MSW handlers (test/msw/fromContract.ts). A stand-in until @agrotrace/mock-api (the
-// MSW service worker of mock mode) is merged into this branch; it answers every /api/v1 operation with its first 2xx
+// The API of the production-build specs (helpers.ts PRODUCTION), answered in the page (Playwright routes) from the
+// contract's own examples — the same source as the component tests' MSW handlers (test/msw/fromContract.ts); the
+// stateful demo world is the mock build's (@agrotrace/mock-api). It answers every /api/v1 operation with its first 2xx
 // example, `overrides` replace single operations (`'POST /auth/refresh'` → status + body).
 
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any

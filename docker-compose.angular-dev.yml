@@ -11,6 +11,7 @@ services:
     image: agrotrace/gateway-angular:dev
     volumes:
       - ./frontend-angular/dist:/srv/angular:ro
+      - ./frontend-angular/dist-mock:/srv/angular-mock:ro
       - ./packages/design-system:/srv/ds:ro
       - ./frontend-angular/stand:/stand:ro
     # The shared gateway template with `mock` hosts accepted (frontend-angular/stand/mock-host.sh), then the image's

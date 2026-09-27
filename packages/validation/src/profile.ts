@@ -43,7 +43,7 @@ export const RoleCodeSchema = z.enum(['FARMER', 'PROCESSOR', 'LAB', 'RETAILER', 
 
 const roles = z
   .array(RoleCodeSchema, { errorMap })
-  .min(1, 'validation.required')
+  .min(1, 'validation.minItems')
   .refine((arr) => new Set(arr).size === arr.length, {
     message: 'validation.duplicate',
   });

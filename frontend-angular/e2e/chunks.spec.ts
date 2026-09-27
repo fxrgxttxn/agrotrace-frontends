@@ -1,10 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mockApi } from './api';
+import { PRODUCTION } from './helpers';
 
 // Ruling FM11 against the real router and a real browser: a page chunk that cannot be loaded (aborted request) loads
 // the target URL once more as a full document; failing again, the shell shows «Не удалось загрузить страницу» with
 // «Повторить» at the target URL — no rolled-back or duplicate history entries. Entering the shell from a screen outside
 // it while the page chunk loads shows the shell with the loading page in main and aria-current set.
+
+// Chunk failures are staged with Playwright routes: the production build (no service worker in the way).
+test.use(PRODUCTION);
 
 const h1 = (name: string) => `h1.at-page__title:text-is("${name}")`;
 
