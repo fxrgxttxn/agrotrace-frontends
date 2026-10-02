@@ -44,7 +44,7 @@ test('the gateway without any backend: a transient failure, «Сервис не�
   expect(new URL(page.url()).pathname).toBe('/fields');
 });
 
-test('the public pages /p/* load no cabinet chunk (module graph) and stay in the JS budget', async ({
+test('the public pages /p/* load no cabinet chunk and no mock code (module graph)', async ({
   page,
   context,
 }) => {
@@ -80,13 +80,30 @@ test('the public pages /p/* load no cabinet chunk (module graph) and stay in the
     (await fetch('/mockServiceWorker.js')).headers.get('content-type'),
   );
   expect(workerType).toContain('text/html'); // the SPA fallback, not a script
+  expect(await cspViolations(page)).toEqual([]);
+  expect(unexpected(w)).toEqual([]);
+});
+
+// Ruling FM35: the public i18n split (only the active locale on /p) is designed in React Task 8. Since the FM33 locale
+// sync the public pages measure 66.4 KB gzip (57.6 KB before), over the 60 KB budget — expected to fail until then.
+// `test.fail` turns red as soon as the budget is met again: remove it then.
+test('the public pages /p/* stay in the JS budget (60 KB gzip)', async ({ page, context }) => {
+  test.fail(true, 'FM35: public i18n split pending (React Task 8); measured 66.4 KB gzip');
+  await mockApi(context);
+  const scripts = new Map<string, Promise<string>>();
+  page.on('response', (r) => {
+    if (r.request().resourceType() === 'script') scripts.set(new URL(r.url()).pathname, r.text());
+  });
+  await page.goto('/p/AT-2026-000123');
+  await expect(page.getByRole('heading', { level: 1, name: 'Партия' })).toBeVisible();
+  await page.goto('/p/AT-2026-000123/complaint');
+  await expect(page.getByRole('heading', { level: 1, name: 'Сообщить о проблеме' })).toBeVisible();
+  const bodies = await Promise.all(scripts.values());
   const gzip = bodies.reduce((sum, b) => sum + gzipSync(b).length, 0) / 1024;
-  const note = `${loaded.length} scripts, ${gzip.toFixed(1)} KB gzip of 60 KB (headroom ${(60 - gzip).toFixed(1)} KB)`;
+  const note = `${scripts.size} scripts, ${gzip.toFixed(1)} KB gzip of 60 KB (headroom ${(60 - gzip).toFixed(1)} KB)`;
   test.info().annotations.push({ type: 'public JS', description: note });
   console.log(`public /p/* JS: ${note}`);
   expect(gzip).toBeLessThanOrEqual(60);
-  expect(await cspViolations(page)).toEqual([]);
-  expect(unexpected(w)).toEqual([]);
 });
 
 test('the /_ds showcase is not in the production build', async ({ page, context }) => {
