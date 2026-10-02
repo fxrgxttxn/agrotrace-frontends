@@ -1,4 +1,4 @@
-import { forwardRef, type ReactNode } from 'react';
+import { forwardRef, useMemo, useState, type ReactNode } from 'react';
 import { useForm, type FieldValues, type Path, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z, type ZodTypeAny } from 'zod';
@@ -48,11 +48,27 @@ export function useSchemaForm<F extends FieldValues>(
   // The cast: @hookform/resolvers declares no zod peer, so its own `zod` types do not resolve to ours (runtime is
   // duck-typed: `schema.parseAsync`).
   const form = useForm<F>({ resolver: zodResolver(schema as never), defaultValues: defaultValues as never });
-  const alert = useFormAlert();
+  const toastAlert = useFormAlert();
+  // The form-level message is also kept as `message`: a form inside a modal dialog says it in its body (README
+  // «Диалог»: the page's toast region is behind the modal).
+  const [message, setMessage] = useState<string | null>(null);
+  const alert = useMemo(
+    () => ({
+      show: (text: string, tone?: 'danger' | 'attention') => {
+        setMessage(text);
+        toastAlert.show(text, tone);
+      },
+      clear: () => {
+        setMessage(null);
+        toastAlert.clear();
+      },
+    }),
+    [toastAlert],
+  );
   const [wait, startWait] = useCountdown();
   const fail = (e: unknown) =>
     applyProblem(e, { form, fields, alert: alert.show, onRateLimit: startWait, alias });
-  return { form, alert, wait, fail };
+  return { form, alert, wait, fail, message };
 }
 
 /** Translated error text of a (possibly nested: `admin.email`) field. */

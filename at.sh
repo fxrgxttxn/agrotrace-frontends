@@ -415,6 +415,11 @@ case "$cmd" in
   fe:dev)    fe_front "${1:-}"; run $DC run --rm -p 5173:5173 tools pnpm --filter "@agrotrace/frontend-$1" dev ;;
   fe:gateway) fe_gateway "$@" ;;
   fe:e2e-smoke) fe_e2e_smoke "$@" ;;
+  # `e2e [front] [back] [playwright args…]`: the shared parity suite tests/e2e against http://{front}-{back}.localhost
+  # (default react × mock) through the running stand gateway (FM34; Plan 2 Task 9 completes it).
+  e2e)
+    front="${1:-react}"; back="${2:-mock}"; shift $(( $# < 2 ? $# : 2 ))
+    run $DC run --rm -e FRONT="$front" -e BACK="$back" -w //repo/tests/e2e playwright npx --no-install playwright test "$@" ;;
   # Top-level commands only (two-space indented case labels).
   help|*)  grep -E '^  [a-z0-9:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
 esac

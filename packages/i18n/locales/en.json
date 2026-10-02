@@ -281,7 +281,8 @@
     "massActualKg": "Actual mass, kg",
     "receiverOrgId": "Receiver",
     "items": "Items",
-    "inn": "Tax ID (INN)"
+    "inn": "Tax ID (INN)",
+    "mercuryCode": "Mercury code"
   },
   "empty": {
     "batches": "No batches yet.",
@@ -1284,5 +1285,217 @@
     "dateTime.format": "Invalid date-time format",
     "decimal.format": "Invalid number format",
     "minProperties": "Change at least one field"
+  },
+  "orgs": {
+    "name": "Organization",
+    "inn": "INN {inn}",
+    "status": "Status",
+    "type": "Type",
+    "region": "Region",
+    "head": "Head",
+    "typeRegion": "Type and region",
+    "createdAt": "Applied",
+    "search": "Search organizations",
+    "searchPlaceholder": "Name or INN",
+    "applications": "Applications",
+    "noApplications": "No new applications.",
+    "failed": "Organizations did not load.",
+    "sort": {
+      "created": "Newest first",
+      "name": "By name"
+    },
+    "action": {
+      "approve": "Approve",
+      "reject": "Reject",
+      "suspend": "Suspend",
+      "resume": "Resume"
+    },
+    "actionOf": {
+      "approve": "Approve the application of {name}",
+      "reject": "Reject the application of {name}",
+      "suspend": "Suspend {name}",
+      "resume": "Resume {name}"
+    },
+    "done": {
+      "approve": "{name} approved",
+      "reject": "Application of {name} rejected",
+      "suspend": "{name} suspended",
+      "resume": "{name} resumed"
+    },
+    "confirm": {
+      "reject": {
+        "title": "Reject the application of {name}",
+        "button": "Reject application",
+        "text": "Its employees will not be able to sign in. A rejected application cannot be approved."
+      },
+      "suspend": {
+        "title": "Suspend {name}",
+        "button": "Suspend",
+        "text": "Its employees will not be able to sign in until it is resumed; open sessions end within 15 minutes."
+      }
+    },
+    "edit": "Edit",
+    "editOf": "Edit {name}",
+    "editTitle": "Organization {name}",
+    "saved": "{name} saved",
+    "stateChanged": "The status of {name} has already changed: “{status}”. The list is updated.",
+    "busy": "{name} is being changed by another action — try again.",
+    "gone": "{name} was deleted. The list is updated."
+  },
+  "users": {
+    "user": "Employee",
+    "status": "Status",
+    "organization": "Organization",
+    "role": "Role",
+    "head": "head of the organization",
+    "search": "Search employees",
+    "searchPlaceholder": "Name or email",
+    "failed": "Employees did not load.",
+    "sort": {
+      "name": "By name",
+      "email": "By email",
+      "created": "Newest first"
+    },
+    "edit": "Edit",
+    "editOf": "Edit {name}",
+    "editTitle": "{name}",
+    "saved": "{name} saved",
+    "inviteTitle": "Invite an employee",
+    "inviteOrg": "Organization (empty — your own)",
+    "inviteRole": "Role: {role}",
+    "invited": "Invitation sent to {email}",
+    "invitedNote": "Invited — becomes active once the invitation is accepted.",
+    "blockNote": "The employee will not be able to sign in; their sessions end.",
+    "stateChanged": "{name} is already “{status}”. The list is updated.",
+    "gone": "{name} was deleted. The list is updated.",
+    "logo": "Organization logo",
+    "logoHint": "JPG, PNG, WebP or SVG up to 2 MB",
+    "logoSaved": "Logo saved"
+  },
+  "dict": {
+    "add": "Add",
+    "edit": "Edit",
+    "editOf": "Edit {name}",
+    "editTitle": "{name}",
+    "deleteOf": "Delete {name}",
+    "deleteTitle": "Delete {name}",
+    "deleteSoft": "The row leaves the choices; batches, treatments and results keep their reference to it.",
+    "deleteHard": "The row is deleted for good.",
+    "addTitle": {
+      "products": "New product",
+      "substances": "New substance",
+      "indicators": "New indicator",
+      "norms": "New norm",
+      "regions": "New region"
+    },
+    "searchPlaceholder": {
+      "products": "Product name",
+      "substances": "Substance name",
+      "indicators": "Indicator name",
+      "norms": "Product or indicator",
+      "regions": "Name or code"
+    },
+    "search": "Search: {name}",
+    "showDeleted": "Show deleted",
+    "state": "State",
+    "deleted": "Deleted",
+    "inUse": "Active",
+    "sort": {
+      "nameAsc": "By name, A–Z",
+      "nameDesc": "By name, Z–A"
+    },
+    "empty": "The dictionary is empty.",
+    "failed": "The dictionary did not load.",
+    "notFound": "There is no such dictionary.",
+    "toProducts": "To products",
+    "created": "{name} added",
+    "saved": "{name} saved",
+    "removed": "{name} deleted",
+    "gone": "{name} is already deleted. The list is updated.",
+    "inUseBy": "{name} cannot be deleted: {by} refer to it.",
+    "usedBy": {
+      "organizations": "organizations",
+      "fields": "fields"
+    },
+    "photo": "Photo",
+    "photoOf": "Photo of {name}",
+    "photoTitle": "Photo: {name}",
+    "photoAlt": "{name}",
+    "photoHint": "JPG, PNG or WebP up to 5 MB",
+    "photoSaved": "Photo of {name} saved",
+    "import": {
+      "open": "Import",
+      "title": "Import: {name}",
+      "send": "Import",
+      "hint": "CSV (UTF-8, “;” separated) or XLSX up to 5 MB. First row: {header}",
+      "done": "Import finished: created {created}, updated {updated}, unchanged {unchanged}, rows rejected {rejected}",
+      "tooLarge": "The file is larger than {max} — split it into parts.",
+      "workbookTooLarge": "The Excel workbook is too large: at most 20,000 rows and 64 columns on the first sheet and 32 MB unpacked. Keep one data sheet in the workbook or save it as CSV.",
+      "notWorkbook": "The file cannot be read as an Excel workbook: it is damaged or not saved as XLSX. Open it in Excel and save it again as “Excel Workbook (.xlsx)” or as CSV (UTF-8).",
+      "header": "The first row of the file must be the header: {header}",
+      "format": "The CSV cannot be read: save it in UTF-8 and check that every quote is closed.",
+      "tooManyRows": "The file has more than 10,000 data rows — split it into parts."
+    },
+    "report": {
+      "title": "Import report: {name}",
+      "close": "Close the report",
+      "created": "Created",
+      "updated": "Updated",
+      "unchanged": "Unchanged",
+      "rejected": "Rows rejected",
+      "errors": "Rejected rows",
+      "row": "Row",
+      "column": "Column",
+      "message": "Error",
+      "wholeRow": "Whole row",
+      "more": "The first {shown} of {total} errors are shown."
+    }
+  },
+  "audit": {
+    "time": "Time",
+    "actor": "Author",
+    "entity": "Record",
+    "backend": "Implementation",
+    "action": "Action",
+    "actionPlaceholder": "Action, e.g. sendWaybill",
+    "entityId": "Record id",
+    "actorId": "Author id",
+    "from": "From",
+    "to": "To",
+    "system": "System",
+    "byActor": "Entries by {name}",
+    "byEntity": "History: {entity} {id}",
+    "diff": "Changes",
+    "diffOf": "Changes of log entry {id}",
+    "diffTitle": "{entity}: {action}",
+    "changes": "Changed fields",
+    "field": "Field",
+    "before": "Before",
+    "after": "After",
+    "noChanges": "No fields changed.",
+    "ip": "IP",
+    "requestId": "Request",
+    "empty": "The log is empty.",
+    "failed": "The audit log did not load.",
+    "sort": {
+      "newest": "Newest first",
+      "oldest": "Oldest first"
+    }
+  },
+  "reports": {
+    "type": "Report",
+    "recall": "Recall (source batch code)",
+    "organization": "Organization",
+    "ownOrg": "Organization: {name}",
+    "from": "Period from",
+    "to": "Period to",
+    "format": "Format",
+    "download": "Download report",
+    "progress": "Downloading the report",
+    "progressOf": "{received} of {total}",
+    "saved": "Report {name} downloaded",
+    "notFound": "Not found — choose another one.",
+    "tooLong": "The period is at most {days} days",
+    "recallMeta": "opened {date}, {status}"
   }
 }

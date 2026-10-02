@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { Organization, OrganizationDirectoryPage, OrganizationType } from '@agrotrace/api-client';
 import { enumLabel } from '@agrotrace/i18n';
@@ -19,6 +19,7 @@ export function OrgPicker({
   types,
   error,
   exclude,
+  onOrg,
 }: {
   id: string;
   label: string;
@@ -29,6 +30,9 @@ export function OrgPicker({
   error?: string | null;
   /** An organization never offered (the user's own: a waybill receiver). */
   exclude?: string;
+  /** The picked (or, for a value from a link, read back) organization itself: its type decides the role of an invited
+   * user. */
+  onOrg?: (org: { id: string; name: string; type: OrganizationType } | null) => void;
 }) {
   const { api } = useSession();
   const [query, setQuery] = useState('');
@@ -48,6 +52,11 @@ export function OrgPicker({
     if (value === '') setQuery('');
     else if (chosen.data) setQuery(chosen.data.name);
   }, [value, chosen.data]);
+  const reportOrg = useRef(onOrg);
+  reportOrg.current = onOrg;
+  useEffect(() => {
+    if (chosen.data) reportOrg.current?.(chosen.data);
+  }, [chosen.data]);
 
   const found = useQuery({
     queryKey: ['organizations', 'directory', search, types],
@@ -76,7 +85,10 @@ export function OrgPicker({
         query={query}
         onQueryChange={(text) => {
           setQuery(text);
-          if (text.trim() === '' && value !== '') onChange(null);
+          if (text.trim() === '' && value !== '') {
+            onChange(null);
+            onOrg?.(null);
+          }
         }}
         onSearch={setSearch}
         options={search && search.trim() ? options : []}
@@ -86,6 +98,8 @@ export function OrgPicker({
           setPicked(o);
           setQuery(o.label);
           onChange(o.value);
+          const org = found.data?.items.find((x) => x.id === o.value);
+          if (org) onOrg?.(org);
         }}
       />
     </Field>

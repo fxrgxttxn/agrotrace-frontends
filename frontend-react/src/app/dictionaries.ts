@@ -11,6 +11,7 @@ type Entries = {
   products: Schemas['Product'];
   substances: Schemas['Substance'];
   regions: Schemas['RegionEntry'];
+  indicators: Schemas['Indicator'];
 };
 
 const PAGE = 100;

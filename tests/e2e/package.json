@@ -1,0 +1,14 @@
+{
+  "name": "@agrotrace/tests-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Shared Playwright parity suite (spec §9.7, ruling FM34): role/name selectors only, runs against any front × back through the gateway.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@playwright/test": "1.48.2",
+    "@types/node": "^22.9.0",
+    "typescript": "~5.6.3"
+  }
+}
