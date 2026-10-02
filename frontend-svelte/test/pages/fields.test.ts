@@ -362,6 +362,57 @@ describe('/fields/:id', () => {
     expect(screen.getByRole('link', { name: 'К списку полей' })).toHaveAttribute('href', '/fields');
   });
 
+  it('a list 400 offers «Сбросить фильтры»; a page past the end goes to the last page', async () => {
+    server.use(
+      dictionaries(),
+      contractResponse('listFields', {
+        status: 400,
+        body: problem(400, 'VALIDATION', { errors: { q: ['validation.maxLength'] } }),
+        once: true,
+      }),
+    );
+    await open('/fields?q=x', 'Поля');
+    expect(await screen.findByText('Список нельзя показать с такими фильтрами.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Сбросить фильтры' }));
+    await waitFor(() => expect(location.search).toBe(''));
+    expect(await screen.findByRole('link', { name: 'Участок «Восточный-3»' })).toBeInTheDocument();
+
+    server.use(
+      contractResponse('listFields', { body: pageOf([], 25, 9), once: true }),
+    );
+    await router.goto('/fields?page=9');
+    await waitFor(() => expect(new URLSearchParams(location.search).get('page')).toBe('2'));
+    expect(screen.queryByText('Полей пока нет.')).toBeNull();
+  });
+
+  it('a .geojson file is read into the outline field, pretty-printed', async () => {
+    server.use(dictionaries());
+    await open('/fields/new', 'Новое поле');
+    const polygon = {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [39, 45],
+          [39.1, 45],
+          [39.1, 45.1],
+          [39, 45],
+        ],
+      ],
+    };
+    const file = new File([JSON.stringify({ type: 'Feature', properties: {}, geometry: polygon })], 'north.geojson', {
+      type: 'application/geo+json',
+    });
+    await userEvent.upload(await screen.findByLabelText('Файл контура'), file);
+    const outline = screen.getByLabelText('Контур, GeoJSON') as HTMLTextAreaElement;
+    await waitFor(() => expect(outline.value).toContain('"type": "Polygon"'));
+    expect(outline.value).toContain('[39, 45]');
+    expect(JSON.parse(outline.value)).toEqual(polygon);
+    // Size in the locale's units (formatBytes); the format hint stays described after the placeholder is gone (F12).
+    expect(document.querySelector('.at-file__size')!.textContent).toMatch(/^\d+ Б$/);
+    const hint = document.getElementById(outline.getAttribute('aria-describedby')!.split(' ')[0]!)!;
+    expect(hint).toHaveTextContent('GeoJSON (.geojson) с контуром Polygon, до 1 МБ');
+  });
+
   it('a focused «Изменить» that disappears hands the focus to «Записать обработку»', async () => {
     server.use(
       dictionaries(),

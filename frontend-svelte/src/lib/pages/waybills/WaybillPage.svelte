@@ -226,9 +226,8 @@
           {#key w.id}
             <AcceptForm
               waybill={w}
+              {alert}
               {fail}
-              clearAlert={() => alert.clear()}
-              showAlert={alert.show}
               ondone={(next) => {
                 changed(next);
                 screen.done({ tone: 'ok', text: t('waybills.accepted', { number: next.number }) });

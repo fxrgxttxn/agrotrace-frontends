@@ -325,8 +325,17 @@ e2e() (
   case "${1:-}" in react|angular|svelte) front="$1"; shift ;; esac
   case "${1:-}" in mock|express|django|laravel) back="$1"; shift ;; esac
   gw="$(e2e_gateway "$front")"
-  run $DC run --rm -e FRONT="$front" -e BACK="$back" -e GATEWAY_HOST="$gw" -e GATEWAY_PORT=80 \
-    -w //repo/tests/e2e playwright npx --no-install playwright test "$@"
+  if [ "$front" = svelte ]; then
+    # gateway-svelte sits on its own isolated network (ruling FM23): the shared `playwright` service of docker-compose.yml
+    # (network agrotrace_at) cannot resolve it. `playwright-svelte` (docker-compose.svelte-mock.yml, network
+    # agrotrace_svelte — the same one fe:e2e-smoke uses) can, so the shared suite runs through it instead, with its own
+    # working directory overridden to tests/e2e.
+    run $DCS run --rm -e FRONT="$front" -e BACK="$back" -e GATEWAY_HOST="$gw" -e GATEWAY_PORT=80 \
+      -w //repo/tests/e2e playwright-svelte npx --no-install playwright test "$@"
+  else
+    run $DC run --rm -e FRONT="$front" -e BACK="$back" -e GATEWAY_HOST="$gw" -e GATEWAY_PORT=80 \
+      -w //repo/tests/e2e playwright npx --no-install playwright test "$@"
+  fi
 )
 
 case "$cmd" in

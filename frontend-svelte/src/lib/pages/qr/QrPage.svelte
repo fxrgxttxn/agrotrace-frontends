@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { ApiProblem, type Schemas } from '@agrotrace/api-client';
   import { enumLabel, formatLocalDate, formatLocalDateTime } from '@agrotrace/i18n';
   import { call, errorText, errorTone } from '../../app/api.svelte';
@@ -38,21 +39,43 @@
   const screen = screenScope();
   let busyId = $state<string | null>(null);
   let shown = $state<{ batch: BatchItem; links: Schemas['QrLinks'] | null } | null>(null);
+  /** The code of a just-generated batch, so closing its dialog focuses the row's new «Скачать QR-код» button —
+   * not the «Сформировать QR-код» one, which that same re-render just removed (the generic opener-restoration of
+   * `Dialog` finds it disconnected and does nothing). Spent by the first close. */
+  let justGenerated: string | null = $state(null);
 
   async function generate(b: BatchItem) {
     busyId = b.id;
     try {
       const links = await call<Schemas['QrLinks']>(session.api.POST('/batches/{id}/qr', { params: { path: { id: b.id } }, body: {} }));
+      // A known result (FM30): the row's state shown at once, not only after the invalidation's re-read.
+      const now = new Date().toISOString();
+      const list = own.batches.data;
+      if (list) {
+        const i = list.items.findIndex((x) => x.id === b.id);
+        if (i >= 0) list.items[i] = { ...list.items[i]!, qrGeneratedAt: now };
+      }
       void cache.invalidate(['batches']);
       void cache.invalidate(['batch', b.id, 'documents']);
       screen.done({ tone: 'ok', text: t('qr.done', { code: b.publicCode }) });
-      shown = { batch: b, links };
+      justGenerated = b.publicCode;
+      shown = { batch: { ...b, qrGeneratedAt: now }, links };
     } catch (e) {
       if (e instanceof ApiProblem && (e.status === 403 || e.status === 404)) void cache.invalidate(['batches']);
       screen.push({ tone: errorTone(e), text: errorText(e) });
     } finally {
       busyId = null;
     }
+  }
+
+  function closeDialog() {
+    const code = justGenerated === shown?.batch.publicCode ? justGenerated : null;
+    justGenerated = null;
+    shown = null;
+    if (!code) return;
+    void tick().then(() => {
+      document.querySelector<HTMLElement>(`[aria-label="${t('qr.downloadOf', { code })}"]`)?.focus();
+    });
   }
 
   const columns: Column<BatchItem>[] = [
@@ -161,7 +184,7 @@
   {/if}
   <Dialog
     open={shown !== null}
-    onclose={() => (shown = null)}
+    onclose={closeDialog}
     lightDismiss
     title={shown ? t('qr.title', { code: shown.batch.publicCode }) : ''}
   >

@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { server } from '../setup';
 import { contractExample, contractResponse } from '../msw/fromContract';
-import { asMe, dictionaries, pageOf, toastText } from '../msw/data';
+import { asMe, dictionaries, pageOf, problem, toastText } from '../msw/data';
 import { renderApp } from '../app/renderApp';
 import { router } from '../kit/router.svelte';
 
@@ -150,6 +150,35 @@ describe('/processing/new', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Далее' }));
     expect(await screen.findByText('Выберите хотя бы одну партию')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Выходы' })).toBeNull();
+  });
+
+  it('a 400 on an input brings the person back to the inputs, the error under its row; 422 BR-05 as the rule', async () => {
+    server.use(
+      asProcessor(),
+      dictionaries(),
+      stock(),
+      contractResponse('processBatches', {
+        status: 400,
+        body: problem(400, 'VALIDATION', { errors: { 'inputs[0].massUsedKg': ['validation.mass.exceedsBatch'] } }),
+        once: true,
+      }),
+      contractResponse('processBatches', { status: 422, example: 'notEligible' }),
+    );
+    await open(`/processing/new?batchId=${BATCH_ID}`, 'Переработка');
+    await screen.findByRole('checkbox', { name: 'Выбрать AT-2026-000123' });
+    await userEvent.click(screen.getByRole('button', { name: 'Далее' }));
+    await userEvent.selectOptions(await screen.findByLabelText('Продукт выхода 1'), 'Мука пшеничная высшего сорта');
+    await userEvent.type(screen.getByLabelText('Масса выхода 1'), '100');
+    await userEvent.click(screen.getByRole('button', { name: 'Далее' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Переработать' }));
+    expect(await screen.findByText('Масса превышает текущую массу партии')).toBeInTheDocument();
+    expect(screen.getByLabelText('Использовать из AT-2026-000123')).toHaveAttribute('aria-invalid', 'true');
+    await userEvent.click(screen.getByRole('button', { name: 'Далее' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Далее' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Переработать' }));
+    await waitFor(() =>
+      expect(toastText()).toContain('Партия AT-2026-000124 в статусе «На анализе» не может быть входом переработки'),
+    );
   });
 });
 

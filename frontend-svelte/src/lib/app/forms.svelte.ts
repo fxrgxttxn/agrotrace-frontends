@@ -70,6 +70,9 @@ export interface SchemaFormOptions<F, B> {
   /** Server error paths that belong to a field the form renders under another name (`geometry.coordinates[0]` →
    * `geometry`). */
   alias?: (path: string) => string;
+  /** The page's own message (FM13: one message at a time, owned by the page so it survives this form going away) —
+   * a dialog or card driven by the page uses the page's instance instead of a fresh one. Default: a fresh one. */
+  alert?: FormAlert;
 }
 
 /** A form on a shared schema. Controls bind to `values` and carry `name` = their path; `<form use:form={f}>` wires the
@@ -79,7 +82,7 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
   /** Sending (the submit is `aria-busy`). */
   busy = $state(false);
   readonly wait = new Countdown();
-  readonly alert = new FormAlert();
+  readonly alert: FormAlert;
   readonly fields: readonly string[];
 
   #client = $state<Record<string, string>>({});
@@ -90,6 +93,8 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
   readonly #toWire: (values: F) => unknown;
   readonly #send: (body: B) => Promise<void>;
   readonly #alias: ((path: string) => string) | undefined;
+  /** Whether `alert` is this form's own (cleared when it unmounts) or the page's (FM13: survives this form). */
+  readonly #ownAlert: boolean;
   /** Session generation of the latest submit. */
   #born: number | null = null;
 
@@ -100,6 +105,8 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
     this.#toWire = o.toWire ?? ((v) => v);
     this.#send = o.send;
     this.#alias = o.alias;
+    this.#ownAlert = o.alert === undefined;
+    this.alert = o.alert ?? new FormAlert();
   }
 
   /** Translated error of a field (`null` — none). */
@@ -146,6 +153,27 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
     if (now) next[path] = now;
     else delete next[path];
     this.#client = next;
+  }
+
+  /** Checks only the given paths (one step of a wizard) without sending: marks their errors (shown from now on,
+   * like a submit) and focuses the first invalid one of them; other paths are left exactly as they are. Returns
+   * whether all of `paths` are valid. */
+  checkFields(paths: readonly string[]): boolean {
+    this.#submitted = true;
+    const wire = this.#toWire($state.snapshot(this.values) as F);
+    const issues = issuesByPath(this.#schema, wire);
+    const next = { ...this.#client };
+    let ok = true;
+    for (const path of paths) {
+      const message = issues[path];
+      if (message) {
+        next[path] = message;
+        ok = false;
+      } else delete next[path];
+    }
+    this.#client = next;
+    if (!ok) void this.#focusFirstInvalid();
+    return ok;
   }
 
   /** The submit: checks the shared schema, then sends the body (busy meanwhile); a failure goes on the form. */
@@ -202,6 +230,13 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
     this.#node = node;
   }
 
+  /** The form unmounts: its own message goes with it; the page's (FM13, injected) outlives this form. Its wait
+   * always stops — it is this control's own countdown either way. */
+  release(): void {
+    if (this.#ownAlert) this.alert.clear();
+    this.wait.stop();
+  }
+
   /** Focus goes to the first invalid field in the order of the form (not of the answer). */
   async #focusFirstInvalid(): Promise<void> {
     await tick();
@@ -234,8 +269,7 @@ export function form<F extends Record<string, unknown>, B>(node: HTMLFormElement
       node.removeEventListener('input', change);
       node.removeEventListener('change', change);
       current.attach(null);
-      current.alert.clear();
-      current.wait.stop();
+      current.release();
     },
   };
 }

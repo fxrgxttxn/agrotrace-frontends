@@ -140,6 +140,27 @@ describe('/waybills/new', () => {
     expect(toastText('polite')).toContain('Черновик WB-2026-000017 создан');
   });
 
+  it('IDEMPOTENCY_KEY_IN_PROGRESS: the client repeats with the same key and gets the draft', async () => {
+    const keys: (string | null)[] = [];
+    server.use(
+      contractResponse('createWaybill', {
+        status: 409,
+        example: 'idempotencyKeyInProgress',
+        headers: { 'Retry-After': '1' },
+        once: true,
+        onRequest: (r) => void keys.push(r.headers.get('Idempotency-Key')),
+      }),
+      contractResponse('createWaybill', { onRequest: (r) => void keys.push(r.headers.get('Idempotency-Key')) }),
+    );
+    await open(`/waybills/new?batchId=${BATCH_ID}`, 'Новая накладная');
+    await screen.findByRole('checkbox', { name: 'Выбрать AT-2026-000123' });
+    await pickReceiver();
+    await userEvent.click(screen.getByRole('button', { name: 'Создать накладную' }));
+    await waitFor(() => expect(location.pathname).toBe(`/waybills/${WAYBILL_ID}`), { timeout: 5000 });
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+  });
+
   it('an empty form is marked without a request; a mass above the batch is caught before sending', async () => {
     let calls = 0;
     server.use(contractResponse('createWaybill', { onRequest: () => void calls++ }));
@@ -277,6 +298,29 @@ describe('/waybills/:id', () => {
     expect(ifMatch).toBe('1');
   });
 
+  it('a deleted draft is not read again (no GET answering 404 after the DELETE)', async () => {
+    let reads = 0;
+    let deleted = false;
+    server.use(
+      http.get(`${API_BASE}/waybills/:id`, () => {
+        if (deleted) {
+          reads++;
+          return HttpResponse.json(problem(404, 'NOT_FOUND'), { status: 404 });
+        }
+        return HttpResponse.json(draft());
+      }),
+      contractResponse('deleteWaybill', { onRequest: () => void (deleted = true) }),
+    );
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Удалить черновик' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Удалить черновик WB-2026-000017' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Удалить черновик' }));
+    await waitFor(() => expect(location.pathname).toBe('/waybills'));
+    await screen.findByRole('heading', { level: 1, name: 'Накладные' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(reads).toBe(0);
+  });
+
   it('reject: the dialog asks for the number again; the reason goes to the server', async () => {
     let body: unknown = null;
     server.use(
@@ -336,6 +380,26 @@ describe('/waybills/:id — conflicts (FM13)', () => {
     await waitFor(() => expect(ifMatch).toEqual(['2', '3']));
   });
 
+  it('the refocus after a re-read never takes the focus from a field the person moved to', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      asProcessor(),
+      contractResponse('getWaybill', { body: sentWaybill(), once: true }),
+      contractResponse('getWaybill', { body: sentWaybill({ version: 3 }), onRequest: () => held }),
+      contractResponse('acceptWaybill', { status: 409, example: 'versionConflict' }),
+    );
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    const actual = await screen.findByLabelText('Фактическая масса AT-2026-000123');
+    await userEvent.click(screen.getByRole('button', { name: 'Принять' }));
+    await waitFor(() => expect(toastText()).toContain('Накладная изменилась'));
+    // While the card is being read again, the person goes to the mass field.
+    await userEvent.click(actual);
+    release();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(actual).toHaveFocus();
+  });
+
   it('accepted elsewhere (INVALID_TRANSITION): the form goes, the message stays, the focus is on the page title', async () => {
     server.use(
       asProcessor(),
@@ -351,6 +415,20 @@ describe('/waybills/:id — conflicts (FM13)', () => {
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'WB-2026-000017' })).toHaveFocus());
   });
 
+  it('422 BR-06 on accept: the rule text and the card read again', async () => {
+    let reads = 0;
+    server.use(
+      asProcessor(),
+      contractResponse('getWaybill', { onRequest: () => void reads++ }),
+      contractResponse('acceptWaybill', { status: 422, example: 'recalled' }),
+    );
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await screen.findByLabelText('Фактическая масса AT-2026-000123');
+    await userEvent.click(screen.getByRole('button', { name: 'Принять' }));
+    await waitFor(() => expect(toastText()).toContain('Партия AT-2026-000123 в статусе «Отозвана»'));
+    await waitFor(() => expect(reads).toBe(2));
+  });
+
   it('send: VERSION_CONFLICT re-reads; INVALID_TRANSITION says the state; messages replace each other', async () => {
     let reads = 0;
     server.use(
@@ -364,6 +442,68 @@ describe('/waybills/:id — conflicts (FM13)', () => {
     await waitFor(() => expect(reads).toBe(2));
     await userEvent.click(await screen.findByRole('button', { name: 'Отгрузить' }));
     await waitFor(() => expect(toastText()).toContain('Накладная уже в статусе «Отправлена»'));
+  });
+
+  it('delete VERSION_CONFLICT: the message in the dialog, the card read again', async () => {
+    let reads = 0;
+    server.use(
+      contractResponse('getWaybill', { body: draft(), onRequest: () => void reads++ }),
+      contractResponse('deleteWaybill', { status: 409, example: 'versionConflict' }),
+    );
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Удалить черновик' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Удалить черновик WB-2026-000017' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Удалить черновик' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Накладная изменилась');
+    await waitFor(() => expect(reads).toBe(2));
+  });
+
+  it('an identical re-read, then a send that removes «Отгрузить»: the focus is on the title (FM21), never the body', async () => {
+    let reads = 0;
+    server.use(
+      // The re-read answers the same card: structural sharing keeps the same object.
+      contractResponse('getWaybill', { body: draft(), onRequest: () => void reads++ }),
+      contractResponse('deleteWaybill', { status: 409, example: 'versionConflict' }),
+      contractResponse('sendWaybill', { body: draft({ status: 'SENT', version: 2, actions: [] }) }),
+    );
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Удалить черновик' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Удалить черновик WB-2026-000017' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Удалить черновик' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Накладная изменилась');
+    await waitFor(() => expect(reads).toBe(2));
+    await new Promise((r) => setTimeout(r, 50));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Отгрузить' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Отгрузить' })).toBeNull());
+    await new Promise((r) => setTimeout(r, 50));
+    // FM21: the removed «Отгрузить» hands the focus to the page title (never the body).
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'WB-2026-000017' })).toHaveFocus());
+  });
+
+  it('reject VERSION_CONFLICT keeps the reason and the number; the confirmation then uses the new version', async () => {
+    const ifMatch: (string | null)[] = [];
+    server.use(
+      asProcessor(),
+      contractResponse('getWaybill', { body: sentWaybill(), once: true }),
+      contractResponse('getWaybill', { body: sentWaybill({ version: 3 }) }),
+      contractResponse('rejectWaybill', { status: 409, example: 'versionConflict', once: true, onRequest: (r) => void ifMatch.push(r.headers.get('If-Match')) }),
+      contractResponse('rejectWaybill', {
+        body: sentWaybill({ status: 'REJECTED', rejectReason: 'Влажность 17%', version: 4, actions: [] }),
+        onRequest: (r) => void ifMatch.push(r.headers.get('If-Match')),
+      }),
+    );
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Отказаться' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Отказ от накладной WB-2026-000017' });
+    await userEvent.type(within(dialog).getByLabelText('Причина отказа'), 'Влажность 17%');
+    await userEvent.type(within(dialog).getByLabelText('Номер накладной для подтверждения'), 'WB-2026-000017');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Отказаться' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Накладная изменилась');
+    expect(within(dialog).getByLabelText('Причина отказа')).toHaveValue('Влажность 17%');
+    await new Promise((r) => setTimeout(r, 300));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Отказаться' }));
+    await waitFor(() => expect(ifMatch).toEqual(['2', '3']));
   });
 
   it('reject: after a failure and «Отмена» the reopened dialog is empty and asks for the number again', async () => {
@@ -384,6 +524,49 @@ describe('/waybills/:id — conflicts (FM13)', () => {
     expect(within(dialog).queryByRole('alert')).toBeNull();
   });
 
+  it('delete 429: the wait on the confirmation button, the reason in the dialog', async () => {
+    server.use(contractResponse('getWaybill', { body: draft() }), contractResponse('deleteWaybill', { status: 429, headers: { 'Retry-After': '2' } }));
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Удалить черновик' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Удалить черновик WB-2026-000017' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Удалить черновик' }));
+    expect(await within(dialog).findByRole('button', { name: /^Повторить через [12] с$/ })).toBeDisabled();
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('повторите через 2 с');
+  });
+
+  it('a 429 wait on «Отгрузить»: the button gets the focus back when it can act again', async () => {
+    server.use(contractResponse('getWaybill', { body: draft() }), contractResponse('sendWaybill', { status: 429, headers: { 'Retry-After': '1' } }));
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Отгрузить' }));
+    expect(await screen.findByRole('button', { name: /^Повторить через 1 с$/ })).toBeDisabled();
+    const button = await screen.findByRole('button', { name: 'Отгрузить' }, { timeout: 3000 });
+    await waitFor(() => expect(button).toHaveFocus());
+  });
+
+  it('FM17: the end of the wait never takes the focus from a control the person moved to', async () => {
+    server.use(contractResponse('getWaybill', { body: draft() }), contractResponse('sendWaybill', { status: 429, headers: { 'Retry-After': '1' } }));
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Отгрузить' }));
+    expect(await screen.findByRole('button', { name: /^Повторить через 1 с$/ })).toBeDisabled();
+    const other = screen.getByRole('button', { name: 'Удалить черновик' });
+    other.focus();
+    await screen.findByRole('button', { name: 'Отгрузить' }, { timeout: 3000 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(other).toHaveFocus();
+  });
+
+  it('reject 429: the wait is on the confirmation button and said in the dialog', async () => {
+    server.use(asProcessor(), contractResponse('rejectWaybill', { status: 429, headers: { 'Retry-After': '2' } }));
+    await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Отказаться' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Отказ от накладной WB-2026-000017' });
+    await userEvent.type(within(dialog).getByLabelText('Причина отказа'), 'Причина');
+    await userEvent.type(within(dialog).getByLabelText('Номер накладной для подтверждения'), 'WB-2026-000017');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Отказаться' }));
+    expect(await within(dialog).findByRole('button', { name: /^Повторить через [12] с$/ })).toBeDisabled();
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('повторите через 2 с');
+  });
+
   it('the BR-07 text never contradicts the threshold: rounded to 2,00% but over the limit reads «больше 2%»', () => {
     expect(discrepancyText({ percent: '2.00', actRequired: true })).toBe('больше 2%');
     expect(discrepancyText({ percent: '2.00', actRequired: false })).toBe('2,00%');
@@ -394,6 +577,55 @@ describe('/waybills/:id — conflicts (FM13)', () => {
 describe('Idempotency-Key per request (BR-11, FM13)', () => {
   const WB = `${API_BASE}/waybills`;
   const keyOf = (r: Request) => r.headers.get('Idempotency-Key');
+  const unavailable = () => HttpResponse.json(problem(503, 'BACKEND_UNAVAILABLE'), { status: 503, headers: { 'Retry-After': '1' } });
+
+  async function createForm() {
+    await open(`/waybills/new?batchId=${BATCH_ID}`, 'Новая накладная');
+    await screen.findByRole('checkbox', { name: 'Выбрать AT-2026-000123' });
+    await userEvent.type(await screen.findByRole('combobox', { name: 'Получатель' }), 'Куб');
+    const list = await screen.findByRole('listbox', { name: 'Получатель' });
+    await userEvent.click((await within(list).findAllByRole('option'))[0]!);
+  }
+  const submitCreate = () => userEvent.click(screen.getByRole('button', { name: 'Создать накладную' }));
+
+  it('create: the same key after a network failure and after a 5xx', async () => {
+    const keys: (string | null)[] = [];
+    server.use(
+      http.post(WB, ({ request }) => (keys.push(keyOf(request)), HttpResponse.error()), { once: true }),
+      http.post(WB, ({ request }) => (keys.push(keyOf(request)), unavailable()), { once: true }),
+      contractResponse('createWaybill', { onRequest: (r) => void keys.push(keyOf(r)) }),
+    );
+    await createForm();
+    await submitCreate();
+    await waitFor(() => expect(keys).toHaveLength(1));
+    await submitCreate();
+    await waitFor(() => expect(keys).toHaveLength(2));
+    await submitCreate();
+    await waitFor(() => expect(keys).toHaveLength(3));
+    expect(new Set(keys).size).toBe(1);
+  });
+
+  it('create: an edit after the failure is a new request with a new key; KEY_REUSED asks to send again', async () => {
+    const keys: (string | null)[] = [];
+    server.use(
+      http.post(WB, ({ request }) => (keys.push(keyOf(request)), HttpResponse.error()), { once: true }),
+      contractResponse('createWaybill', { status: 409, example: 'idempotencyKeyReused', once: true, onRequest: (r) => void keys.push(keyOf(r)) }),
+      contractResponse('createWaybill', { onRequest: (r) => void keys.push(keyOf(r)) }),
+    );
+    await createForm();
+    await submitCreate();
+    await waitFor(() => expect(keys).toHaveLength(1));
+    const mass = screen.getByLabelText('Заявленная масса AT-2026-000123');
+    await userEvent.clear(mass);
+    await userEvent.type(mass, '12000');
+    await submitCreate();
+    await waitFor(() => expect(keys).toHaveLength(2));
+    expect(keys[1]).not.toBe(keys[0]);
+    await waitFor(() => expect(toastText()).toContain('Данные формы изменились после сбоя — отправьте ещё раз'));
+    await submitCreate();
+    await waitFor(() => expect(keys).toHaveLength(3));
+    expect(keys[2]).not.toBe(keys[1]);
+  });
 
   it('send: the same key after a network failure and after a 429 (the wait on the button)', async () => {
     const keys: (string | null)[] = [];

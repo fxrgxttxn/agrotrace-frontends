@@ -151,6 +151,26 @@ describe('/batches', () => {
     await waitFor(() => expect(seen.at(-1)!.get('sort')).toBe('harvestedAt,asc'));
   });
 
+  it('an empty slice inside the list (the list changed meanwhile): a reload, never an endless loading', async () => {
+    server.use(dictionaries(), contractResponse('listBatches', { body: pageOf([], 30), once: true }));
+    await open('/batches', 'Партии');
+    await userEvent.click(await screen.findByRole('button', { name: 'Обновить список' }));
+    expect(await screen.findByRole('link', { name: 'AT-2026-000123' })).toBeInTheDocument();
+  });
+
+  it('a date filter that came back with the URL (back/forward) survives a blur', async () => {
+    server.use(dictionaries());
+    await open('/batches', 'Партии');
+    await screen.findByRole('link', { name: 'AT-2026-000123' });
+    await router.goto('/batches?from=2026-07-01');
+    await openFilters();
+    const from = screen.getByLabelText('Произведена с');
+    await waitFor(() => expect(from).toHaveValue('01.07.2026'));
+    await userEvent.click(from);
+    await userEvent.tab();
+    expect(new URLSearchParams(location.search).get('from')).toBe('2026-07-01');
+  });
+
   it('a list 400 offers «Сбросить фильтры»', async () => {
     server.use(
       dictionaries(),
@@ -195,6 +215,21 @@ describe('/batches/new', () => {
     expect(toastText('polite')).toContain(
       'Партия AT-2026-000123 зарегистрирована и направлена на анализ: Пестициды за последние 30 дней',
     );
+  });
+
+  it('FM26/FM29: an answer after the person left the form does not navigate; its success is still said (same session)', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(dictionaries(), contractResponse('createBatch', { onRequest: () => held }));
+    await open('/batches/new', 'Новая партия');
+    await fill();
+    await userEvent.click(screen.getByRole('button', { name: 'Зарегистрировать партию' }));
+    await router.goto('/batches');
+    await screen.findByRole('heading', { level: 1, name: 'Партии' });
+    release();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(location.pathname).toBe('/batches');
+    expect(toastText('polite')).toContain('зарегистрирована');
   });
 
   it('no lab test needed: the batch is approved', async () => {
