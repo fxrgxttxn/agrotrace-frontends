@@ -235,5 +235,33 @@ describe('helpers', () => {
     expect(initials('Иван Петров')).toBe('ИП');
     expect(initials('Петров Иван Сергеевич')).toBe('ПИ');
     expect(initials('Admin')).toBe('AD');
+    expect(initials('ООО «Кубанский мукомол»')).toBe('ОК');
+  });
+});
+
+describe('design-system sync (FM22/FM33)', () => {
+  it('at-file: the hint carries `<id>-hint` (another field may describe itself with it)', async () => {
+    const { default: FileField } = await import('../../src/lib/ui/FileField.svelte');
+    const { container } = render(FileField, {
+      id: 'outline-file',
+      label: 'Файл контура',
+      hint: 'GeoJSON (.geojson) с контуром Polygon, до 1 МБ',
+      files: [],
+      onfiles: () => {},
+      onremove: () => {},
+    });
+    expect(container.querySelector('.at-file__hint')).toHaveAttribute('id', 'outline-file-hint');
+  });
+
+  it('at-metric: the second line is the last child of the value, after the unit (README «Показатель»)', async () => {
+    const { default: Metric } = await import('../../src/lib/ui/Metric.svelte');
+    const { container } = render(Metric, {
+      label: 'Задачи отзыва',
+      value: '4',
+      delta: 'из них просрочено: 1',
+    });
+    const value = container.querySelector('.at-metric__value')!;
+    expect(value.lastElementChild).toHaveClass('at-metric__delta');
+    expect(value.lastElementChild).toHaveTextContent('из них просрочено: 1');
   });
 });

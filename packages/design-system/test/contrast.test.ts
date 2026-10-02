@@ -67,6 +67,9 @@ const PAIRS: [fg: string, bg: string, min: number][] = [
   // Clay is also the error-message text colour (at-field__error).
   ['--c-clay', '--c-surface', 4.5],
   ['--c-clay', '--c-ground', 4.5],
+  // The attention ink is also the warning text colour (at-field__warning) on cards and the page.
+  ['--status-attention-fg', '--c-surface', 4.5],
+  ['--status-attention-fg', '--c-ground', 4.5],
   // Control boundaries (inputs, secondary buttons, stepper markers) — WCAG 1.4.11, R69.
   ['--c-line-strong', '--c-surface', 3],
   ['--c-line-strong', '--c-ground', 3],

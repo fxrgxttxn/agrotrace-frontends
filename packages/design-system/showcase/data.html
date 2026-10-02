@@ -293,6 +293,62 @@
           </nav>
         </section>
 
+        <section class="ds-section" aria-labelledby="s-table-field">
+          <h2 id="s-table-field">Поле в ячейке</h2>
+          <div class="at-table-wrap">
+            <table class="at-table" data-cards>
+              <thead>
+                <tr>
+                  <th class="at-table__select" scope="col">
+                    <label class="at-check"
+                      ><input type="checkbox" checked aria-label="Выбрать все партии"
+                    /></label>
+                  </th>
+                  <th scope="col">Партия</th>
+                  <th scope="col" data-numeric>Масса партии, кг</th>
+                  <th scope="col">Заявлено, кг</th>
+                  <th scope="col"><span class="at-visually-hidden">Действия</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-selected>
+                  <td class="at-table__select">
+                    <label class="at-check"
+                      ><input type="checkbox" checked aria-label="Выбрать AT-2026-000131"
+                    /></label>
+                  </td>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#b131">AT-2026-000131</a
+                      ><span class="at-table__sub">Пшеница озимая</span></span
+                    >
+                  </td>
+                  <td data-label="Масса партии, кг" data-numeric>123 456 789,000</td>
+                  <td data-label="Заявлено, кг">
+                    <div class="at-field">
+                      <div class="at-input-group">
+                        <input
+                          class="at-input"
+                          id="ds-declared-131"
+                          inputmode="decimal"
+                          value="123456789,000"
+                          aria-label="Заявленная масса AT-2026-000131"
+                        />
+                        <span class="at-input-group__suffix">кг</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="at-table__actions">
+                    <button class="at-button" data-variant="secondary" data-size="s" type="button">
+                      Переработать
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="ds-section" aria-labelledby="s-card">
           <h2 id="s-card">Карточки</h2>
           <div class="ds-grid ds-grid--wide">

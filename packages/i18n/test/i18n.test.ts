@@ -12,6 +12,8 @@ import {
   formatLocalDateTime,
   formatLocalTime,
   formatBytes,
+  formatDecimal,
+  formatLocalDate,
   problemMessage,
 } from '../src/index.js';
 
@@ -256,5 +258,22 @@ describe('formatLocalDateTime / formatLocalTime / formatBytes', () => {
     expect(formatBytes(1258291, 'en')).toBe('1.2 MB');
     expect(formatBytes(3584, 'ru')).toBe('3,5 КБ');
     expect(formatBytes(512, 'ru')).toBe('512 Б');
+  });
+});
+
+describe('formatDecimal', () => {
+  it('a wire decimal string with the locale separator and grouped thousands, digits kept as they are', () => {
+    expect(formatDecimal('124.50', 'ru')).toBe('124,50');
+    expect(formatDecimal('12480.500', 'ru')).toBe('12 480,500');
+    expect(formatDecimal('12480.500', 'en')).toBe('12,480.500');
+    expect(formatDecimal('7', 'ru')).toBe('7');
+  });
+});
+
+describe('formatLocalDate', () => {
+  it('the viewer’s calendar day of an instant', () => {
+    expect(formatLocalDate('2026-09-24T22:10:00Z', 'ru', 'Europe/Moscow')).toBe('25.09.2026');
+    expect(formatLocalDate('2026-09-24T22:10:00Z', 'en', 'UTC')).toBe('09/24/2026');
+    expect(formatLocalDate('soon', 'ru')).toBe('soon');
   });
 });

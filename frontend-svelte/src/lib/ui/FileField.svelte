@@ -97,7 +97,7 @@
       />
       <svg class="at-file__icon" aria-hidden="true"><use href="#i-upload" /></svg>
       <span class="at-file__action">{t('ui.chooseFile')}</span>
-      {#if hint}<span class="at-file__hint">{hint}</span>{/if}
+      {#if hint}<span class="at-file__hint" id="{id}-hint">{hint}</span>{/if}
     </label>
     {#if files.length > 0}
       <ul class="at-file__list">
