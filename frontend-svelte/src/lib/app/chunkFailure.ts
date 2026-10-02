@@ -171,3 +171,10 @@ function markTitleFocus(): void {
 export function reloadPage(): void {
   location.reload();
 }
+
+/** «Повторить» of a part of a page whose chunk failed in this document (a chart): the browser keeps the failed module,
+ * so only a new document can ask for it again — one full load of this page, marked like the automatic one (FM15). */
+export function reloadForChunk(): void {
+  mark().set(here());
+  location.reload();
+}

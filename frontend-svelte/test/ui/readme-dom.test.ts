@@ -230,6 +230,10 @@ describe('README markup contract: data and feedback', () => {
   it('at-progress', () => {
     expect(dom('progress')).toBe(canonicalHtml(readmeBlock('Прогресс')));
   });
+
+  it('at-chart in its card (canvas summary, collapsed table view)', () => {
+    expect(dom('chart')).toBe(canonicalHtml(readmeBlock('График')));
+  });
 });
 
 describe('README markup contract: page', () => {

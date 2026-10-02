@@ -58,10 +58,10 @@ test('a link, back and forward move focus to the new title', async ({ page, cont
 test('a parameter change on the same route moves focus to the title', async ({ page, context }) => {
   await mockApi(context);
   await page.goto('/batches/1');
-  await expect(h1(page, 'Партия')).toBeVisible();
+  await expect(h1(page, 'AT-2026-000123')).toBeVisible();
   await follow(page, '/batches/2');
   await expect(page).toHaveURL(/\/batches\/2$/);
-  await expect(h1(page, 'Партия')).toBeFocused();
+  await expect(h1(page, 'AT-2026-000123')).toBeFocused();
 });
 
 test('a query-only navigation keeps focus where it was', async ({ page, context }) => {

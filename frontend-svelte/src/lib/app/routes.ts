@@ -69,7 +69,7 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/lab/tests/:id',
     title: 'page.labTest',
     access: { roles: [L] },
-    ops: ['getLabTest', 'submitLabResults'],
+    ops: ['getLabTest', 'registerLabSample', 'submitLabResults', 'uploadLabProtocol'],
   },
   {
     path: '/recall-tasks',
@@ -78,7 +78,12 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     ops: ['listRecallTasks', 'confirmRecallTask'],
   },
   { path: '/recalls', title: 'page.recalls', access: { roles: [I] }, ops: ['listRecalls'] },
-  { path: '/recalls/new', title: 'page.recallNew', access: { roles: [I] }, ops: ['createRecall'] },
+  {
+    path: '/recalls/new',
+    title: 'page.recallNew',
+    access: { roles: [I] },
+    ops: ['createRecall', 'listBatches', 'getBatch'],
+  },
   {
     path: '/recalls/:id',
     title: 'page.recall',
@@ -86,7 +91,12 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     ops: ['getRecall', 'getRecallGraph'],
   },
   { path: '/complaints', title: 'page.complaints', access: { roles: [I] }, ops: ['listComplaints'] },
-  { path: '/complaints/:id', title: 'page.complaint', access: { roles: [I] }, ops: ['getComplaint'] },
+  {
+    path: '/complaints/:id',
+    title: 'page.complaint',
+    access: { roles: [I] },
+    ops: ['getComplaint', 'startComplaintReview', 'decideComplaint', 'listOrganizations'],
+  },
   {
     path: '/reports',
     title: 'page.reports',

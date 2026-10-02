@@ -110,12 +110,11 @@
   {/if}
 {/snippet}
 
-<Page title={t('page.fields')}>
-  {#snippet actions()}
-    {#if viewer.farmer}
-      <Button variant="primary" icon="plus" href="/fields/new">{t('fields.add')}</Button>
-    {/if}
-  {/snippet}
+<!-- The header actions exist only when there is one (an empty actions box would still take a row). -->
+{#snippet pageActions()}
+  <Button variant="primary" icon="plus" href="/fields/new">{t('fields.add')}</Button>
+{/snippet}
+<Page actions={viewer.farmer ? pageActions : undefined} title={t('page.fields')}>
   <PageToolbar
     search={{
       label: t('fields.search'),

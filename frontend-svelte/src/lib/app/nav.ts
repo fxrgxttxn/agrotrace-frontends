@@ -6,6 +6,8 @@ export interface NavItem {
   key: string;
   /** i18n key of the label. */
   label: string;
+  /** i18n key of the one-line label of the bottom navigation (< 768 px), when the label is two words (README). */
+  short?: string;
   href: string;
   icon: IconName;
   /** Path prefix of the section (`aria-current="page"` for it and its nested routes). */
@@ -33,10 +35,18 @@ const ITEMS = {
     section: '/processing',
   },
   qr: { key: 'qr', label: 'nav.qr', href: '/qr', icon: 'qr', section: '/qr' },
-  labTests: { key: 'labTests', label: 'nav.labTests', href: '/lab/tests', icon: 'flask', section: '/lab' },
+  labTests: {
+    key: 'labTests',
+    label: 'nav.labTests',
+    short: 'navShort.labTests',
+    href: '/lab/tests',
+    icon: 'flask',
+    section: '/lab',
+  },
   recallTasks: {
     key: 'recallTasks',
     label: 'nav.recallTasks',
+    short: 'navShort.recallTasks',
     href: '/recall-tasks',
     icon: 'check',
     section: '/recall-tasks',

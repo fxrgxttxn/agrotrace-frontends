@@ -78,17 +78,16 @@
     </Card>
   </Page>
 {:else}
-  <Page title={batch?.publicCode ?? t('page.batch')}>
-    {#snippet actions()}
-      {#if batch && (batchActions.length > 0 || viewer.inspector)}
-        {#each batchActions as { a, href }, i (a.action)}
-          <Button variant={i === 0 ? 'primary' : 'secondary'} {href}>{enumLabel(t, 'BatchActionName', a.action)}</Button>
-        {/each}
-        {#if viewer.inspector}
-          <Button variant="secondary" icon="flask" onclick={() => (assigning = true)}>{t('lab.assign')}</Button>
-        {/if}
-      {/if}
-    {/snippet}
+  <!-- The header actions exist only when there is one (an empty actions box would still take a row). -->
+  {#snippet pageActions()}
+    {#each batchActions as { a, href }, i (a.action)}
+      <Button variant={i === 0 ? 'primary' : 'secondary'} {href}>{enumLabel(t, 'BatchActionName', a.action)}</Button>
+    {/each}
+    {#if viewer.inspector}
+      <Button variant="secondary" icon="flask" onclick={() => (assigning = true)}>{t('lab.assign')}</Button>
+    {/if}
+  {/snippet}
+  <Page actions={batch && (batchActions.length > 0 || viewer.inspector) ? pageActions : undefined} title={batch?.publicCode ?? t('page.batch')}>
     {#if !batch && batchQuery.failed}
       <AreaFailed text={t('batches.failed')} busy={batchQuery.fetching} onretry={() => void userAction(batchQuery.refetch)} />
     {:else if !batch}

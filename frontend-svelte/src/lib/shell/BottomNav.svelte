@@ -30,7 +30,7 @@
       class="at-bottom-nav__link"
       href={item.href}
       aria-current={isCurrent(item, pathname) ? 'page' : undefined}
-      ><Icon name={item.icon} class="at-bottom-nav__icon" />{t(item.label)}</a
+      ><Icon name={item.icon} class="at-bottom-nav__icon" />{t(item.short ?? item.label)}</a
     >
   {/each}
   <button

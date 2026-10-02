@@ -17,7 +17,16 @@ const LOGIN_LIMITED = /^http 429 POST \/api\/v1\/auth\/login$/;
 /** Answers that are expected, not defects: the anonymous start-up refresh (401); on the mock stand, an event-stream
  * reconnect of a document that is being left by a full page load (the MSW worker no longer serves a closing client,
  * so that request reaches the gateway, which answers 503; the new document opens its own stream through the worker). */
-const EXPECTED = [/^http 401 POST \/api\/v1\/auth\/refresh$/, /^http 503 GET \/api\/v1\/events\/stream$/];
+/** Svelte 5 runtime: its one-time feature probe for rich `<option>` content (customizable-select.js, run when a
+ * `<select>` renders snippet children — every `Select`) parses `<option><span>` in a detached `<select>`; Chromium
+ * warns about that probe. It is not markup of the page (since S3 every list filter is a `Select`). */
+const SVELTE_SELECT_PROBE =
+  /^console: A span tag was parsed inside of a <select> which was not inserted into the document/;
+const EXPECTED = [
+  /^http 401 POST \/api\/v1\/auth\/refresh$/,
+  /^http 503 GET \/api\/v1\/events\/stream$/,
+  SVELTE_SELECT_PROBE,
+];
 
 export function unexpected(w: Watch, alsoExpected: RegExp[] = []): string[] {
   const allowed = [...EXPECTED, ...alsoExpected, ...(w.loginRetried ? [LOGIN_LIMITED] : [])];

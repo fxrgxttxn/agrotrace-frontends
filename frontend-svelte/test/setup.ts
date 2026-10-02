@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, configure } from '@testing-library/svelte';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, inject } from 'vitest';
+import { afterAll, afterEach, beforeAll, inject, vi } from 'vitest';
 import { contractHandlers, loadContract } from './msw/fromContract';
 
 // The same jsdom set-up as the React app (frontend-react/test/setup.ts): <dialog> modal API, matchMedia,
@@ -67,3 +67,8 @@ afterEach(() => {
   server.resetHandlers();
 });
 afterAll(() => server.close());
+
+// ECharts is replaced (as in the React app's set-up): tests check the bars a page hands to it and the canvas summary.
+vi.mock('../src/lib/charts/echarts', () => ({
+  mountBars: vi.fn(() => ({ destroy: () => {} })),
+}));

@@ -176,29 +176,28 @@
     </Card>
   </Page>
 {:else}
-  <Page title={waybill?.number ?? t('page.waybill')}>
-    {#snippet actions()}
-      {#if waybill && (can('send') || can('delete') || can('reject'))}
-        {#if can('send')}
-          <Button
-            bind:element={sendButton}
-            variant="primary"
-            icon="truck"
-            busy={sending}
-            disabled={sendWait.left > 0}
-            onclick={() => void userAction(() => send(waybill))}
-          >
-            {sendWait.left > 0 ? t('auth.retryIn', { seconds: sendWait.left }) : enumLabel(t, 'WaybillActionName', 'send')}
-          </Button>
-        {/if}
-        {#if can('delete')}
-          <Button variant="secondary" onclick={() => (dialog = 'delete')}>{enumLabel(t, 'WaybillActionName', 'delete')}</Button>
-        {/if}
-        {#if can('reject')}
-          <Button variant="secondary" onclick={() => (dialog = 'reject')}>{enumLabel(t, 'WaybillActionName', 'reject')}</Button>
-        {/if}
-      {/if}
-    {/snippet}
+  <!-- The header actions exist only when there is one (an empty actions box would still take a row). -->
+  {#snippet pageActions()}
+    {#if can('send')}
+      <Button
+        bind:element={sendButton}
+        variant="primary"
+        icon="truck"
+        busy={sending}
+        disabled={sendWait.left > 0}
+        onclick={() => void userAction(() => send(waybill!))}
+      >
+        {sendWait.left > 0 ? t('auth.retryIn', { seconds: sendWait.left }) : enumLabel(t, 'WaybillActionName', 'send')}
+      </Button>
+    {/if}
+    {#if can('delete')}
+      <Button variant="secondary" onclick={() => (dialog = 'delete')}>{enumLabel(t, 'WaybillActionName', 'delete')}</Button>
+    {/if}
+    {#if can('reject')}
+      <Button variant="secondary" onclick={() => (dialog = 'reject')}>{enumLabel(t, 'WaybillActionName', 'reject')}</Button>
+    {/if}
+  {/snippet}
+  <Page actions={waybill && (can('send') || can('delete') || can('reject')) ? pageActions : undefined} title={waybill?.number ?? t('page.waybill')}>
     {#if !waybill && waybillQuery.failed}
       <AreaFailed text={t('waybills.failed')} busy={waybillQuery.fetching} onretry={() => void userAction(waybillQuery.refetch)} />
     {:else if !waybill}

@@ -35,6 +35,17 @@
     Timeline,
     Toasts,
   } from '../../src/lib/ui';
+  import BarChart from '../../src/lib/charts/BarChart.svelte';
+  import type { Column } from '../../src/lib/ui/table';
+
+  type ChartRow = { name: string; tested: number; failed: number; share: string };
+  const chartColumns: Column<ChartRow>[] = [
+    { key: 'name', header: 'Продукт', primary: true, text: (r) => r.name },
+    { key: 'tested', header: 'Проверено', numeric: true, text: (r) => String(r.tested) },
+    { key: 'failed', header: 'С превышением', numeric: true, text: (r) => String(r.failed) },
+    { key: 'share', header: 'Доля брака, %', numeric: true, text: (r) => r.share },
+  ];
+  const chartRows: ChartRow[] = [{ name: 'Пшеница озимая', tested: 8, failed: 1, share: '12,50' }];
 
   // The README examples of packages/design-system/README.md, rendered with the Svelte wrappers — the same inputs as
   // the React test (frontend-react/test/ui/readme-dom.test.tsx), one case per `name`.
@@ -217,6 +228,22 @@
   <Metric label="Масса на складе" value="212,4" unit="т" spark={[1, 3, 2, 5]} />
 {:else if name === 'progress'}
   <Progress id="recall-progress" label="Подтверждено" value={7} max={12} />
+{:else if name === 'chart'}
+  <Card>
+    <CardHeader title="Доля брака по продуктам" />
+    <CardBody>
+      <BarChart
+        title="Доля брака по продуктам"
+        bars={[
+          { key: 'w', label: 'Пшеница озимая', value: 12.5, display: '12,50%' },
+          { key: 'b', label: 'Ячмень', value: 0, display: '0,00%' },
+        ]}
+        columns={chartColumns}
+        rows={chartRows}
+        rowKey={(r) => r.name}
+      />
+    </CardBody>
+  </Card>
 {:else if name === 'page'}
   <Page title="Партии">
     {#snippet actions()}<Button variant="primary" href="/batches/new">Зарегистрировать партию</Button>{/snippet}

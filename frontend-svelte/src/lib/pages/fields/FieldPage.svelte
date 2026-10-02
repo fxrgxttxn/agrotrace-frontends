@@ -91,14 +91,13 @@
     </Card>
   </Page>
 {:else}
-  <Page title={field?.name ?? t('page.field')}>
-    {#snippet actions()}
-      {#if viewer.farmer && field}
-        <Button variant="primary" href="/batches/new?fieldId={field.id}">{t('fields.batch')}</Button>
-        <Button onclick={openEdit}>{t('fields.edit')}</Button>
-        <Button variant="ghost" icon="trash" onclick={() => (dialog = 'delete')}>{t('fields.delete')}</Button>
-      {/if}
-    {/snippet}
+  <!-- The header actions exist only when there is one (an empty actions box would still take a row). -->
+  {#snippet pageActions()}
+    <Button variant="primary" href="/batches/new?fieldId={field!.id}">{t('fields.batch')}</Button>
+    <Button onclick={openEdit}>{t('fields.edit')}</Button>
+    <Button variant="ghost" icon="trash" onclick={() => (dialog = 'delete')}>{t('fields.delete')}</Button>
+  {/snippet}
+  <Page actions={viewer.farmer && field ? pageActions : undefined} title={field?.name ?? t('page.field')}>
     {#if !field && fieldQuery.failed}
       <AreaFailed text={t('fields.failed')} busy={fieldQuery.fetching} onretry={() => void userAction(fieldQuery.refetch)} />
     {:else if !field}

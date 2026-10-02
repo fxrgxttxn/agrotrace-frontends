@@ -47,6 +47,21 @@ class Live {
     };
   }
 
+  /** Keys made stale by the events of one task, invalidated together once the task ends (each key once). */
+  #pending: Set<string> | null = null;
+
+  #stale(keys: readonly string[]): void {
+    if (!this.#pending) {
+      const due = new Set<string>();
+      this.#pending = due;
+      setTimeout(() => {
+        this.#pending = null;
+        for (const key of due) void cache.invalidate([key], { passive: true });
+      }, 0);
+    }
+    for (const key of keys) this.#pending.add(key);
+  }
+
   #handle(e: StreamEvent): void {
     if (e.type === 'unread') {
       const count = (e.data as { count?: unknown } | null)?.count;
@@ -59,10 +74,24 @@ class Live {
         text: notificationMessage(n.type, payload, 'title', t),
         detail: notificationMessage(n.type, payload, 'body', t),
       });
-      void cache.invalidate(['notifications'], { passive: true }); // a live refresh never moves the focus (FM30)
+      // the screens the notification is about read again (a live refresh never moves the focus, FM30)
+      this.#stale(['notifications', ...(LIVE_KEYS[n.type] ?? [])]);
     }
   }
 }
+
+/** Cache keys a notification type makes stale (besides the notification lists): the lists, the cards and the
+ * dashboard it is about (as the React app's LIVE_KEYS, src/app/sse.tsx there). */
+const LIVE_KEYS: Record<string, readonly string[]> = {
+  RECALL: ['recalls', 'recall', 'recallTasks', 'batches', 'batch', 'dashboard'],
+  RECALL_TASK: ['recallTasks', 'recall', 'recalls', 'dashboard'],
+  OVERDUE: ['recallTasks', 'recall', 'recalls', 'dashboard'],
+  COMPLAINT: ['complaints', 'complaint', 'dashboard'],
+  LAB_ASSIGNED: ['labTests', 'labTest', 'dashboard'],
+  LAB_RESULT: ['labTests', 'labTest', 'batches', 'batch', 'dashboard'],
+  LAB_OVERDUE: ['labTests', 'labTest', 'dashboard'],
+  WAYBILL_INCOMING: ['waybills', 'waybill', 'dashboard'],
+};
 
 export const live = new Live();
 

@@ -147,12 +147,11 @@
   <DateFilter id="filter-to" label={t('waybills.to')} value={to} min={from || undefined} onchange={(v) => list.set({ to: v })} />
 {/snippet}
 
-<Page title={t('page.waybills')}>
-  {#snippet actions()}
-    {#if sender}
-      <Button variant="primary" icon="plus" href="/waybills/new">{t('action.createWaybill')}</Button>
-    {/if}
-  {/snippet}
+<!-- The header actions exist only when there is one (an empty actions box would still take a row). -->
+{#snippet pageActions()}
+  <Button variant="primary" icon="plus" href="/waybills/new">{t('action.createWaybill')}</Button>
+{/snippet}
+<Page actions={sender ? pageActions : undefined} title={t('page.waybills')}>
   <PageToolbar
     search={{ label: t('waybills.search'), placeholder: t('waybills.searchPlaceholder'), value: q, onchange: (text) => list.set({ q: text }) }}
     {count}

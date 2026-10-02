@@ -183,12 +183,11 @@
   <DateFilter id="filter-to" label={t('batches.to')} value={to} min={from || undefined} onchange={(v) => list.set({ to: v })} />
 {/snippet}
 
-<Page title={t('page.batches')}>
-  {#snippet actions()}
-    {#if viewer.farmer}
-      <Button variant="primary" icon="plus" href="/batches/new">{t('action.createBatch')}</Button>
-    {/if}
-  {/snippet}
+<!-- The header actions exist only when there is one (an empty actions box would still take a row). -->
+{#snippet pageActions()}
+  <Button variant="primary" icon="plus" href="/batches/new">{t('action.createBatch')}</Button>
+{/snippet}
+<Page actions={viewer.farmer ? pageActions : undefined} title={t('page.batches')}>
   <PageToolbar
     search={{
       label: t('batches.search'),

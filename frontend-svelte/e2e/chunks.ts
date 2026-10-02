@@ -86,3 +86,10 @@ export function nodeFile(routeFile: string): string {
 
 /** The kit's start-up entry chunks (`start`, `app`), which the boot script imports. */
 export const entryFiles: string[] = entries.map((k) => `/${manifest[k]!.file}`);
+
+/** The client chunk holding a source module (e.g. the lazily loaded ECharts library). */
+export function chunkWith(module: RegExp): string {
+  const file = Object.entries(modules).find(([, list]) => list.some((m) => module.test(m)))?.[0];
+  if (!file) throw new Error(`no chunk holds ${module}`);
+  return file.startsWith('/') ? file : `/${file}`;
+}

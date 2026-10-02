@@ -195,3 +195,21 @@ export function listGap(
 export function isBadListQuery(e: unknown): boolean {
   return e instanceof ApiProblem && e.status === 400;
 }
+
+/** The explicit «Все» of a list that opens on its active statuses (ruling FM20: the sample queue, the withdrawal tasks).
+ * `status=all` together with other statuses (a hand-made link) is just `all`: the URL is replaced so it says what is
+ * shown. Call during component initialisation. */
+export const ALL = 'all';
+export function collapseAll(path: () => string): void {
+  $effect(() => {
+    const statuses = page.url.searchParams.getAll('status');
+    if (!statuses.includes(ALL) || statuses.length < 2) return;
+    untrack(() => {
+      if (page.url.pathname !== path()) return;
+      const next = new URLSearchParams(page.url.searchParams);
+      next.delete('status');
+      next.append('status', ALL);
+      void goto(withQuery(path(), next), { keepFocus: true, noScroll: true, replaceState: true });
+    });
+  });
+}
