@@ -11,7 +11,16 @@
    * with a summary label; zoom buttons (and, full screen, «Закрыть граф») in the toolbar; legend of the statuses on the
    * graph. Below 768 px the graph is not drawn inline: a button opens it full screen, Esc and the close button leave it
    * and the focus goes back to the button. The nodes are also listed as a table under it by the page. */
-  let { graph, code }: { graph: BatchGraph; code: string } = $props();
+  let {
+    graph,
+    code,
+    labelKey = 'graph.label',
+  }: {
+    graph: BatchGraph;
+    code: string;
+    /** i18n key of the canvas label (the recall graph has its own). */
+    labelKey?: string;
+  } = $props();
 
   const fs = new Fullscreen();
   const view: { current: GraphView | null } = { current: null };
@@ -24,7 +33,7 @@
   <Button bind:element={fs.opener} icon="graph" onclick={fs.open}>{t('graph.open')}</Button>
 {:else}
   <div bind:this={fs.block} class="at-graph" data-fullscreen={fs.full ? '' : undefined}>
-    <GraphCanvas {graph} label={t('graph.label', { code, up, down })} {view} onopennode={fs.close} />
+    <GraphCanvas {graph} label={t(labelKey, { code, up, down })} {view} onopennode={fs.close} />
     <div class="at-graph__toolbar">
       <Button
         variant="ghost"

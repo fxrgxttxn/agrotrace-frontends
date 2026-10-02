@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { t } from '$lib/app/i18n';
-  import PlaceholderPage from '$lib/pages/PlaceholderPage.svelte';
+  import ComplaintPage from '$lib/pages/complaints/ComplaintPage.svelte';
 </script>
 
-<PlaceholderPage title={t('page.complaint')} />
+<ComplaintPage />

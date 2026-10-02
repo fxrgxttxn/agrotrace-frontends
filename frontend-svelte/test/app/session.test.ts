@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../setup';
 import { API_BASE, contractExample, contractResponse } from '../msw/fromContract';
-import { safeNext } from '../../src/lib/app/session.svelte';
+import { safeNext, session as liveSession } from '../../src/lib/app/session.svelte';
 import { page } from '../kit/state.svelte';
 import { renderApp } from './renderApp';
 
@@ -237,6 +237,51 @@ describe('session loss and logout', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Вход' })).toBeInTheDocument();
     expect(location.pathname).toBe('/login');
     await waitFor(() => expect(got).toEqual([{ type: 'logout' }]));
+    other.close();
+  });
+
+  it('a logout in another tab while this one is still restoring: the late /me never signs it in (FM32)', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(contractResponse('getMe', { onRequest: () => held }));
+    const started = renderApp('/batches');
+    await new Promise((r) => setTimeout(r, 50));
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Вход' })).toBeInTheDocument();
+    release();
+    await started;
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole('heading', { level: 1, name: 'Партии' })).toBeNull();
+    expect(location.pathname).toBe('/login');
+    other.close();
+  });
+
+  it("sign-in while a restore voided by another tab's logout still waits: the late refresh never replaces the new token", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      contractResponse('refreshToken', {
+        body: { ...(contractExample('refreshToken').body as object), accessToken: 'stale.cookie.token' },
+        onRequest: () => held,
+      }),
+    );
+    const started = renderApp('/login');
+    await new Promise((r) => setTimeout(r, 50));
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    await screen.findByRole('heading', { level: 1, name: 'Вход' });
+    await userEvent.type(screen.getByLabelText('Email'), 'petrov@kfh-petrov.ru');
+    await userEvent.type(screen.getByLabelText('Пароль'), 'secret');
+    await userEvent.click(screen.getByRole('button', { name: 'Войти' }));
+    await waitFor(() => expect(location.pathname).toBe('/'));
+    const signedIn = liveSession.store.get();
+    expect(signedIn).toBe((contractExample('login').body as { accessToken: string }).accessToken);
+    release();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(liveSession.store.get()).toBe(signedIn);
+    expect(location.pathname).toBe('/');
+    await started;
     other.close();
   });
 

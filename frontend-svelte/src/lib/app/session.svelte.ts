@@ -63,8 +63,10 @@ export class Session {
   api: Api;
   #booting = true;
   #userRetry = false;
-  /** Logout broadcasts heard from other tabs (a restore in progress ends without a session when one arrives). */
-  #logouts = 0;
+  /** Number of the latest restore run (FM32): a logout broadcast, a sign-in or a new restore voids the waiting one. */
+  #run = 0;
+  /** Ends the waiting restore run at once (its late refresh or `/me` answer is never installed). */
+  #voidRun: (() => void) | null = null;
   #started: Promise<void> | null = null;
   #channel: BroadcastChannel | null = null;
 
@@ -80,12 +82,17 @@ export class Session {
       this.#channel = new BroadcastChannel(SESSION_CHANNEL);
       this.#channel.onmessage = (e: MessageEvent) => {
         if ((e.data as { type?: string } | null)?.type !== 'logout') return;
-        this.#logouts += 1;
         // FM29/FM32: «had a session» is the status alone — a signed-in tab ends it and goes to /login; a tab without
-        // one (anonymous, loading, unavailable) only forgets any token it holds and stays where it is
+        // one (anonymous, unavailable) only forgets any token it holds and stays where it is; a tab still restoring
+        // ends that restore at once without a session (its late answer never signs it in; no generation bump)
         if (this.status === 'authenticated') {
           this.#end(true);
           void goto('/login', { replaceState: true });
+        } else if (this.#voidRun) {
+          this.#voidWaitingRun();
+          this.store.set(null);
+          this.#set('anonymous');
+          this.loggedOut = true; // an explicit logout: a plain /login
         } else this.store.set(null);
       };
     }
@@ -112,29 +119,34 @@ export class Session {
 
   /** Restores the session from the refresh cookie (start-up, and «Повторить» after a transient failure). */
   async restore(): Promise<void> {
+    this.#voidWaitingRun();
+    const run = ++this.#run;
     this.#booting = true;
     this.#set('loading');
-    // FM28/FM32: a restore overtaken by a login never installs its late answer, and one overtaken by another tab's
-    // logout ends without a session (the logout does not bump the generation of a tab that is still loading)
+    // FM28/FM32: the run is bound to itself — a login, another tab's logout or a newer restore voids it at once (its
+    // waiting refresh or `/me` is no longer awaited), and a late answer of a voided run is never installed
     const generation = cache.generation;
-    const logouts = this.#logouts;
-    const overtaken = (): boolean => {
-      if (generation !== cache.generation) return true;
-      if (logouts === this.#logouts) return false;
-      this.store.set(null);
-      this.#set('anonymous');
-      this.loggedOut = true; // an explicit logout: a plain /login
-      return true;
+    let voided = false;
+    const gone = new Promise<void>((resolve) => {
+      this.#voidRun = () => {
+        voided = true;
+        resolve();
+      };
+    });
+    const overtaken = (): boolean => voided || run !== this.#run || generation !== cache.generation;
+    const settle = async <T>(p: Promise<T>): Promise<T | undefined> => {
+      const r = await Promise.race([p.then((v) => ({ v })), gone]);
+      return r ? r.v : undefined;
     };
     try {
-      const token = this.store.get() ?? (await this.api.refresh());
+      const token = this.store.get() ?? (await settle(this.api.refresh()));
       if (overtaken()) return;
       if (!token) {
         this.#set('anonymous');
         return;
       }
-      const me = await call<Me>(this.api.GET('/me'));
-      if (!overtaken()) this.#authenticated(me);
+      const me = await settle(call<Me>(this.api.GET('/me')));
+      if (!overtaken() && me) this.#authenticated(me);
     } catch (e) {
       if (overtaken()) return;
       // R61/F8: a network error, a 5xx or a rate limit (429 of /auth/refresh or /me) is not a logout — the session is
@@ -148,12 +160,27 @@ export class Session {
         this.#set('anonymous');
       }
     } finally {
-      this.#booting = false;
+      if (run === this.#run) {
+        this.#booting = false;
+        this.#voidRun = null;
+      }
     }
+  }
+
+  /** FM32: ends the waiting restore run (if any) — its late answers are dropped. */
+  #voidWaitingRun(): void {
+    const end = this.#voidRun;
+    this.#voidRun = null;
+    if (!end) return;
+    this.#run += 1;
+    this.#booting = false;
+    end();
   }
 
   /** Installs a successful login (`POST /auth/login` or `/auth/2fa/verify`). */
   signIn(result: LoginSuccess): void {
+    // a restore still waiting (voided by another tab's logout or not) never replaces this session (FM32)
+    this.#voidWaitingRun();
     // a new session: nothing of an earlier one (its cache, its late answers) belongs to it (FM24)
     cache.clear();
     this.store.set(result.accessToken);
