@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { t } from '$lib/app/i18n';
-  import PlaceholderPage from '$lib/pages/PlaceholderPage.svelte';
+  import WaybillNewPage from '$lib/pages/waybills/WaybillNewPage.svelte';
 </script>
 
-<PlaceholderPage title={t('page.waybillNew')} />
+<WaybillNewPage />

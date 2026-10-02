@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { t } from '$lib/app/i18n';
-  import PlaceholderPage from '$lib/pages/PlaceholderPage.svelte';
+  import QrPage from '$lib/pages/qr/QrPage.svelte';
 </script>
 
-<PlaceholderPage title={t('page.qr')} />
+<QrPage />
