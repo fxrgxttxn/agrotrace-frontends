@@ -3,15 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Shared ru/en dictionaries, formatters and the problem-message resolver, used by the React, Angular and Svelte frontends.",
+  "description": "Shared ru/en dictionaries (plus the public-page subset, ruling FM35), formatters and the problem-message resolver, used by the React, Angular and Svelte frontends.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./public": "./src/public.ts",
+    "./public/*": "./public/*",
     "./locales/*": "./locales/*"
   },
   "scripts": {
     "test": "vitest run",
+    "build:public": "node scripts/build-public.ts",
     "typecheck": "tsc --noEmit -p ."
   },
   "devDependencies": {

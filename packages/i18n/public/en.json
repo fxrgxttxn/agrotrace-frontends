@@ -1,0 +1,90 @@
+{
+  "page": {
+    "publicBatch": "Batch",
+    "publicComplaint": "Report a Problem"
+  },
+  "empty": {
+    "pageLoadFailed": "The page could not be loaded."
+  },
+  "action": {
+    "retry": "Retry"
+  },
+  "auth": {
+    "retryIn": "Retry in {seconds} s",
+    "rateLimited": "Too many attempts — retry in {seconds} s"
+  },
+  "shell": {
+    "loading": "Loading"
+  },
+  "status": {
+    "safety": {
+      "SAFE": "Safe",
+      "RECALLED": "Recalled",
+      "BLOCKED": "Blocked",
+      "UNKNOWN": "No Data"
+    }
+  },
+  "orgType": {
+    "FARM": "Farm",
+    "PROCESSOR": "Processor",
+    "LAB": "Laboratory",
+    "RETAILER": "Retailer",
+    "AUTHORITY": "Regulatory Authority",
+    "PLATFORM": "Platform"
+  },
+  "labConclusion": {
+    "PASS": "Meets the norms",
+    "FAIL": "Norms exceeded"
+  },
+  "errors": {
+    "VALIDATION": "Check the highlighted fields",
+    "NOT_FOUND": "Not found",
+    "RATE_LIMITED": "Too many requests — try again later",
+    "CAPTCHA_FAILED": "ALTCHA verification failed",
+    "BACKEND_UNAVAILABLE": "The service is temporarily unavailable",
+    "INTERNAL": "Internal server error",
+    "UNKNOWN": "Unknown error"
+  },
+  "validation": {
+    "required": "This field is required",
+    "minLength": "Too short",
+    "maxLength": "Too long",
+    "pattern": "Invalid format"
+  },
+  "public": {
+    "code": "Batch code",
+    "origin": "Origin",
+    "farm": "Farm",
+    "producer": "Producer",
+    "region": "Region",
+    "harvestedAt": "Harvest date",
+    "producedAt": "Production date",
+    "path": "Product path",
+    "since": "since {date}",
+    "period": "{from} — {to}",
+    "lab": "Lab tests",
+    "labTotal": "Completed",
+    "labPassed": "Within the norms",
+    "labLast": "Last test",
+    "labNone": "No lab tests yet.",
+    "recallTitle": "The batch is recalled",
+    "safetyNote": {
+      "RECALLED": "Do not consume the product of this batch.",
+      "BLOCKED": "Sales of the batch are stopped until the inspector decides.",
+      "UNKNOWN": "The batch is still being checked."
+    },
+    "report": "Report a problem",
+    "text": "What happened",
+    "contact": "Phone or email for a reply (optional)",
+    "send": "Send the complaint",
+    "sent": "The complaint is sent.",
+    "toBatch": "Back to the batch",
+    "textShort": "Describe it in more detail — at least 10 characters",
+    "captchaRetry": "The anti-spam check failed — send again",
+    "captchaUnavailable": "The anti-spam check could not be prepared — send again",
+    "notFound": "No batch with this code.",
+    "offline": "No connection to the server — check your network.",
+    "unavailable": "The service is temporarily unavailable.",
+    "photo": "Photo: {author}, {license}"
+  }
+}

@@ -70,6 +70,8 @@ const PAIRS: [fg: string, bg: string, min: number][] = [
   // The attention ink is also the warning text colour (at-field__warning) on cards and the page.
   ['--status-attention-fg', '--c-surface', 4.5],
   ['--status-attention-fg', '--c-ground', 4.5],
+  // The recall warning title of the public QR page (public.css).
+  ['--status-danger-fg', '--c-surface', 4.5],
   // Control boundaries (inputs, secondary buttons, stepper markers) — WCAG 1.4.11, R69.
   ['--c-line-strong', '--c-surface', 3],
   ['--c-line-strong', '--c-ground', 3],

@@ -305,6 +305,30 @@ fe_e2e_smoke() (
   fi
 )
 
+# `e2e [front] [back] [playwright args…]`: the shared parity suite tests/e2e (Plan 2 Task 9) against
+# http://{front}-{back}.localhost through a gateway, Playwright one-off in the `playwright` service on network
+# agrotrace_at. front ∈ react|angular|svelte (default react), back ∈ mock|express|django|laravel (default mock); every
+# other argument goes to Playwright unchanged (`./at e2e --grep UC-02`, `./at e2e svelte mock visual.spec.ts`).
+# Gateway: GATEWAY_HOST if set, else the front's stand (gateway-<front>, compose project agrotrace-<front>) when it
+# runs, else the main `gateway`; inside the network it listens on 80 (GATEWAY_PORT).
+e2e_gateway() {
+  if [ -n "${GATEWAY_HOST:-}" ]; then echo "$GATEWAY_HOST"; return; fi
+  local running
+  if [ "${AT_DRY_RUN:-}" = "1" ]; then running="${AT_DRY_STAND:-1}"
+  else running=$([ -n "$(docker ps -q --filter "label=com.docker.compose.service=gateway-$1" --filter status=running)" ] && echo 1 || echo 0)
+  fi
+  if [ "$running" = "1" ]; then echo "gateway-$1"; else echo gateway; fi
+}
+e2e() (
+  set -euo pipefail
+  front=react; back=mock
+  case "${1:-}" in react|angular|svelte) front="$1"; shift ;; esac
+  case "${1:-}" in mock|express|django|laravel) back="$1"; shift ;; esac
+  gw="$(e2e_gateway "$front")"
+  run $DC run --rm -e FRONT="$front" -e BACK="$back" -e GATEWAY_HOST="$gw" -e GATEWAY_PORT=80 \
+    -w //repo/tests/e2e playwright npx --no-install playwright test "$@"
+)
+
 case "$cmd" in
   install)   $T pnpm install "$@" ;;
   sh)        $T bash ;;
@@ -449,6 +473,8 @@ case "$cmd" in
   fe:dev)    fe_front "${1:-}"; run $DC run --rm -p 5173:5173 tools pnpm --filter "@agrotrace/frontend-$1" dev ;;
   fe:gateway) fe_gateway "$@" ;;
   fe:e2e-smoke) fe_e2e_smoke "$@" ;;
+  # `e2e [front] [back] [playwright args…]`: the shared parity suite (see e2e above).
+  e2e) e2e "$@" ;;
   # Top-level commands only (two-space indented case labels).
   help|*)  grep -E '^  [a-z0-9:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
 esac

@@ -84,11 +84,8 @@ test('the public pages /p/* load no cabinet chunk and no mock code (module graph
   expect(unexpected(w)).toEqual([]);
 });
 
-// Ruling FM35: the public i18n split (only the active locale on /p) is designed in React Task 8. Since the FM33 locale
-// sync the public pages measure 66.4 KB gzip (57.6 KB before), over the 60 KB budget — expected to fail until then.
-// `test.fail` turns red as soon as the budget is met again: remove it then.
+// Ruling FM35: the public page imports only `@agrotrace/i18n/public` plus the active locale's subset dictionary.
 test('the public pages /p/* stay in the JS budget (60 KB gzip)', async ({ page, context }) => {
-  test.fail(true, 'FM35: public i18n split pending (React Task 8); measured 66.4 KB gzip');
   await mockApi(context);
   const scripts = new Map<string, Promise<string>>();
   page.on('response', (r) => {
