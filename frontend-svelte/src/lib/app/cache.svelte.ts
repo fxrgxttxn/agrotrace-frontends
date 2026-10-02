@@ -1,5 +1,6 @@
 import { onDestroy, untrack } from 'svelte';
 import { ApiProblem } from '@agrotrace/api-client';
+import { passive } from './focusRescue';
 import { t } from './i18n';
 import { toasts } from '../ui/toast-store.svelte';
 
@@ -47,7 +48,7 @@ export class SessionEnded extends Error {
 
 interface Watcher {
   key(): string | null;
-  refetch(): Promise<void>;
+  refetch(passive?: boolean): Promise<void>;
 }
 
 interface Run {
@@ -118,7 +119,7 @@ class Cache {
   }
 
   /** Forgets every answer under `prefix` and refetches the screens that show one; answers on their way are stale. */
-  invalidate(prefix: Key): Promise<void> {
+  invalidate(prefix: Key, o: { passive?: boolean } = {}): Promise<void> {
     for (const k of [...this.#entries.keys()]) if (under(k, prefix)) this.#entries.delete(k);
     for (const [k, run] of [...this.#inflight])
       if (under(k, prefix)) {
@@ -128,7 +129,7 @@ class Cache {
     const runs: Promise<void>[] = [];
     for (const w of this.#watchers) {
       const k = w.key();
-      if (k !== null && under(k, prefix)) runs.push(w.refetch());
+      if (k !== null && under(k, prefix)) runs.push(w.refetch(o.passive));
     }
     return Promise.all(runs).then(() => undefined);
   }
@@ -208,7 +209,7 @@ export class Query<T> {
   }
 
   /** Asks the server again (after an action, a live event, «Повторить»). */
-  refetch = (): Promise<void> => this.#run();
+  refetch = (passiveRun = false): Promise<void> => (passiveRun ? passive(() => this.#run()) : this.#run());
 
   /** Shows (and caches) an answer the screen got otherwise — e.g. the result of a PUT — in the session it was asked
    * in (`generation`, captured before the request): a late answer of an ended session is dropped. */
@@ -284,7 +285,7 @@ export function query<T>(
   $effect(() => {
     const every = options.refetchInterval?.();
     if (!every) return;
-    const timer = setInterval(() => void q.refetch(), every);
+    const timer = setInterval(() => void q.refetch(true), every);
     return () => clearInterval(timer);
   });
   return q;

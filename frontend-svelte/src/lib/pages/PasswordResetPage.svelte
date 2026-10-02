@@ -32,9 +32,9 @@
         dead = true;
         return;
       }
-      if (!f.alive()) return; // FM26: a late answer moves nobody
+      // FM29/FM30: a late success is still said, but moves nobody who left the screen
       toasts.push({ tone: 'ok', text: t('auth.resetDone') });
-      await goto('/login', { replaceState: true });
+      if (f.alive()) await goto('/login', { replaceState: true });
     },
   });
 </script>

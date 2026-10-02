@@ -63,6 +63,8 @@ export class Session {
   api: Api;
   #booting = true;
   #userRetry = false;
+  /** Logout broadcasts heard from other tabs (a restore in progress ends without a session when one arrives). */
+  #logouts = 0;
   #started: Promise<void> | null = null;
   #channel: BroadcastChannel | null = null;
 
@@ -77,11 +79,14 @@ export class Session {
     if (typeof BroadcastChannel !== 'undefined') {
       this.#channel = new BroadcastChannel(SESSION_CHANNEL);
       this.#channel.onmessage = (e: MessageEvent) => {
-        // FM29: a tab without a session (on /login, /register…) has nothing to end and stays where it is
-        if ((e.data as { type?: string } | null)?.type === 'logout' && this.status !== 'anonymous') {
+        if ((e.data as { type?: string } | null)?.type !== 'logout') return;
+        this.#logouts += 1;
+        // FM29/FM32: «had a session» is the status alone — a signed-in tab ends it and goes to /login; a tab without
+        // one (anonymous, loading, unavailable) only forgets any token it holds and stays where it is
+        if (this.status === 'authenticated') {
           this.#end(true);
           void goto('/login', { replaceState: true });
-        }
+        } else this.store.set(null);
       };
     }
   }
@@ -109,19 +114,29 @@ export class Session {
   async restore(): Promise<void> {
     this.#booting = true;
     this.#set('loading');
-    // FM28: a restore overtaken by a logout (another tab) or a login never installs its late answer
+    // FM28/FM32: a restore overtaken by a login never installs its late answer, and one overtaken by another tab's
+    // logout ends without a session (the logout does not bump the generation of a tab that is still loading)
     const generation = cache.generation;
+    const logouts = this.#logouts;
+    const overtaken = (): boolean => {
+      if (generation !== cache.generation) return true;
+      if (logouts === this.#logouts) return false;
+      this.store.set(null);
+      this.#set('anonymous');
+      this.loggedOut = true; // an explicit logout: a plain /login
+      return true;
+    };
     try {
       const token = this.store.get() ?? (await this.api.refresh());
-      if (generation !== cache.generation) return;
+      if (overtaken()) return;
       if (!token) {
         this.#set('anonymous');
         return;
       }
       const me = await call<Me>(this.api.GET('/me'));
-      if (generation === cache.generation) this.#authenticated(me);
+      if (!overtaken()) this.#authenticated(me);
     } catch (e) {
-      if (generation !== cache.generation) return;
+      if (overtaken()) return;
       // R61/F8: a network error, a 5xx or a rate limit (429 of /auth/refresh or /me) is not a logout — the session is
       // kept and a retry is offered (after Retry-After for a 429) instead of the login screen.
       if (e instanceof ApiProblem && e.status === 429)
@@ -180,6 +195,12 @@ export class Session {
     return true;
   }
 
+  /** FM30: a result the app already knows (2FA on, the avatar set or removed) is shown at once, whatever the re-read
+   * that follows brings — in the session it was asked in only. */
+  patchMe(patch: Partial<Me>, generation: number): boolean {
+    return this.me !== null && this.setMe({ ...this.me, ...patch }, generation);
+  }
+
   /** Stops the API client and the tab channel (tests; a page never ends its session object). */
   dispose(): void {
     this.api.dispose();
@@ -205,9 +226,8 @@ export class Session {
   /** `loggedOut`: an explicit logout (here or in another tab) goes to a plain /login. */
   #end(loggedOut: boolean): void {
     this.store.set(null);
-    // FM29: only a session that actually ends bumps the generation (an anonymous tab hearing another tab's logout
-    // keeps its forms alive)
-    if (this.status !== 'anonymous') cache.clear();
+    // FM29/FM32: only a session that actually ends bumps the generation (a tab without one keeps its forms alive)
+    if (this.status === 'authenticated') cache.clear();
     this.#set('anonymous');
     this.loggedOut = loggedOut;
   }

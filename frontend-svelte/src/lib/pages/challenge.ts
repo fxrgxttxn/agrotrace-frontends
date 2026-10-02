@@ -7,7 +7,10 @@
 
 const KEY = 'agrotrace-2fa-challenge';
 
-/** The key of the current history entry (SvelteKit's), or null outside SvelteKit's history. */
+/** The key of the current history entry, or null outside SvelteKit's history. `sveltekit:history` is an internal of
+ * SvelteKit's client router (kept on every entry and across a reload): @sveltejs/kit is pinned (2.70.3, package.json)
+ * and the e2e `auth.spec.ts` (challenge survives a reload, a typed entry goes to /login) checks it on every upgrade.
+ * Without it the page still works — only a reload of the 2FA step goes back to /login. */
 function entry(): number | null {
   const v = (history.state as Record<string, unknown> | null)?.['sveltekit:history'];
   return typeof v === 'number' ? v : null;

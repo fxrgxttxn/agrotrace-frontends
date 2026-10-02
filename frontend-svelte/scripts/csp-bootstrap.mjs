@@ -24,23 +24,30 @@ const BOOT_FAILED = `var __agrotraceFallback = document.getElementById('at-load-
 var __agrotraceStyles = Array.prototype.map.call(document.querySelectorAll('link[rel="stylesheet"]'), function (l) {
   return l.href;
 });
+// FM26: without sessionStorage the reload mark lives in the history entry's state; SvelteKit's first navigation
+// replaces that state, so it is read here, before SvelteKit starts (src/lib/app/chunkFailure.ts reads this copy).
+var __agrotraceHistoryKey = 'agrotrace:chunk-reload';
+window.__agrotraceChunkMark =
+  history.state && typeof history.state[__agrotraceHistoryKey] === 'string' ? history.state[__agrotraceHistoryKey] : null;
 function __agrotraceBootFailed(error) {
   var key = 'agrotrace-chunk-reload';
   var here = location.pathname + location.search;
   var tried = here;
-  var inName = false;
-  var prefix = key + '=';
+  var inHistory = false;
   try {
     tried = sessionStorage.getItem(key);
   } catch (e) {
-    // FM26: no sessionStorage — the mark lives in the tab's window.name, which a reload keeps (chunkFailure.ts)
-    inName = true;
-    tried = window.name.indexOf(prefix) === 0 ? window.name.slice(prefix.length) : null;
+    // FM26: no sessionStorage — the mark lives in the history entry's state, which a reload of the entry keeps
+    inHistory = true;
+    tried = window.__agrotraceChunkMark;
   }
   if (tried !== here) {
     try {
-      if (inName) {
-        window.name = prefix + here;
+      if (inHistory) {
+        var state = {};
+        for (var k in history.state || {}) state[k] = history.state[k];
+        state[__agrotraceHistoryKey] = here;
+        history.replaceState(state, '');
       } else {
         sessionStorage.setItem(key, here);
         sessionStorage.setItem('agrotrace-focus-title', '1');

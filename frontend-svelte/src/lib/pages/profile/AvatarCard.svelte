@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { ApiProblem, withVariant, type Me } from '@agrotrace/api-client';
+  import { ApiProblem, withVariant, type FileRef, type Me } from '@agrotrace/api-client';
   import { formatBytes } from '@agrotrace/i18n';
   import { call } from '../../app/api.svelte';
   import { cache, screenAlive } from '../../app/cache.svelte';
@@ -65,10 +65,11 @@
     picked = { file, url: URL.createObjectURL(file), error };
   }
 
-  /** After a successful change (FM28/FM29): in the session it was made in, the success is said (even if the card is
-   * gone) and the profile is re-read — a failed re-read never turns the success into an error. */
-  function changed(text: string, generation: number): void {
-    if (cache.generation !== generation) return;
+  /** After a successful change (FM28–FM30): in the session it was made in, the known result is shown at once, the
+   * success is said (even if the card is gone) and the profile is re-read — a failed re-read never undoes or turns the
+   * success into an error. */
+  function changed(text: string, generation: number, known: Partial<Me>): void {
+    if (!session.patchMe(known, generation)) return;
     toasts.push({ tone: 'ok', text });
     void session.reloadMe();
   }
@@ -81,9 +82,9 @@
     try {
       const body = new FormData();
       body.append('file', picked.file);
-      await call(session.api.PUT('/me/avatar', { body: body as never }));
+      const stored = await call<FileRef>(session.api.PUT('/me/avatar', { body: body as never }));
       if (alive()) drop();
-      changed(t('profile.avatarSaved'), generation);
+      changed(t('profile.avatarSaved'), generation, { avatarUrl: stored.url });
     } catch (err) {
       if (!alive()) return;
       let error: string | undefined;
@@ -108,7 +109,7 @@
     const generation = cache.generation;
     try {
       await call(session.api.DELETE('/me/avatar'));
-      changed(t('profile.avatarDeleted'), generation);
+      changed(t('profile.avatarDeleted'), generation, { avatarUrl: null });
     } catch (err) {
       if (alive()) alert.problem(err);
     } finally {

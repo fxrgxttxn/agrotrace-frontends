@@ -104,7 +104,8 @@
         live.unread = res.count;
         selected = new Set();
       }
-      await cache.invalidate(['notifications']);
+      // not awaited: the action ends with its own answer (the focus rescue window, FM30); the lists refresh after
+      void cache.invalidate(['notifications']);
     } catch (err) {
       if (alive()) applyProblem(err, { alert: alert.show });
     } finally {

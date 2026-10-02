@@ -272,7 +272,7 @@ describe('FM28: session writes and follow-up re-reads', () => {
     expect(card('Личные данные').getByLabelText('ФИО')).toHaveFocus();
   });
 
-  it('a password reset answering after the person left the screen neither toasts nor navigates', async () => {
+  it('a password reset answering after the person left the screen says so but does not navigate (FM30)', async () => {
     const reset = released();
     server.use(
       contractResponse('refreshToken', { status: 401 }),
@@ -284,9 +284,9 @@ describe('FM28: session writes and follow-up re-reads', () => {
     await router.goto('/register');
     await screen.findByRole('heading', { level: 1, name: 'Регистрация организации' });
     reset.release();
-    await new Promise((r) => setTimeout(r, 200));
+    await waitFor(() => expect(politeText()).toBe('Пароль изменён — войдите с новым паролем'));
+    await new Promise((r) => setTimeout(r, 100));
     expect(location.pathname).toBe('/register');
-    expect(politeText()).toBe('');
   });
 });
 

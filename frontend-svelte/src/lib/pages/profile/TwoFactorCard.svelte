@@ -47,7 +47,8 @@
   /** Already on (another tab): the profile of this session says so. */
   async function alreadyOn(generation: number) {
     if (alive()) pending = null;
-    if (cache.generation === generation) await session.reloadMe();
+    // FM30: «already on» is a known result: shown at once, then the profile is re-read
+    if (session.patchMe({ totpEnabled: true }, generation)) await session.reloadMe();
   }
 
   const f = new SchemaForm<TwoFactorSetupRequest>({
@@ -70,8 +71,9 @@
       if (cache.generation !== generation) return;
       const here = f.alive();
       if (here) pending = null;
+      session.patchMe({ totpEnabled: true }, generation); // FM30: the known result at once
       toasts.push({ tone: 'ok', text: t('profile.twoFactorEnabled') });
-      await session.reloadMe(); // FM28: a failed re-read keeps the profile, never an error
+      void session.reloadMe(); // FM28: a failed re-read keeps the profile, never an error
     },
   });
 

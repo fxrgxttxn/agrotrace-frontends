@@ -57,21 +57,40 @@ function sessionMark(): Mark | null {
   }
 }
 
-/** FM26: without sessionStorage the mark lives in the tab's `window.name`, which a reload keeps — the one reload still
- * happens and never loops. (React keeps it in the history entry's state; SvelteKit rewrites that state on its start
- * navigation, so the mark would be lost there and the reload would loop.) The boot script uses the same carrier. */
-const PREFIX = `${KEY}=`;
-const windowNameMark: Mark = {
-  get: () => (window.name.startsWith(PREFIX) ? window.name.slice(PREFIX.length) : null),
+/** The key of the mark in the history entry's state (also used by the boot script, scripts/csp-bootstrap.mjs). */
+export const HISTORY_KEY = 'agrotrace:chunk-reload';
+
+declare global {
+  interface Window {
+    /** The history-state mark as the boot script found it, before SvelteKit's first navigation replaced the entry's
+     * state with its own (scripts/csp-bootstrap.mjs). */
+    __agrotraceChunkMark?: string | null;
+  }
+}
+
+/** FM26: without sessionStorage the mark lives in the history entry's state (as in the React app): it survives a
+ * reload of that entry only, never leaves the tab's entry and is gone with it. SvelteKit's first navigation of a
+ * document replaces the entry's state with its own keys, so the mark is read by the boot script before SvelteKit
+ * starts (`window.__agrotraceChunkMark`) — reading it later found nothing and the reload looped. */
+const historyMark: Mark = {
+  get: () => {
+    const v = (history.state as Record<string, unknown> | null)?.[HISTORY_KEY] ?? window.__agrotraceChunkMark;
+    return typeof v === 'string' ? v : null;
+  },
   set: (value) => {
-    window.name = `${PREFIX}${value}`;
+    history.replaceState({ ...((history.state as object | null) ?? {}), [HISTORY_KEY]: value }, '');
   },
   clear: () => {
-    if (window.name.startsWith(PREFIX)) window.name = '';
+    window.__agrotraceChunkMark = null;
+    const state = history.state as Record<string, unknown> | null;
+    if (!state || !(HISTORY_KEY in state)) return;
+    const rest = { ...state };
+    delete rest[HISTORY_KEY];
+    history.replaceState(rest, '');
   },
 };
 
-const mark = (): Mark => sessionMark() ?? windowNameMark;
+const mark = (): Mark => sessionMark() ?? historyMark;
 
 /** The error page of a chunk failure: is the one automatic full load about to start (show the loading page)? */
 export function reloadPending(error: { message: string } | null): boolean {

@@ -687,4 +687,6 @@ test('FM26: without sessionStorage a chunk that keeps failing reloads once, neve
   await expect(page.locator('.at-shell__main .at-empty__text')).toHaveText('Не удалось загрузить страницу.');
   await page.waitForTimeout(1000);
   expect(documents).toEqual(['/batches', '/fields']);
+  // nothing of the mark outlives the tab's entry (no window.name, which would survive a cross-site navigation)
+  expect(await page.evaluate(() => window.name)).toBe('');
 });
