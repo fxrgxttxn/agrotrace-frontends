@@ -314,6 +314,7 @@ export class EntryFormComponent implements OnInit {
   readonly saved = output<Entry>();
   readonly gone = output<void>();
   private readonly session = inject(SessionService);
+  private readonly cache = inject(QueryCache);
   private readonly injector = inject(Injector);
   private readonly live = injectLive();
   f!: SchemaForm<Values>;
@@ -371,8 +372,18 @@ export class EntryFormComponent implements OnInit {
                 body: body as unknown as Schemas['DictionaryInput'],
               }),
             );
-        if (generation === this.session.generation) this.saved.emit(saved);
+        if (generation !== this.session.generation) return;
+        // FM26: session-bound, not screen-bound (the dialog may be gone)
+        refreshAfter(this.cache, name);
+        this.saved.emit(saved);
       } catch (err) {
+        if (
+          generation === this.session.generation &&
+          entry &&
+          err instanceof ApiProblem &&
+          err.status === 404
+        )
+          refreshAfter(this.cache, name);
         if (!this.live(generation)) return;
         if (entry && err instanceof ApiProblem && err.status === 404) this.gone.emit();
         else this.f.fail(err);
@@ -832,8 +843,8 @@ export class DictionaryListComponent extends EntryHost {
       await call(
         this.session.api.DELETE('/dictionaries/{name}/{id}', { params: { path: { name, id: entry.id } } }),
       );
-      refreshAfter(this.cache, name);
       if (generation !== this.session.generation) return;
+      refreshAfter(this.cache, name);
       this.toasts.push({ tone: 'ok', text: t('dict.removed', { name: label }) });
       if (this.alive()) this.removing.set(null);
     } catch (e) {
@@ -858,6 +869,7 @@ export class DictionaryListComponent extends EntryHost {
   }
 
   protected readonly uploadPhoto = (p: Product) => async (file: File) => {
+    const generation = this.session.generation;
     const body = new FormData();
     body.append('file', file);
     await call(
@@ -866,10 +878,10 @@ export class DictionaryListComponent extends EntryHost {
         body: body as never,
       }),
     );
+    if (generation === this.session.generation) refreshAfter(this.cache, 'products');
   };
 
   protected photoSaved(p: Product): void {
-    refreshAfter(this.cache, 'products');
     this.photo.set(null);
     this.toasts.push({ tone: 'ok', text: t('dict.photoSaved', { name: p.name }) });
   }
@@ -1151,8 +1163,8 @@ export class DictionaryPage extends EntryHost {
           body: body as never,
         }),
       );
-      refreshAfter(this.cache, name);
       if (generation !== this.session.generation) return;
+      refreshAfter(this.cache, name);
       this.toasts.push({
         tone: report.errors.length ? 'attention' : 'ok',
         text: t('dict.import.done', {

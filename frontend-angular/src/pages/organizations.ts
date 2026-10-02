@@ -118,6 +118,7 @@ export class OrgFormComponent implements OnInit {
   readonly gone = output<unknown>();
   readonly unchanged = output<void>();
   private readonly session = inject(SessionService);
+  private readonly cache = inject(QueryCache);
   private readonly live = injectLive();
   protected readonly regionKnown = computed(() =>
     this.regions().some((r) => r.code === this.atOrgForm().region.code),
@@ -170,7 +171,10 @@ export class OrgFormComponent implements OnInit {
             body,
           }),
         );
-        if (generation === this.session.generation) this.saved.emit(next);
+        if (generation !== this.session.generation) return;
+        // FM26: session-bound, not screen-bound (the dialog may be gone)
+        this.cache.invalidate(KEY);
+        this.saved.emit(next);
       } catch (e) {
         if (!this.live(generation)) return;
         if (e instanceof ApiProblem && e.status === 404) this.gone.emit(e);
@@ -577,6 +581,8 @@ export class OrganizationsPage {
               }),
             );
       if (generation !== this.session.generation) return;
+      // FM26: the success of this session makes the list stale even when its screen is gone
+      this.cache.invalidate(KEY);
       this.toasts.push({ tone: 'ok', text: t(`orgs.done.${action}`, { name: next.name }) });
       if (!this.alive()) return;
       this.confirming.set(null);

@@ -134,6 +134,7 @@ export class InviteFormComponent {
   readonly atInvite = input(false);
   readonly done = output<User>();
   private readonly session = inject(SessionService);
+  private readonly cache = inject(QueryCache);
   private readonly live = injectLive();
   protected readonly ownType = computed(() => this.session.me()?.organization.type ?? 'FARM');
   protected readonly orgType = signal<Schemas['OrganizationType'] | null>(null);
@@ -155,7 +156,10 @@ export class InviteFormComponent {
       const generation = this.session.generation;
       try {
         const user = await call<User>(this.session.api.POST('/users', { body }));
-        if (generation === this.session.generation) this.done.emit(user);
+        if (generation !== this.session.generation) return;
+        // FM26: session-bound, not screen-bound (the dialog may be gone)
+        this.cache.invalidate(KEY);
+        this.done.emit(user);
       } catch (err) {
         if (this.live(generation)) this.f.fail(err);
       }
@@ -521,6 +525,7 @@ abstract class UsersScreen {
         this.session.api.PATCH('/users/{id}', { params: { path: { id: user.id } }, body: body as never }),
       );
       if (generation !== this.session.generation) return;
+      this.cache.invalidate(KEY);
       this.toasts.push({ tone: 'ok', text: t('users.saved', { name: next.fullName }) });
       if (!this.alive()) return;
       this.editing.set(null);
@@ -554,17 +559,18 @@ abstract class UsersScreen {
   protected readonly uploadLogo = async (file: File): Promise<void> => {
     const id = this.org()?.id;
     if (!id) return;
+    const generation = this.session.generation;
     const body = new FormData();
     body.append('file', file);
     await call(
       this.session.api.PUT('/organizations/{id}/logo', { params: { path: { id } }, body: body as never }),
     );
+    // the header shows the logo: re-read the person (session-bound)
+    void this.session.reloadMe(generation);
   };
 
   protected logoSaved(): void {
-    const generation = this.session.generation;
     this.toasts.push({ tone: 'ok', text: t('users.logoSaved') });
-    void this.session.reloadMe(generation);
   }
 }
 

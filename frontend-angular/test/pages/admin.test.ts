@@ -5,7 +5,9 @@ import { http, HttpResponse } from 'msw';
 import { server } from '../setup';
 import { API_BASE, contractExample, contractResponse, type Json } from '../msw/fromContract';
 import { asMe, dictionaries, pageOf, problem, searchOf, toastText } from '../msw/data';
-import { renderApp } from '../app/renderApp';
+import { renderApp, type AppHarness } from '../app/renderApp';
+
+const go = (h: AppHarness, url: string) => h.fixture.ngZone!.run(() => h.router.navigateByUrl(url));
 
 // Organizations and applications (ADMIN), users and invitations (ADMIN platform-wide, a head within the own
 // organization) on the contract's MSW handlers.
@@ -79,6 +81,39 @@ describe('/admin/organizations', () => {
     await waitFor(() => expect(toastText('polite')).toContain(`Организация ${NAME} одобрена`));
     expect(await screen.findByRole('button', { name: `Приостановить ${NAME}` })).toBeInTheDocument();
     expect(reads).toBeGreaterThanOrEqual(2);
+  });
+
+  it('FM26: an approval answering after the person left still makes the list stale (same session)', async () => {
+    let approved = false;
+    let reads = 0;
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      asAdmin(),
+      dictionaries(),
+      http.get(`${API_BASE}/admin/organizations`, () => {
+        reads++;
+        return HttpResponse.json(pageOf([org(approved ? { status: 'ACTIVE' } : {})]));
+      }),
+      contractResponse('approveOrganization', {
+        body: org({ status: 'ACTIVE' }),
+        onRequest: async () => {
+          await held;
+          approved = true;
+        },
+      }),
+      contractResponse('listUsers', { body: pageOf([]) }),
+    );
+    const h = await open('/admin/organizations', 'Организации');
+    await userEvent.click(await screen.findByRole('button', { name: `Одобрить заявку ${NAME}` }));
+    await go(h, '/admin/users');
+    await screen.findByRole('heading', { level: 1, name: 'Пользователи' });
+    release();
+    await waitFor(() => expect(toastText('polite')).toContain(`Организация ${NAME} одобрена`));
+    const before = reads;
+    await go(h, '/admin/organizations');
+    expect(await screen.findByRole('button', { name: `Приостановить ${NAME}` })).toBeInTheDocument();
+    expect(reads).toBeGreaterThan(before);
   });
 
   it('rejects after a confirmation: PATCH {status: REJECTED}', async () => {
