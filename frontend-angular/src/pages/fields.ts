@@ -3,7 +3,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  DestroyRef,
   effect,
   ElementRef,
   inject,
@@ -31,6 +30,7 @@ import { LOCALE, t } from '../app/i18n';
 import { injectListParams, isBadListQuery, listGap, type ListSpec } from '../app/list-state';
 import { momentCheck, momentDefaults, MomentInputComponent, momentWire } from '../app/moment';
 import { OrgPickerComponent } from '../app/org-picker';
+import { injectNow } from '../app/now';
 import { injectQuery, QueryCache } from '../app/query';
 import { SessionService } from '../app/session';
 import {
@@ -95,15 +95,6 @@ const MAP = `@if (mapFields().length > 0) {
         </button>
       }
     }`;
-
-/** The current time (ms), refreshed every 30 s: buttons that depend on a deadline (the 24 h edit window of a
- * treatment) go when it passes. Create it in an injection context. */
-function injectNow(everyMs = 30000): () => number {
-  const now = signal(Date.now());
-  const timer = setInterval(() => now.set(Date.now()), everyMs);
-  inject(DestroyRef).onDestroy(() => clearInterval(timer));
-  return now.asReadonly();
-}
 
 // ── /fields ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 

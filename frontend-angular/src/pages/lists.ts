@@ -4,8 +4,8 @@
 /** Loading placeholder of an area (`aria-busy`, README «Загрузка»). */
 const SKELETON = `<span class="at-skeleton" [shape]="'block'"></span>`;
 
-export function areaLoading(blocks: 1 | 2): string {
-  return `<div aria-busy="true" style="display: grid; gap: var(--sp-3)"><span class="at-visually-hidden">{{ t('shell.loading') }}</span>${blocks === 2 ? SKELETON + SKELETON : SKELETON}</div>`;
+export function areaLoading(blocks: 1 | 2 | 3): string {
+  return `<div aria-busy="true" style="display: grid; gap: var(--sp-3)"><span class="at-visually-hidden">{{ t('shell.loading') }}</span>${blocks === 3 ? SKELETON + SKELETON + SKELETON : blocks === 2 ? SKELETON + SKELETON : SKELETON}</div>`;
 }
 
 /** A list or card area that failed to load: what failed and one button (spec §10.1). With `resetIf` true (the server

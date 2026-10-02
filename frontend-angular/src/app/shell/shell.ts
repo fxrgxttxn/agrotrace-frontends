@@ -139,7 +139,7 @@ export class TopbarComponent {
   template: `@for (item of main(); track item.key) {
       <a class="at-bottom-nav__link" [to]="item.href" [attr.aria-current]="current(item) ? 'page' : null"
         ><svg class="at-bottom-nav__icon" aria-hidden="true"><use [attr.href]="'#i-' + item.icon"></use></svg
-        >{{ t(item.label) }}</a
+        >{{ t(item.short ?? item.label) }}</a
       >
     }
     <button

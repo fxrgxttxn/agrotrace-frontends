@@ -68,6 +68,22 @@ export class LiveEventsService {
     if (generation === this.cache.generation) this.unread.set(count);
   }
 
+  /** Keys made stale by the events of one task, refreshed together once the task ends (each key once). */
+  private pending: Set<string> | null = null;
+  private markStale(keys: readonly string[]): void {
+    if (!this.pending) {
+      const set = new Set<string>();
+      this.pending = set;
+      setTimeout(() => {
+        this.pending = null;
+        runPassive(() => {
+          for (const k of set) this.cache.refresh(k);
+        });
+      }, 0);
+    }
+    for (const k of keys) this.pending.add(k);
+  }
+
   private handle(e: StreamEvent): void {
     if (e.type === 'unread') {
       const count = (e.data as { count?: unknown } | null)?.count;
@@ -80,12 +96,25 @@ export class LiveEventsService {
         text: notificationMessage(n.type, payload, 'title', t),
         detail: notificationMessage(n.type, payload, 'body', t),
       });
-      // every cached notification list is out of date, wherever the user is (FM24); a list on screen reloads
+      // every cached notification list is out of date, wherever the user is (FM24); a list on screen reloads, and so
+      // do the screens the event is about (LIVE_KEYS). A burst of events in one task reads each screen once.
       // (passive: the requests it starts are not the person's — the focus rescue ignores them, FM30)
-      runPassive(() => {
-        this.cache.invalidate(NOTIFICATIONS_KEY);
-        this.notifications$.next(n);
-      });
+      this.markStale([NOTIFICATIONS_KEY, ...(LIVE_KEYS[n.type] ?? [])]);
+      runPassive(() => this.notifications$.next(n));
     }
   }
 }
+
+/** Cache key prefixes a notification type makes stale (besides the notification lists) — the React app's LIVE_KEYS:
+ * a recall closed by the last confirmation, a new task, a complaint, a laboratory result change their registries,
+ * cards and the dashboard without a reload. */
+const LIVE_KEYS: Record<string, readonly string[]> = {
+  RECALL: ['recalls?', 'recall:', 'recallTasks?', 'batches?', 'batch:', 'dashboard?'],
+  RECALL_TASK: ['recallTasks?', 'recall:', 'recalls?', 'dashboard?'],
+  OVERDUE: ['recallTasks?', 'recall:', 'recalls?', 'dashboard?'],
+  COMPLAINT: ['complaints?', 'complaint:', 'dashboard?'],
+  LAB_ASSIGNED: ['labTests?', 'labTest:', 'dashboard?'],
+  LAB_RESULT: ['labTests?', 'labTest:', 'batches?', 'batch:', 'dashboard?'],
+  LAB_OVERDUE: ['labTests?', 'labTest:', 'dashboard?'],
+  WAYBILL_INCOMING: ['waybills?', 'waybill:', 'dashboard?'],
+};

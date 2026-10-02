@@ -8,7 +8,7 @@ import {
 } from '@angular/platform-browser-dynamic/testing';
 import { configure } from '@testing-library/dom';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, inject } from 'vitest';
+import { afterAll, afterEach, beforeAll, inject, vi } from 'vitest';
 import { contractHandlers, loadContract } from './msw/fromContract';
 
 getTestBed().initTestEnvironment(BrowserDynamicTestingModule, platformBrowserDynamicTesting(), {
@@ -77,3 +77,9 @@ afterEach(() => {
   server.resetHandlers();
 });
 afterAll(() => server.close());
+
+// ECharts draws into an SVG sized by layout (jsdom has none): every test gets a recording stand-in; the dashboard tests
+// check what the page hands to it (the bars), the options themselves are tested in test/app/charts.test.ts.
+vi.mock('../src/charts/echarts', () => ({
+  mountBars: vi.fn(() => ({ destroy: () => {} })),
+}));

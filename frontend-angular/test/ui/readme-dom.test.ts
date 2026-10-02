@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { fireEvent, screen } from '@testing-library/angular';
 import { canonical, canonicalHtml, readmeBlock } from './readme';
 import { renderProd, useProductionDom } from './prod-dom';
-import { ToastService } from '../../src/app/ui';
+import { ToastService, UI } from '../../src/app/ui';
+import { BarChartComponent } from '../../src/charts/bar-chart';
 import { TestBed } from '@angular/core/testing';
 
 // Review Focus 1 / ruling F5: every wrapper renders exactly the README markup (classes, attributes, ARIA) — the same
@@ -425,6 +426,34 @@ describe('README markup contract: data and feedback', () => {
         `<div class="at-progress" [progressId]="'recall-progress'" [label]="'Подтверждено'" [value]="7" [max]="12"></div>`,
       ),
     ).toBe(canonicalHtml(readmeBlock('Прогресс')));
+  });
+
+  it('at-chart in its card (canvas summary, collapsed table view)', () => {
+    const f = renderProd(
+      `<article class="at-card">
+        <header class="at-card__header" [cardTitle]="'Доля брака по продуктам'"></header>
+        <div class="at-card__body">
+          <div class="at-chart" [bars]="bars" [title]="'Доля брака по продуктам'">
+            <div class="at-table-wrap" [cards]="true" [caption]="'Доля брака по продуктам'" [rows]="rows" [rowKey]="rowKey">
+              <ng-template [atColumn]="'name'" [header]="'Продукт'" [primary]="true" let-r>{{ r.name }}</ng-template>
+              <ng-template [atColumn]="'tested'" [header]="'Проверено'" [numeric]="true" let-r>{{ r.tested }}</ng-template>
+              <ng-template [atColumn]="'failed'" [header]="'С превышением'" [numeric]="true" let-r>{{ r.failed }}</ng-template>
+              <ng-template [atColumn]="'share'" [header]="'Доля брака, %'" [numeric]="true" let-r>{{ r.share }}</ng-template>
+            </div>
+          </div>
+        </div>
+      </article>`,
+      [...UI, BarChartComponent],
+      {
+        bars: [
+          { key: 'w', label: 'Пшеница озимая', value: 12.5, display: '12,50%' },
+          { key: 'b', label: 'Ячмень', value: 0, display: '0,00%' },
+        ],
+        rows: [{ name: 'Пшеница озимая', tested: 8, failed: 1, share: '12,50' }],
+        rowKey: (r: { name: string }) => r.name,
+      },
+    );
+    expect(canonical(f.nativeElement.childNodes)).toBe(canonicalHtml(readmeBlock('График')));
   });
 });
 

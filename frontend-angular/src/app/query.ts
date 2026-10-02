@@ -8,6 +8,7 @@ import {
   untracked,
   type Signal,
 } from '@angular/core';
+import { Subject } from 'rxjs';
 import { ApiProblem } from '@agrotrace/api-client';
 import { SessionService } from './session';
 import { ToastService } from './ui/toasts';
@@ -50,6 +51,8 @@ export class QueryCache {
   private readonly entries = new Map<string, { data: unknown; at: number }>();
   private readonly inflight = new Map<string, Promise<unknown>>();
   private gen = 0;
+  /** Prefixes made stale by a live event: the queries on screen with such a key read again (passive, FM30). */
+  readonly live$ = new Subject<string>();
   /** Keys invalidated while their request was in flight. */
   private readonly staleOnArrival = new Set<string>();
 
@@ -130,6 +133,12 @@ export class QueryCache {
     this.entries.delete(key);
   }
 
+  /** A live event made `prefix` stale: invalidated, and the queries on screen with such a key read again. */
+  refresh(prefix: string): void {
+    this.invalidate(prefix);
+    this.live$.next(prefix);
+  }
+
   clear(): void {
     this.gen++;
     this.entries.clear();
@@ -186,8 +195,13 @@ export function injectQuery<T>(spec: () => QuerySpec<T> | null, options: QueryOp
     if (toast !== null) toasts.dismiss(toast);
     toast = null;
   };
+  // A live event made this key stale: the screen reads it again (the request is passive, FM30).
+  const liveSub = cache.live$.subscribe((prefix) => {
+    if (alive && current.key !== '' && current.key.startsWith(prefix)) void run(current);
+  });
   inject(DestroyRef).onDestroy(() => {
     alive = false;
+    liveSub.unsubscribe();
     dropToast();
   });
 

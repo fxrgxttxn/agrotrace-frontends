@@ -11,8 +11,9 @@ export interface FileItem {
   /** Image preview URL (blob: or a signed URL); otherwise `kind` (e.g. `PDF`) is shown. */
   previewUrl?: string;
   kind?: string;
-  /** Upload progress 0–100 while uploading; omitted otherwise. */
-  progress?: number;
+  /** Upload progress 0–100 while uploading; `null` — uploading, the sent part unknown (fetch has no upload progress:
+   * an indeterminate `progress` without `value`); omitted otherwise. */
+  progress?: number | null;
 }
 
 /** `at-file` inside an `at-field` (README «Файл»): a focusable hidden input in a drop zone, the file list as «seed

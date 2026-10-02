@@ -29,7 +29,14 @@ import { injectLive } from '../app/alive';
 import { call, countdown, errorText, retryAfterOf } from '../app/api';
 import { DateFilterComponent } from '../app/date-filter';
 import { injectDictionary } from '../app/dictionaries';
-import { errorTone, FocusAfterWaitDirective, normalizeDecimal, SchemaForm, wireSchema } from '../app/forms';
+import {
+  errorTone,
+  FocusAfterWaitDirective,
+  formAlert,
+  normalizeDecimal,
+  SchemaForm,
+  wireSchema,
+} from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { LAB_STATUS_TONE } from '../app/lab-tests';
 import { injectListParams, isBadListQuery, listGap, type ListSpec } from '../app/list-state';
@@ -698,10 +705,20 @@ interface Fact {
       </article>
     } @else {
       <div class="at-page__header" [pageTitle]="query.data()?.publicCode ?? t('page.batch')">
-        @if (actions().length > 0) {
+        @if (query.data() && (actions().length > 0 || inspector())) {
           <div class="at-page__actions">
             @for (a of actions(); track a.action; let first = $first) {
               <a class="at-button" [variant]="first ? 'primary' : 'secondary'" [to]="a.href">{{ a.label }}</a>
+            }
+            @if (inspector()) {
+              <button
+                class="at-button"
+                [variant]="'secondary'"
+                [icon]="'flask'"
+                (click)="assigning.set(true)"
+              >
+                {{ t('lab.assign') }}
+              </button>
             }
           </div>
         }
@@ -1092,6 +1109,49 @@ interface Fact {
           </div>
         </div>
       }
+      @if (query.data() && inspector()) {
+        <!-- The inspector's unscheduled test (п. 4.3, createLabTest): a laboratory from the directory (type LAB). Failures
+          stay in the dialog (the page's toast region is behind it, README «Диалог»); a 400 on the laboratory is its field's
+          error. -->
+        <dialog
+          class="at-dialog"
+          [open]="assigning()"
+          [dialogTitle]="t('lab.assignTitle', { code: query.data()!.publicCode })"
+          (closed)="assigning.set(false)"
+        >
+          <div style="display: grid; gap: var(--sp-4)">
+            @if (assignMessage()) {
+              <p class="at-field__error" role="alert" style="margin: 0">{{ assignMessage() }}</p>
+            }
+            <div
+              class="at-field"
+              [orgPicker]="'assign-lab'"
+              [label]="t('field.labOrgId')"
+              [types]="labTypes"
+              [value]="labOrgId()"
+              [error]="labError()"
+              (valueChange)="labOrgId.set($event ?? ''); labError.set(null)"
+            ></div>
+          </div>
+          <div class="at-dialog__actions">
+            <button class="at-button" [variant]="'ghost'" (click)="assigning.set(false)">
+              {{ t('action.cancel') }}
+            </button>
+            <button
+              class="at-button"
+              [variant]="'primary'"
+              [busy]="assignBusy()"
+              [disabled]="assignWait.left() > 0"
+              [focusAfterWait]="assignWait.left()"
+              (click)="assign(query.data()!)"
+            >
+              {{
+                assignWait.left() > 0 ? t('auth.retryIn', { seconds: assignWait.left() }) : t('lab.assign')
+              }}
+            </button>
+          </div>
+        </dialog>
+      }
     }`,
 })
 export class BatchPage {
@@ -1298,6 +1358,18 @@ export class BatchPage {
   private idempotency: string | null = null;
 
   constructor() {
+    // What was chosen lives only while the dialog is open.
+    effect(
+      () => {
+        if (this.assigning()) return;
+        untracked(() => {
+          this.labOrgId.set('');
+          this.labError.set(null);
+          this.assignMessage.set(null);
+        });
+      },
+      { allowSignalWrites: true },
+    );
     // The import runs in the background (R81): while it is PENDING the card asks again every 3 s.
     let timer: ReturnType<typeof setTimeout> | null = null;
     effect((onCleanup) => {
@@ -1310,6 +1382,53 @@ export class BatchPage {
     });
   }
 
+  // ── The inspector's unscheduled test (п. 4.3) ──
+  protected readonly inspector = computed(() => Boolean(this.session.me()?.roles.includes('INSPECTOR')));
+  protected readonly labTypes = ['LAB'] as Schemas['OrganizationType'][];
+  protected readonly assigning = signal(false);
+  protected readonly labOrgId = signal('');
+  protected readonly labError = signal<string | null>(null);
+  protected readonly assignMessage = signal<string | null>(null);
+  protected readonly assignBusy = signal(false);
+  protected readonly assignWait = countdown();
+  private readonly assignAlert = formAlert();
+
+  protected async assign(b: Batch): Promise<void> {
+    const labOrgId = this.labOrgId();
+    if (!labOrgId) {
+      this.labError.set(t('validation.required'));
+      return;
+    }
+    const generation = this.session.generation;
+    this.assignBusy.set(true);
+    this.assignMessage.set(null);
+    this.assignAlert.clear();
+    try {
+      const test = await call<Schemas['LabTest']>(
+        this.session.api.POST('/lab-tests', { body: { batchId: b.id, labOrgId } }),
+      );
+      this.cache.invalidate(`${batchKey(b.id)}:tests`);
+      if (generation === this.session.generation)
+        this.toasts.push({ tone: 'ok', text: t('lab.assigned', { code: b.publicCode, lab: test.lab.name }) });
+      if (!this.live(generation)) return;
+      this.assigning.set(false);
+      if (this.tab() === 'tests') void this.tests.refetch();
+      else this.showTab('tests');
+    } catch (e) {
+      if (!this.live(generation)) return;
+      const key =
+        e instanceof ApiProblem && e.code === 'VALIDATION' ? e.errors?.['labOrgId']?.[0] : undefined;
+      if (key) this.labError.set(t(key));
+      else {
+        if (e instanceof ApiProblem && e.status === 429) this.assignWait.start(retryAfterOf(e));
+        // Said in the dialog (the page toast region is behind the modal) and as the page message (README «Диалог»).
+        this.assignMessage.set(errorText(e));
+        this.assignAlert.show(errorText(e), errorTone(e));
+      }
+    } finally {
+      this.assignBusy.set(false);
+    }
+  }
   protected showTab(next: string): void {
     const q = new URLSearchParams();
     const current = this.queryParams();

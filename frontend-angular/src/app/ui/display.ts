@@ -123,12 +123,8 @@ export function sparkPoints(values: number[]): string {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<p class="at-metric__label">{{ label() }}</p>
-    <p class="at-metric__value">
-      {{ value() }}
-      @if (unit() !== undefined) {
-        <span class="at-metric__unit">{{ unit() }}</span>
-      }
-    </p>
+    <!-- prettier-ignore -->
+    <p class="at-metric__value">{{ value() }}@if (unit() !== undefined) {<span class="at-metric__unit">{{ unit() }}</span>}@if (delta() !== undefined) {<span class="at-metric__delta">{{ delta() }}</span>}</p>
     @if (spark(); as s) {
       @if (s.length > 1) {
         <div class="at-metric__spark" aria-hidden="true">
@@ -153,6 +149,8 @@ export class MetricComponent {
   readonly unit = input<string | undefined>(undefined);
   readonly tone = input<'danger' | undefined>(undefined);
   readonly spark = input<number[] | undefined>(undefined);
+  /** A second line under the value (`at-metric__delta`): «из них просрочено: 1». */
+  readonly delta = input<string | undefined>(undefined);
   protected readonly points = computed(() => sparkPoints(this.spark() ?? []));
 }
 
@@ -161,7 +159,12 @@ export class MetricComponent {
   selector: 'div.at-progress',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<span class="at-progress__label" [attr.id]="progressId()">{{ label() }}</span>
+  template: `<span
+      class="at-progress__label"
+      [class.at-visually-hidden]="labelHidden()"
+      [attr.id]="progressId()"
+      >{{ label() }}</span
+    >
     <span class="at-progress__value">{{ t('ui.progressValue', { value: value(), max: max() }) }}</span>
     <progress
       class="at-progress__bar"
@@ -178,6 +181,8 @@ export class ProgressComponent {
   readonly value = input.required<number>();
   readonly max = input.required<number>();
   readonly tone = input<'danger' | undefined>(undefined);
+  /** In a table cell the column header says it: the label stays for the bar's name, visually hidden (README). */
+  readonly labelHidden = input(false);
 }
 
 /** `at-stepper` (README «Шаги»): steps before `current` are done, `current` is `aria-current="step"`. */
@@ -241,7 +246,7 @@ export class TimelineComponent {
 /** `at-card` (README «Карточка»). `furrow` — only the public QR page and the login screen. Body and footer are plain
  * `<div class="at-card__body">` / `<footer class="at-card__footer">` (no behaviour of their own). */
 @Component({
-  selector: 'article.at-card',
+  selector: 'article.at-card:not([atDecision])',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<ng-content />`,

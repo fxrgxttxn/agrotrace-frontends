@@ -61,6 +61,18 @@ describe('shell', () => {
     expect(span).toHaveAttribute('aria-hidden', 'true');
   });
 
+  it('at-bottom-nav: two-word sections take their one-line short label (README); the sidebar keeps the full one', async () => {
+    server.use(
+      contractResponse('getMe', {
+        body: { ...(contractExample('getMe').body as Record<string, unknown>), roles: ['RETAILER'] },
+      }),
+    );
+    await shell('/batches');
+    const links = document.querySelectorAll('.at-bottom-nav a.at-bottom-nav__link');
+    expect([...links].map((a) => a.textContent)).toEqual(['Панель', 'Накладные', 'Склад', 'Задачи']);
+    expect(document.querySelector('.at-sidebar')!.textContent).toContain('Задачи отзыва');
+  });
+
   it('at-bottom-nav: the first four items of the role + «Ещё»', async () => {
     await shell('/batches');
     const nav = document.querySelector('.at-bottom-nav')!;
