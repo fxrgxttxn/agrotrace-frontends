@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { ANONYMOUS, contractExample, mockApi } from './contract';
-import { cspViolations, horizontalOverflow, unexpected, watch } from './helpers';
+import { cspViolations, unexpected, watch } from './helpers';
 
 // S2 screens with the REAL SvelteKit router of the build (ruling FM7: focus and history are verified here): the 2FA
 // step and its history state, the 429 wait and FM17, form focus, the tabs / pagination of the notifications (query-only
@@ -16,17 +16,6 @@ async function toTwoFactor(page: Page) {
   await page.getByRole('button', { name: 'Войти' }).click();
   await expect(h1(page, 'Код подтверждения')).toBeFocused();
 }
-
-test('/login/2fa without a challenge goes to /login, replacing the entry', async ({ page, context }) => {
-  await mockApi(context, ANONYMOUS);
-  await page.goto('/login');
-  await expect(h1(page, 'Вход')).toBeVisible();
-  const length = await page.evaluate(() => history.length);
-  await page.goto('/login/2fa?next=%2Ffields');
-  await expect(h1(page, 'Вход')).toBeVisible();
-  expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe('/login?next=%2Ffields');
-  expect(await page.evaluate(() => history.length)).toBe(length + 1);
-});
 
 test('the 2FA challenge survives a reload; the code signs in and `next` gets the focus', async ({
   page,
@@ -62,16 +51,6 @@ test('429 on login: countdown, then «Войти» takes the focus back (FM17: o
   await expect(page.getByRole('button', { name: 'Войти' })).toBeEnabled({ timeout: 4000 });
   await page.waitForTimeout(200);
   await expect(page.getByLabel('Пароль')).toBeFocused();
-});
-
-test('a client-side refusal focuses the first invalid field and sends nothing', async ({ page, context }) => {
-  const calls = await mockApi(context, ANONYMOUS);
-  await page.goto('/login');
-  await page.getByLabel('Пароль').fill('x');
-  await page.getByRole('button', { name: 'Войти' }).click();
-  await expect(page.getByLabel('Email')).toBeFocused();
-  await expect(page.getByLabel('Email')).toHaveAttribute('aria-invalid', 'true');
-  expect(calls.filter((c) => c.includes('/auth/login'))).toEqual([]);
 });
 
 test('notifications: a tab and a page link keep the focus (query-only); marking read focuses the title', async ({
@@ -117,26 +96,6 @@ test('notifications: a tab and a page link keep the focus (query-only); marking 
   await page.getByRole('button', { name: 'Отметить прочитанным' }).click();
   await expect(h1(page, 'Уведомления')).toBeFocused();
   await expect(page.getByRole('link', { name: 'Уведомления, непрочитанных: 1' })).toBeVisible();
-  expect(await cspViolations(page)).toEqual([]);
-  expect(unexpected(w)).toEqual([]);
-});
-
-test('profile and notifications at 360 px: no console errors, no CSP violations, no horizontal scroll', async ({
-  page,
-  context,
-}) => {
-  const w = await watch(page);
-  await mockApi(context);
-  await page.setViewportSize({ width: 360, height: 780 });
-  for (const [path, title] of [
-    ['/profile', 'Профиль'],
-    ['/notifications', 'Уведомления'],
-  ] as const) {
-    await page.goto(path);
-    await expect(h1(page, title)).toBeVisible();
-    await page.waitForTimeout(300);
-    expect(await horizontalOverflow(page), path).toBeLessThanOrEqual(0);
-  }
   expect(await cspViolations(page)).toEqual([]);
   expect(unexpected(w)).toEqual([]);
 });

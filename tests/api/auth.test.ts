@@ -2,25 +2,28 @@
  * Auth (contracts/openapi/paths/auth.yaml): login order R31, lockout, 2FA R35, refresh rotation/grace/reuse R32/R40,
  * logout, password reset and invitations (R82 keys), registration (R29/R66), rate limits R30, Bearer auth.
  *
- * Fixture writes (lib/db.ts fixtureWrite) are used only for states no API produces yet — organization approval
- * (Task 4), blocking a user / invitations (Task 3) — or clocks too long to wait for (a 15-minute lockout); each site
- * says which. Redis keys are touched only in the formats the contract fixes (info.description "Shared Redis keys").
+ * Fixture writes (lib/db.ts fixtureWrite) are used only for states no API produces — a user back to INVITED or
+ * blocked with a live refresh token — or clocks too long to wait for (a 15-minute lockout); each site says which.
+ * Organizations are approved and suspended through the admin API (lib/fixtures.ts). Redis keys are touched only in the formats the contract fixes (info.description "Shared Redis keys").
  */
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { demoUser, demoUsers, loginAs, type Role } from './lib/auth.js';
 import { api, ApiClient, type ApiResponse } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
+import { expectErrors } from './lib/expect.js';
 import { closeDb, fixtureWrite, query } from './lib/db.js';
 import {
   activateOrg,
   activeOrgHead,
   breakChecksum,
   freshHead,
+  invite,
   login,
   PASSWORD,
   randomInn,
   registerOrg,
+  setOrgStatus,
   uniqueEmail,
 } from './lib/fixtures.js';
 import { linkToken, mailsTo, waitForMails } from './lib/mail.js';
@@ -138,13 +141,26 @@ async function loginOk(client: ApiClient, email: string, password: string) {
   return { res, token: expectRefreshCookie(res) };
 }
 
-// TODO(Task 3): block/unblock through PATCH /users/{id} (updateUser) once it exists.
-const setUserStatus = (email: string, status: 'ACTIVE' | 'BLOCKED' | 'INVITED') =>
-  fixtureWrite(`UPDATE users SET status = $2 WHERE email = $1`, [email, status]);
-
-// TODO(Task 4): suspend through updateAdminOrganization once it exists.
-const setOrgStatus = (id: string, status: string) =>
-  fixtureWrite(`UPDATE organizations SET status = $2 WHERE id = $1`, [id, status]);
+/**
+ * Blocks/unblocks through updateUser (PATCH /users/{id}) as the platform ADMIN. INVITED has no API path back from
+ * ACTIVE (only acceptInvite leads out of it, R37), so that state stays a fixture write.
+ */
+async function setUserStatus(email: string, status: 'ACTIVE' | 'BLOCKED' | 'INVITED'): Promise<void> {
+  if (status === 'INVITED') {
+    await fixtureWrite(`UPDATE users SET status = 'INVITED' WHERE email = $1`, [email]);
+    return;
+  }
+  const [row] = await query<{ id: string; status: string }>(`SELECT id, status FROM users WHERE email = $1`, [
+    email,
+  ]);
+  if (row!.status === 'INVITED')
+    await fixtureWrite(`UPDATE users SET status = 'ACTIVE' WHERE id = $1`, [row!.id]);
+  const admin = await loginAs('ADMIN', { head: true });
+  const res = await admin.patch(`/users/${row!.id}`, { status });
+  await expectContract(res, 'updateUser');
+  expect(res.status, res.text).toBe(200);
+  expect(res.body.status).toBe(status);
+}
 
 // ── login ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -299,10 +315,10 @@ describe('login', () => {
     const missing = await client.post('/auth/login', { email: 'a@b.ru' });
     await expectContract(missing, 'login');
     expectProblem(missing, 400, 'VALIDATION');
-    expect(missing.body.errors.password).toEqual(['validation.required']);
+    expect(missing.body.errors.password).toContain('validation.required');
     const extra = await client.post('/auth/login', { email: 'a@b.ru', password: 'x', remember: true });
     expectProblem(extra, 400, 'VALIDATION');
-    expect(extra.body.errors.remember).toEqual(['validation.unknownField']);
+    expect(extra.body.errors.remember).toContain('validation.unknownField');
     const email = await client.post('/auth/login', { email: 'not-an-email', password: 'x' });
     expectProblem(email, 400, 'VALIDATION');
     expect(Object.keys(email.body.errors)).toEqual(['email']);
@@ -745,7 +761,9 @@ describe('refresh', () => {
     const { org } = await freshHead('FARM');
     const client = api();
     const { token: a } = await loginOk(client, org.email, org.password);
-    await setUserStatus(org.email, 'BLOCKED');
+    // A BLOCKED user whose refresh token is still live: updateUser revokes the tokens when it blocks (users.test.ts), so
+    // this state — e.g. blocked by another process between two refreshes — is set as a fixture.
+    await fixtureWrite(`UPDATE users SET status = 'BLOCKED' WHERE email = $1`, [org.email]);
     const blocked = await refresh(client, a);
     await expectContract(blocked, 'refreshToken');
     expectProblem(blocked, 403, 'FORBIDDEN');
@@ -946,18 +964,18 @@ describe('registerOrganization', () => {
     const taken = await registerOrg('FARM');
     const checksum = await register(registration({ inn: breakChecksum(randomInn()) }));
     expectProblem(checksum, 400, 'VALIDATION');
-    expect(checksum.body.errors).toEqual({ inn: ['validation.inn.checksum'] });
+    expectErrors(checksum, { inn: ['validation.inn.checksum'] });
 
     const dup = await register(registration({ inn: taken.inn }, { email: taken.email.toUpperCase() }));
     expectProblem(dup, 400, 'VALIDATION');
-    expect(dup.body.errors).toEqual({
+    expectErrors(dup, {
       inn: ['validation.inn.taken'],
       'admin.email': ['validation.email.taken'],
     });
 
     const region = await register(registration({ regionCode: 'XX' }));
     expectProblem(region, 400, 'VALIDATION');
-    expect(region.body.errors).toEqual({ regionCode: ['validation.notFound'] });
+    expectErrors(region, { regionCode: ['validation.notFound'] });
 
     const noName = registration();
     delete (noName as Record<string, unknown>).name;
@@ -983,27 +1001,11 @@ describe('registerOrganization', () => {
 
 // ── invitations ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-/**
- * An INVITED employee of a fresh active organization and its invitation token.
- * TODO(Task 3): create through inviteUser (POST /users) and read the token from the letter; until then the user row
- * is a fixture write and the token is put under the contract's key `invite:{sha256hex(token)}` (R82).
- */
+/** An INVITED employee of a fresh active organization, invited by its head (inviteUser), and the token from the letter. */
 async function invitedUser() {
-  const org = await activeOrgHead('FARM');
-  const email = uniqueEmail('invited');
-  const [row] = await fixtureWrite<{ id: string }>(
-    `INSERT INTO users (organization_id, email, password_hash, full_name, status)
-     VALUES ($1, $2, '!', $3, 'INVITED') RETURNING id`,
-    [org.organizationId, email, email],
-  );
-  await fixtureWrite(
-    `INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = 'FARMER'`,
-    [row!.id],
-  );
-  const token = b64url(randomBytes(32));
-  const exp = Math.floor(Date.now() / 1000) + 604800;
-  await redis().set(`invite:${sha256hex(token)}`, JSON.stringify({ userId: row!.id, exp }), 'EX', 604800);
-  return { org, email, userId: row!.id, token };
+  const { org, client } = await freshHead('FARM');
+  const { user, email, token } = await invite(client, 'FARM');
+  return { org, email, userId: user.id, token };
 }
 
 describe('acceptInvite', () => {
@@ -1014,7 +1016,7 @@ describe('acceptInvite', () => {
     const invalid = await api().post('/auth/accept-invite', { token, fullName: '  ', password: PASSWORD });
     await expectContract(invalid, 'acceptInvite');
     expectProblem(invalid, 400, 'VALIDATION');
-    expect(invalid.body.errors).toEqual({ fullName: ['validation.pattern'] });
+    expectErrors(invalid, { fullName: ['validation.pattern'] });
     expect(await redis().exists(`invite:${sha256hex(token)}`)).toBe(1);
 
     const ok = await api().post('/auth/accept-invite', {

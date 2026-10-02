@@ -40,19 +40,18 @@ http {
   # $front / $back: parsed once from Host, reused by every location below. Unmatched hosts (the
   # default_server, e.g. unknown *.localhost or bare "localhost") get "" for both.
   map $host $front {
-    ~^(?<f>react|angular|svelte)-(express|django|laravel|mock)\.localhost$ $f;
+    ~^(?<f>react|angular|svelte)-(express|django|laravel)\.localhost$ $f;
     default '';
   }
   map $host $back {
-    ~^(react|angular|svelte)-(?<b>express|django|laravel|mock)\.localhost$ $b;
+    ~^(react|angular|svelte)-(?<b>express|django|laravel)\.localhost$ $b;
     default '';
   }
 
-  # --- SPA hosts: {react|angular|svelte}-{express|django|laravel|mock}.localhost (`mock`: the frontend on the
-  #     in-browser mock backend; no api-mock container exists, so /api/ answers 502 BACKEND_UNAVAILABLE) ----------
+  # --- SPA hosts: {react|angular|svelte}-{express|django|laravel}.localhost -----------------
   server {
     listen 80;
-    server_name ~^(react|angular|svelte)-(express|django|laravel|mock)\.localhost$;
+    server_name ~^(react|angular|svelte)-(express|django|laravel)\.localhost$;
 
     # No backend containers exist when the gateway itself starts (R6/brief): resolve at request
     # time via Docker's embedded DNS instead of nginx resolving api-$back once at startup.
@@ -162,6 +161,63 @@ http {
     # Everything else: static file if it exists, otherwise the SPA shell (client-side routing).
     location / {
       add_header X-Frontend $front always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files $uri $uri/ /index.html;
+    }
+  }
+
+  # --- Mock stands (ruling FM23): {react|angular|svelte}-mock.localhost --------------------------
+  # The frontend built in mock mode (dist-mock, bind-mounted at /srv/<front>-mock) carries its own backend: the MSW
+  # service worker of @agrotrace/mock-api answers /api/v1 inside the browser. No request reaches a backend container;
+  # an /api request the worker did not take (it is not running yet) gets a 503 problem instead of the SPA shell.
+  map $host $mock_front {
+    ~^(?<mf>react|angular|svelte)-mock\.localhost$ $mf;
+    default '';
+  }
+
+  server {
+    listen 80;
+    server_name ~^(react|angular|svelte)-mock\.localhost$;
+
+    root /srv/$mock_front-mock;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy same-origin always;
+    add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+    add_header X-Request-Id $req_id always;
+
+    location /api/ {
+      default_type application/problem+json;
+      return 503 '{"type":"/problems/backend-unavailable","title":"Mock backend not started","status":503,"code":"BACKEND_UNAVAILABLE"}';
+    }
+
+    # index.html and the worker script: never cached (the worker must update with the build).
+    location ~ ^/(index\.html|mockServiceWorker\.js)$ {
+      add_header X-Frontend $mock_front always;
+      add_header Cache-Control 'no-cache' always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files $uri =404;
+    }
+
+    location /assets/ {
+      add_header X-Frontend $mock_front always;
+      add_header Cache-Control 'public, max-age=31536000, immutable' always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files $uri =404;
+    }
+
+    location / {
+      add_header X-Frontend $mock_front always;
+      add_header Cache-Control 'no-cache' always;
       add_header X-Content-Type-Options nosniff always;
       add_header Referrer-Policy same-origin always;
       add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;

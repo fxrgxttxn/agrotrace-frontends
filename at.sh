@@ -235,7 +235,9 @@ applied_migrations() {
 #   react  — `gateway-react` (compose project agrotrace-react, docker-compose.react-dev.yml, host port 8089) on the main
 #            stack's network, react-express.localhost against the live API;
 #   svelte — `gateway-svelte` (compose project agrotrace-svelte, docker-compose.svelte-mock.yml, host port 8091) on its
-#            own network, svelte-mock.localhost (mock backend in the browser, no API server), with its own Playwright.
+#            own network: svelte-mock.localhost = build-mock (./at fe:build svelte --mock, ruling FM23: the mock backend
+#            in the browser, no API server), svelte-express.localhost = the production build (nothing behind its /api:
+#            its e2e answers /api/v1 in Playwright's route layer), with its own Playwright.
 DCR="docker compose -f docker-compose.react-dev.yml"
 DCS="docker compose -f docker-compose.svelte-mock.yml"
 
@@ -260,7 +262,13 @@ fe_gateway() (
   case "${2:-up}" in
     up)
       if [ "${AT_DRY_RUN:-}" != "1" ]; then
-        [ -f "$out/index.html" ] || { echo "fe:gateway: no $out — run ./at fe:build $front first" >&2; exit 1; }
+        if [ "$front" = svelte ]; then
+          [ -f "$out/index.html" ] || [ -f "$out-mock/index.html" ] \
+            || { echo "fe:gateway: no $out or $out-mock — run ./at fe:build svelte [--mock] first" >&2; exit 1; }
+          mkdir -p "$out" "$out-mock"
+        else
+          [ -f "$out/index.html" ] || { echo "fe:gateway: no $out — run ./at fe:build $front first" >&2; exit 1; }
+        fi
         if [ "$front" = react ]; then
           docker network inspect agrotrace_at >/dev/null 2>&1 \
             || { echo "fe:gateway: network agrotrace_at does not exist — start the stack first (./at up express)" >&2; exit 1; }
@@ -271,7 +279,7 @@ fe_gateway() (
         echo "React: http://react-express.localhost:8089/  (design system: http://localhost:8089/_ds/)"
       else
         run $DCS up -d --build --force-recreate --wait gateway-svelte
-        echo "Svelte: http://svelte-mock.localhost:8091/  (design system: http://localhost:8091/_ds/)"
+        echo "Svelte: mock http://svelte-mock.localhost:8091/  production http://svelte-express.localhost:8091/  (design system: http://localhost:8091/_ds/)"
       fi ;;
     down) if [ "$front" = react ]; then run $DCR down; else run $DCS down; fi ;;
     *) echo "usage: ./at fe:gateway react|svelte [up|down]" >&2; exit 2 ;;
@@ -327,7 +335,19 @@ case "$cmd" in
   # package.json has one), so recursing here silently lints nothing.
   lint)      $T pnpm lint ;;
   typecheck) $T pnpm -r typecheck ;;
-  fmt)       $T pnpm exec prettier --write . ;;
+  # P13: explicit paths only. No arguments or any flag-like argument (`--help`, `-w`, …) is refused: prettier would
+  # read a flag as an option and still `--write` the default target, reformatting the whole repository.
+  fmt)
+    if [ $# -eq 0 ]; then
+      echo "usage: ./at fmt <path>… — formats the given files/directories with Prettier (explicit paths only)" >&2
+      exit 2
+    fi
+    for p in "$@"; do
+      case "$p" in
+        -*) echo "./at fmt: '$p' looks like an option; only paths are accepted (P13)" >&2; exit 2 ;;
+      esac
+    done
+    run $T pnpm exec prettier --write -- "$@" ;;
   # --build on every `up` (R80): a stale gateway/mercury-mock image is never silently reused —
   # docker compose skips the build step on its own for any service without a `build:` key, so this
   # is a no-op for postgres/redis/rabbitmq/minio/mailpit.
@@ -412,9 +432,16 @@ case "$cmd" in
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
   # Frontends (see fe_front above): build into frontend-<front>/dist, component tests (Vitest + MSW from the contract),
   # the Vite dev server on http://localhost:5173 (API proxied to api-express), the separate gateway, the smoke e2e.
-  fe:build)  fe_front "${1:-}"; run $T pnpm --filter "@agrotrace/frontend-$1" build
+  # `fe:build <front> [--mock]`: the production build or, with --mock (ruling FM23), the build with the in-browser
+  # backend of @agrotrace/mock-api (svelte: frontend-svelte/build-mock, served at svelte-mock.localhost:8091).
+  fe:build)  fe_front "${1:-}"; front="$1"; shift
+             case "${1:-}" in
+               '') run $T pnpm --filter "@agrotrace/frontend-$front" build ;;
+               --mock) run $T pnpm --filter "@agrotrace/frontend-$front" build:mock ;;
+               *) echo "usage: ./at fe:build react|svelte [--mock]" >&2; exit 2 ;;
+             esac
              # A running Svelte stand is recreated so that it serves the new build directory (see fe_e2e_smoke).
-             if [ "$1" = svelte ] && [ "${AT_DRY_RUN:-}" != "1" ] \
+             if [ "$front" = svelte ] && [ "${AT_DRY_RUN:-}" != "1" ] \
                && [ -n "$($DCS ps -q --status running gateway-svelte 2>/dev/null)" ]; then
                fe_gateway svelte up
              fi ;;

@@ -16,9 +16,17 @@ import {
   rejectEmptySegments,
 } from './http/problem.js';
 import { backendHeader, requestId } from './http/request-id.js';
+import { adminRouter } from './modules/admin/routes.js';
+import { auditRouter } from './modules/audit/routes.js';
 import { authRouter } from './modules/auth/routes.js';
+import { dictionariesRouter } from './modules/dictionaries/routes.js';
 import { docsRouter } from './modules/docs/routes.js';
+import { filesRouter, publicFilesRouter } from './modules/files/routes.js';
+import { fieldsRouter } from './modules/fields/routes.js';
 import { healthRouter } from './modules/health/routes.js';
+import { meRouter } from './modules/me/routes.js';
+import { organizationsRouter } from './modules/organizations/routes.js';
+import { usersRouter } from './modules/users/routes.js';
 
 export const ROUTER_OPTIONS = { caseSensitive: true, strict: true } as const;
 
@@ -52,6 +60,16 @@ export function createApp(c: Container): Express {
   api.use('/health', healthRouter(c));
   api.use('/docs', docsRouter(c));
   api.use('/auth', authRouter(c));
+  // Routers below declare their full contract paths (strict routing: `/me/` is not `/me`).
+  api.use(meRouter(c));
+  api.use(usersRouter(c));
+  api.use(organizationsRouter(c));
+  api.use(filesRouter(c));
+  api.use(publicFilesRouter(c));
+  api.use(dictionariesRouter(c));
+  api.use(adminRouter(c));
+  api.use(auditRouter(c));
+  api.use(fieldsRouter(c));
   app.use('/api/v1', api);
 
   app.use(notFoundHandler());

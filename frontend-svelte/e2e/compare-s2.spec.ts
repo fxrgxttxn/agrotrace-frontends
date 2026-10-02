@@ -4,7 +4,7 @@ import { ANONYMOUS, contractExample, mockApi, type Override } from './contract';
 
 // Cross-framework check of the S2 screens (plan: the three frontends behave identically; README markup mandatory):
 // every screen is rendered by this Svelte build, by the React build (react-express.localhost:8089, the behaviour
-// reference) and by the Angular build (angular-mock.localhost:8090) with the SAME API answers — the contract's
+// reference) and by the Angular build (angular-express.localhost:8090, its production build) with the SAME API answers — the contract's
 // examples through Playwright routes — and the page DOM is compared in a canonical form (attributes sorted, style
 // declarations normalised, whitespace-only text and comments dropped). React's two known non-README attributes (F13:
 // `checked` on the initially checked radio, `id` on `.at-file__hint`) are ignored. Screenshots of all three at 360 /
@@ -19,7 +19,7 @@ const SOON = new Date(Date.now() + 3600_000).toISOString().replace(/\.\d+Z$/, 'Z
 const FRONTS = [
   ['svelte', ''],
   ['react', 'http://react-express.localhost:8089'],
-  ['angular', 'http://angular-mock.localhost:8090'],
+  ['angular', 'http://angular-express.localhost:8090'],
 ] as const;
 
 interface Screen {

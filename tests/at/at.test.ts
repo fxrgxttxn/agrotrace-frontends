@@ -124,6 +124,20 @@ describe('./at wrapper (R88 M6)', () => {
     expect(readFileSync(`${REPO}at.sh`, 'utf8')).toMatch(/"\$0" gw:test\n {4}"\$0" docs:test express\n/);
   });
 
+  it('fmt formats explicit paths only; no arguments or a flag is refused before prettier runs (P13)', () => {
+    const ok = sh(['./at', 'fmt', 'backend-express/src', 'at.sh'], { AT_DRY_RUN: '1' });
+    expect(ok.code, ok.err).toBe(0);
+    expect(ok.out.split('\n').filter((l) => l.startsWith('+ '))).toEqual([
+      '+ docker compose run --rm tools pnpm exec prettier --write -- backend-express/src at.sh',
+    ]);
+    for (const args of [[], ['--help'], ['-w'], ['src', '--check'], ['--', 'src']]) {
+      const r = sh(['./at', 'fmt', ...args], { AT_DRY_RUN: '1' });
+      expect(r.code, `fmt ${args.join(' ')}`).toBe(2);
+      expect(r.out).not.toContain('prettier');
+      expect(r.err).toMatch(/explicit paths only|only paths are accepted/);
+    }
+  });
+
   it('up infra starts mercury-mock too (R88 M4)', () => {
     const r = sh(['./at', 'up', 'infra'], { AT_DRY_RUN: '1' });
     expect(r.out).toContain(
@@ -206,6 +220,10 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
     expect(plus(sh(['./at', 'fe:build', 'svelte'], { AT_DRY_RUN: '1' }).out)).toEqual([
       '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte build',
     ]);
+    expect(plus(sh(['./at', 'fe:build', 'svelte', '--mock'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte build:mock',
+    ]);
+    expect(sh(['./at', 'fe:build', 'svelte', '--prod'], { AT_DRY_RUN: '1' }).code).toBe(2);
     expect(plus(sh(['./at', 'fe:test', 'svelte'], { AT_DRY_RUN: '1' }).out)).toEqual([
       '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte test',
     ]);

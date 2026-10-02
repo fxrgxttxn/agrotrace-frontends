@@ -20,3 +20,8 @@ storage/*.key
 # SvelteKit static build
 frontend-svelte/build/
 frontend-svelte/.templates/
+
+# SvelteKit mock build (ruling FM23)
+frontend-svelte/build-mock/
+frontend-svelte/.svelte-kit-mock/
+dist-mock/

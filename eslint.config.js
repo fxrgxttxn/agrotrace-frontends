@@ -5,13 +5,17 @@ export default tseslint.config(
   {
     ignores: [
       '**/dist/**',
+      '**/dist-mock/**',
       '**/node_modules/**',
       '**/.svelte-kit/**',
+      '**/.svelte-kit-mock/**',
       'frontend-svelte/build/**',
+      'frontend-svelte/build-mock/**',
       '**/test-results/**',
       '**/.angular/**',
       '**/coverage/**',
       'contracts/**',
+      'packages/mock-api/public/**',
     ],
   },
   ...tseslint.configs.recommended,

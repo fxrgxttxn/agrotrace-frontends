@@ -1,7 +1,9 @@
 # Separate stand for the Svelte build on the mock backend (plan «three frontends on mocks», task S1): compose project
-# `agrotrace-svelte`, the same gateway image/template as the main stack, serving frontend-svelte/build at
-# svelte-mock.localhost (the `mock` back: no API server — in mock mode the browser's MSW worker answers /api/v1; the
-# gateway's own /api/ proxy has no `api-mock` and answers 502 BACKEND_UNAVAILABLE) and the design system at /_ds/, on
+# `agrotrace-svelte`, the same gateway image/template as the main stack, serving frontend-svelte/build-mock at
+# svelte-mock.localhost (ruling FM23: no API server — the browser's MSW worker of @agrotrace/mock-api answers /api/v1; an
+# /api request the worker did not take gets the gateway's 503) and the production build frontend-svelte/build at
+# svelte-express.localhost (no api-express on this network: /api answers 502 BACKEND_UNAVAILABLE unless the e2e route
+# layer answers it) and the design system at /_ds/, on
 # host port 8091. Its own network: it never needs or touches the shared `agrotrace` stack. The Playwright one-off of
 # `./at.sh fe:e2e-smoke svelte` runs in this project too.
 #   ./at.sh fe:gateway svelte [up|down]   ·   ./at.sh fe:e2e-smoke svelte
@@ -12,6 +14,8 @@ services:
     image: agrotrace/gateway-svelte:dev
     volumes:
       - ./frontend-svelte/build:/srv/svelte:ro
+      # Mock mode (ruling FM23): ./at.sh fe:build svelte --mock → svelte-mock.localhost:8091 (the gateway's mock block)
+      - ./frontend-svelte/build-mock:/srv/svelte-mock:ro
       - ./packages/design-system:/srv/ds:ro
     environment: { GATEWAY_PORT: '8091' }
     ports: ['8091:80']
