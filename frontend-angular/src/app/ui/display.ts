@@ -58,9 +58,14 @@ export class SkeletonComponent {
 }
 
 /** Initials for a text avatar: first letters of the first two words, in the order the name is written
- * («Иван Петров» → «ИП», README; «Петров Иван Сергеевич» → «ПИ»). One word → its first two letters. */
+ * («Иван Петров» → «ИП», README; «Петров Иван Сергеевич» → «ПИ»); quotes and signs before a word are skipped
+ * («ООО «Кубанский мукомол»» → «ОК», README «Аватар»). One word → its first two letters. */
 export function initials(fullName: string): string {
-  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  const parts = fullName
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.replace(/^[^\p{L}\p{N}]+/u, ''))
+    .filter(Boolean);
   if (parts.length === 0) return '';
   if (parts.length === 1) return [...parts[0]!].slice(0, 2).join('').toLocaleUpperCase('ru');
   return ([...parts[0]!][0]! + [...parts[1]!][0]!).toLocaleUpperCase('ru');

@@ -462,5 +462,8 @@ describe('helpers', () => {
     expect(initials('Иван Петров')).toBe('ИП');
     expect(initials('Петров Иван Сергеевич')).toBe('ПИ');
     expect(initials('Admin')).toBe('AD');
+    // README «Аватар» (FM22/FM33): quotes and signs before a word are skipped
+    expect(initials('ООО «Кубанский мукомол»')).toBe('ОК');
+    expect(initials('«Заря»')).toBe('ЗА');
   });
 });

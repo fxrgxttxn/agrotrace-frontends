@@ -47,7 +47,7 @@ export interface FileItem {
         <svg class="at-file__icon" aria-hidden="true"><use href="#i-upload"></use></svg>
         <span class="at-file__action">{{ t('ui.chooseFile') }}</span>
         @if (hint()) {
-          <span class="at-file__hint">{{ hint() }}</span>
+          <span class="at-file__hint" [attr.id]="fileId() + '-hint'">{{ hint() }}</span>
         }
       </label>
       @if (files().length > 0) {
@@ -92,7 +92,7 @@ export interface FileItem {
 })
 export class FileFieldComponent {
   protected readonly t = t;
-  /** Id of the input; the label is `${fileId}-label`, the error `${fileId}-error`. */
+  /** Id of the input; the label is `${fileId}-label`, the error `${fileId}-error`, the hint `${fileId}-hint` (FM22). */
   readonly fileId = input.required<string>();
   readonly label = input.required<string>();
   readonly accept = input<string | undefined>(undefined);
