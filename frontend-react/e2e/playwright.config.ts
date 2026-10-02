@@ -17,7 +17,6 @@ const STAND = [
   'shots-task3.spec.ts',
   'shots-task4.spec.ts',
   'shots-task5.spec.ts',
-  'shots-task6.spec.ts',
   'stale-refetch.spec.ts',
 ];
 

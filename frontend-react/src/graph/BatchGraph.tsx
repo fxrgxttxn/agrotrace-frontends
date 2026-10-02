@@ -12,7 +12,16 @@ import type { GraphView } from './cytoscape';
 // button leave it and the focus goes back to the button. The nodes are also listed as a table under it (keyboard and
 // screen readers, links) by the page.
 
-export function BatchGraphView({ graph, code }: { graph: Graph; code: string }) {
+export function BatchGraphView({
+  graph,
+  code,
+  labelKey = 'graph.label',
+}: {
+  graph: Graph;
+  code: string;
+  /** i18n key of the canvas summary ({code}, {up}, {down}): the batch graph, or a recall's graph. */
+  labelKey?: string;
+}) {
   const { full, wide, open, close, opener, closer, block } = useFullscreen();
   const view = useRef<GraphView | null>(null);
 
@@ -28,12 +37,7 @@ export function BatchGraphView({ graph, code }: { graph: Graph; code: string }) 
     );
   return (
     <div ref={block} className="at-graph" data-fullscreen={full ? '' : undefined}>
-      <GraphCanvas
-        graph={graph}
-        label={t('graph.label', { code, up, down })}
-        view={view}
-        onOpenNode={close}
-      />
+      <GraphCanvas graph={graph} label={t(labelKey, { code, up, down })} view={view} onOpenNode={close} />
       <div className="at-graph__toolbar">
         <Button
           variant="ghost"

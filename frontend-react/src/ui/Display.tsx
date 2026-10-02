@@ -156,16 +156,19 @@ export function Progress({
   value,
   max,
   tone,
+  labelHidden,
 }: {
   id: string;
   label: ReactNode;
   value: number;
   max: number;
   tone?: 'danger';
+  /** In a table cell the column header says it: the label stays for the bar's name, visually hidden (README). */
+  labelHidden?: boolean;
 }) {
   return (
     <div className="at-progress" data-tone={tone}>
-      <span className="at-progress__label" id={id}>
+      <span className={labelHidden ? 'at-progress__label at-visually-hidden' : 'at-progress__label'} id={id}>
         {label}
       </span>
       <span className="at-progress__value">{t('ui.progressValue', { value, max })}</span>

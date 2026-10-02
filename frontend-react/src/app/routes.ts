@@ -203,7 +203,7 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/recalls/new',
     title: 'page.recallNew',
     access: { roles: [I] },
-    ops: ['createRecall'],
+    ops: ['createRecall', 'listBatches', 'getBatch'],
     load: page(recalls, 'RecallNewPage'),
   },
   {
@@ -224,7 +224,7 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/complaints/:id',
     title: 'page.complaint',
     access: { roles: [I] },
-    ops: ['getComplaint'],
+    ops: ['getComplaint', 'startComplaintReview', 'decideComplaint', 'listOrganizations'],
     load: page(complaints, 'ComplaintPage'),
   },
   {
