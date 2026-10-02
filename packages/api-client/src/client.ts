@@ -155,6 +155,10 @@ class RefreshCoordinator {
    * so a later, genuinely new auth-loss episode can still report. */
   private reportedDeadToken: string | null | undefined = undefined;
   private unsubscribe: () => void;
+  /** Bumps on every change of the store (a logout clearing it, a sign-in, another tab's token, our own install): a
+   * refresh whose answer arrives in a later generation belongs to a session that ended or was replaced — its token is
+   * neither installed nor broadcast. */
+  private generation = 0;
 
   constructor(
     private readonly baseUrl: string,
@@ -163,6 +167,7 @@ class RefreshCoordinator {
     private readonly onAuthLost?: () => void,
   ) {
     this.unsubscribe = this.session.subscribe((token) => {
+      this.generation += 1;
       if (token !== null) this.reportedDeadToken = undefined;
     });
     try {
@@ -260,6 +265,7 @@ class RefreshCoordinator {
     if (before !== tokenAtFailure) {
       return before;
     }
+    const generation = this.generation;
 
     let response: Response;
     try {
@@ -287,6 +293,9 @@ class RefreshCoordinator {
         throw ApiProblem.transient('Malformed response from /auth/refresh (no accessToken)', response.status);
       }
       const accessToken = body.accessToken;
+      // The session ended (a logout here or in another tab cleared the store) or another token was installed meanwhile
+      // (a sign-in, another tab's rotation): this answer is stale — never install or broadcast it.
+      if (this.generation !== generation) return this.session.get();
       this.session.set(accessToken);
       this.channel?.postMessage({ token: accessToken });
       return accessToken;

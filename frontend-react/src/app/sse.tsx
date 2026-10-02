@@ -96,10 +96,10 @@ export function LiveEventsProvider({
           text: notificationMessage(n.type, payload, 'title', t),
           detail: notificationMessage(n.type, payload, 'body', t),
         });
-        invalidateEvenInFlight(queryClient, ['notifications']);
         // The screens the event is about read again (a recall closed by the last confirmation, a new task, a
-        // complaint): the registry, the card and the task list change without a reload.
-        for (const key of LIVE_KEYS[n.type] ?? []) invalidateEvenInFlight(queryClient, [key]);
+        // complaint): the registry, the card and the task list change without a reload. A burst of events in one task
+        // reads each screen once.
+        stale.mark(queryClient, ['notifications', ...(LIVE_KEYS[n.type] ?? [])]);
       }
     },
     { EventSourceImpl },
@@ -111,14 +111,35 @@ export function LiveEventsProvider({
 
 /** Cache keys a notification type makes stale (besides the notification lists). */
 const LIVE_KEYS: Record<string, readonly string[]> = {
-  RECALL: ['recalls', 'recall', 'recallTasks', 'batches', 'batch'],
-  RECALL_TASK: ['recallTasks', 'recall', 'recalls'],
-  OVERDUE: ['recallTasks', 'recall', 'recalls'],
-  COMPLAINT: ['complaints', 'complaint'],
-  LAB_ASSIGNED: ['labTests'],
-  LAB_RESULT: ['labTests', 'batch'],
-  WAYBILL_INCOMING: ['waybills'],
+  RECALL: ['recalls', 'recall', 'recallTasks', 'batches', 'batch', 'dashboard'],
+  RECALL_TASK: ['recallTasks', 'recall', 'recalls', 'dashboard'],
+  OVERDUE: ['recallTasks', 'recall', 'recalls', 'dashboard'],
+  COMPLAINT: ['complaints', 'complaint', 'dashboard'],
+  LAB_ASSIGNED: ['labTests', 'labTest', 'dashboard'],
+  LAB_RESULT: ['labTests', 'labTest', 'batches', 'batch', 'dashboard'],
+  LAB_OVERDUE: ['labTests', 'labTest', 'dashboard'],
+  WAYBILL_INCOMING: ['waybills', 'waybill', 'dashboard'],
 };
+
+/** Keys made stale by the events of one task, invalidated together once the task ends (each key once). */
+const stale = (() => {
+  const pending = new Map<QueryClient, Set<string>>();
+  return {
+    mark(client: QueryClient, keys: readonly string[]) {
+      let set = pending.get(client);
+      if (!set) {
+        set = new Set();
+        pending.set(client, set);
+        setTimeout(() => {
+          const due = pending.get(client);
+          pending.delete(client);
+          for (const key of due ?? []) invalidateEvenInFlight(client, [key]);
+        }, 0);
+      }
+      for (const k of keys) set.add(k);
+    },
+  };
+})();
 
 /** Invalidates the lists; a fetch already on its way began before the event, so its answer is marked stale when it
  * arrives (FM25) — shown now, asked again on the next view (at once if on screen). */
