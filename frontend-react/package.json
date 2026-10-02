@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit -p . && vite build",
+    "build:mock": "tsc --noEmit -p . && vite build --mode mock",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e"
@@ -30,6 +31,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@agrotrace/mock-api": "workspace:*",
     "@playwright/test": "1.48.2",
     "@redocly/openapi-core": "^1.25.11",
     "@testing-library/dom": "10.4.0",
@@ -45,7 +47,7 @@
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "jsdom": "25.0.1",
-    "msw": "2.6.4",
+    "msw": "2.15.0",
     "typescript": "~5.6.3",
     "vite": "5.4.11",
     "vitest": "^2.1.4"

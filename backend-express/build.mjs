@@ -14,7 +14,11 @@ rmSync(`${root}dist`, { recursive: true, force: true });
 mkdirSync(`${root}dist`, { recursive: true });
 
 await build({
-  entryPoints: ['src/main-api.ts', 'src/main-worker.ts', 'src/main-scheduler.ts'].map((f) => `${root}${f}`),
+  entryPoints: [
+    ...['main-api', 'main-worker', 'main-scheduler'].map((n) => ({ in: `${root}src/${n}.ts`, out: n })),
+    // P15: the SVG sanitizer's worker thread (src/infra/svg.ts loads dist/svg-worker.js next to the bundle).
+    { in: `${root}src/infra/svg-worker.ts`, out: 'svg-worker' },
+  ],
   outdir: `${root}dist`,
   bundle: true,
   platform: 'node',

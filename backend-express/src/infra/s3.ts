@@ -4,7 +4,8 @@
  * DeleteObjects carries `Content-MD5`, which MinIO requires (it rejects the SDK's CRC32 with `MissingContentMD5`).
  */
 import { createHash } from 'node:crypto';
-import { HeadBucketCommand, S3Client } from '@aws-sdk/client-s3';
+import type { Readable } from 'node:stream';
+import { GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import type { Config } from '../config.js';
 
 export interface S3 {
@@ -12,6 +13,10 @@ export interface S3 {
   bucket: string;
   /** HeadBucket — used by /health/ready. */
   ping(signal: AbortSignal): Promise<void>;
+  /** PutObject of a whole buffer (uploads are at most a few MiB and already in memory). */
+  put(key: string, body: Buffer, contentType: string): Promise<void>;
+  /** GetObject as a stream (downloads go through the backend, FR-FILE-03). */
+  get(key: string, signal?: AbortSignal): Promise<Readable>;
 }
 
 /** Adds `Content-MD5` of the serialized body to every DeleteObjects request (build step, before signing). */
@@ -45,11 +50,30 @@ export function createS3(
       responseChecksumValidation: 'WHEN_REQUIRED',
     }),
   );
+  const bucket = config.S3_BUCKET;
   return {
     client,
-    bucket: config.S3_BUCKET,
+    bucket,
     async ping(signal) {
-      await client.send(new HeadBucketCommand({ Bucket: config.S3_BUCKET }), { abortSignal: signal });
+      await client.send(new HeadBucketCommand({ Bucket: bucket }), { abortSignal: signal });
+    },
+    async put(key, body, contentType) {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: body,
+          ContentType: contentType,
+          ContentLength: body.length,
+        }),
+      );
+    },
+    async get(key, signal) {
+      const out = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }), {
+        abortSignal: signal,
+      });
+      if (!out.Body) throw new Error(`S3 object ${key} has no body`);
+      return out.Body as Readable;
     },
   };
 }

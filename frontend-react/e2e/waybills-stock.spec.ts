@@ -1,13 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { DEMO_PASSWORD, horizontalOverflow, quietStream, signIn, unexpected, watch } from './helpers';
+import { DEMO_PASSWORD, horizontalOverflow, signIn, unexpected, watch } from './helpers';
 
 // Task 4 screens on the demo world (seed, docs/demo-accounts.md): a farmer's draft waybill to «Мелькомбинат
-// Владимирский» (created, then deleted — the shared data stays as it was), the incoming waybills of a processor with
+// Владимирский» (created, then deleted), the incoming waybills of a retailer (WB-…-000028 «Заря → Фермерская лавка») with
 // the live BR-07 discrepancy (not submitted), the processing wizard up to the live BR-04 balance (not submitted), the
-// retailer's stock and QR printing. Written for the shared stand (ruling F10: run against @agrotrace/mock-api once it is
-// merged). Every spec checks: no unexpected console/HTTP errors and no horizontal scroll at 360 px.
-
-test.beforeEach(async ({ context }) => quietStream(context));
+// retailer's stock and QR printing. Runs on the mock stand (react-mock.localhost, ruling FM23: every test has its own demo
+// world). Every spec checks: no unexpected console/HTTP errors and no horizontal scroll at 360 px.
 
 test('FARMER: a draft waybill from the own stock, then deleted', async ({ page }) => {
   const w = await watch(page);
@@ -15,12 +13,13 @@ test('FARMER: a draft waybill from the own stock, then deleted', async ({ page }
   await page.goto('/waybills/new');
   await expect(page.getByRole('heading', { level: 1, name: 'Новая накладная' })).toBeVisible();
   const receiver = page.getByRole('combobox', { name: 'Получатель' });
-  await receiver.fill('Мелькомбинат');
+  // the directory searches by the name's prefix (or the INN)
+  await receiver.fill('ООО «Мель');
   await page.getByRole('listbox', { name: 'Получатель' }).getByRole('option').first().click();
   await page
     .getByRole('checkbox', { name: /^Выбрать AT-/ })
     .first()
-    .check();
+    .check({ force: true }); // the DS box (label.at-check) covers the native input
   await page.getByRole('button', { name: 'Создать накладную' }).click();
   await expect(page).toHaveURL(/\/waybills\/[0-9a-f-]{36}$/);
   await expect(page.getByRole('heading', { level: 1, name: /^WB-\d{4}-\d{6}$/ })).toBeVisible();
@@ -34,19 +33,19 @@ test('FARMER: a draft waybill from the own stock, then deleted', async ({ page }
   expect(unexpected(w)).toEqual([]);
 });
 
-test('PROCESSOR: incoming waybills; the acceptance counts the discrepancy live (BR-07)', async ({ page }) => {
+test('RETAILER: incoming waybills; the acceptance counts the discrepancy live (BR-07)', async ({ page }) => {
   const w = await watch(page);
-  await signIn(page, 'molkombinat.head@agrotrace.test', DEMO_PASSWORD, w);
+  await signIn(page, 'lavka.head@agrotrace.test', DEMO_PASSWORD, w);
   await page.goto('/waybills?direction=incoming&status=SENT');
   await expect(page.getByRole('heading', { level: 1, name: 'Накладные' })).toBeVisible();
-  const first = page.getByRole('link', { name: /^WB-\d{4}-\d{6}$/ }).first();
-  if (await first.isVisible().catch(() => false)) {
-    await first.click();
-    const actual = page.getByLabel(/^Фактическая масса AT-/).first();
-    await actual.fill('1');
-    await expect(page.getByText('Больше 2%: нужен акт').first()).toBeVisible();
-    await expect(page.getByLabel(/^Акт расхождения AT-/).first()).toBeVisible();
-  }
+  await page
+    .getByRole('link', { name: /^WB-\d{4}-\d{6}$/ })
+    .first()
+    .click();
+  const actual = page.getByLabel(/^Фактическая масса AT-/).first();
+  await actual.fill('1');
+  await expect(page.getByText('Больше 2%: нужен акт').first()).toBeVisible();
+  await expect(page.getByLabel(/^Акт расхождения AT-/).first()).toBeVisible();
   await page.setViewportSize({ width: 360, height: 780 });
   expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
   expect(unexpected(w)).toEqual([]);
@@ -57,16 +56,16 @@ test('PROCESSOR: the processing wizard shows the live mass balance (BR-04)', asy
   await signIn(page, 'molkombinat.head@agrotrace.test', DEMO_PASSWORD, w);
   await page.goto('/processing/new');
   await expect(page.getByRole('heading', { level: 1, name: 'Переработка' })).toBeVisible();
-  const pick = page.getByRole('checkbox', { name: /^Выбрать AT-/ }).first();
-  if (await pick.isVisible().catch(() => false)) {
-    await pick.check();
-    await page.getByLabel('Продукт выхода 1').selectOption({ index: 1 });
-    await page.getByLabel('Масса выхода 1').fill('999999');
-    await expect(page.getByText(/^Выход переработки .* больше допустимого/)).toBeVisible();
-    await page.setViewportSize({ width: 360, height: 780 });
-    await expect(page.getByRole('heading', { name: 'Входы' })).toBeVisible();
-    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
-  }
+  await page
+    .getByRole('checkbox', { name: /^Выбрать AT-/ })
+    .first()
+    .check({ force: true });
+  await page.getByLabel('Продукт выхода 1').selectOption({ index: 1 });
+  await page.getByLabel('Масса выхода 1').fill('999999');
+  await expect(page.getByText(/^Выход переработки .* больше допустимого/)).toBeVisible();
+  await page.setViewportSize({ width: 360, height: 780 });
+  await expect(page.getByRole('heading', { name: 'Входы' })).toBeVisible();
+  expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
   expect(unexpected(w)).toEqual([]);
 });
 
@@ -77,11 +76,11 @@ test('RETAILER: stock and QR printing', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1, name: 'Склад' })).toBeVisible();
   await page.goto('/qr');
   await expect(page.getByRole('heading', { level: 1, name: 'Печать QR' })).toBeVisible();
-  const download = page.getByRole('button', { name: /^Скачать QR-код AT-/ }).first();
-  if (await download.isVisible().catch(() => false)) {
-    await download.click();
-    await expect(page.getByRole('dialog').getByRole('link', { name: /PNG/ })).toBeVisible();
-  }
+  await page
+    .getByRole('button', { name: /^Скачать QR-код AT-/ })
+    .first()
+    .click();
+  await expect(page.getByRole('dialog').getByRole('link', { name: /PNG/ })).toBeVisible();
   await page.setViewportSize({ width: 360, height: 780 });
   expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
   expect(unexpected(w)).toEqual([]);

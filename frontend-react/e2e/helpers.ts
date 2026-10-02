@@ -1,13 +1,11 @@
 import { createHmac } from 'node:crypto';
-import { expect, test, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
-// Shared pieces of the React e2e specs (through gateway-react, the live Express API of the shared stack).
+// Shared pieces of the React e2e specs. The mock stand (react-mock.localhost, ruling FM23) runs the in-browser backend of
+// @agrotrace/mock-api: every test context has its own demo world (the mock keeps it in the origin's storage, shared by
+// the context's tabs), the letters it "sends" are in `window.__agrotraceMock.mailbox` of the tab that made the request.
 
 export const DEMO_PASSWORD = 'agrotrace-demo';
-/** Direct API (network agrotrace_at) for set-up steps the UI of this task does not cover (inviting a user). */
-export const API = 'http://api-express:8000/api/v1';
-/** Mailpit of the shared stack (letters of invite and password reset). */
-export const MAILPIT = 'http://mailpit:8025/api/v1';
 
 export interface Watch {
   problems: string[];
@@ -17,13 +15,12 @@ export interface Watch {
 
 const LOGIN_LIMITED = /^http 429 POST \/api\/v1\/auth\/login$/;
 
-/** Answers that are expected, not defects: the anonymous start-up refresh (401) and endpoints the Express backend does
- * not serve yet (404: SSE, notifications list, public regions) — see `annotateMissing`. */
+/** Answers that are expected, not defects: the anonymous start-up refresh (401); on the mock stand, an event-stream
+ * reconnect of a document that is being left by a full page load (the MSW worker no longer serves a closing client,
+ * so that request reaches the gateway, which answers 503; the new document opens its own stream through the worker). */
 export const EXPECTED = [
   /^http 401 POST \/api\/v1\/auth\/refresh$/,
-  /^http 404 GET \/api\/v1\/events\/stream$/,
-  /^http 404 GET \/api\/v1\/notifications$/,
-  /^http 404 GET \/api\/v1\/public\/regions$/,
+  /^http 503 GET \/api\/v1\/events\/stream$/,
 ];
 
 export function unexpected(w: Watch, alsoExpected: RegExp[] = []): string[] {
@@ -31,14 +28,6 @@ export function unexpected(w: Watch, alsoExpected: RegExp[] = []): string[] {
   return w.problems.filter(
     (p) => !/^console: Failed to load resource/.test(p) && !allowed.some((re) => re.test(p)),
   );
-}
-
-export function annotateMissing(w: Watch): void {
-  for (const re of EXPECTED.slice(1))
-    if (w.problems.some((p) => re.test(p)))
-      test
-        .info()
-        .annotations.push({ type: 'backend', description: `${re.source} — not served by the backend yet` });
 }
 
 export async function watch(page: Page): Promise<Watch> {
@@ -68,14 +57,8 @@ export async function horizontalOverflow(page: Page): Promise<number> {
   return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 }
 
-/** Through the browser (the request context would not use Chromium's host mapping). */
-export async function apiUp(page: Page): Promise<boolean> {
-  await page.goto('/p/health-probe');
-  return page.evaluate(async () => (await fetch('/api/v1/health/live')).status === 200);
-}
-
-/** The login form: submits and, if the login-ip limit answers 429 (20 per 60 s for the one gateway-react IP on the
- * shared stack), waits out the countdown and submits again. Pass the page's Watch so that 429 is not a defect.
+/** The login form: submits and, if the login-ip limit answers 429 (20 per 60 s, rate-limits.json — the mock counts it
+ * too), waits out the countdown and submits again. Pass the page's Watch so that 429 is not a defect.
  * Returns once the page left /login or showed an error message; throws when nothing happened within 16 s or the limit
  * still answered after the last attempt (a silent return would only move the failure to a confusing later step). */
 export async function signIn(page: Page, email: string, password: string, w?: Watch): Promise<void> {
@@ -130,23 +113,54 @@ export function totp(secretBase32: string, step: number): string {
 
 export const currentStep = () => Math.floor(Date.now() / 30000);
 
-/** The newest letter to `to` whose text matches `link`; returns the first capture group (the token). */
-export async function mailToken(request: APIRequestContext, to: string, link: RegExp): Promise<string> {
-  const deadline = Date.now() + 45000;
-  while (Date.now() < deadline) {
-    const search = await request.get(`${MAILPIT}/search`, { params: { query: `to:"${to}"` } });
-    if (search.ok()) {
-      const { messages } = (await search.json()) as { messages: { ID: string }[] };
-      for (const m of messages ?? []) {
-        const msg = await request.get(`${MAILPIT}/message/${m.ID}`);
-        const text = ((await msg.json()) as { Text?: string }).Text ?? '';
-        const hit = link.exec(text);
-        if (hit?.[1]) return hit[1];
-      }
-    }
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  throw new Error(`no letter to ${to} matching ${link}`);
+/** The newest letter of the mock (`kind`) to `to` in the mailbox of `page` (the tab whose request sent it; a full page
+ * load starts a new mailbox) — its token. */
+export async function mockMail(page: Page, to: string, kind: 'invite' | 'passwordReset'): Promise<string> {
+  // polled with evaluate: waitForFunction needs eval, which the gateway CSP (script-src 'self') refuses
+  let token: string | null = null;
+  await expect
+    .poll(
+      async () =>
+        (token = await page.evaluate(
+          ([address, what]) => {
+            const box = (
+              window as unknown as {
+                __agrotraceMock?: { mailbox: { kind: string; to: string; token: string }[] };
+              }
+            ).__agrotraceMock?.mailbox;
+            return [...(box ?? [])].reverse().find((m) => m.to === address && m.kind === what)?.token ?? null;
+          },
+          [to, kind] as const,
+        )),
+      { timeout: 15000 },
+    )
+    .not.toBeNull();
+  return token!;
+}
+
+/** The API of the mock from inside `page` (its own tab of the context's world): `fetch` with a bearer token. */
+export async function mockApi(
+  page: Page,
+  path: string,
+  init: { method?: string; token?: string; body?: unknown } = {},
+): Promise<{ status: number; body: unknown }> {
+  // the service worker answers only once the page started the mock (`__agrotraceMock` is set when it is ready)
+  await expect.poll(() => page.evaluate(() => '__agrotraceMock' in window)).toBe(true);
+  return page.evaluate(
+    async ({ path, init }) => {
+      const res = await fetch(`/api/v1${path}`, {
+        method: init.method ?? 'GET',
+        headers: {
+          ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...(init.token ? { Authorization: `Bearer ${init.token}` } : {}),
+        },
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      });
+      const text = await res.text();
+      return { status: res.status, body: text ? JSON.parse(text) : null };
+    },
+    { path, init },
+  );
 }
 
 /** A random INN with a valid FNS checksum (10 digits, legal entity). */
@@ -162,35 +176,6 @@ export function randomInn(): string {
 /** A unique address for this run (never a demo account: the shared data of Plan 1 stays as it is). */
 export const freshEmail = (what: string) =>
   `e2e-react-${what}-${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}@agrotrace.test`;
-
-/** `POST /auth/login` straight to the API for set-up steps; the login-ip limit (429) is waited out (Retry-After). */
-export async function apiLogin(api: APIRequestContext, email: string, password: string): Promise<string> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await api.post(`${API}/auth/login`, { data: { email, password } });
-    if (res.status() === 429) {
-      const wait = Number(res.headers()['retry-after']) || 60;
-      await new Promise((r) => setTimeout(r, (wait + 1) * 1000));
-      continue;
-    }
-    expect(res.status(), await res.text()).toBe(200);
-    return ((await res.json()) as { accessToken: string }).accessToken;
-  }
-  throw new Error('login-ip limit did not clear');
-}
-
-// Express has no SSE yet: its 404 makes openEventStream refresh the token on every reconnect (1, 3, 7, 15 … s; F5/R63).
-// A full page load that interrupts such a refresh loses the rotated cookie (the server already rotated it) and the
-// next start-up refresh meets the R32 race answer — signed out. Specs about something else answer the stream with an
-// empty event stream (the browser reconnects by itself, no refresh); smoke.spec.ts still reports the real 404 once.
-export async function quietStream(context: BrowserContext): Promise<void> {
-  await context.route('**/api/v1/events/stream**', (route) =>
-    route.fulfill({
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' },
-      body: 'event: unread\ndata: {"count":0}\n\n',
-    }),
-  );
-}
 
 /** Tab `times` times: the focus is only ever inside `selector` (a full-screen block, the rest inert) or out of the page. */
 export async function focusStaysIn(page: Page, selector: string, times = 6): Promise<void> {

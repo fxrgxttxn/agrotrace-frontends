@@ -6,7 +6,8 @@ import { randomBytes } from 'node:crypto';
 import { expect } from 'vitest';
 import { api, ApiClient } from './client.js';
 import { expectContract } from './contract.js';
-import { fixtureWrite } from './db.js';
+import { loginAs } from './auth.js';
+import { linkToken, waitForMails } from './mail.js';
 
 export type RegistrableType = 'FARM' | 'PROCESSOR' | 'LAB' | 'RETAILER' | 'AUTHORITY';
 
@@ -85,13 +86,31 @@ export async function registerOrg(
   };
 }
 
-/**
- * Makes a registered organization ACTIVE.
- * TODO(Task 4): replace with approveOrganization (POST /admin/organizations/{id}/approve as ADMIN) once it exists;
- * until then the state is set directly (lib/db.ts fixtureWrite).
- */
+let admin: Promise<ApiClient> | null = null;
+
+/** A signed-in platform ADMIN (head), shared by the fixtures of one test file. */
+export function platformAdmin(): Promise<ApiClient> {
+  admin ??= loginAs('ADMIN', { head: true });
+  return admin;
+}
+
+/** Makes a registered organization ACTIVE: approveOrganization (POST /admin/organizations/{id}/approve) as ADMIN. */
 export async function activateOrg(organizationId: string): Promise<void> {
-  await fixtureWrite(`UPDATE organizations SET status = 'ACTIVE' WHERE id = $1`, [organizationId]);
+  const res = await (await platformAdmin()).post(`/admin/organizations/${organizationId}/approve`);
+  await expectContract(res, 'approveOrganization');
+  expect(res.status, res.text).toBe(200);
+  expect(res.body.status).toBe('ACTIVE');
+}
+
+/** updateAdminOrganization (PATCH /admin/organizations/{id}) as ADMIN; asserts 200. */
+export async function setOrgStatus(
+  organizationId: string,
+  status: 'ACTIVE' | 'REJECTED' | 'SUSPENDED',
+): Promise<void> {
+  const res = await (await platformAdmin()).patch(`/admin/organizations/${organizationId}`, { status });
+  await expectContract(res, 'updateAdminOrganization');
+  expect(res.status, res.text).toBe(200);
+  expect(res.body.status).toBe(status);
 }
 
 /** A new active organization of `type` and its head; `client` is anonymous (log in with `login`). */
@@ -116,4 +135,54 @@ export async function freshHead(type: RegistrableType = 'FARM') {
   const res = await login(client, org.email, org.password);
   expect(res.status, res.text).toBe(200);
   return { org, client, user: res.body.user as { id: string; roles: string[] } };
+}
+
+/**
+ * inviteUser (POST /users) by `inviter`, then the invitation token from the letter (R82: `${PUBLIC_BASE_URL}/invite/
+ * {token}`). `body` overrides the invitation; roles default to the role of `orgType`.
+ */
+export async function invite(
+  inviter: ApiClient,
+  orgType: RegistrableType,
+  body: {
+    email?: string;
+    fullName?: string;
+    roles?: string[];
+    isOrgAdmin?: boolean;
+    organizationId?: string;
+  } = {},
+) {
+  const email = body.email ?? uniqueEmail('invited');
+  const res = await inviter.post('/users', {
+    email,
+    fullName: body.fullName ?? 'Приглашённый Сотрудник',
+    roles: body.roles ?? [ROLE_OF_TYPE[orgType]],
+    isOrgAdmin: body.isOrgAdmin ?? false,
+    ...(body.organizationId !== undefined && { organizationId: body.organizationId }),
+  });
+  await expectContract(res, 'inviteUser');
+  expect(res.status, res.text).toBe(201);
+  const [mail] = await waitForMails(email.toLowerCase());
+  const { token } = linkToken(mail!, 'invite');
+  return {
+    user: res.body as { id: string; email: string; status: string },
+    email: email.toLowerCase(),
+    token,
+  };
+}
+
+/** An ACTIVE employee (not a head) invited by `head` and signed in after accepting the invitation. */
+export async function freshEmployee(head: ApiClient, orgType: RegistrableType = 'FARM') {
+  const { user, email, token } = await invite(head, orgType);
+  const accepted = await api().post('/auth/accept-invite', {
+    token,
+    fullName: 'Сотрудник Тестовый',
+    password: PASSWORD,
+  });
+  await expectContract(accepted, 'acceptInvite');
+  expect(accepted.status, accepted.text).toBe(204);
+  const client = api();
+  const res = await login(client, email, PASSWORD);
+  expect(res.status, res.text).toBe(200);
+  return { client, id: user.id, email };
 }

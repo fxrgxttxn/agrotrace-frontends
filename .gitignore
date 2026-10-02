@@ -1,6 +1,7 @@
 node_modules/
 .pnpm-store/
 dist/
+dist-mock/
 .svelte-kit/
 .angular/
 coverage/

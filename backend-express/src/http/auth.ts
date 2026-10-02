@@ -23,6 +23,12 @@ export async function authenticate(c: Container, req: Request): Promise<Principa
   return principal;
 }
 
+/** The principal of a valid Bearer token, or null (no header, a malformed or invalid token) — never throws 401. */
+export async function bearerPrincipal(c: Container, req: Request): Promise<Principal | null> {
+  const m = BEARER.exec(req.headers.authorization ?? '');
+  return m ? verifyAccessToken(c.config.JWT_SECRET, m[1]!) : null;
+}
+
 /**
  * Guard of a Bearer-secured operation: authenticates, counts the `user` limit, checks `x-roles` (`ANY` = any
  * authenticated role) and `x-org-admin` (roles other than ADMIN must be the head of their organization); the

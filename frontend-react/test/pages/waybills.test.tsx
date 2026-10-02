@@ -113,6 +113,21 @@ describe('/waybills/new', () => {
     await userEvent.click((await within(list).findAllByRole('option'))[0]!);
   }
 
+  it('a picked receiver is not read back by id (FARMER: another organization answers 404)', async () => {
+    let reads = 0;
+    server.use(
+      http.get(`${API_BASE}/organizations/:id`, () => {
+        reads++;
+        return HttpResponse.json(problem(404, 'NOT_FOUND'), { status: 404 });
+      }),
+    );
+    await open('/waybills/new', 'Новая накладная');
+    await pickReceiver();
+    expect(screen.getByRole('combobox', { name: 'Получатель' })).toHaveValue('ООО «Кубанский мукомол»');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(reads).toBe(0);
+  });
+
   it('creates a draft: receiver from the directory, the batch of the link preselected with its mass', async () => {
     let body: unknown = null;
     let key: string | null = null;
@@ -322,6 +337,29 @@ describe('/waybills/:id', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Удалить черновик' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/waybills'));
     expect(ifMatch).toBe('1');
+  });
+
+  it('a deleted draft is not read again (no GET answering 404 after the DELETE)', async () => {
+    let reads = 0;
+    let deleted = false;
+    server.use(
+      http.get(`${API_BASE}/waybills/:id`, () => {
+        if (deleted) {
+          reads++;
+          return HttpResponse.json(problem(404, 'NOT_FOUND'), { status: 404 });
+        }
+        return HttpResponse.json(draft());
+      }),
+      contractResponse('deleteWaybill', { onRequest: () => void (deleted = true) }),
+    );
+    const { router } = await open(`/waybills/${WAYBILL_ID}`, 'WB-2026-000017');
+    await userEvent.click(await screen.findByRole('button', { name: 'Удалить черновик' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Удалить черновик WB-2026-000017' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Удалить черновик' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/waybills'));
+    await screen.findByRole('heading', { level: 1, name: 'Накладные' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(reads).toBe(0);
   });
 
   it('reject: the dialog asks for the number again; the reason goes to the server', async () => {

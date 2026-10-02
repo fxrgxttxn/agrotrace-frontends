@@ -10,6 +10,8 @@ services:
     image: agrotrace/gateway-react:dev
     volumes:
       - ./frontend-react/dist:/srv/react:ro
+      # Mock mode (FM23): ./at fe:build react --mock → react-mock.localhost:8089
+      - ./frontend-react/dist-mock:/srv/react-mock:ro
       - ./packages/design-system:/srv/ds:ro
     environment: { GATEWAY_PORT: '8089' }
     ports: ['8089:80']

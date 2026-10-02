@@ -33,10 +33,13 @@ export function OrgPicker({
   const { api } = useSession();
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState<string | null>(null);
+  // The option just picked carries its name: it is not read again (a FARMER choosing a waybill receiver cannot read
+  // another organization's card — getOrganization answers 404 outside INSPECTOR/ADMIN).
+  const [picked, setPicked] = useState<ComboOption | null>(null);
 
   const chosen = useQuery({
     queryKey: ['organization', value],
-    enabled: value !== '',
+    enabled: value !== '' && picked?.value !== value,
     staleTime: 5 * 60 * 1000,
     queryFn: () => call<Organization>(api.GET('/organizations/{id}', { params: { path: { id: value } } })),
   });
@@ -80,6 +83,7 @@ export function OrgPicker({
         loading={found.isFetching}
         selected={value || null}
         onSelect={(o) => {
+          setPicked(o);
           setQuery(o.label);
           onChange(o.value);
         }}

@@ -1,18 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
-import {
-  DEMO_PASSWORD,
-  focusStaysIn,
-  horizontalOverflow,
-  quietStream,
-  signIn,
-  unexpected,
-  watch,
-} from './helpers';
+import { DEMO_PASSWORD, focusStaysIn, horizontalOverflow, signIn, unexpected, watch } from './helpers';
 
 // Task 3 screens on the demo world (seed, docs/demo-accounts.md): fields and the treatment journal of «КФХ Петров»,
 // registration of a raw batch with the risk-model outcome, the registry filters in the URL, the batch card tabs and
-// the graph chain AT-…-000004 → 000009 (Молкомбинат). Written for the shared stand (ruling F10: run against
-// @agrotrace/mock-api once it is merged; batch codes carry the year of SEED_NOW, so they are matched by number).
+// the graph chain AT-…-000004 → 000009 (Молкомбинат). Runs on the mock stand (react-mock.localhost, ruling FM23;
+// batch codes carry the year of the mock clock, so they are matched by number).
 // Every spec checks: no unexpected console/HTTP errors and no horizontal scroll at 360 px.
 
 const SHOTS = 'test-results/shots/task3';
@@ -33,8 +25,6 @@ async function shot(page: Page, name: string) {
   await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
   await page.setViewportSize({ width: 1280, height: 900 });
 }
-
-test.beforeEach(async ({ context }) => quietStream(context));
 
 test('FARMER: fields, a field with its journal, a treatment, a new batch with the risk-model outcome', async ({
   page,

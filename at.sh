@@ -243,7 +243,7 @@ fe_front() {
   esac
 }
 
-# `fe:gateway react [up|down]`: the built dist (./at fe:build react) behind the gateway nginx at
+# `fe:gateway react [up|down]`: the built dist (./at fe:build react) and dist-mock (--mock) behind the gateway nginx at
 # http://react-express.localhost:8089/ (the backend itself comes from the shared stack: ./at up express).
 fe_gateway() (
   set -euo pipefail
@@ -251,12 +251,14 @@ fe_gateway() (
   case "${2:-up}" in
     up)
       if [ "${AT_DRY_RUN:-}" != "1" ]; then
-        [ -f frontend-react/dist/index.html ] || { echo "fe:gateway: no frontend-react/dist — run ./at fe:build react first" >&2; exit 1; }
+        [ -f frontend-react/dist/index.html ] || [ -f frontend-react/dist-mock/index.html ] \
+          || { echo "fe:gateway: no frontend-react/dist or dist-mock — run ./at fe:build react [--mock] first" >&2; exit 1; }
+        mkdir -p frontend-react/dist frontend-react/dist-mock
         docker network inspect agrotrace_at >/dev/null 2>&1 \
           || { echo "fe:gateway: network agrotrace_at does not exist — start the stack first (./at up express)" >&2; exit 1; }
       fi
       run $DCR up -d --build --wait gateway-react
-      echo "React: http://react-express.localhost:8089/  (design system: http://localhost:8089/_ds/)" ;;
+      echo "React: http://react-express.localhost:8089/  mock: http://react-mock.localhost:8089/  (design system: http://localhost:8089/_ds/)" ;;
     down) run $DCR down ;;
     *) echo "usage: ./at fe:gateway react [up|down]" >&2; exit 2 ;;
   esac
@@ -303,7 +305,19 @@ case "$cmd" in
   # package.json has one), so recursing here silently lints nothing.
   lint)      $T pnpm lint ;;
   typecheck) $T pnpm -r typecheck ;;
-  fmt)       $T pnpm exec prettier --write . ;;
+  # P13: explicit paths only. No arguments or any flag-like argument (`--help`, `-w`, …) is refused: prettier would
+  # read a flag as an option and still `--write` the default target, reformatting the whole repository.
+  fmt)
+    if [ $# -eq 0 ]; then
+      echo "usage: ./at fmt <path>… — formats the given files/directories with Prettier (explicit paths only)" >&2
+      exit 2
+    fi
+    for p in "$@"; do
+      case "$p" in
+        -*) echo "./at fmt: '$p' looks like an option; only paths are accepted (P13)" >&2; exit 2 ;;
+      esac
+    done
+    run $T pnpm exec prettier --write -- "$@" ;;
   # --build on every `up` (R80): a stale gateway/mercury-mock image is never silently reused —
   # docker compose skips the build step on its own for any service without a `build:` key, so this
   # is a no-op for postgres/redis/rabbitmq/minio/mailpit.
@@ -388,7 +402,15 @@ case "$cmd" in
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
   # Frontends (see fe_front above): build into frontend-<front>/dist, component tests (Vitest + MSW from the contract),
   # the Vite dev server on http://localhost:5173 (API proxied to api-express), the separate gateway, the smoke e2e.
-  fe:build)  fe_front "${1:-}"; run $T pnpm --filter "@agrotrace/frontend-$1" build ;;
+  # `fe:build react [--mock]`: dist (the live API through the gateway) or, with --mock (ruling FM23), dist-mock with the
+  # in-browser backend of @agrotrace/mock-api (served by gateway-react at react-mock.localhost:8089).
+  fe:build)
+    fe_front "${1:-}"; front="$1"; shift
+    case "${1:-}" in
+      '') run $T pnpm --filter "@agrotrace/frontend-$front" build ;;
+      --mock) run $T pnpm --filter "@agrotrace/frontend-$front" build:mock ;;
+      *) echo "usage: ./at fe:build react [--mock]" >&2; exit 2 ;;
+    esac ;;
   fe:test)   fe_front "${1:-}"; front="$1"; shift; run $T pnpm --filter "@agrotrace/frontend-$front" test "$@" ;;
   fe:dev)    fe_front "${1:-}"; run $DC run --rm -p 5173:5173 tools pnpm --filter "@agrotrace/frontend-$1" dev ;;
   fe:gateway) fe_gateway "$@" ;;

@@ -1,13 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { DEMO_PASSWORD, horizontalOverflow, quietStream, signIn, unexpected, watch } from './helpers';
+import { DEMO_PASSWORD, horizontalOverflow, signIn, unexpected, watch } from './helpers';
 
 // Task 5 screens on the demo world (seed, docs/demo-accounts.md): the dashboards of every scope (charts drawn, their
 // table view), the laboratory queue with the overdue filter, a pending test card with the live norm comparison (values
 // typed, never submitted — the shared data stays as it was), the inspector's unscheduled test dialog (opened and
-// cancelled). Written for the shared stand (ruling F10: run against @agrotrace/mock-api once it is merged). Every spec
+// cancelled). Runs on the mock stand (react-mock.localhost, ruling FM23). Every spec
 // checks: no unexpected console/HTTP errors and no horizontal scroll at 360 px.
-
-test.beforeEach(async ({ context }) => quietStream(context));
 
 async function noScrollAt360(page: import('@playwright/test').Page) {
   await page.setViewportSize({ width: 360, height: 780 });
@@ -69,22 +67,23 @@ test('LAB: the dashboard, the queue with the overdue filter, a test card with th
   await expect(page).toHaveURL(/status=SAMPLED/);
   await noScrollAt360(page);
 
-  const first = page.getByRole('link', { name: /^AT-\d{4}-\d{6}$/ }).first();
-  if (await first.isVisible().catch(() => false)) {
-    await first.click();
-    await expect(page.getByRole('heading', { level: 1, name: /^Анализ AT-/ })).toBeVisible();
-    const value = page.getByLabel(/^Значение: /).first();
-    if (await value.isVisible().catch(() => false)) {
-      await value.fill('99999999');
-      await expect(page.getByText('Превышение', { exact: true }).first()).toBeVisible();
-      await expect(page.getByText('Заключение: Превышение нормативов')).toBeVisible();
-      await page.getByRole('button', { name: 'Внести результаты' }).click();
-      const dialog = page.getByRole('dialog');
-      await expect(dialog.getByRole('button', { name: 'Внести результаты' })).toBeDisabled();
-      await dialog.getByRole('button', { name: 'Отмена' }).click();
-    }
-    await noScrollAt360(page);
-  }
+  await page
+    .getByRole('link', { name: /^AT-\d{4}-\d{6}$/ })
+    .first()
+    .click();
+  await expect(page.getByRole('heading', { level: 1, name: /^Анализ AT-/ })).toBeVisible();
+  const values = page.getByLabel(/^Значение: /);
+  await expect(values.first()).toBeVisible();
+  await values.first().fill('99999999');
+  await expect(page.getByText('Превышение', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Заключение: Превышение нормативов')).toBeVisible();
+  // FM20: the FAIL confirmation needs every value; it repeats the batch code (never submitted here)
+  for (const v of (await values.all()).slice(1)) await v.fill('0');
+  await page.getByRole('button', { name: 'Внести результаты' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: 'Внести и запустить отзыв' })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Отмена' }).click();
+  await noScrollAt360(page);
   expect(unexpected(w)).toEqual([]);
 });
 
@@ -98,8 +97,11 @@ test('INSPECTOR: the unscheduled test dialog on a batch card (cancelled)', async
     .click();
   await page.getByRole('button', { name: 'Назначить анализ' }).click();
   const dialog = page.getByRole('dialog', { name: /^Внеплановый анализ партии AT-/ });
-  await dialog.getByRole('combobox', { name: 'Лаборатория' }).fill('Клязьма');
-  await expect(page.getByRole('listbox', { name: 'Лаборатория' }).getByRole('option').first()).toBeVisible();
+  await dialog.getByRole('combobox', { name: 'Лаборатория' }).fill('АНО'); // the directory searches by the name's prefix
+  const option = page.getByRole('listbox', { name: 'Лаборатория' }).getByRole('option').first();
+  await expect(option).toBeVisible();
+  await option.click();
+  await expect(dialog.getByRole('combobox', { name: 'Лаборатория' })).toHaveValue(/^АНО «Ветеринарный/);
   await dialog.getByRole('button', { name: 'Отмена' }).click();
   await expect(dialog).toBeHidden();
   expect(unexpected(w)).toEqual([]);

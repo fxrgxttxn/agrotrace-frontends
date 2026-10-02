@@ -669,8 +669,18 @@ export function WaybillPage() {
   const sendRef = useFocusAfterWait(sendWait);
   const [dialog, setDialog] = useState<'delete' | 'reject' | null>(null);
 
+  // A deleted draft is never asked again (its 404 is no error): the card stops reading at once and drops its cache
+  // entry once it is gone (removing it while still shown would make the mounted observer fetch it again).
+  const [deleted, setDeleted] = useState(false);
+  useEffect(
+    () => () => {
+      if (deleted) queryClient.removeQueries({ queryKey: ['waybill', id] });
+    },
+    [deleted, id, queryClient],
+  );
   const query = useQuery({
     queryKey: ['waybill', id],
+    enabled: !deleted,
     meta: { failed: 'waybills.failed' },
     queryFn: () => call<Waybill>(api.GET('/waybills/{id}', { params: { path: { id } } })),
     retry: retryTransient,
@@ -815,7 +825,8 @@ export function WaybillPage() {
             onClose={() => setDialog(null)}
             onDone={() => {
               setDialog(null);
-              queryClient.removeQueries({ queryKey: ['waybill', waybill.id] });
+              setDeleted(true);
+              void queryClient.cancelQueries({ queryKey: ['waybill', waybill.id] });
               void queryClient.invalidateQueries({ queryKey: ['waybills'] });
               toast.done({ tone: 'ok', text: t('waybills.deleted', { number: waybill.number }) });
               navigate('/waybills');

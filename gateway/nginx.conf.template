@@ -169,6 +169,63 @@ http {
     }
   }
 
+  # --- Mock stands (ruling FM23): {react|angular|svelte}-mock.localhost --------------------------
+  # The frontend built in mock mode (dist-mock, bind-mounted at /srv/<front>-mock) carries its own backend: the MSW
+  # service worker of @agrotrace/mock-api answers /api/v1 inside the browser. No request reaches a backend container;
+  # an /api request the worker did not take (it is not running yet) gets a 503 problem instead of the SPA shell.
+  map $host $mock_front {
+    ~^(?<mf>react|angular|svelte)-mock\.localhost$ $mf;
+    default '';
+  }
+
+  server {
+    listen 80;
+    server_name ~^(react|angular|svelte)-mock\.localhost$;
+
+    root /srv/$mock_front-mock;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy same-origin always;
+    add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+    add_header X-Request-Id $req_id always;
+
+    location /api/ {
+      default_type application/problem+json;
+      return 503 '{"type":"/problems/backend-unavailable","title":"Mock backend not started","status":503,"code":"BACKEND_UNAVAILABLE"}';
+    }
+
+    # index.html and the worker script: never cached (the worker must update with the build).
+    location ~ ^/(index\.html|mockServiceWorker\.js)$ {
+      add_header X-Frontend $mock_front always;
+      add_header Cache-Control 'no-cache' always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files $uri =404;
+    }
+
+    location /assets/ {
+      add_header X-Frontend $mock_front always;
+      add_header Cache-Control 'public, max-age=31536000, immutable' always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files $uri =404;
+    }
+
+    location / {
+      add_header X-Frontend $mock_front always;
+      add_header Cache-Control 'no-cache' always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files $uri $uri/ /index.html;
+    }
+  }
+
   # --- default_server: unknown hosts, http://localhost/ start page, /_ds/ showcase ----------
   server {
     listen 80 default_server;
