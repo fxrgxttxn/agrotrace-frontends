@@ -239,3 +239,62 @@ test('performance: LCP on a 360 px phone under mobile throttling', async ({ page
   // Lighthouse's «good» LCP on mobile.
   expect(lcp.time).toBeLessThan(2500);
 });
+
+/** Chrome DevTools' «Fast 4G» network preset (the DevTools values: 60 ms RTT × 2.75, 9 / 1.5 Mbit/s × 0.9). */
+const FAST_4G = {
+  name: 'Fast 4G (Chrome DevTools)',
+  rttMs: 165,
+  downBitsPerSec: 9e6 * 0.9,
+  upBitsPerSec: 1.5e6 * 0.9,
+};
+
+test(`performance: the QR page loads within 1 s at p95 (spec §12.1) on ${FAST_4G.name}, cold cache, 360 px`, async ({
+  page,
+}) => {
+  const RUNS = 20;
+  await stand(page);
+  const photo = fileURLToPath(
+    new URL('../../packages/mock-api/assets/seed/products/wheat-480.webp', import.meta.url),
+  );
+  const photoBytes = statSync(photo).size;
+  const bytesPerMs = FAST_4G.downBitsPerSec / 8 / 1000;
+  // Route-layer answers skip the network emulation: they wait the RTT plus their transfer time themselves.
+  await page.route('**/api/v1/**', async (route) => {
+    const isPhoto = route.request().url().includes('/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e');
+    await new Promise((r) => setTimeout(r, FAST_4G.rttMs + (isPhoto ? photoBytes / bytesPerMs : 0)));
+    if (isPhoto) return route.fulfill({ path: photo, contentType: 'image/webp' });
+    return route.fallback();
+  });
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Network.enable');
+  await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+  await cdp.send('Network.emulateNetworkConditions', {
+    offline: false,
+    latency: FAST_4G.rttMs,
+    downloadThroughput: FAST_4G.downBitsPerSec / 8,
+    uploadThroughput: FAST_4G.upBitsPerSec / 8,
+  });
+  await page.setViewportSize({ width: 360, height: 800 });
+  const times: number[] = [];
+  for (let i = 0; i < RUNS; i++) {
+    await page.goto(`/p/${CODE}`, { waitUntil: 'load' });
+    await expect(title(page)).toHaveText('Пшеница озимая');
+    await page.locator('main figure img').evaluate((img: HTMLImageElement) => img.decode());
+    // Load = the largest contentful paint (the photo or the status block): the page as the buyer sees it.
+    times.push(
+      await page.evaluate(
+        () =>
+          new Promise<number>((resolve) => {
+            new PerformanceObserver((list) => resolve(list.getEntries().at(-1)!.startTime)).observe({
+              type: 'largest-contentful-paint',
+              buffered: true,
+            });
+          }),
+      ),
+    );
+  }
+  times.sort((a, b) => a - b);
+  const p95 = times[Math.ceil(RUNS * 0.95) - 1]!;
+  console.log(`${FAST_4G.name}: p50 ${Math.round(times[RUNS / 2]!)} ms, p95 ${Math.round(p95)} ms`);
+  expect(p95).toBeLessThanOrEqual(1000);
+});

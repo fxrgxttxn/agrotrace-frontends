@@ -88,8 +88,12 @@ describe('/p/:publicCode', () => {
     expect([...document.querySelectorAll('h1, h2')].map((h) => h.tagName)).toEqual(['H1', 'H2', 'H2', 'H2']);
   });
 
-  it('a seed photo carries its author and license (R76 note)', async () => {
-    server.use(batchAnswer({ ...SAFE, product: { ...(SAFE.product as Json), name: 'Пшеница мягкая' } }));
+  it('a seed photo carries its author and license, found by its file id (R76 note)', async () => {
+    // The seed wheat photo (db/seed: uuid('file', 'product:wheat')) under any product name.
+    const imageUrl = '/api/v1/public/files/2ca5ff5f-47ee-5d20-bb8a-e6a99787c85f';
+    server.use(
+      batchAnswer({ ...SAFE, product: { ...(SAFE.product as Json), name: 'Пшеница озимая', imageUrl } }),
+    );
     open(`/p/${CODE}`);
     await waitFor(() => expect(document.querySelector('figcaption')).not.toBeNull());
     const caption = document.querySelector('figcaption')!;
@@ -275,6 +279,14 @@ describe('/p/:publicCode/complaint', () => {
     expect(screen.getByRole('link', { name: 'К партии' })).toHaveAttribute('href', `/p/${CODE}`);
   });
 
+  it('the contact is a phone or an e-mail: no single autofill purpose is claimed', () => {
+    open(`/p/${CODE}/complaint`);
+    expect(screen.getByLabelText('Телефон или email для ответа (необязательно)')).toHaveAttribute(
+      'autocomplete',
+      'on',
+    );
+  });
+
   it('an empty contact is not sent', async () => {
     open(`/p/${CODE}/complaint`);
     await fill('Горечь во рту после каши');
@@ -331,6 +343,8 @@ describe('/p/:publicCode/complaint', () => {
     screen.getByLabelText('Что случилось').focus();
     const submit = await screen.findByRole('button', { name: 'Отправить жалобу' }, { timeout: 4000 });
     expect(submit).toBeEnabled();
+    // The wait is over: the alert no longer says to wait.
+    expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByLabelText('Что случилось')).toHaveFocus();
     await send();
     expect(await screen.findByText('Жалоба отправлена.')).toBeInTheDocument();

@@ -7,6 +7,7 @@ import { createT } from '../src/index.js';
 import { PUBLIC_KEYS, pickPublic } from '../src/public-keys.js';
 import { publicT, problemMessage, enumLabel } from '../src/public.js';
 import { PHOTO_CREDITS, photoCredit } from '../src/photo-credits.js';
+import { uuid } from '../../../db/seed/src/ids.js';
 
 // Ruling FM35: the public QR page (/p/*) bundles only the keys it needs, of the active locale only —
 // `@agrotrace/i18n/public` (translation function, formatters, problem text) + `@agrotrace/i18n/public/<locale>.json`
@@ -92,9 +93,12 @@ describe('public dictionary subset (FM35)', () => {
 
 describe('product photo credits (R76 note)', () => {
   const products = JSON.parse(readFileSync(here('../../../db/seed/data/products.json'), 'utf8')) as {
+    key: string;
     name: string;
     image?: string;
   }[];
+  // The seed photo of a product is the file `uuid('file', 'product:<key>')` (db/seed world.ts) in every backend and the mock.
+  const fileId = (key: string) => uuid('file', `product:${key}`);
   const rows = readFileSync(here('../../../db/seed/ATTRIBUTION.md'), 'utf8')
     .split('\n')
     .filter((l) => /^\| `[\w-]+\.jpg` \|/.test(l))
@@ -107,7 +111,8 @@ describe('product photo credits (R76 note)', () => {
       const row = rows.find((r) => r[1] === `\`${p.image}\``);
       expect(row, p.name).toBeDefined();
       const license = /^\[(.+)\]\((.+)\)$/.exec(row![4]!)!;
-      expected[p.name] = {
+      expect(fileId(p.key)[14], `${p.name}: a v5 seed id`).toBe('5');
+      expected[fileId(p.key).slice(0, 8)] = {
         author: row![3],
         license: license[1],
         licenseUrl: license[2],
@@ -117,8 +122,17 @@ describe('product photo credits (R76 note)', () => {
     expect(PHOTO_CREDITS).toEqual(expected);
   });
 
-  it('photoCredit finds a product by name, null otherwise', () => {
-    expect(photoCredit('Пшеница мягкая')?.author).toBe('Raman Deep');
-    expect(photoCredit('Пшеница озимая')).toBeNull();
+  it('photoCredit finds a seed photo by the file id of its URL, null for any other photo', () => {
+    const wheat = fileId('wheat');
+    expect(photoCredit(`/api/v1/public/files/${wheat}`)?.author).toBe('Raman Deep');
+    expect(photoCredit(`https://cdn.example/api/v1/public/files/${wheat}?variant=480`)?.author).toBe(
+      'Raman Deep',
+    );
+    // A photo uploaded later (another file of the same product) has no known credit.
+    expect(photoCredit('/api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e')).toBeNull();
+    expect(photoCredit('Пшеница мягкая')).toBeNull();
+    // The same first digits in an id that is not a seed (v5) one: not the seed photo.
+    expect(photoCredit(`/api/v1/public/files/${wheat.slice(0, 14)}4${wheat.slice(15)}`)).toBeNull();
+    expect(photoCredit(null)).toBeNull();
   });
 });

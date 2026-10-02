@@ -23,7 +23,7 @@ const date = (iso: string) => formatLocalDate(iso, LOCALE);
 
 function Hero({ batch }: { batch: PublicBatch }) {
   const { product, safety } = batch;
-  const credit = product.imageUrl ? photoCredit(product.name) : null;
+  const credit = photoCredit(product.imageUrl);
   return (
     <article className="at-card" data-furrow="">
       <CardBody>

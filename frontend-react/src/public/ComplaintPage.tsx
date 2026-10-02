@@ -82,6 +82,10 @@ export function ComplaintPage({ code }: { code: string }) {
   const [done, setDone] = useState(false);
   const [wait, startWait] = useCountdown();
   const submitRef = useFocusAfterWait(wait);
+  // The limit message says to wait: once the wait is over it no longer applies.
+  useEffect(() => {
+    if (wait === 0) setMessage((m) => (m?.tone === 'attention' ? null : m));
+  }, [wait]);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const contactRef = useRef<HTMLInputElement>(null);
   const doneRef = useRef<HTMLParagraphElement>(null);
@@ -203,7 +207,7 @@ export function ComplaintPage({ code }: { code: string }) {
             <Field id="complaint-contact" label={t('public.contact')} error={errors.contact}>
               <Input
                 ref={contactRef}
-                autoComplete="email"
+                autoComplete="on"
                 maxLength={CONTACT_MAX}
                 value={contact}
                 onChange={(e) => setContact(e.target.value)}
