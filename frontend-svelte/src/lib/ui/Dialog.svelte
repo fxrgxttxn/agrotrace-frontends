@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { onDestroy, type Snippet } from 'svelte';
   import { t } from '../app/i18n';
   import Button from './Button.svelte';
 
@@ -91,6 +91,11 @@
     opener = null;
     if (back && back.isConnected) back.focus();
   }
+
+  // A dialog removed while open (its owner unmounts it on close) gives the focus back to its opener too (FM21).
+  onDestroy(() => {
+    if (opener) queueMicrotask(closed);
+  });
 </script>
 
 <dialog

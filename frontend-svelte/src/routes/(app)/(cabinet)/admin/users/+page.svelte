@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { t } from '$lib/app/i18n';
-  import PlaceholderPage from '$lib/pages/PlaceholderPage.svelte';
+  import UsersScreen from '$lib/pages/admin/UsersScreen.svelte';
 </script>
 
-<PlaceholderPage title={t('page.users')} />
+<UsersScreen admin />

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { t } from '$lib/app/i18n';
-  import PlaceholderPage from '$lib/pages/PlaceholderPage.svelte';
+  import DictionaryPage from '$lib/pages/dictionaries/DictionaryPage.svelte';
 </script>
 
-<PlaceholderPage title={t('page.dictionaries')} />
+<DictionaryPage />

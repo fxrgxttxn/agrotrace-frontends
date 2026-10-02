@@ -23,9 +23,13 @@ import { toasts } from '../ui/toast-store.svelte';
 /** One form-level message at a time (an error toast, `role="alert"`): a new submit or message replaces it. */
 export class FormAlert {
   #id: number | null = null;
+  /** The same text for a form inside a modal dialog, which says it in its body (README «Диалог»: the page's toast
+   * region is behind the modal). */
+  message = $state<string | null>(null);
 
   show = (text: string, tone: 'danger' | 'attention' = 'danger'): void => {
     this.clear();
+    this.message = text;
     this.#id = toasts.push({ tone, text });
   };
 
@@ -35,6 +39,7 @@ export class FormAlert {
   };
 
   clear = (): void => {
+    this.message = null;
     if (this.#id !== null) toasts.dismiss(this.#id);
     this.#id = null;
   };

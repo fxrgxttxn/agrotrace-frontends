@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { Organization, OrganizationDirectoryPage, OrganizationType } from '@agrotrace/api-client';
   import { enumLabel } from '@agrotrace/i18n';
   import { call } from './api.svelte';
@@ -20,6 +21,7 @@
     types,
     error = null,
     exclude,
+    onorg,
   }: {
     id: string;
     label: string;
@@ -30,6 +32,9 @@
     error?: string | null;
     /** An organization never offered (the user's own: a waybill receiver). */
     exclude?: string;
+    /** The picked (or, for a value from a link, read back) organization itself: its type decides the role of an
+     * invited user. */
+    onorg?: (org: { id: string; name: string; type: OrganizationType } | null) => void;
   } = $props();
 
   let text = $state('');
@@ -46,6 +51,10 @@
   $effect.pre(() => {
     if (value === '') text = '';
     else if (chosen.data && chosen.data.id === value) text = chosen.data.name;
+  });
+  $effect(() => {
+    const org = chosen.data;
+    if (org) untrack(() => onorg?.(org));
   });
 
   const found = query(
@@ -76,7 +85,10 @@
     listLabel={label}
     bind:query={text}
     onquery={(next) => {
-      if (next.trim() === '' && value !== '') onchange(null);
+      if (next.trim() === '' && value !== '') {
+        onchange(null);
+        onorg?.(null);
+      }
     }}
     onsearch={(next) => (search = next)}
     options={search && search.trim() ? options : []}
@@ -86,6 +98,8 @@
       picked = o;
       text = o.label;
       onchange(o.value);
+      const org = found.data?.items.find((x) => x.id === o.value);
+      if (org) onorg?.(org);
     }}
   />
 </Field>

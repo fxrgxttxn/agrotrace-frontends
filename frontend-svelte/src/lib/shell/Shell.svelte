@@ -17,8 +17,14 @@
 
   // FM10: while an in-app navigation to another page waits for its code or data, the menus already mark the target
   // section and the content area shows the `aria-busy` loading page (the new page then takes the focus, F4).
+  // The same route with other parameters (a dictionary tab, another batch) keeps its page: its code is here already,
+  // so the page stays (and so does the focus on its tab, README «Вкладки») — as React keeps the same route element.
   const pending = $derived(
-    navigating.to && navigating.to.url.pathname !== page.url.pathname ? navigating.to.url.pathname : null,
+    navigating.to &&
+      navigating.to.url.pathname !== page.url.pathname &&
+      navigating.to.route?.id !== page.route.id
+      ? navigating.to.url.pathname
+      : null,
   );
   const pathname = $derived(pending ?? page.url.pathname);
 
