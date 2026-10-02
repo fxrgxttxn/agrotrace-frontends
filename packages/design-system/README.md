@@ -468,7 +468,12 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
   (`status.batch.*`), цвет никогда не единственный носитель смысла.
 - `Recalled` — сплошная глиняная плашка; `WrittenOff` — перечёркнутое кольцо вместо точки.
 - `data-tone`: `neutral | attention | ok | move | danger | danger-solid` (накладные, анализы, отзывы, задачи).
-  Накладные: DRAFT — `neutral`, SENT — `move`, ACCEPTED — `ok`, REJECTED — `danger`.
+  Накладные: DRAFT — `neutral`, SENT — `move`, ACCEPTED — `ok`, REJECTED — `danger`. Отзывы: OPEN — `danger`, CLOSED — `ok`.
+  Задачи изъятия: OPEN — `attention`, OVERDUE — `danger`, CONFIRMED — `ok`; задача после `dueAt` показывается «Просрочено» сразу
+  (now > dueAt, правило домена), не дожидаясь эскалации планировщиком. Жалобы: NEW — `attention`, IN_REVIEW — `move`,
+  DECIDED — `neutral`.
+  Организации: PENDING и MANUAL_CHECK — `attention`, ACTIVE — `ok`, REJECTED — `neutral`, SUSPENDED — `danger`. Пользователи: INVITED —
+  `attention`, ACTIVE — `ok`, BLOCKED — `danger`. Строка справочника при «Показывать удалённые»: удалена — `neutral`, действует — `ok`.
 - `data-size="l"` — крупная плашка (шапка карточки партии, QR-страница).
 
 ### Карточка `at-card`
@@ -556,7 +561,8 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
 - Зоны нажатия: `.at-table__sort` и флажки выбора визуально мелкие, но их зона нажатия — 40 × 40 (44 × 44 на < 768 px)
   за счёт невидимого `::before`.
 - `data-cards` — на < 768 px строка становится карточкой: `td[data-label]` показывает подпись из атрибута,
-  `td[data-primary]` и `td[data-status-cell]` — первая строка карточки, `.at-table__actions` — кнопки во всю ширину.
+  `td[data-primary]` и `td[data-status-cell]` — первая строка карточки (ссылка и `.at-table__sub` заголовка переносятся
+  по словам и внутри длинных кодов — ничего не уходит под статус и за край экрана), `.at-table__actions` — кнопки во всю ширину.
   Пустая ячейка действий скрывается. `data-label` = текст заголовка столбца. Шапка (`thead`) в режиме карточек
   скрыта (`display: none`); сортировка и «Выбрать все» — в `.at-table-mobilebar` над карточками (один `select`
   «поле: направление», значение то же, что у сортировки в URL; флажок «Выбрать все» — то же состояние, что флажок
@@ -595,6 +601,10 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
 </td>
 ```
 
+- Несколько действий строки (одобрить / отклонить / изменить; изменить / фото / удалить) стоят в одной ячейке подряд с
+  промежутком `--sp-2`, по середине строки; второстепенные — кнопки-иконки (`data-icon-only`, имя — `aria-label` с названием
+  строки: «Удалить Пшеница озимая»). Столбцов столько, чтобы на 1280 px действия были видны без прокрутки таблицы:
+  вторичные данные — строкой `at-table__sub` под основными (тип и регион, роль и «руководитель организации»).
 - Кнопки действий строки пишутся с `data-size="s"`; на карточках (< 768 px) CSS даёт им обычный размер (зона нажатия
   ≥ 44 px, иконка 20 px, кнопка-иконка — квадрат без отступов), разметка та же.
 - `.at-table-wrap` прокручивается по горизонтали на любой ширине (таблица без `data-cards` не расширяет страницу);
@@ -848,6 +858,11 @@ Home / End — первая / последняя; выбор при переме
   <progress class="at-progress__bar" max="12" value="7" aria-labelledby="recall-progress"></progress>
 </div>
 ```
+
+В ячейке таблицы (реестр отзывов) подпись уже есть в заголовке столбца: `.at-progress__label` остаётся (имя полосы через
+`aria-labelledby`), но получает `at-visually-hidden`; значение «N из M» прижато вправо. Длинная подпись переносится и
+никогда не наезжает на значение. Просроченные задачи — `data-tone="danger"` и строка `at-table__sub` «просрочено: N» под
+полосой.
 
 ### Граф `at-graph`
 
@@ -1160,6 +1175,22 @@ Home / End — первая / последняя; выбор при переме
   `status=all` (в запрос `status` не идёт). Пустая активная очередь — «Проб в очереди нет.» с кнопкой «Все анализы»
   (`status=all`); «Сбросить фильтры» возвращает к активным. Пустой ответ при одном «Все» — то же «Проб в очереди нет.»
   без кнопки; `status=all` вместе с другими статусами в ссылке заменяется на `status=all` (`replace`).
+- Задачи отзыва (`/recall-tasks`) — по тому же правилу: без `status` — ожидающие изъятия (OPEN, OVERDUE; вариант
+  «Ожидают изъятия»), «Все» — `status=all`; пустой список — «Задач изъятия нет.» с кнопкой «Все задачи». Срок задачи —
+  дата и под ней `at-table__sub` «осталось 5 ч 12 мин» / «просрочено на 3 ч 1 мин» (с классом `at-field__warning`),
+  обновляется раз в 30 с. Кнопка «Изъято» — в `.at-table__actions` (на < 768 px во всю ширину карточки), открывает диалог
+  подтверждения с повтором кода партии и кнопкой «Подтвердить изъятие».
+- Справочники (`/admin/dictionaries/:name`): `at-tabs` по справочникам, выбор вкладки меняет путь, но фокус остаётся на вкладке
+  (исключение из «Фокус при смене маршрута» — как у меню «Ещё»); список — в панели выбранной вкладки. Импорт — диалог с
+  `at-file` (подсказка — форматы, 5 МБ и строка заголовка файла); отказ сервера (413, 415 `workbook-too-large`, 415 «не книга»,
+  400 заголовок / кодировка / больше 10 000 строк) — текстом «что не так и что сделать» на файле. Итог — карточка «Отчёт об
+  импорте» над списком: ряд `at-metric` (создано, изменено, без изменений, отклонено строк — `data-tone="danger"` при > 0) и
+  таблица «Отклонённые строки» (строка, столбец — подпись поля и имя колонки файла `at-mono` под ней, ошибка), закрывается
+  кнопкой-иконкой в шапке карточки.
+- Журнал аудита: автор и запись в строке — ссылки, сужающие журнал (`actorId`, `entityType` + `entityId` в URL); «Изменения» —
+  широкий диалог (`data-size="l"`, закрывается и щелчком по подложке): факты записи и таблица «Поле / Было / Стало» (null — «—»).
+- Отчёты: одна карточка-форма (отчёт, предмет — отзыв или организация, период «с / по» не длиннее 366 дней, формат —
+  радиокнопки); пока файл читается — `at-progress` «Загрузка отчёта» с «N МБ из M МБ».
 - Поля страницы — `--gutter`, ширина контента до 1440 px.
 - Заголовок `h1.at-page__title` всегда с `tabindex="-1"` (цель фокуса при смене маршрута). Экраны вне оболочки (вход, 2FA,
   пароль, регистрация, приглашение, 403/404 без сессии) — тот же `at-page` с шапкой; содержимое — в `at-card` под ней.
@@ -1178,3 +1209,147 @@ Home / End — первая / последняя; выбор при переме
 «Отметить прочитанным», форма закрылась после успеха, карточка перечитана без него) — фокус на `h1.at-page__title`,
 никогда не на `body`. Кнопка, недоступная на время ожидания 429, свой фокус не теряет: когда ожидание закончилось,
 она получает его обратно, если фокус никуда не перенесли (FM17).
+
+### Сбой загрузки при старте (rulings FM15, FM18)
+
+Если не загрузился сам входной скрипт (ничего нашего не выполнилось), страницу закрывает статичный блок из
+`index.html` — та же разметка, что у экрана сбоя чанка, но кнопка — ссылка без JS на текущую страницу:
+
+```html
+<div id="root"></div>
+<main class="at-page at-boot" id="at-boot">
+  <article class="at-card">
+    <div class="at-empty">
+      <p class="at-empty__text">Не удалось загрузить страницу.</p>
+      <a class="at-button" data-variant="primary" href="">Повторить</a>
+    </div>
+  </article>
+</main>
+```
+
+`.at-boot` (base.css) скрыт и появляется через 10 с одной CSS-анимацией (и при `prefers-reduced-motion`: это смена
+состояния, не движение); приложение удаляет `#at-boot` первым делом при старте. Тексты — `empty.pageLoadFailed` и
+`action.retry` из `@agrotrace/i18n`, подставляются при сборке (не пишутся в шаблоне руками).
+
+## Публичная QR-страница `at-public`
+
+`/p/:publicCode` и `/p/:publicCode/complaint` (ТЗ п. 9.6): без меню и сессии, отдельный лёгкий вход — весь JS страницы
+(вход, её чанк, всё, что они импортируют, воркер ALTCHA) не больше 60 КБ gzip; сборка падает, если больше. На этой
+странице нет кабинетного кода и полного словаря:
+
+- **Тексты** (ruling FM35) — `@agrotrace/i18n/public` + словарь только активного языка
+  `@agrotrace/i18n/public/<locale>.json` (ключи — `public-keys.ts`, файл собирает
+  `pnpm --filter @agrotrace/i18n build:public`, тест следит, что он не устарел). Во всех фреймворках одинаково:
+
+  ```ts
+  import ru from '@agrotrace/i18n/public/ru.json';
+  import { publicT, formatLocalDate, photoCredit } from '@agrotrace/i18n/public';
+  const t = publicT(ru, 'ru'); // те же тексты, что у createT, без плюралов
+  ```
+
+  Новый текст страницы — ключ в `public-keys.ts` и пересборка подмножества; импорт `@agrotrace/i18n` на публичной
+  странице запрещён.
+
+- **API** — `@agrotrace/api-client/public` (`createPublicApi`: `getBatch`, `getCaptcha`, `createComplaint`;
+  `retryAfterOf`), без протокола обновления сессии и openapi-fetch.
+- **Иконки** — спрайт только из нужных символов (`check`, `alert`, `clock`), собранный так же, как `sprite.svg`
+  (`<symbol id="i-…">`, первым потомком `<body>`); иллюстрации — только `recall-warning` и `empty-search`.
+
+Разметка `/p/:publicCode` (под шапкой `at-page`; `h1.at-page__title` — название продукта, пока данных нет — «Партия»):
+
+```html
+<main class="at-page at-public" id="main" tabindex="-1">
+  <div class="at-page__header"><h1 class="at-page__title" tabindex="-1">Пшеница мягкая</h1></div>
+  <div class="at-public__stack">
+    <article class="at-card" data-furrow>
+      <div class="at-card__body">
+        <!-- только RECALLED (FR-PUB-02): -->
+        <div class="at-public__warning">
+          <svg class="at-empty__art" aria-hidden="true" viewBox="0 0 240 160">…recall-warning…</svg>
+          <h2 class="at-public__warning-title">Партия отозвана</h2>
+          <p class="at-public__warning-text">Не употребляйте продукт из этой партии.</p>
+        </div>
+        <div class="at-public__hero">
+          <figure class="at-public__photo">
+            <img
+              src="/api/v1/public/files/…?variant=480"
+              alt=""
+              width="480"
+              height="360"
+              fetchpriority="high"
+            />
+            <figcaption>Фото: <a href="…">Raman Deep</a>, <a href="…/by-sa/4.0">CC BY-SA 4.0</a></figcaption>
+          </figure>
+          <div class="at-public__summary">
+            <p class="at-public__status" data-safety="SAFE">
+              <svg class="at-public__status-icon" aria-hidden="true"><use href="#i-check" /></svg>Безопасна
+            </p>
+            <!-- BLOCKED / UNKNOWN: <p class="at-public__note">…</p> -->
+            <dl class="at-card__facts">
+              <div>
+                <dt>Код партии</dt>
+                <dd><span class="at-mono">AT-2026-000123</span></dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </article>
+    <!-- «Происхождение»: p.at-public__org (at-avatar l square, логотип alt=""; «Хозяйство» у сырьевой партии,
+         «Производитель» у производной) + at-card__facts -->
+    <!-- «Путь продукта»: at-timeline по держателям, «18.07.2026 — 20.08.2026» / «с 20.08.2026» -->
+    <!-- «Анализы»: at-card__facts (проведено, соответствуют, последний: дата + at-chip ok / danger) или p.at-public__note -->
+    <div class="at-public__actions">
+      <a class="at-button" data-variant="primary" href="/p/AT-2026-000123/complaint">Сообщить о проблеме</a>
+    </div>
+  </div>
+</main>
+```
+
+- `data-safety` — `SafetyStatus` контракта: SAFE — группа ok (иконка `check`), RECALLED — danger-solid (`alert`),
+  BLOCKED — danger (`alert`) и строка «Продажа партии остановлена до решения инспектора.», UNKNOWN — attention (`clock`)
+  и «Партия ещё проходит проверку.». Текст статуса — `status.safety.*`; цвет не единственный носитель смысла.
+- Фото продукта — вариант 480 (`withVariant`), декоративное (название — в `h1`); подпись автора и лицензии —
+  `photoCredit(название)` (данные `db/seed/ATTRIBUTION.md`; у фото не из сида подписи нет). Даты — `formatLocalDate`.
+- Состояния (в `at-public__stack` вместо карточек; у первой карточки всегда `data-furrow`): загрузка — `at-card` с
+  `aria-busy="true"` и `at-skeleton`;
+  неизвестный или неверный код (404 / 400; код не по шаблону `AT-ГГГГ-NNNNNN` — без запроса) — `at-card` > `at-empty`
+  с `empty-search` и «Партия с таким кодом не найдена.» без кнопки; нет сети, сервис недоступен, 429 — `at-empty` с
+  текстом и «Повторить» (после 429 — «Повторить через N с» до конца `Retry-After`, затем фокус по FM17).
+
+Форма `/p/:publicCode/complaint` (`h1` «Сообщить о проблеме»):
+
+```html
+<article class="at-card" data-furrow>
+  <div class="at-card__body">
+    <p class="at-public__about">Пшеница мягкая <span class="at-mono">AT-2026-000123</span></p>
+    <form id="complaint" class="at-public__form" novalidate>
+      <div class="at-field">
+        …<textarea class="at-textarea" id="complaint-text" maxlength="2000"></textarea>
+      </div>
+      <div class="at-field">…<input class="at-input" id="complaint-contact" maxlength="255" /></div>
+      <!-- сообщение формы: <p class="at-field__error" role="alert">…</p>; ожидание 429 — at-field__warning -->
+    </form>
+  </div>
+  <footer class="at-card__footer">
+    <a class="at-button" data-variant="secondary" href="/p/AT-2026-000123">К партии</a>
+    <button class="at-button" type="submit" form="complaint" data-variant="primary">Отправить жалобу</button>
+  </footer>
+</article>
+```
+
+- ALTCHA без внешних сервисов и без видимого виджета: с открытия формы страница берёт `GET /public/captcha` и решает
+  задачу в воркере (отдельный файл того же источника: CSP `script-src 'self'` его покрывает, inline-скриптов нет);
+  решение уходит в `altcha` один раз, следующая отправка — с новой задачей; решение, которому до `expires` меньше 30 с,
+  заменяется новым. Пока задача решается и жалоба отправляется — кнопка `aria-busy`.
+- Проверки до отправки — по контракту (текст обязателен, не короче 10 символов; контакт не из одних пробелов); текст и
+  контакт уходят как введены, пустой контакт не отправляется. Ошибки — у полей (фокус на первое), остальное — одно
+  сообщение формы `role="alert"` внутри карточки (тостов на публичной странице нет): CAPTCHA_FAILED — «Проверка защиты
+  от спама не прошла — отправьте ещё раз», задача не получена или воркер не загрузился — «Не удалось подготовить
+  проверку защиты от спама — отправьте ещё раз», нет сети — «Нет связи с сервером — проверьте подключение.»; 429 —
+  кнопка «Повторить через N с» и `at-field__warning`; 404 — «Партия с таким кодом не найдена.» вместо формы.
+- После 201 карточка показывает подтверждение: `<div class="at-card__body at-public__done">` с
+  `<p class="at-public__done-text" tabindex="-1">Жалоба отправлена.</p>` и основной ссылкой «К партии»; фокус — на
+  текст подтверждения (кнопки отправки больше нет).
+- Переходы между двумя адресами — на клиенте (`history.pushState`, «Назад» — `popstate`), фокус на `h1` по правилу
+  «Фокус при смене маршрута»; данные партии читаются один раз на документ.

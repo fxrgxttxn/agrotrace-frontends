@@ -115,6 +115,15 @@
   white-space: nowrap;
 }
 
+/* Several row actions: a gap between them, all on the middle line of the row. */
+.at-table .at-table__actions > .at-button {
+  vertical-align: middle;
+}
+
+.at-table .at-table__actions > .at-button + .at-button {
+  margin-inline-start: var(--sp-2);
+}
+
 .at-table__primary {
   display: grid;
   gap: 2px;
@@ -299,6 +308,14 @@ th[aria-sort='descending'] > .at-table__sort::after {
     padding: 0 0 10px;
   }
 
+  /* A long title (a notification «Результат анализа партии AT-…») wraps inside the card instead of running under the
+     status chip and past the screen edge at 360 px. */
+  .at-table[data-cards] td[data-primary] a,
+  .at-table[data-cards] td[data-primary] .at-table__sub {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   .at-table[data-cards] td[data-status-cell] {
     display: block;
     grid-column: 3;
@@ -349,6 +366,7 @@ th[aria-sort='descending'] > .at-table__sort::after {
 
   .at-table[data-cards] td.at-table__actions > .at-button {
     flex: 1 1 auto;
+    margin-inline-start: 0;
   }
 
   /* Row actions on a card keep the regular size — a 44 px target (ruling FM13) — whatever size the table row asks for. */

@@ -13,8 +13,10 @@
 }
 
 .at-progress__label {
+  min-width: 0;
   color: var(--c-ink);
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .at-progress__value {
