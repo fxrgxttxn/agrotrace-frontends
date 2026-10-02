@@ -156,7 +156,7 @@ export class MetricComponent {
 
 /** `at-progress` (README «Прогресс»): «N из M» with a labelled `<progress>`. */
 @Component({
-  selector: 'div.at-progress',
+  selector: 'div.at-progress[progressId]',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<span

@@ -147,7 +147,23 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
   readonly busy = signal(false);
   /** Seconds left of a 429 wait (0 — free). */
   readonly wait: Signal<number>;
-  readonly alert = formAlert();
+  private readonly toastAlert = formAlert();
+  /** The form-level message is also kept as `message`: a form inside a modal dialog says it in its body (README
+   * «Диалог»: the page's toast region is behind the modal). */
+  readonly message = signal<string | null>(null);
+  readonly alert = {
+    show: (text: string, tone?: 'danger' | 'attention') => {
+      this.message.set(text);
+      this.toastAlert.show(text, tone);
+    },
+    error: (e: unknown, text?: string) => {
+      if (!quietFailure(e)) this.alert.show(text ?? errorText(e), errorTone(e));
+    },
+    clear: () => {
+      this.message.set(null);
+      this.toastAlert.clear();
+    },
+  };
 
   private readonly submitted = signal(false);
   private readonly server = signal<Record<string, string>>({});

@@ -20,7 +20,8 @@ export abstract class FieldContext {
  * inside (`at-input`, `at-textarea`, `at-select`, `at-date`, `at-combobox`) take the id / `aria-invalid` /
  * `aria-describedby` from it. */
 @Component({
-  selector: 'div.at-field:not([files]):not([orgPicker]):not([dateFilter]):not([cellId]):not([batchPicker])',
+  selector:
+    'div.at-field:not([files]):not([orgPicker]):not([dateFilter]):not([cellId]):not([batchPicker]):not([idFilter]):not([recallPicker])',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [{ provide: FieldContext, useExisting: FieldComponent }],

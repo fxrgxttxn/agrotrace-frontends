@@ -58,6 +58,9 @@ export class OrgPickerComponent extends FieldContext {
   /** An organization never offered (the user's own). */
   readonly exclude = input<string | undefined>(undefined);
   readonly valueChange = output<string | null>();
+  /** The picked (or, for a value from a link, read back) organization itself: its type decides the role of an invited
+   * user. */
+  readonly org = output<{ id: string; name: string; type: OrganizationType } | null>();
 
   readonly controlId = computed(() => this.orgPicker());
   readonly errorId = computed(() => (this.error() ? `${this.orgPicker()}-error` : null));
@@ -117,7 +120,10 @@ export class OrgPickerComponent extends FieldContext {
         const org = this.chosen.data();
         untracked(() => {
           if (value === '') this.query.set('');
-          else if (org && org.id === value) this.query.set(org.name);
+          else if (org && org.id === value) {
+            this.query.set(org.name);
+            this.org.emit(org);
+          }
         });
       },
       { allowSignalWrites: true },
@@ -126,12 +132,17 @@ export class OrgPickerComponent extends FieldContext {
 
   protected typed(text: string): void {
     this.query.set(text);
-    if (text.trim() === '' && this.value() !== '') this.valueChange.emit(null);
+    if (text.trim() === '' && this.value() !== '') {
+      this.valueChange.emit(null);
+      this.org.emit(null);
+    }
   }
 
   protected pick(o: ComboOption): void {
     this.picked.set(o.value);
     this.query.set(o.label);
     this.valueChange.emit(o.value);
+    const org = this.found.data()?.items.find((x) => x.id === o.value);
+    if (org) this.org.emit(org);
   }
 }

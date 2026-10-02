@@ -40,7 +40,11 @@ const stock = () => import('../pages/stock');
 const lab = () => import('../pages/lab');
 const recalls = () => import('../pages/recalls');
 const complaints = () => import('../pages/complaints');
-const admin = () => import('../pages/admin');
+const organizations = () => import('../pages/organizations');
+const users = () => import('../pages/users');
+const dictionaries = () => import('../pages/dictionaries');
+const audit = () => import('../pages/audit');
+const reports = () => import('../pages/reports');
 
 /** Screens outside the cabinet shell (no session needed). */
 export const AUTH_ROUTES: readonly PublicAuthRoute[] = [
@@ -122,7 +126,14 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/batches/:id',
     title: 'page.batch',
     access: 'auth',
-    ops: ['getBatch', 'getBatchHistory', 'getBatchPath', 'getBatchGraph', 'getBatchDocuments'],
+    ops: [
+      'getBatch',
+      'getBatchHistory',
+      'getBatchPath',
+      'getBatchGraph',
+      'getBatchDocuments',
+      'listLabTests',
+    ],
     load: () => batches().then((m) => m.BatchPage),
   },
   {
@@ -178,7 +189,7 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/lab/tests/:id',
     title: 'page.labTest',
     access: { roles: [L] },
-    ops: ['getLabTest', 'submitLabResults'],
+    ops: ['getLabTest', 'registerLabSample', 'submitLabResults', 'uploadLabProtocol'],
     load: () => lab().then((m) => m.LabTestPage),
   },
   {
@@ -199,7 +210,7 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/recalls/new',
     title: 'page.recallNew',
     access: { roles: [I] },
-    ops: ['createRecall'],
+    ops: ['createRecall', 'listBatches', 'getBatch'],
     load: () => recalls().then((m) => m.RecallNewPage),
   },
   {
@@ -220,7 +231,7 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/complaints/:id',
     title: 'page.complaint',
     access: { roles: [I] },
-    ops: ['getComplaint'],
+    ops: ['getComplaint', 'startComplaintReview', 'decideComplaint', 'listOrganizations'],
     load: () => complaints().then((m) => m.ComplaintPage),
   },
   {
@@ -228,42 +239,49 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     title: 'page.reports',
     access: { roles: [I, A], orgAdmin: true },
     ops: ['downloadReport'],
-    load: () => admin().then((m) => m.ReportsPage),
+    load: () => reports().then((m) => m.ReportsPage),
   },
   {
     path: '/org/staff',
     title: 'page.staff',
     access: { roles: [], orgAdmin: true },
-    ops: ['listUsers'],
-    load: () => admin().then((m) => m.StaffPage),
+    ops: ['listUsers', 'inviteUser', 'updateUser', 'uploadOrganizationLogo'],
+    load: () => users().then((m) => m.StaffPage),
   },
   {
     path: '/admin/organizations',
     title: 'page.organizations',
     access: { roles: [A] },
-    ops: ['listAdminOrganizations'],
-    load: () => admin().then((m) => m.OrganizationsPage),
+    ops: ['listAdminOrganizations', 'approveOrganization', 'updateAdminOrganization'],
+    load: () => organizations().then((m) => m.OrganizationsPage),
   },
   {
     path: '/admin/users',
     title: 'page.users',
     access: { roles: [A] },
-    ops: ['listUsers'],
-    load: () => admin().then((m) => m.UsersPage),
+    ops: ['listUsers', 'inviteUser', 'updateUser', 'listOrganizations'],
+    load: () => users().then((m) => m.UsersPage),
   },
   {
     path: '/admin/dictionaries/:name',
     title: 'page.dictionaries',
     access: { roles: [A] },
-    ops: ['listDictionary', 'createDictionaryEntry'],
-    load: () => admin().then((m) => m.DictionaryPage),
+    ops: [
+      'listDictionary',
+      'createDictionaryEntry',
+      'updateDictionaryEntry',
+      'deleteDictionaryEntry',
+      'importDictionary',
+      'uploadProductImage',
+    ],
+    load: () => dictionaries().then((m) => m.DictionaryPage),
   },
   {
     path: '/admin/audit',
     title: 'page.audit',
     access: { roles: [A, I] },
     ops: ['listAuditLog'],
-    load: () => admin().then((m) => m.AuditPage),
+    load: () => audit().then((m) => m.AuditPage),
   },
 ];
 
