@@ -1,3 +1,4 @@
+import { installFocusRescue } from '../focus-rescue';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -232,6 +233,7 @@ export class ShellComponent {
   protected readonly unread = inject(LiveEventsService).unread;
 
   constructor() {
+    installFocusRescue();
     this.navigation.shellActive = true;
     inject(DestroyRef).onDestroy(() => (this.navigation.shellActive = false));
   }

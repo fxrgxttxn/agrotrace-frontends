@@ -312,3 +312,42 @@ describe('late answers after leaving (FM30)', () => {
       expect(toastText('polite')).toBe('');
     });
 });
+
+describe('app-wide focus rescue (A3+A4 review, FM21/FM26)', () => {
+  it('a stock action whose button goes with the re-read row hands the focus to the page title', async () => {
+    server.use(
+      asRetailer(),
+      dictionaries(),
+      contractResponse('listBatches', {
+        body: pageOf([item({ status: 'Accepted', holder: MARKET })]),
+        once: true,
+      }),
+      contractResponse('listBatches', { body: pageOf([item({ status: 'OnSale', holder: MARKET })]) }),
+      contractResponse('getBatch', {
+        body: batch({ status: 'Accepted', version: 5, actions: [{ action: 'putOnSale', to: 'OnSale' }] }),
+      }),
+      contractResponse('putBatchOnSale', {
+        body: batch({ status: 'OnSale', version: 6, actions: [{ action: 'sell', to: 'Sold' }] }),
+      }),
+    );
+    await open('/stock', 'Склад');
+    await userEvent.click(await screen.findByRole('button', { name: 'Выставить на продажу' }));
+    await screen.findByRole('button', { name: 'Отметить реализацию' });
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Склад' })).toHaveFocus());
+  });
+
+  it('a passive refresh that removes the focused control never moves the focus', async () => {
+    server.use(
+      asRetailer(),
+      dictionaries(),
+      contractResponse('listBatches', { body: pageOf([item({ status: 'Accepted', holder: MARKET })]) }),
+    );
+    await open('/stock', 'Склад');
+    const button = await screen.findByRole('button', { name: 'Выставить на продажу' });
+    button.focus();
+    await new Promise((r) => setTimeout(r, 1200));
+    button.closest('tr')!.remove();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.getByRole('heading', { level: 1, name: 'Склад' })).not.toHaveFocus();
+  });
+});

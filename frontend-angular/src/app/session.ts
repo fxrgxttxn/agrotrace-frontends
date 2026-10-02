@@ -1,3 +1,4 @@
+import { trackRequest } from './actions';
 import { computed, DestroyRef, inject, Injectable, InjectionToken, NgZone, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { BehaviorSubject, firstValueFrom, filter, Subject } from 'rxjs';
@@ -45,7 +46,8 @@ export function createSessionCore(fetchImpl?: typeof fetch): SessionCore {
     baseUrl: apiBaseUrl(),
     session: store,
     onAuthLost: () => onAuthLost.current(),
-    ...(fetchImpl ? { fetch: fetchImpl } : {}),
+    // every request is counted to the person's action it belongs to (actions.ts, the focus rescue)
+    fetch: (input, init) => trackRequest(() => (fetchImpl ?? globalThis.fetch)(input, init)),
   });
   return { store, api, onAuthLost };
 }

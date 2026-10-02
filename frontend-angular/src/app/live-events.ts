@@ -1,3 +1,4 @@
+import { runPassive } from './actions';
 import { DestroyRef, inject, Injectable, InjectionToken, NgZone, signal } from '@angular/core';
 import { distinctUntilChanged, EMPTY, map, Observable, Subject, switchMap } from 'rxjs';
 import { openEventStream, type ApiNotification, type StreamEvent } from '@agrotrace/api-client';
@@ -80,8 +81,11 @@ export class LiveEventsService {
         detail: notificationMessage(n.type, payload, 'body', t),
       });
       // every cached notification list is out of date, wherever the user is (FM24); a list on screen reloads
-      this.cache.invalidate(NOTIFICATIONS_KEY);
-      this.notifications$.next(n);
+      // (passive: the requests it starts are not the person's — the focus rescue ignores them, FM30)
+      runPassive(() => {
+        this.cache.invalidate(NOTIFICATIONS_KEY);
+        this.notifications$.next(n);
+      });
     }
   }
 }
