@@ -690,3 +690,23 @@ test('FM26: without sessionStorage a chunk that keeps failing reloads once, neve
   // nothing of the mark outlives the tab's entry (no window.name, which would survive a cross-site navigation)
   expect(await page.evaluate(() => window.name)).toBe('');
 });
+
+test('FM7: a query-only change made while nothing has the focus leaves it on the document (React parity)', async ({
+  page,
+  context,
+}) => {
+  await mockApi(context);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/batches');
+  await expect(h1(page, 'Партии')).toBeVisible();
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  // A programmatic change of the filter (nothing focused): the URL changes, the focus stays on the document.
+  await page.getByLabel('Статус').selectOption({ index: 1 });
+  await expect(page).toHaveURL(/status=/);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/batches$/);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+});

@@ -84,8 +84,13 @@ export function restoreKeptFocus(): void {
   const el = kept;
   kept = null;
   if (!el) return;
-  if (el !== document.body && el.isConnected && !el.closest('dialog:not([open])'))
-    el.focus({ preventScroll: true });
+  // Nothing was focused (the body): nothing is focused afterwards either (FM7, as React).
+  if (el === document.body) {
+    if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body)
+      document.activeElement.blur();
+    return;
+  }
+  if (el.isConnected && !el.closest('dialog:not([open])')) el.focus({ preventScroll: true });
   else document.querySelector<HTMLElement>('h1.at-page__title')?.focus({ preventScroll: true });
 }
 
