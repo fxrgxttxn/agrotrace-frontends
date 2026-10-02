@@ -80,6 +80,8 @@ export class BatchGraphComponent {
   readonly atBatchGraph = input.required<BatchGraph>();
   readonly code = input.required<string>();
   readonly fs = input.required<Fullscreen>();
+  /** i18n key of the canvas summary ({code}, {up}, {down}): the batch graph, or a recall's graph. */
+  readonly labelKey = input('graph.label');
 
   protected readonly failed = signal(false);
   private readonly canvas = viewChild<ElementRef<HTMLElement>>('canvas');
@@ -93,7 +95,7 @@ export class BatchGraphComponent {
   protected readonly statuses = computed(() => [...new Set(this.atBatchGraph().nodes.map((n) => n.status))]);
   protected readonly label = computed(() => {
     const nodes = this.atBatchGraph().nodes;
-    return t('graph.label', {
+    return t(this.labelKey(), {
       code: this.code(),
       up: nodes.filter((n) => n.depth < 0).length,
       down: nodes.filter((n) => n.depth > 0).length,

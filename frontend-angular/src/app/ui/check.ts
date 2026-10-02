@@ -46,6 +46,7 @@ export class CheckboxComponent {
       [attr.name]="name()"
       [attr.value]="value()"
       [attr.aria-invalid]="invalid() ? 'true' : null"
+      [attr.aria-describedby]="describedBy() ?? null"
       (change)="picked.emit(value())"
     /><span>{{ label() }}</span>`,
 })
@@ -56,6 +57,7 @@ export class RadioComponent {
   readonly checked = input(false);
   readonly disabled = input(false);
   readonly invalid = input(false);
+  readonly describedBy = input<string | undefined>(undefined);
   readonly picked = output<string>();
 }
 

@@ -99,6 +99,9 @@ export class SessionService {
   readonly waiting = signal(0);
 
   private booting = true;
+  /** The run of the restore under way: a logout broadcast, a sign-in or a new restore voids it (FM32) — its late answer
+   * can never sign the tab in. */
+  private restoreRun = 0;
   /** Bumped when a session ends or a new one starts: late answers of another session are dropped (FM28). */
   private gen = 0;
   private channel: BroadcastChannel | null = null;
@@ -152,17 +155,19 @@ export class SessionService {
     this.booting = true;
     this.set({ status: 'loading' });
     const generation = this.gen;
+    const run = ++this.restoreRun;
+    const stale = () => generation !== this.gen || run !== this.restoreRun;
     try {
       const token = this.store.get() ?? (await this.api.refresh());
-      if (generation !== this.gen) return;
+      if (stale()) return;
       if (!token) {
         this.set({ status: 'anonymous' });
         return;
       }
       const me = await this.loadMe();
-      if (generation === this.gen) this.set({ status: 'authenticated', me });
+      if (!stale()) this.set({ status: 'authenticated', me });
     } catch (e) {
-      if (generation !== this.gen) return;
+      if (stale()) return;
       // R61/F8: a network error, a 5xx or a rate limit (429 of /auth/refresh or /me) is not a logout — the session is
       // kept and a retry is offered (after Retry-After for a 429) instead of the login screen.
       if (e instanceof ApiProblem && e.status === 429)
@@ -178,7 +183,7 @@ export class SessionService {
         this.set({ status: 'anonymous' });
       }
     } finally {
-      this.booting = false;
+      if (run === this.restoreRun) this.booting = false;
     }
   }
 
@@ -193,6 +198,13 @@ export class SessionService {
     // logout broadcast never costs it the form being typed (invite, forgot, register, login)
     const had = this.state().status === 'authenticated';
     this.store.set(null);
+    if (this.state().status === 'loading') {
+      // FM32: a tab still restoring ends anonymous — its restore is void (a late refresh or /me never signs it in)
+      this.restoreRun++;
+      this.booting = false;
+      this.set({ status: 'anonymous' });
+      return false;
+    }
     if (!had) return false; // (a loading / unavailable / anonymous tab keeps its state: its own restore decides)
     this.set(loggedOut ? { status: 'anonymous', loggedOut: true } : { status: 'anonymous' });
     this.gen++;
@@ -208,6 +220,8 @@ export class SessionService {
   /** Installs a successful login (`POST /auth/login` or `/auth/2fa/verify`) — a new session. */
   signIn(result: LoginSuccess): void {
     this.gen++;
+    this.restoreRun++;
+    this.booting = false;
     this.store.set(result.accessToken);
     this.set({ status: 'authenticated', me: result.user as Me });
   }

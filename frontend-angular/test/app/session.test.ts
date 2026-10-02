@@ -248,6 +248,49 @@ describe('session loss and logout', () => {
     expect(url()).toBe('/login');
     other.close();
   });
+
+  it('a logout in another tab while this one is still restoring: the late /me never signs it in (FM32)', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(contractResponse('getMe', { onRequest: () => held }));
+    const { url } = renderApp('/batches');
+    await new Promise((r) => setTimeout(r, 50));
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Вход' })).toBeInTheDocument();
+    release();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole('heading', { level: 1, name: 'Партии' })).toBeNull();
+    expect(pathOf(url())).toBe('/login');
+    other.close();
+  });
+
+  it("sign-in while a restore voided by another tab's logout still waits: the late refresh never replaces the new token", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      contractResponse('refreshToken', {
+        body: { ...(contractExample('refreshToken').body as object), accessToken: 'stale.cookie.token' },
+        onRequest: () => held,
+      }),
+    );
+    const { url, core } = renderApp('/login');
+    await new Promise((r) => setTimeout(r, 50));
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    await screen.findByRole('heading', { level: 1, name: 'Вход' });
+    await userEvent.type(screen.getByLabelText('Email'), 'petrov@kfh-petrov.ru');
+    await userEvent.type(screen.getByLabelText('Пароль'), 'secret');
+    await userEvent.click(screen.getByRole('button', { name: 'Войти' }));
+    await waitFor(() => expect(pathOf(url())).toBe('/'));
+    const signedIn = core.store.get();
+    expect(signedIn).toBe((contractExample('login').body as { accessToken: string }).accessToken);
+    release();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(core.store.get()).toBe(signedIn);
+    expect(pathOf(url())).toBe('/');
+    other.close();
+  });
 });
 
 describe('role guard', () => {
