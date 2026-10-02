@@ -11,7 +11,7 @@ const RECALLED = 'AT-2026-000012';
 
 const title = (page: Page) => page.getByRole('heading', { level: 1 });
 
-test('a batch on sale: status, origin, path, lab summary, photo credit', async ({ page }) => {
+test('UC-06: a batch on sale — status, origin, path, lab summary, photo credit', async ({ page }) => {
   const w = await watch(page);
   await page.goto(`/p/${ON_SALE}`);
   await expect(title(page)).toHaveText('Молоко пастеризованное 3,2%');

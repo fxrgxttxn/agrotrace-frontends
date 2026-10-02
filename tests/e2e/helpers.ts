@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 
 // Pieces shared by the parity specs: console / HTTP watch, sign-in through the login form (waiting out the login-ip
 // limit), screenshots at 360 and 1280 px in both themes with the no-horizontal-scroll check.
@@ -48,6 +49,24 @@ export function unexpected(w: Watch, alsoExpected: RegExp[] = []): string[] {
   return [...w.problems, ...unexplained].filter(
     (p) => !/^console: Failed to load resource/.test(p) && !allowed.some((re) => re.test(p)),
   );
+}
+
+/** The screen has settled: its h1 is shown and nothing is loading any more (aria-busy, FM10/FM24). */
+export async function settle(page: Page): Promise<void> {
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 20000 });
+  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 20000 });
+}
+
+/** Design-system markup axe flags although WCAG exempts it, recorded for the design-system backlog (README classes):
+ * the unit suffix of a disabled input group (1.4.3: text of an inactive component; ink-muted on surface-sunk 4.2:1). */
+const AXE_KNOWN = ['.at-input-group:has(:disabled) > .at-input-group__suffix'];
+
+/** axe-core with the WCAG 2.0/2.1 A and AA rules: one line per violation (rule id and the nodes it found). */
+export async function a11y(page: Page): Promise<string[]> {
+  let axe = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']);
+  for (const selector of AXE_KNOWN) axe = axe.exclude(selector);
+  const { violations } = await axe.analyze();
+  return violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);
 }
 
 export async function horizontalOverflow(page: Page): Promise<number> {
