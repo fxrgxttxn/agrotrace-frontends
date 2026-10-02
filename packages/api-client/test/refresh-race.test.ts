@@ -333,3 +333,41 @@ describe('Minor D: a transient refresh failure is shared among callers queued be
     expect(session.get()).toBe('stale'); // untouched — a transient failure never logs out
   });
 });
+
+describe('a refresh answered after the session ended or changed (generation check)', () => {
+  it('a token arriving after a logout (the store was cleared meanwhile) is neither installed nor broadcast', async () => {
+    const session = createMemoryTokenStore(null);
+    const peer = new MockBroadcastChannel('agrotrace-auth');
+    const heard: unknown[] = [];
+    peer.addEventListener('message', (e) => heard.push(e.data));
+    const fetch = vi.fn(() => afterMs(100, jsonResponse({ accessToken: 'late-token' })));
+    const api = createApi({ baseUrl: BASE_URL, session, fetch });
+
+    const pending = api.refresh();
+    await vi.advanceTimersByTimeAsync(10);
+    session.set(null); // another tab's logout reached this one
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(await pending).toBeNull();
+    expect(session.get()).toBeNull();
+    expect(heard).toEqual([]);
+  });
+
+  it('a token arriving after a sign-in installed another one keeps the sign-in token', async () => {
+    const session = createMemoryTokenStore(null);
+    const peer = new MockBroadcastChannel('agrotrace-auth');
+    const heard: unknown[] = [];
+    peer.addEventListener('message', (e) => heard.push(e.data));
+    const fetch = vi.fn(() => afterMs(100, jsonResponse({ accessToken: 'old-cookie-token' })));
+    const api = createApi({ baseUrl: BASE_URL, session, fetch });
+
+    const pending = api.refresh();
+    await vi.advanceTimersByTimeAsync(10);
+    session.set('signed-in-token');
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(await pending).toBe('signed-in-token');
+    expect(session.get()).toBe('signed-in-token');
+    expect(heard).toEqual([]);
+  });
+});
