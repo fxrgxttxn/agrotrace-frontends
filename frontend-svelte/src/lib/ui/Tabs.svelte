@@ -40,6 +40,18 @@
     };
   }
 
+  // A narrow tab row scrolls sideways: the selected tab (e.g. `?tab=docs` at 360 px) is scrolled into the row's view,
+  // horizontally only (the page itself does not jump).
+  $effect(() => {
+    const tab = refs.get(selected);
+    const row = tab?.parentElement;
+    if (!tab || !row) return;
+    const t0 = tab.getBoundingClientRect();
+    const r0 = row.getBoundingClientRect();
+    if (t0.left < r0.left) row.scrollLeft -= r0.left - t0.left;
+    else if (t0.right > r0.right) row.scrollLeft += t0.right - r0.right;
+  });
+
   function keydown(e: KeyboardEvent) {
     const i = tabs.findIndex((tab) => tab.id === selected);
     const next = ({ ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 } as Record<string, number>)[

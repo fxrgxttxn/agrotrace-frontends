@@ -1,5 +1,5 @@
 import { tick } from 'svelte';
-import type { ZodTypeAny } from 'zod';
+import { z, type ZodTypeAny } from 'zod';
 import { ApiProblem } from '@agrotrace/api-client';
 import { cache } from './cache.svelte';
 import { userAction } from './focusRescue';
@@ -67,6 +67,9 @@ export interface SchemaFormOptions<F, B> {
   toWire?: (values: F) => unknown;
   /** Sends the checked body; a thrown error is put on the form (`fail`). */
   send: (body: B) => Promise<void>;
+  /** Server error paths that belong to a field the form renders under another name (`geometry.coordinates[0]` →
+   * `geometry`). */
+  alias?: (path: string) => string;
 }
 
 /** A form on a shared schema. Controls bind to `values` and carry `name` = their path; `<form use:form={f}>` wires the
@@ -86,6 +89,7 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
   readonly #schema: ZodTypeAny;
   readonly #toWire: (values: F) => unknown;
   readonly #send: (body: B) => Promise<void>;
+  readonly #alias: ((path: string) => string) | undefined;
   /** Session generation of the latest submit. */
   #born: number | null = null;
 
@@ -95,6 +99,7 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
     this.#schema = o.schema;
     this.#toWire = o.toWire ?? ((v) => v);
     this.#send = o.send;
+    this.#alias = o.alias;
   }
 
   /** Translated error of a field (`null` — none). */
@@ -109,6 +114,14 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
   setError(path: string, message: string): void {
     this.#server = { ...this.#server, [path]: message };
     void this.#focusFirstInvalid();
+  }
+
+  /** Puts (or, with `null`, takes away) an error under a field without moving the focus — a control's own check, e.g.
+   * a date typed in a wrong format, reported on blur (React Hook Form's `setError` / `clearErrors`). */
+  mark(path: string, message: string | null): void {
+    const rest = { ...this.#server };
+    delete rest[path];
+    this.#server = message ? { ...rest, [path]: message } : rest;
   }
 
   /** Back to `values` (after a successful save): no errors until the next submit. */
@@ -170,6 +183,7 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
       alert: this.alert.show,
       onRateLimit: (seconds) => this.wait.start(seconds),
       fields: this.fields,
+      alias: this.#alias,
       mark: (marks) => {
         this.#server = marks;
         void this.#focusFirstInvalid();
@@ -234,6 +248,8 @@ export interface ApplyOptions {
   fields?: readonly string[];
   /** Shows server errors under fields (path → i18n key). */
   mark?: (errors: Record<string, string>) => void;
+  /** Server error paths that belong to another field name. */
+  alias?: (path: string) => string;
 }
 
 /** Puts a failed request on a form or an action: field errors, a form-level message, or the rate-limit countdown
@@ -244,7 +260,8 @@ export function applyProblem(e: unknown, o: ApplyOptions): void {
     const rest: string[] = [];
     const fields = o.fields ?? [];
     const marks: Record<string, string> = {};
-    for (const [path, keys] of Object.entries(e.errors)) {
+    for (const [raw, keys] of Object.entries(e.errors)) {
+      const path = o.alias ? o.alias(raw) : raw;
       const key = keys[0];
       if (!key) continue;
       if (o.mark && fields.includes(path)) marks[path] ??= key;
@@ -263,4 +280,40 @@ export function applyProblem(e: unknown, o: ApplyOptions): void {
     return;
   }
   o.alert(errorText(e));
+}
+
+/** Form text of a decimal as the wire format wants it: `1,5` → `1.500` for `places` = 3. Anything that is not a plain
+ * number is returned as typed, so the shared schema reports it (`validation.*.format`). */
+export function normalizeDecimal(text: string, places: number): string {
+  const m = /^\s*(\d+)(?:[.,](\d*))?\s*$/.exec(text);
+  if (!m || (m[2] ?? '').length > places) return text;
+  return `${m[1]}.${(m[2] ?? '').padEnd(places, '0')}`;
+}
+
+/** A form schema whose values are the form's own (texts, selects) and whose output is the request body: `toWire`
+ * builds the body, the shared schema of @agrotrace/validation checks it, and each issue is put on the top-level form
+ * field its path starts with (`geometry.coordinates.0` → `geometry`). An empty text or an unchosen select (`''`) is an
+ * absent value, so it is reported as «Обязательное поле», not as a bad format. As the React app's `wireSchema`. */
+export function wireSchema<F>(
+  shared: ZodTypeAny,
+  toWire: (values: F) => unknown,
+  /** Form-only checks before the body is built (e.g. text that must parse as JSON): field → i18n key. */
+  precheck?: (values: F) => Record<string, string>,
+) {
+  return z.custom<F>().transform((values, ctx) => {
+    // Form checks and the shared schema both report (one message per field, the form check first).
+    const early = Object.entries(precheck?.(values) ?? {});
+    const marked = new Set(early.map(([path]) => path));
+    for (const [path, message] of early) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+    const wire = toWire(values) as Record<string, unknown>;
+    const body = Object.fromEntries(Object.entries(wire).filter(([, v]) => v !== '' && v !== undefined));
+    const res = shared.safeParse(body);
+    if (res.success && early.length === 0) return res.data as unknown;
+    for (const issue of res.success ? [] : res.error.issues) {
+      const path = issue.path.slice(0, 1);
+      if (marked.has(String(path[0]))) continue;
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: issue.message });
+    }
+    return z.NEVER;
+  });
 }

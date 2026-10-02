@@ -134,6 +134,16 @@ class Cache {
     return Promise.all(runs).then(() => undefined);
   }
 
+  /** Forgets every answer under `prefix` without asking again (a deleted record: its screen is being left). */
+  forget(prefix: Key): void {
+    for (const k of [...this.#entries.keys()]) if (under(k, prefix)) this.#entries.delete(k);
+    for (const [k, run] of [...this.#inflight])
+      if (under(k, prefix)) {
+        run.stale = true;
+        this.#inflight.delete(k);
+      }
+  }
+
   /** Forgets everything: a session started or ended (the previous person's late writes and retries are dropped). */
   clear(): void {
     this.#generation += 1;
@@ -174,6 +184,8 @@ export class Query<T> {
   data = $state<T | null>(null);
   failed = $state(false);
   fetching = $state(false);
+  /** The error of the last failed load of the current key (e.g. a list 400: «Сбросить фильтры»), else null. */
+  error = $state<unknown>(null);
   #current: string | null = null;
   #currentKey: Key | null = null;
   /** Key whose answer `data` holds (`null`: nothing, or the previous key's rows as a placeholder). */
@@ -196,6 +208,7 @@ export class Query<T> {
     if (key === null) return;
     const cached = cache.entry<T>(key, this.#options.freshMs ?? FRESH_MS);
     this.failed = false;
+    this.error = null;
     if (cached) {
       this.data = cached.data;
       this.#shown = this.#current;
@@ -243,12 +256,14 @@ export class Query<T> {
       this.data = answer;
       this.#shown = k;
       this.failed = false;
+      this.error = null;
     } catch (e) {
       if (!mine() || e instanceof SessionEnded) return;
       // rows of another key are never shown as this key's (FM21); rows of this key survive a failed refetch — with
       // the screen's failed toast (FM24)
       if (this.#shown !== k) this.data = null;
       this.failed = this.data === null;
+      this.error = e;
       if (!this.failed && this.#options.failed)
         toasts.push({
           tone: e instanceof ApiProblem && e.status === 429 ? 'attention' : 'danger',
