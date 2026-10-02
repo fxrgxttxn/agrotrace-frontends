@@ -239,13 +239,17 @@ export function RecallTasksPage() {
     setMessage(null);
     alert.clear();
     try {
-      await idempotent({ id: task.id, version: task.version }, (key) =>
-        call<Task>(
-          api.POST('/recall-tasks/{id}/confirm', {
-            params: { path: { id: task.id }, header: { 'If-Match': task.version, 'Idempotency-Key': key } },
-            body: {},
-          }),
-        ),
+      await idempotent(
+        { id: task.id, version: task.version },
+        (key) =>
+          call<Task>(
+            api.POST('/recall-tasks/{id}/confirm', {
+              params: { path: { id: task.id }, header: { 'If-Match': task.version, 'Idempotency-Key': key } },
+              body: {},
+            }),
+          ),
+        // one key per task: confirming B in between does not drop A's key (BR-11)
+        task.id,
       );
       close();
       reread();
@@ -946,10 +950,13 @@ function BatchPicker({
   value,
   error,
   onChange,
+  onPending,
 }: {
   value: string;
   error?: string;
   onChange: (batch: { id: string; code: string } | null) => void;
+  /** The batch of the link is being read (its code is not known yet: nothing may be confirmed). */
+  onPending: (pending: boolean) => void;
 }) {
   const { api } = useSession();
   const [query, setQuery] = useState('');
@@ -962,6 +969,15 @@ function BatchPicker({
     retry: retryTransient,
   });
   const report = linked.data;
+  const pending = linked.isPending && linked.fetchStatus !== 'idle';
+  useEffect(() => onPending(pending), [pending, onPending]);
+  // The batch of the link could not be read: said on the field (another batch can still be searched by its code).
+  const linkError =
+    value !== '' && picked?.value !== value && linked.isError
+      ? notFound(linked.error)
+        ? t('validation.notFound')
+        : t('recalls.new.batchFailed')
+      : undefined;
   useEffect(() => {
     if (report && report.id === value) {
       setQuery(report.publicCode);
@@ -984,7 +1000,7 @@ function BatchPicker({
     meta: b.product.name,
   }));
   return (
-    <Field id="recall-batch" label={t('recalls.new.batch')} error={error}>
+    <Field id="recall-batch" label={t('recalls.new.batch')} error={error ?? linkError}>
       <Combobox
         listLabel={t('recalls.new.batch')}
         query={query}
@@ -1023,6 +1039,7 @@ export function RecallNewPage() {
     ['sourceBatchId', 'reason', 'blockUpstream'],
   );
   const [code, setCode] = useState('');
+  const [linkPending, setLinkPending] = useState(false);
   const [confirming, setConfirming] = useState<NewRecall | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -1062,6 +1079,12 @@ export function RecallNewPage() {
 
   const submit = form.handleSubmit(
     (v) => {
+      // The confirmation repeats the code of the batch: never opened before that code is known (the batch of the link
+      // still being read, or its read failed — the field says so).
+      if (!code) {
+        if (!linkPending) document.getElementById('recall-batch')?.focus();
+        return;
+      }
       setMessage(null);
       setConfirming(v);
     },
@@ -1080,6 +1103,7 @@ export function RecallNewPage() {
             <BatchPicker
               value={sourceBatchId}
               error={errorOf(form, 'sourceBatchId')}
+              onPending={setLinkPending}
               onChange={(b) => {
                 setCode(b?.code ?? '');
                 form.setValue('sourceBatchId', b?.id ?? '', { shouldValidate: form.formState.isSubmitted });
@@ -1090,7 +1114,7 @@ export function RecallNewPage() {
             </Field>
             <Checkbox {...form.register('blockUpstream')}>{t('recalls.new.blockUpstream')}</Checkbox>
             <div>
-              <Submit busy={busy && !confirming} wait={wait}>
+              <Submit busy={(busy && !confirming) || linkPending} wait={wait}>
                 {t('recalls.new.submit')}
               </Submit>
             </div>
@@ -1098,7 +1122,7 @@ export function RecallNewPage() {
         </CardBody>
       </Card>
       <CodeConfirmDialog
-        open={confirming !== null}
+        open={confirming !== null && code !== ''}
         title={t('recalls.new.confirmTitle', { code })}
         text={
           <>

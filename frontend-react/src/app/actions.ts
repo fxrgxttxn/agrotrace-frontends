@@ -14,7 +14,8 @@ const ANSWER_MS = 500;
 let inputAt = -Infinity;
 let ownAnswerAt = -Infinity;
 let passiveAt = -Infinity;
-let passive = false;
+/** Passive marks still open (nested or several in one task: a counter, so the last one to end closes it). */
+let passiveDepth = 0;
 
 const now = () => performance.now();
 
@@ -25,14 +26,13 @@ export function noteInput(): void {
 
 /** Runs `fn` (an invalidation of a live event): the requests it starts are passive, not the person's. */
 export function runPassive(fn: () => void): void {
-  const was = passive;
-  passive = true;
+  passiveDepth++;
   try {
     fn();
   } finally {
     // The query functions start their requests after a microtask or two: the mark lasts until the next task.
     setTimeout(() => {
-      passive = was;
+      passiveDepth--;
     }, 0);
   }
 }
@@ -48,7 +48,7 @@ export function rescueWindow(): boolean {
 /** Runs a request, counting it to the person's action when it starts within one (chained requests included). */
 export async function trackRequest<T>(run: () => Promise<T>): Promise<T> {
   const t = now();
-  const wasPassive = passive;
+  const wasPassive = passiveDepth > 0;
   const own = !wasPassive && (t - inputAt < START_MS || t - ownAnswerAt < CHAIN_MS);
   try {
     return await run();

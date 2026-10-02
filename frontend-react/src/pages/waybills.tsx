@@ -1224,7 +1224,7 @@ function RejectDialog({
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [wait, startWait] = useCountdown();
-  const matches = number.trim().toUpperCase() === waybill.number;
+  const matches = waybill.number !== '' && number.trim().toUpperCase() === waybill.number;
   const confirmRef = useFocusAfterWait(wait);
   // What was typed lives only while the dialog is open (a failure keeps it); any close clears it, so a reopened
   // dialog asks for the number again.

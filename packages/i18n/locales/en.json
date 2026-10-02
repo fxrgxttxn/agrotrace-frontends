@@ -886,7 +886,8 @@
       "confirmText": "The batch and every batch derived from it become «Recalled»; their holders get 24-hour withdrawal tasks.",
       "confirmUpstream": "The source batches are recalled too.",
       "started": "Recall of batch {code} started",
-      "existing": "Batch {code} already has an open recall — it is shown."
+      "existing": "Batch {code} already has an open recall — it is shown.",
+      "batchFailed": "The batch did not load — find it by its code."
     }
   },
   "recallTasks": {

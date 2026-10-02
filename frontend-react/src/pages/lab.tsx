@@ -940,7 +940,7 @@ function FailDialog({
   const [code, setCode] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const confirmRef = useFocusAfterWait(wait);
-  const matches = code.trim().toUpperCase() === test.batch.publicCode;
+  const matches = test.batch.publicCode !== '' && code.trim().toUpperCase() === test.batch.publicCode;
   useEffect(() => {
     if (open) return;
     setCode('');

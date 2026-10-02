@@ -36,7 +36,8 @@ export function CodeConfirmDialog({
 }) {
   const [typed, setTyped] = useState('');
   const confirmRef = useFocusAfterWait(wait);
-  const matches = typed.trim().toUpperCase() === code.toUpperCase();
+  // An unknown code (empty) never matches: an empty field must not confirm an irreversible action.
+  const matches = code.trim() !== '' && typed.trim().toUpperCase() === code.trim().toUpperCase();
   useEffect(() => {
     if (!open) setTyped('');
   }, [open]);

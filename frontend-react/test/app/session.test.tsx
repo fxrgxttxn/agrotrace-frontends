@@ -203,6 +203,22 @@ describe('session loss and logout', () => {
     other.close();
   });
 
+  it('a logout in another tab while this one is still restoring: the late /me never signs it in (FM32)', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(contractResponse('getMe', { onRequest: () => held }));
+    const { router } = renderApp('/batches');
+    await new Promise((r) => setTimeout(r, 50));
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Вход' })).toBeInTheDocument();
+    release();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole('heading', { level: 1, name: 'Партии' })).toBeNull();
+    expect(router.state.location.pathname).toBe('/login');
+    other.close();
+  });
+
   it('a logout in another tab ends this session', async () => {
     const { router } = renderApp('/batches');
     await screen.findByRole('heading', { level: 1, name: 'Партии' });

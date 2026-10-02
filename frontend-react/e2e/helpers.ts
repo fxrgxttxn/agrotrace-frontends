@@ -11,34 +11,46 @@ export interface Watch {
   problems: string[];
   /** `signIn` met the login-ip limit (429) and waited it out: that answer is expected then. */
   loginRetried?: boolean;
+  /** Moments (ms) of main-frame navigations and of event-stream 503s (see `unexpected`). */
+  navAt: number[];
+  streamDropAt: number[];
 }
 
 const LOGIN_LIMITED = /^http 429 POST \/api\/v1\/auth\/login$/;
 
-/** Answers that are expected, not defects: the anonymous start-up refresh (401); on the mock stand, an event-stream
- * reconnect of a document that is being left by a full page load (the MSW worker no longer serves a closing client,
- * so that request reaches the gateway, which answers 503; the new document opens its own stream through the worker). */
-export const EXPECTED = [
-  /^http 401 POST \/api\/v1\/auth\/refresh$/,
-  /^http 503 GET \/api\/v1\/events\/stream$/,
-];
+/** Answers that are expected, not defects: the anonymous start-up refresh (401). */
+export const EXPECTED = [/^http 401 POST \/api\/v1\/auth\/refresh$/];
+
+const STREAM_503 = 'http 503 GET /api/v1/events/stream';
+/** A full page load this close to an event-stream 503 explains it (mock stand): the document being left reconnects its
+ * stream while the MSW worker no longer serves that closing client, so the request reaches the gateway (503); the new
+ * document opens its own stream through the worker. A 503 with no navigation around it is a defect. */
+const NAV_WINDOW_MS = 2000;
 
 export function unexpected(w: Watch, alsoExpected: RegExp[] = []): string[] {
   const allowed = [...EXPECTED, ...alsoExpected, ...(w.loginRetried ? [LOGIN_LIMITED] : [])];
-  return w.problems.filter(
+  const unexplained = w.streamDropAt
+    .filter((at) => !w.navAt.some((n) => Math.abs(n - at) <= NAV_WINDOW_MS))
+    .map(() => STREAM_503);
+  return [...w.problems, ...unexplained].filter(
     (p) => !/^console: Failed to load resource/.test(p) && !allowed.some((re) => re.test(p)),
   );
 }
 
 export async function watch(page: Page): Promise<Watch> {
-  const w: Watch = { problems: [] };
+  const w: Watch = { problems: [], navAt: [], streamDropAt: [] };
+  page.on('framenavigated', (f) => {
+    if (f === page.mainFrame()) w.navAt.push(Date.now());
+  });
   page.on('console', (m) => {
     if (m.type() === 'error') w.problems.push(`console: ${m.text()}`);
   });
   page.on('pageerror', (e) => w.problems.push(`pageerror: ${e.message}`));
   page.on('response', (r) => {
-    if (r.status() >= 400)
-      w.problems.push(`http ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`);
+    if (r.status() < 400) return;
+    const line = `http ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`;
+    if (line === STREAM_503) w.streamDropAt.push(Date.now());
+    else w.problems.push(line);
   });
   await page.addInitScript(() => {
     document.addEventListener('securitypolicyviolation', (e) => {

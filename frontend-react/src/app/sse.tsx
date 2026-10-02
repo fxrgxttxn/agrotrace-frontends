@@ -97,6 +97,9 @@ export function LiveEventsProvider({
           detail: notificationMessage(n.type, payload, 'body', t),
         });
         invalidateEvenInFlight(queryClient, ['notifications']);
+        // The screens the event is about read again (a recall closed by the last confirmation, a new task, a
+        // complaint): the registry, the card and the task list change without a reload.
+        for (const key of LIVE_KEYS[n.type] ?? []) invalidateEvenInFlight(queryClient, [key]);
       }
     },
     { EventSourceImpl },
@@ -105,6 +108,17 @@ export function LiveEventsProvider({
   const value = useMemo(() => ({ count: unread, set: setUnread }), [unread]);
   return <UnreadContext.Provider value={value}>{children}</UnreadContext.Provider>;
 }
+
+/** Cache keys a notification type makes stale (besides the notification lists). */
+const LIVE_KEYS: Record<string, readonly string[]> = {
+  RECALL: ['recalls', 'recall', 'recallTasks', 'batches', 'batch'],
+  RECALL_TASK: ['recallTasks', 'recall', 'recalls'],
+  OVERDUE: ['recallTasks', 'recall', 'recalls'],
+  COMPLAINT: ['complaints', 'complaint'],
+  LAB_ASSIGNED: ['labTests'],
+  LAB_RESULT: ['labTests', 'batch'],
+  WAYBILL_INCOMING: ['waybills'],
+};
 
 /** Invalidates the lists; a fetch already on its way began before the event, so its answer is marked stale when it
  * arrives (FM25) — shown now, asked again on the next view (at once if on screen). */

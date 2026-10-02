@@ -149,17 +149,26 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     [queryClient],
   );
 
+  // FM32/FM28: a restore is bound to its own run — a logout broadcast, a sign-in or another restore while it waits
+  // (refresh, /me) makes its late answers void: they never turn the tab into a signed-in one.
+  const restoreRun = useRef(0);
   const restore = useCallback(async () => {
+    const run = ++restoreRun.current;
+    const current = () => restoreRun.current === run;
     booting.current = true;
     dispatch({ type: 'loading' });
     try {
       const token = store.get() ?? (await api.refresh());
+      if (!current()) return;
       if (!token) {
         dispatch({ type: 'anonymous' });
         return;
       }
-      becomeAuthenticated(await loadMe());
+      const me = await loadMe();
+      if (!current()) return;
+      becomeAuthenticated(me);
     } catch (e) {
+      if (!current()) return;
       // R61: a network error, a 5xx or a rate limit (429 of /auth/refresh or /me) is not a logout — the session is kept
       // and a retry is offered (after Retry-After for a 429) instead of the login screen.
       if (e instanceof ApiProblem && e.status === 429)
@@ -175,7 +184,7 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
         dispatch({ type: 'anonymous' });
       }
     } finally {
-      booting.current = false;
+      if (current()) booting.current = false;
     }
   }, [api, store, loadMe, becomeAuthenticated]);
 
@@ -228,6 +237,13 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
         // from another tab; it neither ends a session nor leaves its screen.
         if (!authed.current) {
           store.set(null);
+          // A restore still waiting (refresh, /me) belongs to the session that just ended: it is voided and the tab
+          // ends anonymous where it is (no generation bump, no navigation — FM32).
+          if (booting.current) {
+            restoreRun.current++;
+            booting.current = false;
+            dispatch({ type: 'anonymous' });
+          }
           return;
         }
         endLocally(true);
@@ -248,6 +264,8 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     (result: LoginSuccess) => {
       // A new session starts on an empty cache (FM24: nothing of a previous person, their late writes dropped).
       resetSessionCache(queryClient);
+      restoreRun.current++; // a restore still waiting never replaces the person who just signed in
+      booting.current = false;
       store.set(result.accessToken);
       becomeAuthenticated(result.user as Me);
     },

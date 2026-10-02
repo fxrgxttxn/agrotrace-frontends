@@ -5,7 +5,9 @@ import { http, HttpResponse } from 'msw';
 import { server } from '../setup';
 import { API_BASE, contractExample, contractResponse, type Json } from '../msw/fromContract';
 import { asMe, pageOf, problem, toastText } from '../msw/data';
-import { renderApp } from '../app/renderApp';
+import { FakeEventSource, renderApp } from '../app/renderApp';
+import { render } from '@testing-library/react';
+import { CodeConfirmDialog } from '../../src/app/CodeConfirm';
 
 // Recalls (БП-5, FR-QA-06/07, BR-08, BR-10) on the contract's MSW handlers: the holder's withdrawal tasks with the
 // timer to the deadline and «Изъято» (a dialog repeating the batch code, If-Match, one Idempotency-Key per intended
@@ -186,6 +188,43 @@ describe('/recall-tasks', () => {
     expect(toastText()).toContain('Задача больше не ваша (держатель изменился): список обновлён.');
   });
 
+  it('each task keeps its own Idempotency-Key: A failed, B tried, A again repeats the key of A (BR-11)', async () => {
+    const B_ID = 'aa6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e';
+    const b = task({
+      id: B_ID,
+      batch: {
+        ...(task().batch as Json),
+        id: 'ab5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d',
+        publicCode: 'AT-2026-000458',
+      },
+    });
+    const keys: { id: string; key: string }[] = [];
+    server.use(
+      contractResponse('listRecallTasks', {
+        body: pageOf([task({ dueAt: dueSoon() }), { ...b, dueAt: dueSoon() }]),
+      }),
+      http.post(`${API_BASE}/recall-tasks/:id/confirm`, ({ request, params }) => {
+        keys.push({ id: params.id as string, key: request.headers.get('Idempotency-Key')! });
+        return HttpResponse.error();
+      }),
+    );
+    await open('/recall-tasks', 'Задачи отзыва');
+    const attempt = async (code: string) => {
+      await userEvent.click(await screen.findByRole('button', { name: `Изъято: ${code}` }));
+      const dialog = await screen.findByRole('dialog', { name: `Изъятие партии ${code}` });
+      await userEvent.type(within(dialog).getByLabelText('Код партии для подтверждения'), code);
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Подтвердить изъятие' }));
+      await within(dialog).findByRole('alert');
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+    };
+    await attempt('AT-2026-000457');
+    await attempt('AT-2026-000458');
+    await attempt('AT-2026-000457');
+    expect(keys.map((k) => k.id)).toEqual([task().id, B_ID, task().id]);
+    expect(keys[2]!.key).toBe(keys[0]!.key);
+    expect(keys[1]!.key).not.toBe(keys[0]!.key);
+  });
+
   it('an empty active list offers every task; «Все» is the explicit status=all', async () => {
     const seen: URLSearchParams[] = [];
     server.use(
@@ -302,6 +341,28 @@ describe('/recalls/:id', () => {
     expect(screen.queryByText(/^осталось|^просрочено на/)).toBeNull();
   });
 
+  it('a recall notification (another tab confirmed the last task, the recall closed) reads the card again', async () => {
+    let reads = 0;
+    server.use(
+      asInspector(),
+      contractResponse('getRecall', {
+        body: recall({ tasks: [task({ dueAt: dueSoon() })] }),
+        onRequest: () => void reads++,
+      }),
+    );
+    await open(`/recalls/${RECALL_ID}`, 'Отзыв AT-2026-000123');
+    const before = reads;
+    await waitFor(() => expect(FakeEventSource.last).toBeDefined());
+    FakeEventSource.last!.emit('notification', {
+      id: 99,
+      type: 'RECALL',
+      payload: { event: 'CLOSED', publicCode: 'AT-2026-000123', recallId: RECALL_ID },
+      readAt: null,
+      createdAt: new Date().toISOString(),
+    });
+    await waitFor(() => expect(reads).toBeGreaterThan(before));
+  });
+
   it('404: not found with a way back to the registry', async () => {
     server.use(
       asInspector(),
@@ -391,6 +452,67 @@ describe('/recalls/new', () => {
     await userEvent.click((await within(list).findAllByRole('option'))[0]!);
     expect(q).toBe('000123');
     expect(screen.getByRole('combobox', { name: 'Исходная партия' })).toHaveValue(BATCH.publicCode);
+  });
+
+  it('while the batch of the link is still read, nothing can be confirmed (its code is not known yet)', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    let posts = 0;
+    server.use(
+      asInspector(),
+      contractResponse('getBatch', { onRequest: () => held }),
+      contractResponse('createRecall', { status: 201, onRequest: () => void posts++ }),
+    );
+    await open(`/recalls/new?batchId=${BATCH.id}`, 'Новый отзыв');
+    await userEvent.type(screen.getByLabelText('Причина'), 'Причина отзыва');
+    await userEvent.click(screen.getByRole('button', { name: 'Запустить отзыв' }));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    release();
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Исходная партия' })).toHaveValue(BATCH.publicCode),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Запустить отзыв' }));
+    const dialog = await screen.findByRole('dialog', { name: `Запустить отзыв партии ${BATCH.publicCode}` });
+    expect(within(dialog).getByRole('button', { name: 'Запустить отзыв' })).toBeDisabled();
+    expect(posts).toBe(0);
+  });
+
+  it('the batch of the link fails to load: said on the field; no confirmation, nothing sent', async () => {
+    let posts = 0;
+    server.use(
+      asInspector(),
+      http.get(`${API_BASE}/batches/:id`, () => HttpResponse.json(problem(500, 'INTERNAL'), { status: 500 })),
+      contractResponse('createRecall', { status: 201, onRequest: () => void posts++ }),
+    );
+    await open(`/recalls/new?batchId=${BATCH.id}`, 'Новый отзыв');
+    expect(
+      await screen.findByText('Партия не загрузилась — найдите её по коду.', {}, { timeout: 10000 }),
+    ).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Причина'), 'Причина отзыва');
+    await userEvent.click(screen.getByRole('button', { name: 'Запустить отзыв' }));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Исходная партия' })).toHaveFocus();
+    expect(posts).toBe(0);
+  });
+
+  it('the code dialog never confirms with an unknown (empty) code', () => {
+    render(
+      <CodeConfirmDialog
+        open
+        title="x"
+        text={null}
+        code=""
+        confirmLabel="Запустить отзыв"
+        busy={false}
+        wait={0}
+        message={null}
+        onClose={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Запустить отзыв' })).toBeDisabled();
   });
 
   it('400 on the batch (gone meanwhile): said on the field, the dialog closes', async () => {

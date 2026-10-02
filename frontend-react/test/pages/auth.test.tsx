@@ -599,4 +599,21 @@ describe('anonymous tabs and late answers (FM30, FM32)', () => {
     await waitFor(() => expect(politeText()).toBe('Пароль изменён — войдите с новым паролем'));
     expect(router.state.location.pathname).toBe('/register');
   });
+
+  it('an invitation accepted after the person left: the success is said, no navigation (FM29/FM30)', async () => {
+    guest();
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(contractResponse('acceptInvite', { onRequest: () => held }));
+    const { router } = renderApp(`/invite/${TOKEN}`);
+    await screen.findByRole('heading', { level: 1, name: 'Приглашение' });
+    await userEvent.type(screen.getByLabelText('ФИО'), 'Сидорова Анна');
+    await userEvent.type(screen.getByLabelText('Пароль'), 'invite-password-2026');
+    await userEvent.click(screen.getByRole('button', { name: 'Принять приглашение' }));
+    await router.navigate('/register');
+    await screen.findByRole('heading', { level: 1, name: 'Регистрация организации' });
+    release();
+    await waitFor(() => expect(politeText()).toBe('Приглашение принято — войдите'));
+    expect(router.state.location.pathname).toBe('/register');
+  });
 });
