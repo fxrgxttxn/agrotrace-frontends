@@ -237,17 +237,33 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
   it('e2e [front] [back] [args]: the shared suite with FRONT/BACK, the gateway and the Playwright args', () => {
     const e2e = (args: string[], env: Record<string, string> = {}) =>
       plus(sh(['./at', 'e2e', ...args], { AT_DRY_RUN: '1', ...env }).out);
-    const cmd = (front: string, back: string, gw: string, rest = '', compose = 'docker compose', svc = 'playwright') =>
+    const cmd = (
+      front: string,
+      back: string,
+      gw: string,
+      rest = '',
+      compose = 'docker compose',
+      svc = 'playwright',
+    ) =>
       `+ ${compose} run --rm -e FRONT=${front} -e BACK=${back} -e GATEWAY_HOST=${gw} -e GATEWAY_PORT=80 ` +
       `-w //repo/tests/e2e ${svc} npx --no-install playwright test${rest}`;
     expect(sh(['./at', 'help']).out.trim().split('\n')).toContain('e2e');
     // Defaults react × mock; an option first is a Playwright argument, never taken for the front or the back.
     expect(e2e([])).toEqual([cmd('react', 'mock', 'gateway-react')]);
     expect(e2e(['--grep', 'UC-02'])).toEqual([cmd('react', 'mock', 'gateway-react', ' --grep UC-02')]);
-    expect(e2e(['svelte', '--grep', 'UC-03'])).toEqual([cmd('svelte', 'mock', 'gateway-svelte', ' --grep UC-03')]);
+    expect(e2e(['svelte', '--grep', 'UC-03'])).toEqual([
+      cmd('svelte', 'mock', 'gateway-svelte', ' --grep UC-03'),
+    ]);
     // The Angular stand has its own network: its Playwright service runs there.
     expect(e2e(['angular', 'mock', 'visual.spec.ts'])).toEqual([
-      cmd('angular', 'mock', 'gateway-angular', ' visual.spec.ts', 'docker compose -f docker-compose.angular-dev.yml', 'playwright-angular'),
+      cmd(
+        'angular',
+        'mock',
+        'gateway-angular',
+        ' visual.spec.ts',
+        'docker compose -f docker-compose.angular-dev.yml',
+        'playwright-angular',
+      ),
     ]);
     // No stand of the front running: the main gateway; GATEWAY_HOST always wins.
     expect(e2e(['svelte', 'django'], { AT_DRY_STAND: '0' })).toEqual([cmd('svelte', 'django', 'gateway')]);

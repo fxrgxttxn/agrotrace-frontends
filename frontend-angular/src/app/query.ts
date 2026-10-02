@@ -125,6 +125,11 @@ export class QueryCache {
     for (const k of this.inflight.keys()) if (k.startsWith(prefix)) this.staleOnArrival.add(k);
   }
 
+  /** Drops `key` (a deleted record: never shown or asked for again from the cache). */
+  remove(key: string): void {
+    this.entries.delete(key);
+  }
+
   clear(): void {
     this.gen++;
     this.entries.clear();
@@ -144,6 +149,8 @@ export interface Query<T> {
   readonly data: Signal<T | null>;
   /** The last load of the current key failed and there is nothing of this key to show. */
   readonly failed: Signal<boolean>;
+  /** The error of the last failed load of the current key (`null` — none): a 404 or a 400 tells the screen what to say. */
+  readonly error: Signal<unknown>;
   /** A request is running (the rows on screen may be stale: `aria-busy`). */
   readonly fetching: Signal<boolean>;
   /** A writer for the result of a change, bound to the session and key of this moment — call it when the change
@@ -161,13 +168,14 @@ export interface QueryOptions {
 }
 
 /** A query for a screen (create it in an injection context). `spec` is read in a reactive context: a new key shows the
- * cache (fresh — no request; stale — shown while asked for again) or loads. */
-export function injectQuery<T>(spec: () => QuerySpec<T>, options: QueryOptions = {}): Query<T> {
+ * cache (fresh — no request; stale — shown while asked for again) or loads; `null` — nothing to ask for now. */
+export function injectQuery<T>(spec: () => QuerySpec<T> | null, options: QueryOptions = {}): Query<T> {
   const cache = inject(QueryCache);
   const toasts = inject(ToastService);
   const freshMs = options.freshMs ?? FRESH_MS;
   const data = signal<T | null>(null);
   const failed = signal(false);
+  const error = signal<unknown>(null);
   const fetching = signal(false);
   /** Key whose answer `data` holds (`null`: nothing, or the previous key's rows as a placeholder). */
   let shownKey: string | null = null;
@@ -193,10 +201,12 @@ export function injectQuery<T>(spec: () => QuerySpec<T>, options: QueryOptions =
       shownKey = s.key;
       failed.set(false);
       dropToast();
+      error.set(null);
       // invalidated while it was on its way (FM25): shown, and asked for again at once — the screen is on
       again = cache.read(s.key, freshMs)?.fresh === false;
-    } catch {
+    } catch (e) {
       if (!alive || s !== current) return;
+      error.set(e);
       if (shownKey === s.key) {
         // stale rows of this key stay; the failure is said (FM24)
         if (options.failedText) {
@@ -216,10 +226,22 @@ export function injectQuery<T>(spec: () => QuerySpec<T>, options: QueryOptions =
 
   effect(
     () => {
-      const s = spec();
+      const next = spec();
       untracked(() => {
+        if (next === null) {
+          // nothing to ask for now (a tab that is not shown): no rows, no request
+          current = { key: '', load: () => Promise.reject(new Error('no query')) };
+          shownKey = null;
+          data.set(null);
+          failed.set(false);
+          error.set(null);
+          fetching.set(false);
+          return;
+        }
+        const s = next;
         current = s;
         failed.set(false);
+        error.set(null);
         const cached = cache.read<T>(s.key, freshMs);
         if (cached) {
           data.set(cached.data);
@@ -238,6 +260,7 @@ export function injectQuery<T>(spec: () => QuerySpec<T>, options: QueryOptions =
   return {
     data: data.asReadonly(),
     failed: failed.asReadonly(),
+    error: error.asReadonly(),
     fetching: fetching.asReadonly(),
     writer: () => {
       const s = current;
@@ -247,9 +270,11 @@ export function injectQuery<T>(spec: () => QuerySpec<T>, options: QueryOptions =
         data.set(value);
         shownKey = s.key;
         failed.set(false);
+        error.set(null);
       };
     },
     refetch: () => {
+      if (current.key === '') return Promise.resolve();
       cache.invalidate(current.key);
       return run(current);
     },

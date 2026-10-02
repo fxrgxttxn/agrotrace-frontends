@@ -253,7 +253,7 @@ export class TableMobileBarComponent<T> {
 
 /** Primary cell content: a mono code link and an optional sub line. */
 @Component({
-  selector: 'span.at-table__primary',
+  selector: 'span.at-table__primary[code]',
   standalone: true,
   imports: [LinkDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,

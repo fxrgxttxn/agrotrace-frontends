@@ -33,6 +33,7 @@
             "sourceMap": false,
             "outputHashing": "all",
             "extractLicenses": false,
+            "allowedCommonJsDependencies": ["cytoscape-dagre"],
             "budgets": [
               { "type": "initial", "maximumWarning": "400kb", "maximumError": "1mb" },
               { "type": "anyComponentStyle", "maximumWarning": "4kb", "maximumError": "8kb" }
@@ -48,7 +49,7 @@
               "tsConfig": "tsconfig.mock.json",
               "fileReplacements": [{ "replace": "src/mock.ts", "with": "src/mock.mock.ts" }],
               "loader": { ".svg": "file", ".webp": "file", ".ttf": "file" },
-              "allowedCommonJsDependencies": ["saxes", "xmlchars"]
+              "allowedCommonJsDependencies": ["cytoscape-dagre", "saxes", "xmlchars"]
             },
             "development": {
               "optimization": false,

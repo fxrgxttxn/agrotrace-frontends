@@ -86,7 +86,11 @@ describe('shell markup = README «Каркас» (production DOM)', () => {
 
   it('page header of a routed page: h1 with tabindex="-1"', async () => {
     await shell('/batches');
-    const header = document.querySelector('.at-shell__main > .at-page > .at-page__header')!;
+    const header = document
+      .querySelector('.at-shell__main > .at-page > .at-page__header')!
+      .cloneNode(true) as HTMLElement;
+    // (the page's own actions are not the shell's markup)
+    header.querySelector('.at-page__actions')?.remove();
     expect(canonical([header])).toBe(
       canonicalHtml(
         '<div class="at-page__header"><h1 class="at-page__title" tabindex="-1">Партии</h1></div>',

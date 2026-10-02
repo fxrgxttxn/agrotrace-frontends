@@ -135,6 +135,8 @@ function build(values: Record<string, unknown>): FormGroup {
 export interface SchemaFormOptions<V> {
   /** The request body of the values (default: the values as they are). */
   toWire?: (values: V) => unknown;
+  /** Server error paths onto form fields (`geometry.coordinates[0]` → `geometry`). */
+  alias?: (path: string) => string;
 }
 
 /** A form on a shared schema: the Reactive Forms group (validated by {@link zodValidator}), the error texts the
@@ -155,6 +157,7 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
   private readonly injector = inject(Injector);
   private readonly alive = injectAlive();
   private readonly toWire: (values: V) => unknown;
+  private readonly alias: ((path: string) => string) | undefined;
   private formEl: HTMLElement | null = null;
 
   constructor(
@@ -165,6 +168,7 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
     options: SchemaFormOptions<V> = {},
   ) {
     this.toWire = options.toWire ?? ((v) => v);
+    this.alias = options.alias;
     this.group = build(defaults) as FormGroup<Controls<V>>;
     this.group.addValidators(zodValidator(schema, this.toWire as (v: never) => unknown));
     this.group.updateValueAndValidity();
@@ -196,6 +200,12 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
     return c;
   }
 
+  /** The current value of a field (reactive: read in templates / computed). */
+  valueOf<T = unknown>(path: string): T {
+    this.version();
+    return this.control(path).value as T;
+  }
+
   /** Translated error text of a field (`null` — none). */
   errorOf(path: string): string | null {
     this.version();
@@ -211,6 +221,21 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
     if (!this.alive()) return;
     this.server.update((s) => ({ ...s, [path]: message }));
     focusFirstInvalid(this.formEl, this.injector);
+  }
+
+  /** Puts (or with `null` removes) a check of the field itself — a typed date that is not a date — without moving
+   * the focus (shown at once, like a server error; it goes when the field changes). */
+  fieldError(path: string, message: string | null): void {
+    if (message === null) this.clearError(path);
+    else this.server.update((s) => ({ ...s, [path]: message }));
+  }
+
+  /** Removes the server / import error of a field. */
+  clearError(path: string): void {
+    if (!(path in untracked(this.server))) return;
+    const rest = { ...untracked(this.server) };
+    delete rest[path];
+    this.server.set(rest);
   }
 
   /** Back to `values` (after a successful save): no errors shown until the next submit. */
@@ -250,6 +275,7 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
       alert: this.alert.show,
       onRateLimit: this.startWait,
       fields: this.fields,
+      alias: this.alias,
       mark: (marks) => {
         this.server.set(marks);
         focusFirstInvalid(this.formEl, this.injector);
@@ -265,6 +291,8 @@ export interface ApplyOptions {
   fields?: readonly string[];
   /** Shows server errors under fields (path → i18n key). */
   mark?: (errors: Record<string, string>) => void;
+  /** A server error path → the form field it belongs to. */
+  alias?: ((path: string) => string) | undefined;
 }
 
 /** Puts a failed request on a form or an action: field errors, a form-level message, or the rate-limit countdown. */
@@ -274,7 +302,8 @@ export function applyProblem(e: unknown, o: ApplyOptions): void {
     const rest: string[] = [];
     const fields = o.fields ?? [];
     const marks: Record<string, string> = {};
-    for (const [path, keys] of Object.entries(e.errors)) {
+    for (const [raw, keys] of Object.entries(e.errors)) {
+      const path = o.alias ? o.alias(raw) : raw;
       const key = keys[0];
       if (!key) continue;
       if (o.mark && fields.includes(path)) marks[path] ??= key;
@@ -313,4 +342,43 @@ export class FocusAfterWaitDirective {
       }
     });
   }
+}
+
+/** Form text of a decimal as the wire format wants it: `1,5` → `1.500` for `places` = 3. Anything that is not a plain
+ * number is returned as typed, so the shared schema reports it (`validation.*.format`). */
+export function normalizeDecimal(text: string, places: number): string {
+  const m = /^\s*(\d+)(?:[.,](\d*))?\s*$/.exec(text);
+  if (!m || (m[2] ?? '').length > places) return text;
+  return `${m[1]}.${(m[2] ?? '').padEnd(places, '0')}`;
+}
+
+/** A form schema whose values are the form's own (texts, selects) and whose output is the request body (the React
+ * app's `wireSchema`): `toWire` builds the body, the shared schema of @agrotrace/validation checks it, and each issue
+ * is put on the top-level form field its path starts with (`geometry.coordinates.0` → `geometry`). An empty text or an
+ * unchosen select (`''`) is an absent value, so it is reported as «Обязательное поле», not as a bad format.
+ * `precheck` — form-only checks before the body is built (field → i18n key), reported first. */
+export function wireSchema<V>(
+  shared: SchemaLike,
+  toWire: (values: V) => unknown,
+  precheck?: (values: V) => Record<string, string>,
+): SchemaLike {
+  return {
+    safeParse(values: unknown) {
+      const early = Object.entries(precheck?.(values as V) ?? {});
+      const issues: { path: PropertyKey[]; message: string }[] = early.map(([path, message]) => ({
+        path: [path],
+        message,
+      }));
+      const marked = new Set(early.map(([path]) => path));
+      const body = dropEmpty(toWire(values as V) as Record<string, unknown>);
+      const res = shared.safeParse(body);
+      if (res.success && early.length === 0) return { success: true as const, data: res.data };
+      for (const issue of res.success ? [] : res.error.issues) {
+        const path = issue.path.slice(0, 1);
+        if (marked.has(String(path[0]))) continue;
+        issues.push({ path, message: issue.message });
+      }
+      return { success: false as const, error: { issues } };
+    },
+  };
 }

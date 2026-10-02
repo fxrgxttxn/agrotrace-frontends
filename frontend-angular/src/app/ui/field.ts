@@ -20,7 +20,7 @@ export abstract class FieldContext {
  * inside (`at-input`, `at-textarea`, `at-select`, `at-date`, `at-combobox`) take the id / `aria-invalid` /
  * `aria-describedby` from it. */
 @Component({
-  selector: 'div.at-field:not([files])',
+  selector: 'div.at-field:not([files]):not([orgPicker]):not([dateFilter]):not([cellId])',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [{ provide: FieldContext, useExisting: FieldComponent }],
@@ -101,4 +101,27 @@ export class FieldControlDirective {
 })
 export class InputGroupComponent {
   readonly suffix = input.required<string>();
+}
+
+/** A field inside a table cell (README «Таблица»: the declared mass of a waybill row, the used mass of a processing
+ * input): `div.at-field` without a label — the control is named by its own `aria-label`; the error as a field's
+ * (`<id>-error`, `aria-describedby`). The React app's `CellField`. */
+@Component({
+  selector: 'div.at-field[cellId]',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [{ provide: FieldContext, useExisting: CellFieldComponent }],
+  template: `<ng-content />
+    @if (error()) {
+      <p class="at-field__error" [attr.id]="errorId()" role="alert">{{ error() }}</p>
+    }`,
+  host: { '[attr.data-invalid]': "error() ? '' : null" },
+})
+export class CellFieldComponent extends FieldContext {
+  readonly cellId = input.required<string>();
+  readonly error = input<string | null | undefined>(null);
+
+  readonly controlId = computed(() => this.cellId());
+  readonly errorId = computed(() => (this.error() ? `${this.cellId()}-error` : null));
+  readonly invalid = computed(() => Boolean(this.error()));
 }
