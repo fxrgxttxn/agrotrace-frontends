@@ -1,15 +1,18 @@
 import { expect, test, type Page } from '@playwright/test';
-import { shot, signIn, unexpected, watch } from './helpers';
+import { demoCode, fixClock, shot, signIn, unexpected, watch } from './helpers';
 
 // The public QR page (Plan 2 Task 8, FR-PUB-01…03) on the demo world (docs/demo-accounts.md): a batch on sale with
 // its photo credit, a recalled batch, an unknown code, the complaint with ALTCHA reaching the inspector; keyboard only
 // between the two routes. Screenshots 360/1280 light/dark.
 
 const SHOTS = 'task8';
-const ON_SALE = 'AT-2026-000002';
-const RECALLED = 'AT-2026-000012';
+const ON_SALE = demoCode(2);
+const RECALLED = demoCode(12);
+const UNKNOWN = demoCode(999999);
 
 const title = (page: Page) => page.getByRole('heading', { level: 1 });
+
+test.beforeEach(({ page }) => fixClock(page));
 
 test('UC-06: a batch on sale — status, origin, path, lab summary, photo credit', async ({ page }) => {
   const w = await watch(page);
@@ -49,11 +52,11 @@ test('a recalled batch: the large warning first, «do not consume»', async ({ p
 
 test('an unknown code: «not found», no raw error', async ({ page }) => {
   const w = await watch(page);
-  await page.goto('/p/AT-2026-999999');
+  await page.goto(`/p/${UNKNOWN}`);
   await expect(page.getByText('Партия с таким кодом не найдена.')).toBeVisible();
   await expect(title(page)).toHaveText('Партия');
   await shot(page, SHOTS, 'public-not-found');
-  expect(unexpected(w, [/^http 404 GET \/api\/v1\/public\/batches\/AT-2026-999999$/])).toEqual([]);
+  expect(unexpected(w, [new RegExp(`^http 404 GET /api/v1/public/batches/${UNKNOWN}$`)])).toEqual([]);
 });
 
 test('keyboard only: the complaint is sent with ALTCHA and reaches the inspector', async ({ page }) => {

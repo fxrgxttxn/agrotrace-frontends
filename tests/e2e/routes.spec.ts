@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { a11y, horizontalOverflow, settle, signIn, unexpected, watch } from './helpers';
+import { a11y, demoCode, fixClock, horizontalOverflow, settle, signIn, unexpected, watch } from './helpers';
 
 // Every route of spec §9.4 by every demo role (§9.5, ruling F3: menus follow §9.5), each one the head of its
 // organization so /reports and /org/staff are included; anonymous screens and the public QR page. On every route: it
@@ -34,9 +34,11 @@ const FIELDS: Route[] = [
   { to: ['/fields', /^Низинное$/], h1: 'Низинное' },
 ];
 
-const ROLES: Record<string, { email: string; routes: Route[] }> = {
+// The main menu of each role (§9.5, ruling F3), in order; heads add «Сотрудники» and «Отчёты».
+const ROLES: Record<string, { email: string; menu: string[]; routes: Route[] }> = {
   FARMER: {
     email: 'petrov@agrotrace.test',
+    menu: ['Панель', 'Поля', 'Партии', 'Накладные', 'Задачи отзыва', 'Сотрудники', 'Отчёты'],
     routes: [
       ...BASE,
       ...FIELDS,
@@ -50,6 +52,17 @@ const ROLES: Record<string, { email: string; routes: Route[] }> = {
   },
   PROCESSOR: {
     email: 'molkombinat.head@agrotrace.test',
+    menu: [
+      'Панель',
+      'Накладные',
+      'Склад',
+      'Переработка',
+      'Партии',
+      'Печать QR',
+      'Задачи отзыва',
+      'Сотрудники',
+      'Отчёты',
+    ],
     routes: [
       ...BASE,
       ...BATCHES,
@@ -63,6 +76,7 @@ const ROLES: Record<string, { email: string; routes: Route[] }> = {
   },
   LAB: {
     email: 'vetlab.head@agrotrace.test',
+    menu: ['Панель', 'Очередь проб', 'Сотрудники', 'Отчёты'],
     routes: [
       ...BASE,
       { to: '/lab/tests', h1: 'Очередь проб' },
@@ -71,6 +85,7 @@ const ROLES: Record<string, { email: string; routes: Route[] }> = {
   },
   RETAILER: {
     email: 'provizia.head@agrotrace.test',
+    menu: ['Панель', 'Накладные', 'Склад', 'Задачи отзыва', 'Печать QR', 'Партии', 'Сотрудники', 'Отчёты'],
     routes: [
       ...BASE,
       ...BATCHES,
@@ -82,6 +97,17 @@ const ROLES: Record<string, { email: string; routes: Route[] }> = {
   },
   INSPECTOR: {
     email: 'inspector.head@agrotrace.test',
+    menu: [
+      'Панель',
+      'Партии',
+      'Отзывы',
+      'Жалобы',
+      'Поля',
+      'Накладные',
+      'Отчёты',
+      'Журнал аудита',
+      'Сотрудники',
+    ],
     routes: [
       ...BASE,
       { to: '/fields', h1: 'Поля' },
@@ -98,6 +124,7 @@ const ROLES: Record<string, { email: string; routes: Route[] }> = {
   },
   ADMIN: {
     email: 'admin@agrotrace.test',
+    menu: ['Панель', 'Организации', 'Пользователи', 'Справочники', 'Журнал аудита', 'Отчёты', 'Сотрудники'],
     routes: [
       ...BASE,
       { to: '/fields', h1: 'Поля' },
@@ -134,10 +161,15 @@ async function visit(page: Page, route: Route): Promise<string[]> {
   return found;
 }
 
-for (const [role, { email, routes }] of Object.entries(ROLES))
+for (const [role, { email, menu, routes }] of Object.entries(ROLES))
   test(`${role}: every route renders without errors, passes axe and fits 360 px`, async ({ page }) => {
+    await fixClock(page);
     const w = await watch(page);
     await signIn(page, email, w);
+    // The main menu (sidebar at 1280 px) has exactly the role's sections, in order.
+    await settle(page);
+    const nav = page.getByRole('navigation', { name: 'Основное меню' });
+    await expect(nav.getByRole('link').filter({ hasNotText: 'AgroTrace' })).toHaveText(menu);
     const violations: string[] = [];
     for (const route of routes) violations.push(...(await visit(page, route)));
     // A route of another role answers /403 (§9.4).
@@ -151,14 +183,15 @@ for (const [role, { email, routes }] of Object.entries(ROLES))
 test('anonymous: the auth screens, the public QR page and «not found» pass the same checks', async ({
   page,
 }) => {
+  await fixClock(page);
   const w = await watch(page);
   const violations: string[] = [];
   for (const route of [
     { to: '/login', h1: 'Вход' },
     { to: '/password/forgot', h1: 'Восстановление пароля' },
     { to: '/register', h1: 'Регистрация организации' },
-    { to: '/p/AT-2026-000002', h1: 'Молоко пастеризованное 3,2%' },
-    { to: '/p/AT-2026-000002/complaint', h1: 'Сообщить о проблеме' },
+    { to: `/p/${demoCode(2)}`, h1: 'Молоко пастеризованное 3,2%' },
+    { to: `/p/${demoCode(2)}/complaint`, h1: 'Сообщить о проблеме' },
     { to: '/no-such-page', h1: 'Страница не найдена' },
   ] satisfies Route[])
     violations.push(...(await visit(page, route)));

@@ -8,6 +8,22 @@ export const DEMO_PASSWORD = 'agrotrace-demo';
 const FRONT = process.env.FRONT ?? 'react';
 const BACK = process.env.BACK ?? 'mock';
 
+/** The moment docs/demo-accounts.md was generated for. On the mock the browser clock starts there (`fixClock`), so the
+ * world it builds — codes AT-<year>-…, dates, relative times — is the documented one in any year the suite runs. */
+export const DEMO_NOW = new Date('2026-09-20T09:00:00Z');
+
+/** Mock backend: the browser clock (and so the mock's world) starts at DEMO_NOW and runs on; a real backend keeps
+ * its own clock (seeded at `./at reset`). Call before the first navigation. */
+export async function fixClock(page: Page): Promise<void> {
+  if (BACK === 'mock') await page.clock.install({ time: DEMO_NOW });
+}
+
+/** A demo-world batch code by its number: the year is the world's (DEMO_NOW on the mock, the seed year otherwise). */
+export function demoCode(n: number): string {
+  const year = BACK === 'mock' ? DEMO_NOW.getUTCFullYear() : new Date().getUTCFullYear();
+  return `AT-${year}-${String(n).padStart(6, '0')}`;
+}
+
 export interface Watch {
   problems: string[];
   loginRetried?: boolean;

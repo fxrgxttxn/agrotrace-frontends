@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { settle, signIn } from './helpers';
+import { demoCode, fixClock, settle, signIn } from './helpers';
 
 // Visual baselines (Plan 2 Task 9): 12 key screens × light/dark × 360/1280 px, taken from React on the mock world and
 // compared with every other frontend (≤ 1 % of pixels may differ, playwright.config.ts). Deterministic: the browser
@@ -8,7 +8,6 @@ import { settle, signIn } from './helpers';
 // from the browser clock, so the baselines are checked against `mock` only.
 // Update: ./at e2e react mock visual.spec.ts --update-snapshots
 
-const NOW = new Date('2026-09-20T09:00:00Z');
 const CODE = /^AT-\d{4}-\d{6}$/;
 const title = (page: Page) => page.getByRole('heading', { level: 1 });
 
@@ -111,14 +110,14 @@ const SCREENS: { name: string; as?: string; open: (page: Page) => Promise<void> 
   {
     name: 'public-on-sale',
     open: async (page) => {
-      await page.goto('/p/AT-2026-000002');
+      await page.goto(`/p/${demoCode(2)}`);
       await expect(title(page)).toHaveText('Молоко пастеризованное 3,2%');
     },
   },
   {
     name: 'public-recalled',
     open: async (page) => {
-      await page.goto('/p/AT-2026-000012');
+      await page.goto(`/p/${demoCode(12)}`);
       await expect(page.getByRole('heading', { level: 2, name: 'Партия отозвана' })).toBeVisible();
     },
   },
@@ -126,7 +125,7 @@ const SCREENS: { name: string; as?: string; open: (page: Page) => Promise<void> 
 
 for (const screen of SCREENS)
   test(`visual: ${screen.name}`, async ({ page }) => {
-    await page.clock.install({ time: NOW });
+    await fixClock(page);
     if (screen.as) await signIn(page, screen.as);
     await screen.open(page);
     await snap(page, screen.name);

@@ -127,9 +127,9 @@ jobs:
       - uses: ./.github/actions/pnpm-store-restore
       - run: ./at.sh install
       # The mock build carries its backend (@agrotrace/mock-api in the browser): no API container is needed. The
-      # React stand gateway joins the shared network, which only has to exist here.
+      # React stand gateway joins the shared network (created by the compose runs above; created here if not).
       - run: ./at.sh fe:build react --mock
-      - run: docker network create agrotrace_at
+      - run: docker network inspect agrotrace_at >/dev/null 2>&1 || docker network create agrotrace_at
       - run: ./at.sh fe:gateway react
       - run: ./at.sh e2e react mock
       - uses: actions/upload-artifact@v4

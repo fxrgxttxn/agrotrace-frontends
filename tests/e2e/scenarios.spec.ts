@@ -143,7 +143,11 @@ test('UC-02: a farmer registers a harvest and ships it to a processor, who accep
   await expect(title(page)).toHaveText('Новая накладная');
   await page.getByRole('combobox', { name: 'Получатель' }).fill('ООО «Молк');
   await page.getByRole('listbox', { name: 'Получатель' }).getByRole('option').first().click();
-  await page.getByRole('checkbox', { name: `Выбрать ${code}` }).check({ force: true });
+  // The native checkbox under the design-system box (README «Флажок»): Space toggles it, as for a keyboard user.
+  const pick = page.getByRole('checkbox', { name: `Выбрать ${code}` });
+  await pick.focus();
+  await page.keyboard.press('Space');
+  await expect(pick).toBeChecked();
   await page.getByRole('button', { name: 'Создать накладную' }).click();
   await expect(title(page)).toHaveText(/^WB-\d{4}-\d{6}$/, { timeout: 20000 });
   const number = (await title(page).textContent())!;
