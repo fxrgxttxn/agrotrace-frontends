@@ -7,8 +7,8 @@
   "scripts": {
     "ng": "ng",
     "dev": "ng serve --host 0.0.0.0 --port 4200",
-    "build": "node scripts/illustrations.mjs --check && node scripts/boot-fallback.mjs --check && ng build && node scripts/postbuild.mjs",
-    "build:mock": "node scripts/illustrations.mjs --check && node scripts/boot-fallback.mjs --check && ng build -c production,mock && node scripts/postbuild.mjs --mock",
+    "build": "node scripts/illustrations.mjs --check && node scripts/boot-fallback.mjs --check && node scripts/build.mjs",
+    "build:mock": "node scripts/illustrations.mjs --check && node scripts/boot-fallback.mjs --check && node scripts/build.mjs --mock",
     "illustrations": "node scripts/illustrations.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.mock.json && tsc --noEmit -p tsconfig.spec.json && tsc --noEmit -p e2e"

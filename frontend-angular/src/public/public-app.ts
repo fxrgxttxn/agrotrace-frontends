@@ -1,46 +1,79 @@
-import { ChangeDetectionStrategy, Component, ElementRef, inject } from '@angular/core';
-import { createT } from '@agrotrace/i18n';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  ElementRef,
+  inject,
+  signal,
+} from '@angular/core';
+import { ArtDirective } from './art';
+import { BatchPageComponent } from './batch-page';
+import { ComplaintPageComponent } from './complaint-page';
+import { t } from './i18n';
+import { matchPublic, path } from './nav';
+import { ARRIVALS, ART, arrivalFocus, HEADER, NOT_FOUND, titleEffect } from './views';
 
-// No router and no cabinet modules here: the path is matched by hand so the chunk stays small (spec §9.6; A8 fills
-// the page in and holds it to ≤ 60 KB JS gzip).
-const t = createT('ru');
+// The public QR pages without menu or session (spec §9.6), the React app's public/PublicApp.tsx. On every client-side
+// path change except the first load the focus goes to the page title (ruling F4) and the page scrolls to the top.
 
-export type PublicRoute =
-  { name: 'batch'; code: string } | { name: 'complaint'; code: string } | { name: 'none' };
-
-export function matchPublic(path: string): PublicRoute {
-  const m = /^\/p\/([^/]+)(\/complaint)?\/?$/.exec(path);
-  if (!m) return { name: 'none' };
-  const code = decodeURIComponent(m[1]!);
-  return m[2] ? { name: 'complaint', code } : { name: 'batch', code };
+/** A path that is no public page: «not found» under the batch page's title. */
+@Component({
+  selector: 'main[atNoPage]',
+  standalone: true,
+  imports: [ArtDirective],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'at-page at-public', id: 'main', tabindex: '-1' },
+  template: `${HEADER}
+    <div class="at-public__stack">${NOT_FOUND}</div>`,
+})
+export class NoPageComponent {
+  protected readonly t = t;
+  protected readonly art = ART;
+  protected readonly title = signal(t('page.publicBatch'));
+  constructor() {
+    titleEffect(this.title);
+    arrivalFocus();
+  }
 }
 
 @Component({
   selector: 'at-root',
   standalone: true,
+  imports: [BatchPageComponent, ComplaintPageComponent, NoPageComponent],
+  providers: [{ provide: ARRIVALS, useFactory: () => ({ first: true }) }],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<main class="at-page" id="main" tabindex="-1">
-    <div class="at-page__header">
-      <h1 class="at-page__title">{{ title }}</h1>
-    </div>
-    @if (route.name !== 'none') {
-      <p class="at-mono">{{ route.code }}</p>
+  // keyed by the code (a new code is a new page, like React's `key`)
+  template: `@switch (route().name) {
+    @case ('batch') {
+      @for (c of [code()]; track c) {
+        <main [batchPage]="c"></main>
+      }
     }
-  </main>`,
+    @case ('complaint') {
+      @for (c of [code()]; track c) {
+        <main [complaintPage]="c"></main>
+      }
+    }
+    @default {
+      <main atNoPage></main>
+    }
+  }`,
 })
 export class PublicApp {
-  protected readonly route = matchPublic(location.pathname);
-  protected readonly title =
-    this.route.name === 'batch'
-      ? t('page.publicBatch')
-      : this.route.name === 'complaint'
-        ? t('page.publicComplaint')
-        : t('page.notFound');
+  protected readonly route = computed(() => matchPublic(path()));
+  protected readonly code = computed(() => {
+    const r = this.route();
+    return r.name === 'none' ? '' : r.code;
+  });
 
   constructor() {
-    // FM10: no framework version attribute in the production DOM.
     const host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+    // FM10: no framework version attribute in the production DOM.
     queueMicrotask(() => host.removeAttribute('ng-version'));
-    document.title = `${this.title} — AgroTrace`;
+    path.set(location.pathname);
+    const sync = () => path.set(location.pathname);
+    window.addEventListener('popstate', sync);
+    inject(DestroyRef).onDestroy(() => window.removeEventListener('popstate', sync));
   }
 }

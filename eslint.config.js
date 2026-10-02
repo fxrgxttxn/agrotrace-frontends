@@ -6,6 +6,7 @@ export default tseslint.config(
     ignores: [
       '**/dist/**',
       '**/dist-mock/**',
+      '**/dist-public/**',
       '**/node_modules/**',
       '**/.svelte-kit/**',
       '**/.angular/**',

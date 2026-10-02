@@ -1,6 +1,8 @@
 import { applyTheme, readTheme } from './app/theme';
+import { earlyBatchUrl, startEarly } from './early';
 import { PAGE_LOAD_FAILED, RETRY } from './boot-texts.generated';
 import { startMock } from './mock';
+import { loadPublic } from './public-entry';
 import { currentUrl, reloadOnce, writeReloadMark } from './reload-mark';
 
 // Single entry of index.html (the build emits only `<script type="module" src>` — no inline script: gateway CSP
@@ -56,5 +58,11 @@ function start(load: () => Promise<unknown>, clearsMark: boolean): void {
 }
 
 const isPublic = location.pathname === '/p' || location.pathname.startsWith('/p/');
-if (isPublic) start(() => import('./public/main'), true);
+if (isPublic)
+  start(() => {
+    // The batch answer travels while the public build downloads (src/early.ts).
+    const early = earlyBatchUrl(location.pathname, location.origin);
+    if (early) startEarly(early);
+    return loadPublic();
+  }, true);
 else start(() => import('./app/main'), false);

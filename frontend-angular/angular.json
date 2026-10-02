@@ -4,6 +4,33 @@
   "newProjectRoot": ".",
   "cli": { "analytics": false, "packageManager": "pnpm" },
   "projects": {
+    "agrotrace-public": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "at",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "outputPath": { "base": "dist-public", "browser": "" },
+            "index": false,
+            "browser": "src/public/main.ts",
+            "tsConfig": "tsconfig.public.json",
+            "webWorkerTsConfig": "tsconfig.worker.json",
+            "polyfills": [],
+            "assets": [],
+            "styles": [],
+            "loader": { ".svg": "text" },
+            "optimization": { "scripts": true, "styles": false, "fonts": false },
+            "subresourceIntegrity": false,
+            "sourceMap": false,
+            "outputHashing": "all",
+            "extractLicenses": false
+          }
+        }
+      }
+    },
     "agrotrace": {
       "projectType": "application",
       "root": "",
@@ -42,12 +69,16 @@
           "configurations": {
             "production": {
               "outputPath": { "base": "dist", "browser": "assets" },
-              "deployUrl": "/assets/"
+              "deployUrl": "/assets/",
+              "fileReplacements": [{ "replace": "src/public-entry.ts", "with": "src/public-entry.build.ts" }]
             },
             "mock": {
               "outputPath": { "base": "dist-mock", "browser": "assets" },
               "tsConfig": "tsconfig.mock.json",
-              "fileReplacements": [{ "replace": "src/mock.ts", "with": "src/mock.mock.ts" }],
+              "fileReplacements": [
+                { "replace": "src/mock.ts", "with": "src/mock.mock.ts" },
+                { "replace": "src/public-entry.ts", "with": "src/public-entry.build.ts" }
+              ],
               "loader": { ".svg": "file", ".webp": "file", ".ttf": "file" },
               "allowedCommonJsDependencies": ["cytoscape-dagre", "saxes", "xmlchars"]
             },
