@@ -2,7 +2,8 @@
 // (test/ui/readme-dom.test.tsx compares the DOM with the README examples).
 export { Icon, type IconName } from './Icon';
 export { Button, ButtonLink, ButtonAnchor, type ButtonProps, type ButtonLook } from './Button';
-export { Field, FieldSet, CellField, useFieldControl } from './Field';
+export { Field, useFieldControl } from './Field';
+export { FieldSet, CellField } from './FieldGroup';
 export { Input, Textarea, InputGroup, Select, type InputProps } from './Input';
 export { Checkbox, Radio, Switch } from './Check';
 export { DateInput, dateErrorText, type DateError, type DateInputProps } from './DateInput';

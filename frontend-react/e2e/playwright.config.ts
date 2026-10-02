@@ -18,6 +18,7 @@ const STAND = [
   'shots-task4.spec.ts',
   'shots-task5.spec.ts',
   'stale-refetch.spec.ts',
+  'public-stand.spec.ts',
 ];
 
 export default defineConfig({

@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
+import { ArtSvg, parseArt, type ParsedArt } from './Art';
 
 // Illustrations are inlined (README «Иконки и иллюстрации»: through <img> the colour tokens and the dark theme would
 // be lost). The files are imported raw at build time and their inner markup — flat paths with
@@ -23,16 +24,11 @@ export type IllustrationName =
   | 'login'
   | 'recall-warning';
 
-interface Parsed {
-  viewBox: string;
-  inner: string;
-}
-
-const PARSED = new Map<string, Parsed>();
+const PARSED = new Map<string, ParsedArt>();
 for (const [path, raw] of Object.entries(FILES)) {
   const name = /([a-z-]+)\.svg$/.exec(path)?.[1];
-  const m = /^\s*<svg\b[^>]*\bviewBox="([^"]+)"[^>]*>([\s\S]*)<\/svg>\s*$/.exec(raw);
-  if (name && m) PARSED.set(name, { viewBox: m[1]!, inner: m[2]!.trim() });
+  const art = parseArt(raw);
+  if (name && art) PARSED.set(name, art);
 }
 
 export function Illustration({
@@ -46,15 +42,7 @@ export function Illustration({
 }) {
   const art = PARSED.get(name);
   if (!art) throw new Error(`Unknown illustration: ${name}`);
-  return (
-    <svg
-      className={className}
-      aria-hidden="true"
-      viewBox={art.viewBox}
-      style={style}
-      dangerouslySetInnerHTML={{ __html: art.inner }}
-    />
-  );
+  return <ArtSvg art={art} className={className} style={style} />;
 }
 
 /** `at-empty` (README «Пустое состояние»): illustration, one line, one action. */

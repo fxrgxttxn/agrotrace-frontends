@@ -50,7 +50,7 @@ test('the public entry renders /p/:publicCode without cabinet code', async ({ pa
     if (r.resourceType() === 'script') scripts.push(new URL(r.url()).pathname);
   });
   await page.goto('/p/AT-2026-000002');
-  await expect(page.getByRole('heading', { level: 1, name: 'Партия' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Молоко пастеризованное 3,2%' })).toBeVisible();
   expect(scripts.some((s) => /\/assets\/(auth|home|fields|batches|admin)-/.test(s))).toBe(false);
   expect(await cspViolations(page)).toEqual([]);
   expect(unexpected(w)).toEqual([]);

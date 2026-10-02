@@ -7,5 +7,5 @@
     "noEmit": true,
     "declaration": false
   },
-  "include": ["src", "test", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "test", "vite-plugins", "vite.config.ts", "vitest.config.ts"]
 }

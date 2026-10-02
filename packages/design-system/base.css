@@ -115,4 +115,26 @@ textarea {
     animation: none !important;
     transition: none !important;
   }
+
+  /* Not motion: a state change after a delay (FM18), kept. */
+  .at-boot {
+    animation: at-boot-reveal 0s linear 10s forwards !important;
+  }
+}
+
+/* Ruling FM18: index.html's static «Не удалось загрузить страницу.» (README «Страница»), for an entry script that
+   never ran; hidden until 10 s have passed (the app removes it on start). */
+.at-boot {
+  visibility: hidden;
+  animation: at-boot-reveal 0s linear 10s forwards;
+}
+
+.at-page.at-boot {
+  max-width: 30rem;
+}
+
+@keyframes at-boot-reveal {
+  to {
+    visibility: visible;
+  }
 }

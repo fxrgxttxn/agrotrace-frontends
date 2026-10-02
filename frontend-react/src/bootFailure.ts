@@ -1,12 +1,9 @@
 // The static screen of a bootstrap chunk that failed twice (rulings FM15, FM17): no framework, README markup
 // (`at-page`, `at-card` with `at-empty`: one line and one primary button) and no title. The entry carries no i18n
-// bundle (the public page budget): the texts equal `empty.pageLoadFailed` and `action.retry` of @agrotrace/i18n — a
-// test (test/app/boot.test.ts) keeps them equal.
+// bundle (the public page budget): the texts are `empty.pageLoadFailed` and `action.retry` of @agrotrace/i18n, put in
+// at build time (`__AT_BOOT_TEXTS__`, vite.config.ts; test/app/boot.test.ts checks them).
 
-export const BOOT_TEXTS = {
-  text: 'Не удалось загрузить страницу.',
-  retry: 'Повторить',
-} as const;
+export const BOOT_TEXTS = __AT_BOOT_TEXTS__;
 
 export function renderBootFailure(root: HTMLElement): void {
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string) => {
