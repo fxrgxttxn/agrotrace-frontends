@@ -199,11 +199,9 @@
 {:else if name === 'stepper'}
   <Stepper label="Переработка" steps={['Входы', 'Выходы', 'Проверка баланса']} current={1} />
 {:else if name === 'timeline'}
-  <Timeline
-    items={[
-      { key: '1', at: '2026-08-19T11:05', atText: '19.08.2026, 11:05', title: 'Допущена', tone: 'ok', meta: sokolova },
-    ]}
-  />
+  <Timeline items={[{ key: '1', at: '2026-08-19T11:05', atText: '19.08.2026, 11:05', title: 'Допущена', tone: 'ok' }]}>
+    {#snippet meta()}{@render sokolova()}{/snippet}
+  </Timeline>
 {:else if name === 'empty'}
   <Empty art="empty-batches" text="Партий пока нет.">
     {#snippet action()}<Button variant="primary">Зарегистрировать партию</Button>{/snippet}

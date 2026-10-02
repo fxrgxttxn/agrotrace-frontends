@@ -60,6 +60,8 @@ export function sanitizeParams(params: URLSearchParams, spec: ListSpec): URLSear
   const sort = parseSort(params.get('sort'));
   if (sort && spec.sort.includes(sort.field)) out.set('sort', formatSort(sort));
   for (const [key, allowed] of Object.entries(spec.enums ?? {}))
+    // Local dedup of this pass, not component state.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
     for (const v of new Set(params.getAll(key))) if (allowed.includes(v)) out.append(key, v);
   for (const key of spec.uuids ?? []) {
     const v = params.get(key);

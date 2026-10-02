@@ -23,7 +23,8 @@ export const FIELDS_SPEC: ListSpec = {
 export const TREATMENTS_SPEC: ListSpec = { sort: ['appliedAt', 'createdAt'] };
 
 export const dateOrDash = (iso: string | null) => (iso ? formatLocalDate(iso, LOCALE) : '—');
-export const sortParam = (s: { field: string; dir: string } | null) => (s ? { sort: `${s.field},${s.dir}` } : {});
+export const sortParam = (s: { field: string; dir: string } | null) =>
+  s ? { sort: `${s.field},${s.dir}` } : {};
 
 /** Largest outline file read into the form (1000 positions × 10 rings of GeoJSON fit well below it). */
 export const GEOJSON_MAX_BYTES = 1024 * 1024;

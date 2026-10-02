@@ -216,8 +216,6 @@
   </div>
 {/snippet}
 
-{#snippet sokolova()}<Avatar name="Мария Соколова" size="s" decorative />Мария Соколова, ФГБУ «Липецкая МВЛ»{/snippet}
-
 {#snippet cards()}
   <div style="width: min(100%, 420px)">
     <Card>
@@ -255,10 +253,14 @@
                 atText: '19.08.2026, 11:05',
                 title: 'Допущена',
                 tone: 'ok',
-                meta: sokolova,
+                meta: 'Мария Соколова, ФГБУ «Липецкая МВЛ»',
               },
             ]}
-          />
+          >
+            {#snippet meta(it)}
+              {#if it.key === '2'}<Avatar name="Мария Соколова" size="s" decorative />{/if}{it.meta}
+            {/snippet}
+          </Timeline>
         {:else if id === 'path'}
           <Stepper label="Переработка" steps={['Входы', 'Выходы', 'Проверка баланса']} current={1} />
         {:else}

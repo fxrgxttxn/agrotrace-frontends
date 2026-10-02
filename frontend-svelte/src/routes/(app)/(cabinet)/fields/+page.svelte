@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { t } from '$lib/app/i18n';
-  import PlaceholderPage from '$lib/pages/PlaceholderPage.svelte';
+  import FieldsPage from '$lib/pages/fields/FieldsPage.svelte';
 </script>
 
-<PlaceholderPage title={t('page.fields')} />
+<FieldsPage />

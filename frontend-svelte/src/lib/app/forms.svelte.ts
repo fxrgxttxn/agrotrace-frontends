@@ -303,6 +303,8 @@ export function wireSchema<F>(
   return z.custom<F>().transform((values, ctx) => {
     // Form checks and the shared schema both report (one message per field, the form check first).
     const early = Object.entries(precheck?.(values) ?? {});
+    // Local to this transform, not component state.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const marked = new Set(early.map(([path]) => path));
     for (const [path, message] of early) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
     const wire = toWire(values) as Record<string, unknown>;
