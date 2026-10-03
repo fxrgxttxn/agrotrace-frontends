@@ -87,3 +87,13 @@
   color: var(--c-ink-muted);
   text-align: center;
 }
+
+/* Pages inside a card (README «Пагинация»: страницы без URL): the card is already --c-surface. */
+.at-card .at-pagination__item:hover,
+.at-card .at-pagination__item[aria-current='page'] {
+  background: var(--c-ground);
+}
+
+.at-card .at-pagination__item:disabled:hover {
+  background: none;
+}

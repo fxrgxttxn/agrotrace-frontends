@@ -273,6 +273,52 @@ describe('at-dialog', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Закрыть' }));
     expect(container.querySelector('dialog')).not.toHaveAttribute('open');
   });
+
+  // FM21/FM25 (polish P1): a dialog rendered only while open (`{x && <Dialog open />}`) is removed from the page by
+  // its close — Esc, the cross, a success — and still hands the focus back to its opener (not the body or the h1).
+  function Mounted({ elsewhere = false }: { elsewhere?: boolean }) {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <Button onClick={() => setOpen(true)}>Открыть</Button>
+        <Button>Другое</Button>
+        {open && (
+          <Dialog open onClose={() => setOpen(false)} title="Фото">
+            <label htmlFor="file">Файл</label>
+            <input id="file" />
+            <Button
+              onClick={() => {
+                if (elsewhere) screen.getByRole('button', { name: 'Другое' }).focus();
+                setOpen(false);
+              }}
+            >
+              Готово
+            </Button>
+          </Dialog>
+        )}
+      </>
+    );
+  }
+
+  it('a dialog removed by Esc or by its action returns the focus to the opener', async () => {
+    render(<Mounted />);
+    const opener = screen.getByRole('button', { name: 'Открыть' });
+    await userEvent.click(opener);
+    fireEvent(document.querySelector('dialog')!, new Event('cancel', { cancelable: true }));
+    expect(document.querySelector('dialog')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+    await userEvent.click(opener);
+    await userEvent.click(screen.getByRole('button', { name: 'Готово' }));
+    expect(document.querySelector('dialog')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('a removed dialog leaves alone a focus its screen already moved out of it', async () => {
+    render(<Mounted elsewhere />);
+    await userEvent.click(screen.getByRole('button', { name: 'Открыть' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Готово' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Другое' }));
+  });
 });
 
 describe('at-toast', () => {
