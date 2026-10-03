@@ -31,7 +31,7 @@ import {
   retryAfterOf,
   useCountdown,
   useFocusAfterWait,
-  useFormAlert,
+  useDialogAlert,
 } from '../app/api';
 import { useScreenToast } from '../app/cache';
 import { useDictionary } from '../app/dictionaries';
@@ -638,7 +638,18 @@ function EntryDialog({ name, entry, onClose }: { name: DictName; entry?: Entry; 
   const products = useDictionary('products');
   const indicators = useDictionary('indicators');
   const schema = wireSchema<Values>(def.schema, def.toWire, def.precheck);
-  const { form, alert, wait, fail, message } = useSchemaForm<Values>(schema, def.defaults(entry), def.fields);
+  const { form, alert, wait, fail, message, handOff } = useSchemaForm<Values>(
+    schema,
+    def.defaults(entry),
+    def.fields,
+    undefined,
+    { dialog: true },
+  );
+  // Closed with a failure still standing: the page says it (README «Диалог»).
+  const close = () => {
+    handOff();
+    onClose();
+  };
   const [busy, setBusy] = useState(false);
 
   const submit = form.handleSubmit(async (body) => {
@@ -787,11 +798,11 @@ function EntryDialog({ name, entry, onClose }: { name: DictName; entry?: Entry; 
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={entry ? t('dict.editTitle', { name: entryName(name, entry) }) : t(`dict.addTitle.${name}`)}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             {t('action.cancel')}
           </Button>
           <Submit busy={busy} wait={wait} form="entry-form">
@@ -819,13 +830,13 @@ function DeleteDialog({ name, entry, onClose }: { name: DictName; entry: Entry; 
   const toast = useScreenToast();
   const refresh = useRefresh(name);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const failure = useDialogAlert();
   const [wait, startWait] = useCountdown();
   const button = useFocusAfterWait(wait);
   const label = entryName(name, entry);
   const remove = async () => {
     setBusy(true);
-    setMessage(null);
+    failure.clear();
     try {
       await call(api.DELETE('/dictionaries/{name}/{id}', { params: { path: { name, id: entry.id } } }));
       refresh();
@@ -843,20 +854,23 @@ function DeleteDialog({ name, entry, onClose }: { name: DictName; entry: Entry; 
         return;
       }
       if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
-      setMessage(text);
-      toast.push({ tone: errorTone(e), text });
+      failure.show(text, errorTone(e));
     } finally {
       setBusy(false);
     }
   };
+  const close = () => {
+    failure.handOff();
+    onClose();
+  };
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={t('dict.deleteTitle', { name: label })}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             {t('action.cancel')}
           </Button>
           <Button ref={button} variant="danger" busy={busy} disabled={wait > 0} onClick={() => void remove()}>
@@ -866,7 +880,7 @@ function DeleteDialog({ name, entry, onClose }: { name: DictName; entry: Entry; 
       }
     >
       <div style={STACK}>
-        <DialogMessage text={message} />
+        <DialogMessage text={failure.message} />
         <p style={{ margin: 0 }}>{SOFT.includes(name) ? t('dict.deleteSoft') : t('dict.deleteHard')}</p>
       </div>
     </Dialog>
@@ -879,18 +893,24 @@ function PhotoDialog({ product, onClose }: { product: Product; onClose: () => vo
   const { api } = useSession();
   const toast = useScreenToast();
   const refresh = useRefresh('products');
+  const failure = useDialogAlert();
+  const close = () => {
+    failure.handOff();
+    onClose();
+  };
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={t('dict.photoTitle', { name: product.name })}
       actions={
-        <Button variant="ghost" onClick={onClose}>
+        <Button variant="ghost" onClick={close}>
           {t('action.cancel')}
         </Button>
       }
     >
       <div style={STACK}>
+        <DialogMessage text={failure.message} />
         {product.imageUrl && (
           <img
             src={withVariant(product.imageUrl, 480)}
@@ -900,6 +920,7 @@ function PhotoDialog({ product, onClose }: { product: Product; onClose: () => vo
         )}
         <ImageUpload
           id="photo-file"
+          dialogAlert={failure}
           label={t('field.file')}
           hint={t('dict.photoHint')}
           types={IMAGE_TYPES}
@@ -938,18 +959,17 @@ function ImportDialog({
 }) {
   const { api } = useSession();
   const toast = useScreenToast();
-  const alert = useFormAlert();
   const refresh = useRefresh(name);
   const [picked, setPicked] = useState<{ file: File; error?: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const failure = useDialogAlert();
   const [wait, startWait] = useCountdown();
   const button = useFocusAfterWait(wait);
 
   const pick = (files: File[]) => {
     const file = files[0];
     if (!file) return;
-    setMessage(null);
+    failure.clear();
     let error: string | undefined;
     if (!isImportFile(file)) error = t('files.unsupported', { allowed: typesText(IMPORT_TYPES) });
     else if (file.size > UPLOAD_MAX_BYTES) error = tooLargeText(UPLOAD_MAX_BYTES);
@@ -958,8 +978,7 @@ function ImportDialog({
 
   const send = async () => {
     if (!picked || picked.error) return;
-    alert.clear();
-    setMessage(null);
+    failure.clear();
     setBusy(true);
     try {
       const body = new FormData();
@@ -982,9 +1001,8 @@ function ImportDialog({
       const problem = importFileProblem(e, name);
       if (problem) setPicked((p) => (p ? { ...p, error: problem } : p));
       if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
-      const text = problem ?? errorText(e);
-      if (!problem) setMessage(text);
-      alert.show(text, problem ? 'danger' : errorTone(e));
+      // A refused file is said on the file (its `role="alert"` error); anything else in the dialog (README «Диалог»).
+      if (!problem) failure.show(errorText(e), errorTone(e));
     } finally {
       setBusy(false);
     }
@@ -1003,14 +1021,18 @@ function ImportDialog({
       ]
     : [];
 
+  const close = () => {
+    failure.handOff();
+    onClose();
+  };
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={t('dict.import.title', { name: enumLabel(t, 'DictionaryName', name) })}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             {t('action.cancel')}
           </Button>
           <Button
@@ -1027,7 +1049,7 @@ function ImportDialog({
       }
     >
       <div style={STACK}>
-        <DialogMessage text={message} />
+        <DialogMessage text={failure.message} />
         <FileField
           id="import-file"
           label={t('field.file')}

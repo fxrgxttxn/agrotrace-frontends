@@ -4,7 +4,7 @@ import { ApiProblem, withVariant, type Schemas } from '@agrotrace/api-client';
 import { enumLabel } from '@agrotrace/i18n';
 import { UserInviteSchema } from '@agrotrace/validation';
 import { IMAGE_TYPES, ROLE_OF_TYPE, USER_TONE } from '../app/admin';
-import { call, errorText, errorTone } from '../app/api';
+import { call, errorText, errorTone, useDialogAlert } from '../app/api';
 import { useScreenScope, useScreenToast } from '../app/cache';
 import { errorOf, FORM_GRID, Submit, useSchemaForm, wireSchema } from '../app/forms';
 import { t } from '../app/i18n';
@@ -354,11 +354,17 @@ function InviteDialog({
     ...(admin && v.organizationId ? { organizationId: v.organizationId } : {}),
   });
   const schema = wireSchema<InviteValues>(UserInviteSchema, toWire);
-  const { form, alert, wait, fail, message } = useSchemaForm<InviteValues>(
+  const { form, alert, wait, fail, message, handOff } = useSchemaForm<InviteValues>(
     schema,
     { email: '', fullName: '', organizationId: '', isOrgAdmin: false },
     ['email', 'fullName', 'organizationId', 'isOrgAdmin'],
+    undefined,
+    { dialog: true },
   );
+  const close = () => {
+    handOff();
+    onClose();
+  };
   const organizationId = form.watch('organizationId');
   const [busy, setBusy] = useState(false);
   const submit = form.handleSubmit(async (body) => {
@@ -375,11 +381,11 @@ function InviteDialog({
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={t('users.inviteTitle')}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             {t('action.cancel')}
           </Button>
           <Submit busy={busy} wait={wait} form="invite-form">
@@ -430,8 +436,7 @@ function EditDialog({
   const [isOrgAdmin, setIsOrgAdmin] = useState(user.isOrgAdmin);
   const [status, setStatus] = useState<UserStatus>(user.status);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const alert = useScreenToast();
+  const failure = useDialogAlert();
   const submit = async () => {
     const body = {
       ...(isOrgAdmin !== user.isOrgAdmin ? { isOrgAdmin } : {}),
@@ -442,7 +447,7 @@ function EditDialog({
       return;
     }
     setBusy(true);
-    setMessage(null);
+    failure.clear();
     try {
       onDone(
         await call<User>(
@@ -458,23 +463,23 @@ function EditDialog({
           }),
         );
       else if (e instanceof ApiProblem && e.status === 404) onStale(t('users.gone', { name: user.fullName }));
-      else {
-        const text = errorText(e);
-        setMessage(text);
-        alert.push({ tone: errorTone(e), text });
-      }
+      else failure.show(errorText(e), errorTone(e));
     } finally {
       setBusy(false);
     }
   };
+  const close = () => {
+    failure.handOff();
+    onClose();
+  };
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={t('users.editTitle', { name: user.fullName })}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             {t('action.cancel')}
           </Button>
           <Button variant="primary" busy={busy} onClick={() => void submit()}>
@@ -484,7 +489,7 @@ function EditDialog({
       }
     >
       <div style={FORM_GRID}>
-        <DialogMessage text={message} />
+        <DialogMessage text={failure.message} />
         <Checkbox checked={isOrgAdmin} onChange={(e) => setIsOrgAdmin(e.target.checked)}>
           {t('field.isOrgAdmin')}
         </Checkbox>

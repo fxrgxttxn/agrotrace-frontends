@@ -14,6 +14,7 @@ import {
   retryAfterOf,
   useCountdown,
   useFocusAfterWait,
+  useDialogAlert,
   useFormAlert,
 } from '../app/api';
 import { DateFilter } from '../app/DateFilter';
@@ -1159,14 +1160,18 @@ function DeleteDialog({
   const { api } = useSession();
   const [busy, setBusy] = useState(false);
   const [wait, startWait] = useCountdown();
-  const [message, setMessage] = useState<string | null>(null);
+  // Said in the dialog only; any close with the failure still standing (the person, or a re-read that no longer
+  // allows the action) hands it to the page (README «Диалог»).
+  const failure = useDialogAlert();
+  const { handOff } = failure;
   const confirmRef = useFocusAfterWait(wait);
   useEffect(() => {
-    if (!open) setMessage(null);
-  }, [open]);
+    if (!open) handOff();
+  }, [open, handOff]);
   const close = () => onClose();
   const remove = async () => {
     setBusy(true);
+    failure.clear();
     try {
       await call(
         api.DELETE('/waybills/{id}', {
@@ -1176,7 +1181,8 @@ function DeleteDialog({
       onDone();
     } catch (e) {
       if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
-      setMessage(problems.fail(e).text);
+      const p = problems.describe(e);
+      failure.show(p.text, p.tone);
     } finally {
       setBusy(false);
     }
@@ -1203,7 +1209,7 @@ function DeleteDialog({
         </>
       }
     >
-      {message && <DialogMessage text={message} />}
+      {failure.message && <DialogMessage text={failure.message} />}
     </Dialog>
   );
 }
@@ -1227,7 +1233,8 @@ function RejectDialog({
   const [reason, setReason] = useState('');
   const [number, setNumber] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const failure = useDialogAlert();
+  const { handOff } = failure;
   const [busy, setBusy] = useState(false);
   const [wait, startWait] = useCountdown();
   const matches = waybill.number !== '' && number.trim().toUpperCase() === waybill.number;
@@ -1239,15 +1246,16 @@ function RejectDialog({
     setReason('');
     setNumber('');
     setError(null);
-    setMessage(null);
-  }, [open]);
+    // A failure still standing goes to the page (README «Диалог»).
+    handOff();
+  }, [open, handOff]);
   const close = () => onClose();
   const reject = async () => {
     const check = WaybillRejectSchema.safeParse({ reason });
     if (!check.success)
       return setError(t(reason.trim() ? check.error.issues[0]!.message : 'validation.required'));
     setBusy(true);
-    setMessage(null);
+    failure.clear();
     try {
       const next = await call<Waybill>(
         api.POST('/waybills/{id}/reject', {
@@ -1263,7 +1271,8 @@ function RejectDialog({
       if (key) setError(t(key));
       else {
         if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
-        setMessage(problems.fail(e).text);
+        const p = problems.describe(e);
+        failure.show(p.text, p.tone);
       }
     } finally {
       setBusy(false);
@@ -1292,7 +1301,7 @@ function RejectDialog({
       }
     >
       <div style={FORM_GRID}>
-        <DialogMessage text={message} />
+        <DialogMessage text={failure.message} />
         <Field id="reject-reason" label={t('waybills.rejectReason')} error={error}>
           <Textarea
             rows={3}

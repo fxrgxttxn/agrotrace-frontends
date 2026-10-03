@@ -6,7 +6,15 @@ import { ApiProblem, type Schemas } from '@agrotrace/api-client';
 import { availableActions, canUseAsInput, checkMassBalance, compareDecimalStrings } from '@agrotrace/domain';
 import { enumLabel, formatDecimal, formatLocalDate, formatLocalDateTime, formatMass } from '@agrotrace/i18n';
 import { ProcessingRequestSchema } from '@agrotrace/validation';
-import { applyProblem, call, errorText, errorTone, useCountdown, useFormAlert } from '../app/api';
+import {
+  applyProblem,
+  call,
+  errorText,
+  errorTone,
+  useCountdown,
+  useDialogAlert,
+  useFormAlert,
+} from '../app/api';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, focusFirstInvalid, FORM_GRID, normalizeDecimal, Submit } from '../app/forms';
 import { useCacheWriter, useScreenNavigate, useScreenToast } from '../app/cache';
@@ -25,6 +33,7 @@ import {
   CellField,
   Chip,
   Dialog,
+  DialogMessage,
   Empty,
   Field,
   InputGroup,
@@ -859,9 +868,16 @@ export function QrPage() {
   const { list, query } = own;
   const [busy, setBusy] = useState<string | null>(null);
   const [shown, setShown] = useState<{ batch: BatchItem; links: QrLinks | null } | null>(null);
+  // «Сгенерировать заново» fails inside the QR dialog: said there (README «Диалог»).
+  const failure = useDialogAlert();
+  const close = () => {
+    failure.handOff();
+    setShown(null);
+  };
 
-  const generate = async (b: BatchItem) => {
+  const generate = async (b: BatchItem, inDialog = false) => {
     setBusy(b.id);
+    failure.clear();
     try {
       const links = await call<QrLinks>(
         api.POST('/batches/{id}/qr', { params: { path: { id: b.id } }, body: {} }),
@@ -873,7 +889,8 @@ export function QrPage() {
     } catch (e) {
       if (e instanceof ApiProblem && (e.status === 403 || e.status === 404))
         void queryClient.invalidateQueries({ queryKey: ['batches'] });
-      toast.push({ tone: errorTone(e), text: errorText(e) });
+      if (inDialog) failure.show(errorText(e), errorTone(e));
+      else toast.push({ tone: errorTone(e), text: errorText(e) });
     } finally {
       setBusy(null);
     }
@@ -972,19 +989,24 @@ export function QrPage() {
         ))}
       <Dialog
         open={shown !== null}
-        onClose={() => setShown(null)}
+        onClose={close}
         lightDismiss
         title={shown ? t('qr.title', { code: shown.batch.publicCode }) : ''}
         actions={
           shown &&
           !shown.links && (
-            <Button busy={busy === shown.batch.id} onClick={() => void generate(shown.batch)}>
+            <Button busy={busy === shown.batch.id} onClick={() => void generate(shown.batch, true)}>
               {t('qr.regenerate')}
             </Button>
           )
         }
       >
-        {shown && <QrView batch={shown.batch} links={shown.links} />}
+        {shown && (
+          <>
+            <DialogMessage text={failure.message} />
+            <QrView batch={shown.batch} links={shown.links} />
+          </>
+        )}
       </Dialog>
     </Page>
   );

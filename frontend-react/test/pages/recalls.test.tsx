@@ -151,7 +151,8 @@ describe('/recall-tasks', () => {
     await userEvent.type(within(dialog).getByLabelText('Код партии для подтверждения'), 'AT-2026-000457');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Подтвердить изъятие' }));
     expect(await within(dialog).findByText(/Задача изменилась: список обновлён/)).toBeInTheDocument();
-    expect(toastText()).toContain('Задача изменилась');
+    // README «Диалог» (polish P1): said once — in the dialog, not also as a page toast behind it.
+    expect(toastText()).toBe('');
     // the typed code stays; the repeat carries the version of the re-read list
     expect(within(dialog).getByLabelText('Код партии для подтверждения')).toHaveValue('AT-2026-000457');
     await waitFor(async () => {

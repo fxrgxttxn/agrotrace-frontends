@@ -4,7 +4,15 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
 import { enumLabel, formatLocalDateTime } from '@agrotrace/i18n';
 import { ComplaintDecisionSchema } from '@agrotrace/validation';
-import { call, errorText, errorTone, retryAfterOf, useCountdown, useFocusAfterWait } from '../app/api';
+import {
+  call,
+  errorText,
+  errorTone,
+  retryAfterOf,
+  useCountdown,
+  useDialogAlert,
+  useFocusAfterWait,
+} from '../app/api';
 import { useCacheWriter, useScreenToast } from '../app/cache';
 import { CodeConfirmDialog } from '../app/CodeConfirm';
 import { DateFilter } from '../app/DateFilter';
@@ -508,7 +516,7 @@ function DecisionCard({
 }) {
   const { api } = useSession();
   const toast = useScreenToast();
-  const { form, alert, wait, fail } = useSchemaForm<DecisionValues>(
+  const { form, alert, wait, startWait, fail } = useSchemaForm<DecisionValues>(
     decisionSchema,
     { decision: '', comment: '', labOrgId: '', blockUpstream: false },
     ['decision', 'comment', 'labOrgId', 'blockUpstream'],
@@ -517,12 +525,14 @@ function DecisionCard({
   const labOrgId = form.watch('labOrgId');
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState<DecisionValues | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  // A recall decision fails inside its code dialog: said there only (README «Диалог»), other decisions on the page.
+  const failure = useDialogAlert();
   const code = complaint.batch.publicCode;
 
   const send = async (v: DecisionValues) => {
+    const inDialog = v.decision === 'RECALL';
     setBusy(true);
-    setMessage(null);
+    failure.clear();
     alert.clear();
     try {
       const next = await call<Complaint>(
@@ -540,7 +550,7 @@ function DecisionCard({
         fail(e);
         return;
       }
-      if (e instanceof ApiProblem && e.status === 429) fail(e);
+      if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
       const text = describe(e);
       if (e instanceof ApiProblem && e.code === 'INVALID_TRANSITION') {
         // Decided meanwhile: the re-read card drops this form (and its form message with it) — the page says it.
@@ -548,8 +558,8 @@ function DecisionCard({
         toast.push({ tone: 'danger', text });
         return;
       }
-      setMessage(text);
-      alert.show(text, errorTone(e));
+      if (inDialog) failure.show(text, errorTone(e));
+      else alert.show(text, errorTone(e));
     } finally {
       setBusy(false);
     }
@@ -559,7 +569,7 @@ function DecisionCard({
     async (v) => {
       // A recall is irreversible: its own dialog with the batch code repeated (spec §9.3).
       if (v.decision === 'RECALL') {
-        setMessage(null);
+        failure.clear();
         setConfirming(v);
       } else await send(v);
     },
@@ -622,8 +632,11 @@ function DecisionCard({
         confirmLabel={t('complaints.submit.RECALL')}
         busy={busy}
         wait={wait}
-        message={message}
-        onClose={() => setConfirming(null)}
+        message={failure.message}
+        onClose={() => {
+          failure.handOff();
+          setConfirming(null);
+        }}
         onConfirm={() => {
           if (confirming) void send(confirming);
         }}

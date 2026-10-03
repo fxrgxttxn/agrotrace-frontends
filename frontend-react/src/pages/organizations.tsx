@@ -4,7 +4,15 @@ import { ApiProblem, type Schemas } from '@agrotrace/api-client';
 import { enumLabel, formatLocalDate } from '@agrotrace/i18n';
 import { OrganizationAdminPatchSchema } from '@agrotrace/validation';
 import { APPLICATION, ORG_TONE, orgActions, orgTarget, type OrgAction } from '../app/admin';
-import { call, errorText, errorTone, retryAfterOf, useCountdown, useFocusAfterWait } from '../app/api';
+import {
+  call,
+  errorText,
+  errorTone,
+  retryAfterOf,
+  useCountdown,
+  useDialogAlert,
+  useFocusAfterWait,
+} from '../app/api';
 import { useScreenToast } from '../app/cache';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, Submit, useSchemaForm, wireSchema } from '../app/forms';
@@ -109,7 +117,7 @@ export function OrganizationsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [wait, startWait] = useCountdown();
   const [confirming, setConfirming] = useState<{ org: Org; action: OrgAction } | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const failure = useDialogAlert();
   const [editing, setEditing] = useState<Org | null>(null);
   const confirmRef = useFocusAfterWait(wait);
 
@@ -138,7 +146,7 @@ export function OrganizationsPage() {
 
   const act = async (org: Org, action: OrgAction) => {
     setBusyId(org.id);
-    setMessage(null);
+    failure.clear();
     try {
       const next =
         action === 'approve'
@@ -157,9 +165,10 @@ export function OrganizationsPage() {
     } catch (e) {
       const text = describe(e, org);
       const stale = e instanceof ApiProblem && (e.code === 'INVALID_TRANSITION' || e.status === 404);
+      // A confirmed action fails inside its dialog: said there only (README «Диалог»); a stale row closes the dialog.
       if (stale) setConfirming(null);
-      else setMessage(text);
-      toast.push({ tone: errorTone(e), text });
+      if (CONFIRMED.includes(action) && !stale) failure.show(text, errorTone(e));
+      else toast.push({ tone: errorTone(e), text });
     } finally {
       setBusyId(null);
     }
@@ -232,7 +241,7 @@ export function OrganizationsPage() {
             aria-label={t(`orgs.actionOf.${action}`, { name: o.name })}
             onClick={() => {
               if (CONFIRMED.includes(action)) {
-                setMessage(null);
+                failure.clear();
                 setConfirming({ org: o, action });
               } else void act(o, action);
             }}
@@ -313,6 +322,10 @@ export function OrganizationsPage() {
   };
 
   const c = confirming;
+  const closeConfirm = () => {
+    failure.handOff();
+    setConfirming(null);
+  };
   return (
     <Page title={t('page.organizations')}>
       <PageToolbar
@@ -380,11 +393,11 @@ export function OrganizationsPage() {
       {content()}
       <Dialog
         open={c !== null}
-        onClose={() => setConfirming(null)}
+        onClose={closeConfirm}
         title={c ? t(`orgs.confirm.${c.action}.title`, { name: c.org.name }) : ''}
         actions={
           <>
-            <Button variant="ghost" onClick={() => setConfirming(null)}>
+            <Button variant="ghost" onClick={closeConfirm}>
               {t('action.cancel')}
             </Button>
             <Button
@@ -404,7 +417,7 @@ export function OrganizationsPage() {
         }
       >
         <div style={STACK}>
-          <DialogMessage text={message} />
+          <DialogMessage text={failure.message} />
           <p style={{ margin: 0 }}>{c ? t(`orgs.confirm.${c.action}.text`) : ''}</p>
         </div>
       </Dialog>
@@ -467,11 +480,17 @@ function EditDialog({
   const schema = wireSchema<EditValues>(OrganizationAdminPatchSchema, full, (v): Record<string, string> =>
     v.name.trim() === '' ? { name: 'validation.required' } : {},
   );
-  const { form, alert, wait, fail, message } = useSchemaForm<EditValues>(
+  const { form, alert, wait, fail, message, handOff } = useSchemaForm<EditValues>(
     schema,
     { name: org.name, address: org.address ?? '', regionCode: org.region.code },
     ['name', 'address', 'regionCode'],
+    undefined,
+    { dialog: true },
   );
+  const close = () => {
+    handOff();
+    onClose();
+  };
   const submit = form.handleSubmit(async () => {
     const body = toWire(form.getValues());
     if (Object.keys(body).length === 0) {
@@ -495,11 +514,11 @@ function EditDialog({
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={t('orgs.editTitle', { name: org.name })}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             {t('action.cancel')}
           </Button>
           <Submit busy={busy} wait={wait} form="org-form">

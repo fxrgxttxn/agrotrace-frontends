@@ -14,6 +14,7 @@ import {
   retryAfterOf,
   useCountdown,
   useFocusAfterWait,
+  useDialogAlert,
   useFormAlert,
 } from '../app/api';
 import { DateFilter } from '../app/DateFilter';
@@ -461,6 +462,8 @@ function useLabProblems(id: string) {
   return {
     alert,
     refocus,
+    /** Describes the failure (re-reading when stale) without showing it — a dialog says it (README «Диалог»). */
+    describe,
     /** Describes the failure (re-reading when stale) and shows it as the page message. */
     fail: (e: unknown) => {
       const p = describe(e);
@@ -771,9 +774,15 @@ function ResultsForm({
     confirming !== null &&
     norms.every((n) => validDecimal(confirming.values[n.indicatorId] ?? '') !== null) &&
     previewConclusion(norms, confirming.values) === 'FAIL';
+  // The failure of a confirmation is said in its dialog only (README «Диалог»); closed with it still standing —
+  // by the person or by such a re-read — the page says it.
+  const failure = useDialogAlert();
+  const { handOff } = failure;
   useEffect(() => {
-    if (confirming && !covered) setConfirming(null);
-  }, [confirming, covered]);
+    if (!confirming || covered) return;
+    handOff();
+    setConfirming(null);
+  }, [confirming, covered, handOff]);
   // A changed set of norms: the first norm still without a value gets the focus (after a closing dialog returned
   // its own; ruling FM24 — the newly revealed field).
   const normSet = norms.map((n) => n.indicatorId).join();
@@ -798,9 +807,10 @@ function ResultsForm({
     return () => clearTimeout(timer);
   }, [normSet, form, submitRef]);
 
-  /** Sends the values; a failure to show in the confirmation dialog is returned (it stays open). */
-  const send = async (v: ResultValues): Promise<string | null> => {
+  /** Sends the values; from the confirmation dialog (`inDialog`) a failure is said in it (it stays open). */
+  const send = async (v: ResultValues, inDialog = false): Promise<void> => {
     problems.alert.clear();
+    failure.clear();
     setBusy(true);
     const body = toBody(v) as Schemas['LabResultsInput'];
     try {
@@ -820,7 +830,6 @@ function ResultsForm({
             ? t('lab.submittedRecall', { code: next.batch.publicCode })
             : t('lab.submitted', { conclusion: enumLabel(t, 'LabConclusion', next.conclusion ?? 'PASS') }),
       });
-      return null;
     } catch (e) {
       if (e instanceof ApiProblem && e.code === 'VALIDATION' && !isNormsMismatch(e)) {
         setConfirming(null);
@@ -834,10 +843,15 @@ function ResultsForm({
             return norm ? `values.${norm.indicatorId}` : path;
           },
         });
-        return null;
+        return;
       }
       if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
-      return problems.fail(e).text;
+      if (!inDialog) {
+        problems.fail(e);
+        return;
+      }
+      const p = problems.describe(e);
+      failure.show(p.text, p.tone);
     } finally {
       setBusy(false);
     }
@@ -913,8 +927,14 @@ function ResultsForm({
         test={test}
         busy={busy}
         wait={wait}
-        onClose={() => setConfirming(null)}
-        onConfirm={() => (confirming && covered ? send(confirming) : Promise.resolve(null))}
+        message={failure.message}
+        onClose={() => {
+          failure.handOff();
+          setConfirming(null);
+        }}
+        onConfirm={() => {
+          if (confirming && covered) void send(confirming, true);
+        }}
       />
     </Card>
   );
@@ -927,6 +947,7 @@ function FailDialog({
   test,
   busy,
   wait,
+  message,
   onClose,
   onConfirm,
 }: {
@@ -934,17 +955,16 @@ function FailDialog({
   test: LabTest;
   busy: boolean;
   wait: number;
+  /** The failure of the last attempt, said in the dialog. */
+  message: string | null;
   onClose: () => void;
-  onConfirm: () => Promise<string | null>;
+  onConfirm: () => void;
 }) {
   const [code, setCode] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
   const confirmRef = useFocusAfterWait(wait);
   const matches = test.batch.publicCode !== '' && code.trim().toUpperCase() === test.batch.publicCode;
   useEffect(() => {
-    if (open) return;
-    setCode('');
-    setMessage(null);
+    if (!open) setCode('');
   }, [open]);
   return (
     <Dialog
@@ -961,7 +981,7 @@ function FailDialog({
             variant="danger"
             busy={busy}
             disabled={!matches || wait > 0}
-            onClick={() => void onConfirm().then(setMessage)}
+            onClick={onConfirm}
           >
             {wait > 0 ? t('auth.retryIn', { seconds: wait }) : t('lab.failSubmit')}
           </Button>

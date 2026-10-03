@@ -1,8 +1,15 @@
-import { forwardRef, useMemo, useState, type ReactNode } from 'react';
+import { forwardRef, type ReactNode } from 'react';
 import { useForm, type FieldValues, type Path, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z, type ZodTypeAny } from 'zod';
-import { applyProblem, fieldText, useCountdown, useFocusAfterWait, useFormAlert } from './api';
+import {
+  applyProblem,
+  fieldText,
+  useCountdown,
+  useDialogAlert,
+  useFocusAfterWait,
+  useFormAlert,
+} from './api';
 import { t } from './i18n';
 import { Button } from '../ui/Button';
 
@@ -44,38 +51,30 @@ export function useSchemaForm<F extends FieldValues>(
   defaultValues: F,
   fields: readonly Path<F>[],
   alias?: (path: string) => string,
-  /** `false`: the form focuses its first invalid field itself (`focusFirstInvalid`) — when a field without a form ref
-   * (a combobox, a picker) comes first, React Hook Form's own choice (the first registered field) would be wrong. */
-  shouldFocusError = true,
+  options: {
+    /** `false`: the form focuses its first invalid field itself (`focusFirstInvalid`) — when a field without a form
+     * ref (a combobox, a picker) comes first, React Hook Form's own choice (the first registered field) would be
+     * wrong. */
+    shouldFocusError?: boolean;
+    /** A form inside a modal dialog (README «Диалог»): the form-level message is said only in the dialog (`message`
+     * for `DialogMessage`); `handOff` on close gives a message that still applies to the page as a toast. */
+    dialog?: boolean;
+  } = {},
 ) {
   // The cast: @hookform/resolvers declares no zod peer, so its own `zod` types do not resolve to ours (runtime is
   // duck-typed: `schema.parseAsync`).
   const form = useForm<F>({
     resolver: zodResolver(schema as never),
     defaultValues: defaultValues as never,
-    shouldFocusError,
+    shouldFocusError: options.shouldFocusError ?? true,
   });
   const toastAlert = useFormAlert();
-  // The form-level message is also kept as `message`: a form inside a modal dialog says it in its body (README
-  // «Диалог»: the page's toast region is behind the modal).
-  const [message, setMessage] = useState<string | null>(null);
-  const alert = useMemo(
-    () => ({
-      show: (text: string, tone?: 'danger' | 'attention') => {
-        setMessage(text);
-        toastAlert.show(text, tone);
-      },
-      clear: () => {
-        setMessage(null);
-        toastAlert.clear();
-      },
-    }),
-    [toastAlert],
-  );
+  const dialogAlert = useDialogAlert();
+  const alert = options.dialog ? dialogAlert : toastAlert;
   const [wait, startWait] = useCountdown();
   const fail = (e: unknown) =>
     applyProblem(e, { form, fields, alert: alert.show, onRateLimit: startWait, alias });
-  return { form, alert, wait, fail, message };
+  return { form, alert, wait, startWait, fail, message: dialogAlert.message, handOff: dialogAlert.handOff };
 }
 
 /** Translated error text of a (possibly nested: `admin.email`) field. */

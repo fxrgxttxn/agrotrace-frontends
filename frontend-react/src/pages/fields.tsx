@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
 import { enumLabel, formatBytes, formatDecimal, formatLocalDate, formatLocalDateTime } from '@agrotrace/i18n';
 import { FieldInputSchema, TreatmentInputSchema } from '@agrotrace/validation';
-import { call, errorText, errorTone, useFormAlert } from '../app/api';
+import { call, errorText, errorTone, useDialogAlert } from '../app/api';
 import { addDays } from '../app/dates';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
@@ -25,6 +25,7 @@ import {
   CardFacts,
   CardHeader,
   Dialog,
+  DialogMessage,
   Empty,
   Field,
   FileField,
@@ -348,6 +349,9 @@ interface FieldFormProps {
   submitLabel: string;
   onSaved: (f: FieldT) => void;
   wrap?: Wrap;
+  /** Set when the form is the body of a dialog: its open state (README «Диалог»: a failure is said in the dialog,
+   * and handed to the page if the dialog closes while it still applies). */
+  dialogOpen?: boolean;
 }
 
 /** The form is built once the regions are there: a select rendered before its options would show one value while
@@ -378,14 +382,20 @@ function FieldFormReady({
   onSaved,
   wrap,
   regions,
+  dialogOpen,
 }: FieldFormProps & { wrap: Wrap; regions: Schemas['RegionEntry'][] }) {
   const { api } = useSession();
-  const { form, alert, wait, fail } = useSchemaForm<FieldValues>(
+  const inDialog = dialogOpen !== undefined;
+  const { form, alert, wait, fail, message, handOff } = useSchemaForm<FieldValues>(
     fieldSchema,
     valuesOf(field),
     FIELD_FIELDS,
     fieldAlias,
+    { dialog: inDialog },
   );
+  useEffect(() => {
+    if (dialogOpen === false) handOff();
+  }, [dialogOpen, handOff]);
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<FileItem[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -425,6 +435,7 @@ function FieldFormReady({
   };
   return wrap(
     <form id={id} noValidate onSubmit={(e) => void submit(e)} style={FORM_GRID}>
+      {inDialog && <DialogMessage text={message} />}
       <Field id={`${id}-name`} label={t('field.name')} error={errorOf(form, 'name')}>
         <Input autoComplete="off" {...form.register('name')} />
       </Field>
@@ -517,7 +528,12 @@ export function FieldPage() {
   // Each opening of the edit dialog starts from the field as it is now.
   const [editKey, setEditKey] = useState(0);
   const [deleting, setDeleting] = useState(false);
-  const alert = useFormAlert();
+  // The delete failure is said in its dialog; closed with it still standing, the page says it (README «Диалог»).
+  const failure = useDialogAlert();
+  const { handOff } = failure;
+  useEffect(() => {
+    if (dialog !== 'delete') handOff();
+  }, [dialog, handOff]);
 
   const query = useQuery({
     queryKey: ['field', id],
@@ -530,7 +546,7 @@ export function FieldPage() {
   const remove = async () => {
     if (!field) return;
     setDeleting(true);
-    alert.clear();
+    failure.clear();
     try {
       await call(api.DELETE('/fields/{id}', { params: { path: { id } } }));
       setDialog(null);
@@ -539,7 +555,7 @@ export function FieldPage() {
       toast.done({ tone: 'ok', text: t('fields.deleted', { name: field.name }) });
       navigate('/fields');
     } catch (e) {
-      alert.show(errorText(e), errorTone(e));
+      failure.show(errorText(e), errorTone(e));
     } finally {
       setDeleting(false);
     }
@@ -625,6 +641,7 @@ export function FieldPage() {
           key={editKey}
           id="field-edit"
           field={field}
+          dialogOpen={dialog === 'edit'}
           submitLabel={t('action.save')}
           onSaved={(f) => {
             setDialog(null);
@@ -666,7 +683,10 @@ export function FieldPage() {
           </>
         }
       >
-        <p>{t('fields.deleteText', { name: field?.name ?? '' })}</p>
+        <div style={FORM_GRID}>
+          <DialogMessage text={failure.message} />
+          <p style={{ margin: 0 }}>{t('fields.deleteText', { name: field?.name ?? '' })}</p>
+        </div>
       </Dialog>
     </Page>
   );
@@ -944,7 +964,7 @@ function TreatmentFormReady({
 }: TreatmentFormProps & { substances: Schemas['Substance'][] }) {
   const { api } = useSession();
   const at = momentDefaults(treatment?.appliedAt);
-  const { form, alert, wait, fail } = useSchemaForm<TreatmentValues>(
+  const { form, alert, wait, fail, message, handOff } = useSchemaForm<TreatmentValues>(
     treatmentSchema,
     {
       substanceId: treatment?.substance.id ?? '',
@@ -955,7 +975,12 @@ function TreatmentFormReady({
       original: at.original,
     },
     TREATMENT_FIELDS,
+    undefined,
+    { dialog: true },
   );
+  useEffect(() => {
+    if (!open) handOff();
+  }, [open, handOff]);
   const [busy, setBusy] = useState(false);
   const submit = form.handleSubmit(async (values) => {
     const body = values as unknown as Schemas['TreatmentInput'];
@@ -1006,6 +1031,7 @@ function TreatmentFormReady({
       }
     >
       <form id="treatment-form" noValidate onSubmit={(e) => void submit(e)} style={FORM_GRID}>
+        <DialogMessage text={message} />
         <Field id="treatment-substance" label={t('field.substanceId')} error={errorOf(form, 'substanceId')}>
           <Select {...form.register('substanceId')}>
             <option value="" disabled>

@@ -100,6 +100,11 @@ describe('/admin/dictionaries/:name', () => {
     expect(
       await within(dialog).findByText(`${name} нельзя удалить: на запись ссылаются организации, поля.`),
     ).toBeInTheDocument();
+    // README «Диалог» (polish P1): said once — in the dialog, not also as a page toast behind it…
+    expect(toastText()).toBe('');
+    // …and handed to the page when the dialog closes with the failure still standing.
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+    await waitFor(() => expect(toastText()).toContain(`${name} нельзя удалить`));
   });
 
   it('imports a CSV: the report shows the counts and every rejected row with its column and reason', async () => {

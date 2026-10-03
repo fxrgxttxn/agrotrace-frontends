@@ -21,7 +21,7 @@ import {
   retryAfterOf,
   useCountdown,
   useFocusAfterWait,
-  useFormAlert,
+  useDialogAlert,
 } from '../app/api';
 import { useDictionary } from '../app/dictionaries';
 import { errorOf, FORM_GRID, normalizeDecimal, Submit, useSchemaForm, wireSchema } from '../app/forms';
@@ -741,10 +741,10 @@ function AssignLabDialog({
   const { api } = useSession();
   const toast = useScreenToast();
   const queryClient = useQueryClient();
-  const alert = useFormAlert();
   const [labOrgId, setLabOrgId] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const failure = useDialogAlert();
+  const { clear: clearFailure } = failure;
   const [busy, setBusy] = useState(false);
   const [wait, startWait] = useCountdown();
   const confirmRef = useFocusAfterWait(wait);
@@ -753,13 +753,12 @@ function AssignLabDialog({
     if (open) return;
     setLabOrgId('');
     setError(null);
-    setMessage(null);
-  }, [open]);
+    clearFailure();
+  }, [open, clearFailure]);
   const assign = async () => {
     if (!labOrgId) return setError(t('validation.required'));
     setBusy(true);
-    setMessage(null);
-    alert.clear();
+    failure.clear();
     try {
       const test = await call<Schemas['LabTest']>(
         api.POST('/lab-tests', { body: { batchId: batch.id, labOrgId } }),
@@ -772,22 +771,25 @@ function AssignLabDialog({
       if (key) setError(t(key));
       else {
         if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
-        // Said in the dialog (the page toast region is behind the modal) and as the page message (README «Диалог»).
-        setMessage(errorText(e));
-        alert.show(errorText(e), errorTone(e));
+        // Said in the dialog only; the page gets it if the dialog closes while it still applies (README «Диалог»).
+        failure.show(errorText(e), errorTone(e));
       }
     } finally {
       setBusy(false);
     }
   };
+  const close = () => {
+    failure.handOff();
+    onClose();
+  };
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={close}
       title={t('lab.assignTitle', { code: batch.publicCode })}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             {t('action.cancel')}
           </Button>
           <Button
@@ -803,7 +805,7 @@ function AssignLabDialog({
       }
     >
       <div style={{ display: 'grid', gap: 'var(--sp-4)' }}>
-        <DialogMessage text={message} />
+        <DialogMessage text={failure.message} />
         <OrgPicker
           id="assign-lab"
           label={t('field.labOrgId')}

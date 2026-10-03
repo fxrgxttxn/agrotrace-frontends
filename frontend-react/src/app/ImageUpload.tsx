@@ -2,13 +2,22 @@ import { useEffect, useState } from 'react';
 import { ApiProblem } from '@agrotrace/api-client';
 import { formatBytes } from '@agrotrace/i18n';
 import { tooLargeText, typesText } from './admin';
-import { errorText, errorTone, retryAfterOf, useCountdown, useFocusAfterWait, useFormAlert } from './api';
+import {
+  errorText,
+  errorTone,
+  retryAfterOf,
+  useCountdown,
+  useFocusAfterWait,
+  useFormAlert,
+  type DialogAlert,
+} from './api';
 import { LOCALE, t } from './i18n';
 import { Button, FileField, type FileItem } from '../ui';
 
 // One image to upload (a product photo, an organization logo): picked or dropped into an `at-file`, checked against the
 // contract's types and size before sending (the server checks the signature again: 415 / 413), previewed, sent with
-// «Загрузить». A failure is said on the file (and as the screen's message); a 429 waits on the button.
+// «Загрузить». A failure is said on the file (and as the screen's message — inside a dialog, the dialog's own, README
+// «Диалог»); a 429 waits on the button.
 
 interface Picked {
   file: File;
@@ -24,6 +33,7 @@ export function ImageUpload({
   maxBytes,
   upload,
   onDone,
+  dialogAlert,
 }: {
   id: string;
   label: string;
@@ -33,8 +43,11 @@ export function ImageUpload({
   /** Sends the file; rejects with the API problem. */
   upload: (file: File) => Promise<void>;
   onDone?: () => void;
+  /** Inside a dialog: its message (said in the dialog, not as a toast behind it). */
+  dialogAlert?: DialogAlert;
 }) {
-  const alert = useFormAlert();
+  const formAlert = useFormAlert();
+  const alert = dialogAlert ?? formAlert;
   const [picked, setPicked] = useState<Picked | null>(null);
   const [busy, setBusy] = useState(false);
   const [wait, startWait] = useCountdown();
@@ -71,7 +84,8 @@ export function ImageUpload({
         error = t(e.errors.file[0]);
       if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
       if (error) setPicked((p) => (p ? { ...p, error } : p));
-      alert.show(error ?? errorText(e), error ? 'danger' : errorTone(e));
+      // In a dialog a refused file is said on the file only (its `role="alert"` error).
+      if (!(dialogAlert && error)) alert.show(error ?? errorText(e), error ? 'danger' : errorTone(e));
     } finally {
       setBusy(false);
     }

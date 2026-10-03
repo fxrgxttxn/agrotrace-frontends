@@ -4,7 +4,15 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
 import { enumLabel, formatLocalDateTime, formatMass } from '@agrotrace/i18n';
 import { RecallCreateSchema } from '@agrotrace/validation';
-import { call, errorText, errorTone, retryAfterOf, useCountdown, useFormAlert } from '../app/api';
+import {
+  call,
+  errorText,
+  errorTone,
+  retryAfterOf,
+  useCountdown,
+  useDialogAlert,
+  useFormAlert,
+} from '../app/api';
 import { useCacheWriter, useScreenNavigate, useScreenToast } from '../app/cache';
 import { CodeConfirmDialog } from '../app/CodeConfirm';
 import { DateFilter } from '../app/DateFilter';
@@ -222,21 +230,25 @@ export function RecallTasksPage() {
   const [target, setTarget] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [wait, startWait] = useCountdown();
-  const [message, setMessage] = useState<string | null>(null);
+  const failure = useDialogAlert();
+  const { clear: clearFailure } = failure;
   const shown = items.find((x) => x.id === target) ?? null;
   const stale = target !== null && query.data !== undefined && (!shown || !taskConfirmable(shown.status));
   useEffect(() => {
-    if (stale) setTarget(null);
-  }, [stale]);
-  const close = () => {
+    if (!stale) return;
     setTarget(null);
-    setMessage(null);
+    clearFailure();
+  }, [stale, clearFailure]);
+  // Closed by the person: a failure that still applies goes to the page (README «Диалог»).
+  const close = () => {
+    failure.handOff();
+    setTarget(null);
   };
 
   const reread = () => void queryClient.invalidateQueries({ queryKey: ['recallTasks'] });
   const confirm = async (task: Task) => {
     setBusy(true);
-    setMessage(null);
+    failure.clear();
     alert.clear();
     try {
       await idempotent(
@@ -275,10 +287,11 @@ export function RecallTasksPage() {
         if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
         text = errorText(e);
       }
-      // Said in the dialog (the toast region is behind the modal) and as the page message (README «Диалог»).
-      if (closing) close();
-      else setMessage(text);
-      alert.show(text, errorTone(e));
+      // Said in the dialog only (README «Диалог»); a task that can no longer be confirmed closes it and the page says why.
+      if (closing) {
+        setTarget(null);
+        alert.show(text, errorTone(e));
+      } else failure.show(text, errorTone(e));
     } finally {
       setBusy(false);
     }
@@ -377,7 +390,7 @@ export function RecallTasksPage() {
                 icon="check"
                 aria-label={t('recallTasks.confirmFor', { code: x.batch.publicCode })}
                 onClick={() => {
-                  setMessage(null);
+                  failure.clear();
                   setTarget(x.id);
                 }}
               >
@@ -443,7 +456,7 @@ export function RecallTasksPage() {
         confirmLabel={enumLabel(t, 'BatchActionName', 'writeOff')}
         busy={busy}
         wait={wait}
-        message={message}
+        message={failure.message}
         onClose={close}
         onConfirm={() => {
           if (shown) void confirm(shown);
@@ -1033,24 +1046,25 @@ export function RecallNewPage() {
   const queryClient = useQueryClient();
   const cache = useCacheWriter();
   const linked = params.get('batchId') ?? '';
-  const { form, alert, wait, fail } = useSchemaForm<NewRecall>(
+  const { form, alert, wait, startWait, fail } = useSchemaForm<NewRecall>(
     newRecallSchema,
     { sourceBatchId: /^[0-9a-f-]{36}$/i.test(linked) ? linked : '', reason: '', blockUpstream: false },
     ['sourceBatchId', 'reason', 'blockUpstream'],
     undefined,
-    false,
+    { shouldFocusError: false },
   );
   const formRef = useRef<HTMLFormElement>(null);
   const [code, setCode] = useState('');
   const [linkPending, setLinkPending] = useState(false);
   const [confirming, setConfirming] = useState<NewRecall | null>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  // The start fails inside the code dialog: said there only (README «Диалог»).
+  const failure = useDialogAlert();
   const sourceBatchId = form.watch('sourceBatchId');
 
   const start = async (v: NewRecall) => {
     setBusy(true);
-    setMessage(null);
+    failure.clear();
     alert.clear();
     try {
       const res = await api.POST('/recalls', { body: v });
@@ -1072,9 +1086,8 @@ export function RecallNewPage() {
         fail(e);
         return;
       }
-      if (e instanceof ApiProblem && e.status === 429) fail(e);
-      else alert.show(errorText(e), errorTone(e));
-      setMessage(errorText(e));
+      if (e instanceof ApiProblem && e.status === 429) startWait(retryAfterOf(e));
+      failure.show(errorText(e), errorTone(e));
     } finally {
       setBusy(false);
     }
@@ -1088,7 +1101,7 @@ export function RecallNewPage() {
         if (!linkPending) document.getElementById('recall-batch')?.focus();
         return;
       }
-      setMessage(null);
+      failure.clear();
       setConfirming(v);
     },
     // The batch field is a combobox without a form ref: the first invalid field in the order of the form takes the focus.
@@ -1134,8 +1147,11 @@ export function RecallNewPage() {
         confirmLabel={t('recalls.new.submit')}
         busy={busy}
         wait={wait}
-        message={message}
-        onClose={() => setConfirming(null)}
+        message={failure.message}
+        onClose={() => {
+          failure.handOff();
+          setConfirming(null);
+        }}
         onConfirm={() => {
           if (confirming) void start(confirming);
         }}

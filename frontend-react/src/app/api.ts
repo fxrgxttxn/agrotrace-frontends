@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FieldValues, Path, UseFormReturn } from 'react-hook-form';
 import { ApiProblem, type ProblemBody } from '@agrotrace/api-client';
 import { enumLabel, problemMessage } from '@agrotrace/i18n';
@@ -98,6 +98,42 @@ export function useFormAlert(): {
   );
   useEffect(() => clear, [clear]);
   return { show, clear };
+}
+
+export interface DialogAlert {
+  /** The failure said in the dialog (`DialogMessage`), null — none. */
+  message: string | null;
+  show: (text: string, tone?: 'danger' | 'attention') => void;
+  /** A new attempt or a success: the failure no longer applies. */
+  clear: () => void;
+  /** The dialog closes (Отмена, the cross, Esc, or the screen closes it): a failure that still applies goes to the
+   * page as a toast. */
+  handOff: () => void;
+}
+
+/** README «Диалог» (polish P1): a failure inside an open modal dialog is said once — in the dialog's `role="alert"`,
+ * never at the same time as a page toast (the toast region is behind the modal, and both would be announced). When
+ * the dialog closes while the failure still applies (no retry or success cleared it), the page gets it as a toast. */
+export function useDialogAlert(): DialogAlert {
+  const toast = useToast();
+  const alive = useScreenAlive();
+  const [message, setMessage] = useState<string | null>(null);
+  const current = useRef<{ text: string; tone: 'danger' | 'attention' } | null>(null);
+  const show = useCallback((text: string, tone: 'danger' | 'attention' = 'danger') => {
+    current.current = { text, tone };
+    setMessage(text);
+  }, []);
+  const clear = useCallback(() => {
+    current.current = null;
+    setMessage(null);
+  }, []);
+  const handOff = useCallback(() => {
+    const failure = current.current;
+    clear();
+    // FM26: a failure of a screen that is gone (or of an ended session) is not shown.
+    if (failure && alive()) toast.push(failure);
+  }, [clear, alive, toast]);
+  return useMemo(() => ({ message, show, clear, handOff }), [message, show, clear, handOff]);
 }
 
 export interface ApplyOptions<F extends FieldValues> {
