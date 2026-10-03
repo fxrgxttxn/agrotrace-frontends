@@ -1,5 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 // Pieces shared by the parity specs: console / HTTP watch, sign-in through the login form (waiting out the login-ip
 // limit), screenshots at 360 and 1280 px in both themes with the no-horizontal-scroll check.
@@ -73,17 +75,18 @@ export async function settle(page: Page): Promise<void> {
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 20000 });
 }
 
-/** Design-system markup axe flags although WCAG exempts it, recorded for the design-system backlog (README classes):
- * the unit suffix of a disabled input group (1.4.3: text of an inactive component; ink-muted on surface-sunk 4.2:1). */
-const AXE_KNOWN = ['.at-input-group:has(:disabled) > .at-input-group__suffix'];
-
-/** axe-core with the WCAG 2.0/2.1 A and AA rules: one line per violation (rule id and the nodes it found). */
+/** axe-core with the WCAG 2.0/2.1 A and AA rules on the whole page, no exclusions (polish P1: the unit of a disabled
+ * input group now has 4.5:1 — --c-ink-disabled): one line per violation (rule id and the nodes it found). */
 export async function a11y(page: Page): Promise<string[]> {
-  let axe = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']);
-  for (const selector of AXE_KNOWN) axe = axe.exclude(selector);
+  const axe = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']);
   const { violations } = await axe.analyze();
   return violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);
 }
+
+/** The full-page screenshot style (full-page.css): the fixed bottom navigation stands at the end of the page, not over
+ * the content of the first screen. `toHaveScreenshot` takes it as `stylePath`, `page.screenshot` as `style`. */
+export const FULL_PAGE_STYLE_PATH = fileURLToPath(new URL('./full-page.css', import.meta.url));
+export const FULL_PAGE_STYLE = readFileSync(FULL_PAGE_STYLE_PATH, 'utf8');
 
 export async function horizontalOverflow(page: Page): Promise<number> {
   return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -130,6 +133,7 @@ export async function shot(page: Page, dir: string, name: string): Promise<void>
         path: `test-results/shots/${FRONT}-${BACK}/${dir}/${name}-${width}-${theme}.png`,
         fullPage: true,
         animations: 'disabled',
+        style: FULL_PAGE_STYLE,
       });
     }
   await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));

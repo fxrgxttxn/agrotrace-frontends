@@ -198,3 +198,30 @@ test('anonymous: the auth screens, the public QR page and «not found» pass the
   expect(violations).toEqual([]);
   expect(unexpected(w)).toEqual([]);
 });
+
+test('notification cards at 360 px: the title never runs under the status chip (polish P1)', async ({
+  page,
+}) => {
+  await fixClock(page);
+  await signIn(page, 'molkombinat.head@agrotrace.test');
+  await page.setViewportSize({ width: 360, height: 780 });
+  for (const tab of ['/notifications', '/notifications?tab=unread']) {
+    await page.goto(tab);
+    await settle(page);
+    const overlaps = await page.evaluate(() =>
+      [...document.querySelectorAll('tbody tr')].flatMap((tr) => {
+        const title = tr.querySelector('td[data-primary]')?.getBoundingClientRect();
+        const chip = tr.querySelector('td[data-status-cell] .at-chip')?.getBoundingClientRect();
+        if (!title || !chip) return [];
+        const text = [...tr.querySelectorAll('td[data-primary] .at-table__primary > *')].map((n) => {
+          const r = document.createRange();
+          r.selectNodeContents(n);
+          return Math.max(...[...r.getClientRects()].map((b) => b.right));
+        });
+        return Math.max(...text) > chip.left ? [tr.textContent ?? ''] : [];
+      }),
+    );
+    expect(overlaps, tab).toEqual([]);
+    expect(await page.locator('tbody tr').count(), tab).toBeGreaterThan(0);
+  }
+});

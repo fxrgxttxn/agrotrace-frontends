@@ -30,6 +30,19 @@ test('ADMIN approves a fresh application, edits and suspends it, invites an empl
   const row = page.getByRole('row').filter({ hasText: name });
   await expect(row).toBeVisible();
   await shot(page, SHOTS, 'organizations-applications');
+  // Polish P1 (README «Таблица»): approve / reject / edit of an application are reachable without scrolling the
+  // table at 1024 and 1280 px.
+  for (const width of [1024, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    const wrap = page.locator('.at-table-wrap').first();
+    expect(await wrap.evaluate((el) => el.scrollWidth - el.clientWidth), `table scroll at ${width}`).toBe(0);
+    const box = (await wrap.boundingBox())!;
+    for (const action of [`Одобрить заявку ${name}`, `Отклонить заявку ${name}`, `Изменить ${name}`]) {
+      const b = (await page.getByRole('button', { name: action }).boundingBox())!;
+      expect(b.x + b.width, `${action} at ${width}`).toBeLessThanOrEqual(box.x + box.width);
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   await page.getByRole('button', { name: `Одобрить заявку ${name}` }).click();
   await expect(page.getByText(`Организация ${name} одобрена`)).toBeVisible();
@@ -108,6 +121,8 @@ test('ADMIN dictionaries: add, import with its report, refused files, a region i
     .getByRole('article')
     .filter({ has: page.getByRole('heading', { name: 'Отчёт об импорте: Продукты' }) });
   await expect(report).toBeVisible();
+  // FM21 (polish P1): the dialog closed on success and gave the focus back to its opener.
+  await expect(page.getByRole('button', { name: 'Импорт' })).toBeFocused();
   const rejected = report.getByRole('table', { name: 'Отклонённые строки' });
   await expect(rejected.getByRole('row').nth(1)).toContainText('3');
   await expect(rejected.getByRole('row').nth(1)).toContainText('Норма потерь, %');
@@ -142,6 +157,37 @@ test('ADMIN dictionaries: add, import with its report, refused files, a region i
   const del = page.getByRole('dialog', { name: /^Удалить Владимир/ });
   await del.getByRole('button', { name: 'Удалить' }).click();
   await expect(del.getByText(/нельзя удалить: на запись ссылаются организации/)).toBeVisible();
+  // README «Диалог» (polish P1): said once, in the dialog; the page toast comes after closing it.
+  const pageAlerts = page.locator('.at-toast-region[role="alert"] .at-toast');
+  await expect(pageAlerts).toHaveCount(0);
+  await del.getByRole('button', { name: 'Отмена' }).click();
+  await expect(
+    pageAlerts.filter({ hasText: /нельзя удалить: на запись ссылаются организации/ }),
+  ).toBeVisible();
+
+  // A norm is deleted for good: the audit diff names every field of it in words (polish P1).
+  await page.goto('/admin/dictionaries/norms');
+  await expect(page.getByRole('table', { name: 'Нормативы' })).toBeVisible();
+  await page
+    .getByRole('button', { name: /^Удалить / })
+    .first()
+    .click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Удалить' }).click();
+  await expect(page.getByText(/ — удалено$/)).toBeVisible();
+  await page.goto('/admin/audit?entityType=norm');
+  await page
+    .getByRole('button', { name: /^Изменения записи журнала/ })
+    .first()
+    .click();
+  const changes = page.getByRole('dialog').getByRole('table', { name: 'Изменённые поля' });
+  for (const [label, api] of [
+    ['Продукт', 'productId'],
+    ['Показатель', 'indicatorId'],
+    ['Максимальное значение', 'maxValue'],
+  ] as const)
+    await expect(changes.getByRole('row').filter({ hasText: api })).toContainText(label);
+  await expect(changes).not.toContainText(/\d{4}-\d{2}-\d{2}T\d{2}:/);
+  await shot(page, SHOTS, 'audit-diff-norm');
   expect(
     unexpected(w, [
       /^http 400 POST \/api\/v1\/dictionaries\/products\/import$/,
