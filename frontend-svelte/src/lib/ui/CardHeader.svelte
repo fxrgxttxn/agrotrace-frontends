@@ -10,6 +10,6 @@
 </script>
 
 <header class="at-card__header">
-  <svelte:element this={`h${level}`} class="at-card__title" id={titleId}>{title}</svelte:element>
-  {@render children?.()}
+  <svelte:element this={`h${level}`} class="at-card__title" id={titleId}>{title}</svelte:element
+  >{@render children?.()}
 </header>

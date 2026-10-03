@@ -116,8 +116,8 @@ test('the public page /p/:code on the mock: the batch, no cabinet code ran', asy
     if (path.startsWith('/api/v1/')) calls.push(path);
   });
   await page.goto(`/p/${code}`);
-  await expect(h1(page, 'Партия')).toBeVisible();
-  await expect(page.locator('p.at-mono')).toHaveText(code);
+  await expect(h1(page, 'Молоко пастеризованное 3,2%')).toBeVisible();
+  await expect(page.locator('.at-card__facts .at-mono')).toHaveText(code);
   // no session restore, no stream
   expect(calls.filter((c) => c.startsWith('/api/v1/auth') || c.startsWith('/api/v1/events'))).toEqual([]);
   expect(await cspViolations(page)).toEqual([]);

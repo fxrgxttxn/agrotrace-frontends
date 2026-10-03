@@ -456,7 +456,7 @@ test('FM15: a failing start-up chunk (public page) — one reload, then a static
   expect(documents).toEqual(['/p/AT-2026-000123', '/p/AT-2026-000123']);
   await context.unroute(`**${start}`);
   await retry.click();
-  await expect(h1(page, 'Партия')).toBeVisible();
+  await expect(h1(page, 'Пшеница озимая')).toBeVisible();
   expect(await page.evaluate(() => sessionStorage.getItem('agrotrace-chunk-reload'))).toBeNull();
 });
 
@@ -553,10 +553,10 @@ test('S1 minors: the focus flag of a reload is spent by the first page shown, ev
 }) => {
   await mockApi(context);
   await page.goto('/p/AT-2026-000123');
-  await expect(h1(page, 'Партия')).toBeVisible();
+  await expect(h1(page, 'Пшеница озимая')).toBeVisible();
   await page.evaluate(() => sessionStorage.setItem('agrotrace-focus-title', '1'));
   await page.reload();
-  await expect(h1(page, 'Партия')).toBeVisible();
+  await expect(h1(page, 'Пшеница озимая')).toBeVisible();
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem('agrotrace-focus-title'))).toBeNull();
 });
 

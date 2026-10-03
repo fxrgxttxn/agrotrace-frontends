@@ -5,13 +5,14 @@
   /** `at-textarea`. */
   let {
     value = $bindable(),
+    element = $bindable(null),
     id,
     'aria-invalid': ariaInvalid,
     'aria-describedby': ariaDescribedby,
     ...rest
-  }: HTMLTextareaAttributes = $props();
+  }: HTMLTextareaAttributes & { element?: HTMLTextAreaElement | null } = $props();
 
   const control = fieldControl(() => ({ id, 'aria-invalid': ariaInvalid, 'aria-describedby': ariaDescribedby }));
 </script>
 
-<textarea class="at-textarea" {...control()} {...rest} bind:value></textarea>
+<textarea bind:this={element} class="at-textarea" {...control()} {...rest} bind:value></textarea>

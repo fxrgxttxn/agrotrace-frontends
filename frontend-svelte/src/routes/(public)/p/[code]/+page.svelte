@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import PublicPage from '$lib/public/PublicPage.svelte';
+  import BatchView from '$lib/public/BatchView.svelte';
 </script>
 
-<PublicPage kind="batch" code={page.params.code} />
+<!-- One batch per document: another code is another QR page (a full load), never a client-side change. -->
+<BatchView code={page.params.code ?? ''} />

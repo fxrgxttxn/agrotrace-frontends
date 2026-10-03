@@ -1,13 +1,18 @@
 import type { ClientInit, HandleClientError } from '@sveltejs/kit';
 import { CHUNK_FAILED, isChunkError, noteChunkFailure } from '$lib/app/chunkFailure';
+import { earlyBatchUrl, startEarly } from '$lib/public/early';
 
 // Mock mode (ruling FM23, `vite build --mode mock` → build-mock): the in-browser backend of @agrotrace/mock-api (MSW
 // service worker) answers /api/v1 before the app's first request — SvelteKit awaits `init` before it starts. The
 // production build never contains it: MODE is a build-time constant, the branch and its dynamic import are dropped.
 export const init: ClientInit = async () => {
-  if (import.meta.env.MODE !== 'mock') return;
-  const { startBrowserMock } = await import('@agrotrace/mock-api/browser');
-  await startBrowserMock();
+  if (import.meta.env.MODE === 'mock') {
+    const { startBrowserMock } = await import('@agrotrace/mock-api/browser');
+    await startBrowserMock();
+  }
+  // A QR page: its batch request starts now, while the page's own chunks still load (LCP on a phone, as React).
+  const early = earlyBatchUrl(location.pathname, location.origin);
+  if (early) startEarly(early);
 };
 
 // Errors while loading a route (never a raw framework error): a page chunk that cannot be loaded is marked for the

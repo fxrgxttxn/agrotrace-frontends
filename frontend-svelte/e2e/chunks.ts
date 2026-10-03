@@ -67,6 +67,11 @@ export const PUBLIC_ALLOWED: RegExp[] = [
   /^frontend-svelte\/src\/lib\/public\//,
   /^frontend-svelte\/src\/lib\/app\/(theme\.svelte|sprite|chunkFailure)\.ts$/,
   /^frontend-svelte\/src\/hooks\.client\.ts$/,
+  // the light design-system wrappers the QR page renders (none of them carries the full dictionary)
+  /^frontend-svelte\/src\/lib\/ui\/(Button|Icon|Field|Input|Textarea|Avatar|CardBody|CardFacts|CardHeader|Timeline)\.svelte$/,
+  /^frontend-svelte\/src\/lib\/ui\/(field|display)\.ts$/,
+  // the public client of the API (no session, no openapi-fetch)
+  /^packages\/api-client\/src\/(public|problem|variant)\.ts$/,
   /^packages\/(i18n|design-system)\//,
   /^frontend-svelte\/\.svelte-kit\/generated\//,
   /node_modules\/(\.pnpm\/[^/]+\/node_modules\/)?(svelte|@sveltejs\/kit|esm-env|devalue|clsx|cookie|set-cookie-parser)\//,

@@ -58,19 +58,19 @@ test('the public pages /p/* load no cabinet chunk and no mock code (module graph
   // cabinet module at all — session, live stream, guards, forms, shell, cabinet pages, (app) routes.
   expect(nodeCounts.app).toBeGreaterThan(30);
   expect(nodeCounts.public).toBe(3); // the three /p pages (the group has no layout of its own)
-  expect(publicModules.some((m) => m.endsWith('src/lib/public/PublicPage.svelte'))).toBe(true);
+  expect(publicModules.some((m) => m.endsWith('src/lib/public/BatchView.svelte'))).toBe(true);
   expect(publicModules.filter((m) => CABINET_MODULE.test(m))).toEqual([]);
   expect(publicNotAllowed()).toEqual([]); // an allowlist: nothing else may be in the public graph
   expect(cabinetOnly.size).toBeGreaterThan(0);
   await page.goto('/p/AT-2026-000123');
-  await expect(page.getByRole('heading', { level: 1, name: 'Партия' })).toBeVisible();
-  await expect(page.locator('p.at-mono')).toHaveText('AT-2026-000123');
+  await expect(page.getByRole('heading', { level: 1, name: 'Пшеница озимая' })).toBeVisible();
+  await expect(page.locator('.at-public__status')).toHaveAttribute('data-safety', 'SAFE');
   await page.goto('/p/AT-2026-000123/complaint');
   await expect(page.getByRole('heading', { level: 1, name: 'Сообщить о проблеме' })).toBeVisible();
   const loaded = [...scripts.keys()];
   expect(loaded.filter((f) => cabinetOnly.has(f))).toEqual([]);
-  // no session restore, no stream: nothing of the cabinet ran
-  expect(calls).toEqual([]);
+  // no session restore, no stream: nothing of the cabinet ran (only the public operations were asked)
+  expect(calls.filter((c) => !c.startsWith('GET /api/v1/public/'))).toEqual([]);
   const bodies = await Promise.all(scripts.values());
   expect(bodies.filter((b) => b.includes('agrotrace-session') || b.includes('at-sidebar'))).toEqual([]);
   // FM23: the mock backend lives only in the mock build — neither its code nor its worker are in the production build
@@ -92,9 +92,12 @@ test('the public pages /p/* stay in the JS budget (60 KB gzip)', async ({ page, 
     if (r.request().resourceType() === 'script') scripts.set(new URL(r.url()).pathname, r.text());
   });
   await page.goto('/p/AT-2026-000123');
-  await expect(page.getByRole('heading', { level: 1, name: 'Партия' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Пшеница озимая' })).toBeVisible();
+  // The ALTCHA worker counts too (README «Публичная QR-страница»): the form starts it as soon as it opens.
+  const worker = page.waitForResponse((r) => /\/workers\/altcha\.worker-[^/]+\.js$/.test(r.url()));
   await page.goto('/p/AT-2026-000123/complaint');
   await expect(page.getByRole('heading', { level: 1, name: 'Сообщить о проблеме' })).toBeVisible();
+  scripts.set(new URL((await worker).url()).pathname, (await worker).text());
   const bodies = await Promise.all(scripts.values());
   const gzip = bodies.reduce((sum, b) => sum + gzipSync(b).length, 0) / 1024;
   const note = `${scripts.size} scripts, ${gzip.toFixed(1)} KB gzip of 60 KB (headroom ${(60 - gzip).toFixed(1)} KB)`;
