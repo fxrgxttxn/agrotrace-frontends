@@ -476,9 +476,12 @@ async function staticScreen(page: Page, timeout = 5000) {
   const retry = box.getByRole('link', { name: 'Повторить' });
   await expect(retry).toHaveAttribute('href', '');
   await expect(retry).toHaveAttribute('data-variant', 'primary');
-  // the design system applies (not an unstyled page): the primary button has its own background, not transparent
-  const bg = await retry.evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(bg).not.toBe('rgba(0, 0, 0, 0)');
+  // the design system applies (not an unstyled page): the primary button has its own background, not transparent.
+  // Polish P2 (the 2-worker flake): after a replaced document the boot script puts the app's stylesheets back — they
+  // load asynchronously, so the check waits for them instead of reading the first frame.
+  await expect
+    .poll(() => retry.evaluate((el) => getComputedStyle(el).backgroundColor), { timeout })
+    .not.toBe('rgba(0, 0, 0, 0)');
   await expect(page.locator('body')).not.toContainText(/500|chunk|Internal Error/);
   return retry;
 }
