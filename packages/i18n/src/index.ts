@@ -18,6 +18,7 @@ export { formatRuDate, parseRuDate, maskRuDateInput, isWithinRuDateBounds } from
 export { problemMessage, type Problem, type T } from './problem.js';
 export { ENUM_LABELS, enumLabel } from './enum-labels.js';
 export { notificationMessage, NOTIFICATION_PARAM_LABELS, type NotificationPart } from './notification.js';
+export { auditActionLabel, auditFieldLabel, auditValue, type AuditValueContext } from './audit.js';
 
 export type Dictionary = typeof ru;
 

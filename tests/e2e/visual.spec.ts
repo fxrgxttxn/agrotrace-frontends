@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { demoCode, fixClock, settle, signIn } from './helpers';
+import { demoCode, fixClock, FULL_PAGE_STYLE_PATH, settle, signIn } from './helpers';
 
 // Visual baselines (Plan 2 Task 9): 12 key screens × light/dark × 360/1280 px, taken from React on the mock world and
 // compared with every other frontend (≤ 1 % of pixels may differ, playwright.config.ts). Deterministic: the browser
@@ -25,7 +25,10 @@ async function snap(page: Page, name: string): Promise<void> {
       await settle(page);
       // Photos, logos and avatars are loaded and decoded.
       await page.waitForFunction(() => [...document.images].every((img) => img.complete));
-      await expect(page).toHaveScreenshot(`${name}-${width}-${theme}.png`, { fullPage: true });
+      await expect(page).toHaveScreenshot(`${name}-${width}-${theme}.png`, {
+        fullPage: true,
+        stylePath: FULL_PAGE_STYLE_PATH,
+      });
     }
 }
 
