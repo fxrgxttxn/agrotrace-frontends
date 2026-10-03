@@ -3,10 +3,10 @@
   import { page } from '$app/state';
   import { ApiProblem, type Schemas } from '@agrotrace/api-client';
   import { RecallCreateSchema } from '@agrotrace/validation';
-  import { call, errorText, errorTone } from '../../app/api.svelte';
+  import { call, errorText, errorTone, retryAfterOf } from '../../app/api.svelte';
   import { cache, query } from '../../app/cache.svelte';
   import CodeConfirmDialog from '../../app/CodeConfirmDialog.svelte';
-  import { form, SchemaForm, wireSchema } from '../../app/forms.svelte';
+  import { DialogAlert, form, SchemaForm, wireSchema } from '../../app/forms.svelte';
   import { userAction } from '../../app/focusRescue';
   import { t } from '../../app/i18n';
   import { screenScope } from '../../app/screen';
@@ -41,7 +41,9 @@
   let code = $state('');
   let confirming = $state<NewRecall | null>(null);
   let busy = $state(false);
-  let message = $state<string | null>(null);
+  // The start fails inside the code dialog: said there only (README «Диалог», polish P2); closed with the failure
+  // still standing, the page says it.
+  const failure = new DialogAlert();
 
   const f = new SchemaForm<NewRecall>({
     schema,
@@ -54,7 +56,7 @@
         if (!linkPending) document.getElementById('recall-batch')?.focus();
         return;
       }
-      message = null;
+      failure.clear();
       confirming = v;
     },
   });
@@ -111,7 +113,7 @@
 
   async function start(v: NewRecall) {
     busy = true;
-    message = null;
+    failure.clear();
     f.alert.clear();
     try {
       const res = await session.api.POST('/recalls', { body: v as Schemas['RecallCreate'] });
@@ -136,9 +138,8 @@
         f.fail(e);
         return;
       }
-      if (e instanceof ApiProblem && e.status === 429) f.fail(e);
-      else f.alert.show(errorText(e), errorTone(e));
-      message = errorText(e);
+      if (e instanceof ApiProblem && e.status === 429) f.wait.start(retryAfterOf(e));
+      failure.show(errorText(e), errorTone(e));
     } finally {
       busy = false;
     }
@@ -191,8 +192,11 @@
     confirmLabel={t('recalls.new.submit')}
     {busy}
     wait={f.wait.left}
-    {message}
-    onclose={() => (confirming = null)}
+    message={failure.message}
+    onclose={() => {
+      failure.handOff();
+      confirming = null;
+    }}
     onconfirm={() => {
       const v = confirming;
       if (v) void userAction(() => start(v));

@@ -69,6 +69,7 @@
   }
   const problems: LabProblems = {
     alert,
+    describe,
     fail: (e) => {
       const p = describe(e);
       if (screen.alive()) alert.show(p.text, p.tone);

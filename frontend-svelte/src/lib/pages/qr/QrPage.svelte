@@ -5,6 +5,7 @@
   import { call, errorText, errorTone } from '../../app/api.svelte';
   import { cache } from '../../app/cache.svelte';
   import { userAction } from '../../app/focusRescue';
+  import { DialogAlert } from '../../app/forms.svelte';
   import { LOCALE, t } from '../../app/i18n';
   import { isBadListQuery } from '../../app/listState.svelte';
   import { screenScope } from '../../app/screen';
@@ -15,6 +16,7 @@
   import Card from '../../ui/Card.svelte';
   import Chip from '../../ui/Chip.svelte';
   import Dialog from '../../ui/Dialog.svelte';
+  import DialogMessage from '../../ui/DialogMessage.svelte';
   import Empty from '../../ui/Empty.svelte';
   import Field from '../../ui/Field.svelte';
   import ListChanged from '../../ui/ListChanged.svelte';
@@ -44,8 +46,12 @@
    * `Dialog` finds it disconnected and does nothing). Spent by the first close. */
   let justGenerated: string | null = $state(null);
 
-  async function generate(b: BatchItem) {
+  // «Сгенерировать заново» fails inside the QR dialog: said there (README «Диалог», polish P2).
+  const failure = new DialogAlert();
+
+  async function generate(b: BatchItem, inDialog = false) {
     busyId = b.id;
+    failure.clear();
     try {
       const links = await call<Schemas['QrLinks']>(session.api.POST('/batches/{id}/qr', { params: { path: { id: b.id } }, body: {} }));
       // A known result (FM30): the row's state shown at once, not only after the invalidation's re-read.
@@ -62,13 +68,15 @@
       shown = { batch: { ...b, qrGeneratedAt: now }, links };
     } catch (e) {
       if (e instanceof ApiProblem && (e.status === 403 || e.status === 404)) void cache.invalidate(['batches']);
-      screen.push({ tone: errorTone(e), text: errorText(e) });
+      if (inDialog) failure.show(errorText(e), errorTone(e));
+      else screen.push({ tone: errorTone(e), text: errorText(e) });
     } finally {
       busyId = null;
     }
   }
 
   function closeDialog() {
+    failure.handOff();
     const code = justGenerated === shown?.batch.publicCode ? justGenerated : null;
     justGenerated = null;
     shown = null;
@@ -190,9 +198,11 @@
   >
     {#snippet actions()}
       {#if shown && !shown.links}
-        <Button busy={busyId === shown.batch.id} onclick={() => void generate(shown!.batch)}>{t('qr.regenerate')}</Button>
+        <Button busy={busyId === shown.batch.id} onclick={() => void generate(shown!.batch, true)}>
+          {t('qr.regenerate')}
+        </Button>
       {/if}
     {/snippet}
-    {#if shown}<QrView batch={shown.batch} links={shown.links} />{/if}
+    {#if shown}<DialogMessage text={failure.message} /><QrView batch={shown.batch} links={shown.links} />{/if}
   </Dialog>
 </Page>

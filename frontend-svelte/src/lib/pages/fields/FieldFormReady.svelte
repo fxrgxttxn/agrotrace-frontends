@@ -3,11 +3,12 @@
   import type { Schemas } from '@agrotrace/api-client';
   import { formatBytes } from '@agrotrace/i18n';
   import { call } from '../../app/api.svelte';
-  import { form, SchemaForm } from '../../app/forms.svelte';
+  import { DialogAlert, form, SchemaForm } from '../../app/forms.svelte';
   import { LOCALE, t } from '../../app/i18n';
   import { session } from '../../app/session.svelte';
   import Button from '../../ui/Button.svelte';
   import Dialog from '../../ui/Dialog.svelte';
+  import DialogMessage from '../../ui/DialogMessage.svelte';
   import Field from '../../ui/Field.svelte';
   import FileField, { type FileItem } from '../../ui/FileField.svelte';
   import Input from '../../ui/Input.svelte';
@@ -48,7 +49,14 @@
     dialog?: { open: boolean; title: string; onclose: () => void };
   } = $props();
 
+  // The body of a dialog (README «Диалог», polish P2): a failure is said in the dialog, and handed to the page if the
+  // dialog closes while it still applies.
+  const failure = untrack(() => (dialog ? new DialogAlert() : undefined));
+  $effect(() => {
+    if (dialog && !dialog.open) failure?.handOff();
+  });
   const f = new SchemaForm<FieldValues, Schemas['FieldInput']>({
+    alert: failure,
     schema: fieldSchema,
     values: untrack(() => fieldValuesOf(field)),
     fields: FIELD_FIELDS,
@@ -85,6 +93,7 @@
 
 {#snippet body()}
   <form {id} use:form={f} style={FORM_GRID}>
+    {#if failure}<DialogMessage text={failure.message} />{/if}
     <Field id="{id}-name" label={t('field.name')} error={f.error('name')}>
       <Input autocomplete="off" name="name" bind:value={f.values.name} />
     </Field>

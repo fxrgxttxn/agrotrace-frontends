@@ -5,7 +5,7 @@
   import type { DictName } from '../../app/admin';
   import { call } from '../../app/api.svelte';
   import { dictionary } from '../../app/dictionaries';
-  import { form, SchemaForm, wireSchema } from '../../app/forms.svelte';
+  import { DialogAlert, form, SchemaForm, wireSchema } from '../../app/forms.svelte';
   import { t } from '../../app/i18n';
   import { screenScope } from '../../app/screen';
   import { session } from '../../app/session.svelte';
@@ -30,7 +30,14 @@
   const def = FORMS[dict];
   const products = dictionary('products');
   const indicators = dictionary('indicators');
+  // Closed with a failure still standing: the page says it (README «Диалог», polish P2).
+  const failure = new DialogAlert();
+  const close = () => {
+    failure.handOff();
+    onclose();
+  };
   const f = new SchemaForm<Values, Schemas['DictionaryInput']>({
+    alert: failure,
     schema: wireSchema<Values>(def.schema, def.toWire, def.precheck),
     values: untrack(() => def.defaults(entry)),
     fields: def.fields,
@@ -82,18 +89,18 @@
 
 <Dialog
   open
-  {onclose}
+  onclose={close}
   title={entry ? t('dict.editTitle', { name: entryName(dict, entry) }) : t(`dict.addTitle.${dict}`)}
 >
   {#snippet actions()}
-    <Button variant="ghost" onclick={onclose}>{t('action.cancel')}</Button>
+    <Button variant="ghost" onclick={close}>{t('action.cancel')}</Button>
     <Submit form={f} formId="entry-form">{entry ? t('action.save') : t('dict.add')}</Submit>
   {/snippet}
   {#if waiting}
     <AreaLoading blocks={1} />
   {:else}
     <form id="entry-form" use:form={f} style={FORM_GRID}>
-      <DialogMessage text={f.alert.message} />
+      <DialogMessage text={failure.message} />
       {#if dict === 'products'}
         {@render text('name', t('field.name'))}
         {@render select(

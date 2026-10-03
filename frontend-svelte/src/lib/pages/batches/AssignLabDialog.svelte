@@ -3,7 +3,7 @@
   import { ApiProblem, type Schemas } from '@agrotrace/api-client';
   import { call, Countdown, errorText, errorTone, focusAfterWait, retryAfterOf } from '../../app/api.svelte';
   import { cache } from '../../app/cache.svelte';
-  import { FormAlert } from '../../app/forms.svelte';
+  import { DialogAlert } from '../../app/forms.svelte';
   import { t } from '../../app/i18n';
   import OrgPicker from '../../app/OrgPicker.svelte';
   import { screenScope } from '../../app/screen';
@@ -14,17 +14,21 @@
   import type { Batch } from './batches';
 
   /** The inspector's unscheduled test (п. 4.3, `createLabTest`): a laboratory from the directory (type LAB). Failures
-   * stay in the dialog (the page's toast region is behind it, README «Диалог»); a 400 on the laboratory is its field's
+   * stay in the dialog (the page's toast region is behind it, README «Диалог»; a failure still standing at close goes
+   * to the page); a 400 on the laboratory is its field's
    * error. */
   let { open, batch, onclose, ondone }: { open: boolean; batch: Batch; onclose: () => void; ondone: () => void } =
     $props();
 
   const screen = screenScope();
-  const alert = new FormAlert();
-  onDestroy(() => alert.clear());
   let labOrgId = $state('');
   let error = $state<string | null>(null);
-  let message = $state<string | null>(null);
+  // Said in the dialog only; the page gets it if the dialog closes while it still applies (README «Диалог», polish P2).
+  const failure = new DialogAlert();
+  const close = () => {
+    failure.handOff();
+    onclose();
+  };
   let busy = $state(false);
   const wait = new Countdown();
   onDestroy(() => wait.stop());
@@ -39,7 +43,7 @@
     if (open) return;
     labOrgId = '';
     error = null;
-    message = null;
+    failure.clear();
   });
 
   async function assign() {
@@ -48,8 +52,7 @@
       return;
     }
     busy = true;
-    message = null;
-    alert.clear();
+    failure.clear();
     try {
       const test = await call<Schemas['LabTest']>(
         session.api.POST('/lab-tests', { body: { batchId: batch.id, labOrgId } }),
@@ -62,9 +65,7 @@
       if (key) error = t(key);
       else {
         if (e instanceof ApiProblem && e.status === 429) wait.start(retryAfterOf(e));
-        // Said in the dialog (the page toast region is behind the modal) and as the page message (README «Диалог»).
-        message = errorText(e);
-        alert.show(errorText(e), errorTone(e));
+        failure.show(errorText(e), errorTone(e));
       }
     } finally {
       busy = false;
@@ -72,9 +73,9 @@
   }
 </script>
 
-<Dialog {open} {onclose} title={t('lab.assignTitle', { code: batch.publicCode })}>
+<Dialog {open} onclose={close} title={t('lab.assignTitle', { code: batch.publicCode })}>
   {#snippet actions()}
-    <Button variant="ghost" onclick={onclose}>{t('action.cancel')}</Button>
+    <Button variant="ghost" onclick={close}>{t('action.cancel')}</Button>
     <Button
       bind:element={confirmButton}
       variant="primary"
@@ -86,7 +87,7 @@
     </Button>
   {/snippet}
   <div style="display: grid; gap: var(--sp-4)">
-    <DialogMessage text={message} />
+    <DialogMessage text={failure.message} />
     <OrgPicker
       id="assign-lab"
       label={t('field.labOrgId')}

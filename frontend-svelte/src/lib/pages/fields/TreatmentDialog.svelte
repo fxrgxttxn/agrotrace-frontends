@@ -3,13 +3,14 @@
   import { ApiProblem, type Schemas } from '@agrotrace/api-client';
   import { enumLabel } from '@agrotrace/i18n';
   import { call } from '../../app/api.svelte';
-  import { form, SchemaForm } from '../../app/forms.svelte';
+  import { DialogAlert, form, SchemaForm } from '../../app/forms.svelte';
   import { t } from '../../app/i18n';
   import { momentDefaults } from '../../app/moment';
   import MomentInput from '../../app/MomentInput.svelte';
   import { session } from '../../app/session.svelte';
   import Button from '../../ui/Button.svelte';
   import Dialog from '../../ui/Dialog.svelte';
+  import DialogMessage from '../../ui/DialogMessage.svelte';
   import Field from '../../ui/Field.svelte';
   import Input from '../../ui/Input.svelte';
   import Select from '../../ui/Select.svelte';
@@ -50,7 +51,13 @@
     };
   });
 
+  // A failure is said in the dialog (README «Диалог», polish P2); closed with it still standing, the page says it.
+  const failure = new DialogAlert();
+  $effect(() => {
+    if (!open) failure.handOff();
+  });
   const f = new SchemaForm<TreatmentValues, Schemas['TreatmentInput']>({
+    alert: failure,
     schema: treatmentSchema,
     values: initial,
     fields: TREATMENT_FIELDS,
@@ -91,6 +98,7 @@
     <Submit form={f} formId="treatment-form">{label}</Submit>
   {/snippet}
   <form id="treatment-form" use:form={f} style={FORM_GRID}>
+    <DialogMessage text={failure.message} />
     <Field id="treatment-substance" label={t('field.substanceId')} error={f.error('substanceId')}>
       <Select name="substanceId" bind:value={f.values.substanceId}>
         <option value="" disabled>{t('ui.choose')}</option>

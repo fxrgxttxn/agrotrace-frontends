@@ -3,7 +3,7 @@
   import { ApiProblem, type Schemas } from '@agrotrace/api-client';
   import { OrganizationAdminPatchSchema } from '@agrotrace/validation';
   import { call } from '../../app/api.svelte';
-  import { form, SchemaForm, wireSchema } from '../../app/forms.svelte';
+  import { DialogAlert, form, SchemaForm, wireSchema } from '../../app/forms.svelte';
   import { t } from '../../app/i18n';
   import { session } from '../../app/session.svelte';
   import Button from '../../ui/Button.svelte';
@@ -47,7 +47,14 @@
   const schema = wireSchema<EditValues>(OrganizationAdminPatchSchema, full, (v): Record<string, string> =>
     v.name.trim() === '' ? { name: 'validation.required' } : {},
   );
+  // README «Диалог» (polish P2): a failure is said in the dialog only; closed with it still standing, the page says it.
+  const failure = new DialogAlert();
+  const close = () => {
+    failure.handOff();
+    onclose();
+  };
   const f = new SchemaForm<EditValues>({
+    alert: failure,
     schema,
     values: untrack(() => ({ name: org.name, address: org.address ?? '', regionCode: org.region.code })),
     fields: ['name', 'address', 'regionCode'],
@@ -74,13 +81,13 @@
   });
 </script>
 
-<Dialog open {onclose} title={t('orgs.editTitle', { name: org.name })}>
+<Dialog open onclose={close} title={t('orgs.editTitle', { name: org.name })}>
   {#snippet actions()}
-    <Button variant="ghost" onclick={onclose}>{t('action.cancel')}</Button>
+    <Button variant="ghost" onclick={close}>{t('action.cancel')}</Button>
     <Submit form={f} formId="org-form">{t('action.save')}</Submit>
   {/snippet}
   <form id="org-form" use:form={f} style={FORM_GRID}>
-    <DialogMessage text={f.alert.message} />
+    <DialogMessage text={failure.message} />
     <Field id="org-name" label={t('field.name')} error={f.error('name')}>
       <Input autocomplete="off" name="name" bind:value={f.values.name} />
     </Field>

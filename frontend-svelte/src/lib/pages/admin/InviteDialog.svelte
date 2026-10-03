@@ -5,7 +5,7 @@
   import { UserInviteSchema } from '@agrotrace/validation';
   import { ROLE_OF_TYPE } from '../../app/admin';
   import { call } from '../../app/api.svelte';
-  import { form, SchemaForm, wireSchema } from '../../app/forms.svelte';
+  import { DialogAlert, form, SchemaForm, wireSchema } from '../../app/forms.svelte';
   import { t } from '../../app/i18n';
   import OrgPicker from '../../app/OrgPicker.svelte';
   import { session } from '../../app/session.svelte';
@@ -40,7 +40,14 @@
     isOrgAdmin: v.isOrgAdmin,
     ...(admin && v.organizationId ? { organizationId: v.organizationId } : {}),
   });
+  // README «Диалог» (polish P2): a failure is said in the dialog only; closed with it still standing, the page says it.
+  const failure = new DialogAlert();
+  const close = () => {
+    failure.handOff();
+    onclose();
+  };
   const f = new SchemaForm<InviteValues, Schemas['UserInvite']>({
+    alert: failure,
     schema: wireSchema<InviteValues>(UserInviteSchema, toWire),
     values: { email: '', fullName: '', organizationId: '', isOrgAdmin: false },
     fields: ['email', 'fullName', 'organizationId', 'isOrgAdmin'],
@@ -50,13 +57,13 @@
   });
 </script>
 
-<Dialog open {onclose} title={t('users.inviteTitle')}>
+<Dialog open onclose={close} title={t('users.inviteTitle')}>
   {#snippet actions()}
-    <Button variant="ghost" onclick={onclose}>{t('action.cancel')}</Button>
+    <Button variant="ghost" onclick={close}>{t('action.cancel')}</Button>
     <Submit form={f} formId="invite-form">{t('action.invite')}</Submit>
   {/snippet}
   <form id="invite-form" use:form={f} style={FORM_GRID}>
-    <DialogMessage text={f.alert.message} />
+    <DialogMessage text={failure.message} />
     <Field id="invite-name" label={t('field.fullName')} error={f.error('fullName')}>
       <Input autocomplete="off" name="fullName" bind:value={f.values.fullName} />
     </Field>

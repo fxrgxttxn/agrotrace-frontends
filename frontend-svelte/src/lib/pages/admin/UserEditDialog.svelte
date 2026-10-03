@@ -4,6 +4,7 @@
   import { enumLabel } from '@agrotrace/i18n';
   import { call, errorText, errorTone } from '../../app/api.svelte';
   import { userAction } from '../../app/focusRescue';
+  import { DialogAlert } from '../../app/forms.svelte';
   import { t } from '../../app/i18n';
   import { screenScope } from '../../app/screen';
   import { session } from '../../app/session.svelte';
@@ -33,7 +34,12 @@
   let isOrgAdmin = $state(untrack(() => user.isOrgAdmin));
   let status = $state<UserStatus>(untrack(() => user.status));
   let busy = $state(false);
-  let message = $state<string | null>(null);
+  // README «Диалог» (polish P2): a failure is said in the dialog only; closed with it still standing, the page says it.
+  const failure = new DialogAlert();
+  const close = () => {
+    failure.handOff();
+    onclose();
+  };
 
   async function submit() {
     const body = {
@@ -45,7 +51,7 @@
       return;
     }
     busy = true;
-    message = null;
+    failure.clear();
     try {
       ondone(await call<User>(session.api.PATCH('/users/{id}', { params: { path: { id: user.id } }, body: body as never })));
     } catch (e) {
@@ -58,24 +64,20 @@
           }),
         );
       else if (e instanceof ApiProblem && e.status === 404) onstale(t('users.gone', { name: user.fullName }));
-      else {
-        const text = errorText(e);
-        message = text;
-        screen.push({ tone: errorTone(e), text });
-      }
+      else failure.show(errorText(e), errorTone(e));
     } finally {
       busy = false;
     }
   }
 </script>
 
-<Dialog open {onclose} title={t('users.editTitle', { name: user.fullName })}>
+<Dialog open onclose={close} title={t('users.editTitle', { name: user.fullName })}>
   {#snippet actions()}
-    <Button variant="ghost" onclick={onclose}>{t('action.cancel')}</Button>
+    <Button variant="ghost" onclick={close}>{t('action.cancel')}</Button>
     <Button variant="primary" {busy} onclick={() => void userAction(submit)}>{t('action.save')}</Button>
   {/snippet}
   <div style={FORM_GRID}>
-    <DialogMessage text={message} />
+    <DialogMessage text={failure.message} />
     <Checkbox bind:checked={isOrgAdmin}>{t('field.isOrgAdmin')}</Checkbox>
     {#if user.status === 'INVITED'}
       <p style="margin: 0">{t('users.invitedNote')}</p>

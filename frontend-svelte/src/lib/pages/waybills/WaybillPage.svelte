@@ -241,7 +241,7 @@
     <DeleteDialog
       open={dialog === 'delete'}
       waybill={waybill}
-      {fail}
+      {describe}
       onclose={() => (dialog = null)}
       ondone={() => {
         dialog = null;
@@ -255,7 +255,7 @@
     <RejectDialog
       open={dialog === 'reject'}
       waybill={waybill}
-      {fail}
+      {describe}
       onclose={() => (dialog = null)}
       ondone={(next) => {
         dialog = null;

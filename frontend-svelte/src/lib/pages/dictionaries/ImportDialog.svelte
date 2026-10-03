@@ -14,7 +14,7 @@
     type DictName,
   } from '../../app/admin';
   import { call, Countdown, errorText, errorTone, focusAfterWait, retryAfterOf } from '../../app/api.svelte';
-  import { FormAlert } from '../../app/forms.svelte';
+  import { DialogAlert } from '../../app/forms.svelte';
   import { userAction } from '../../app/focusRescue';
   import { LOCALE, t } from '../../app/i18n';
   import { screenScope } from '../../app/screen';
@@ -32,11 +32,15 @@
 
   const screen = screenScope();
   const dict = untrack(() => name);
-  const alert = new FormAlert();
-  $effect(() => () => alert.clear());
   let picked = $state<{ file: File; error?: string } | null>(null);
   let busy = $state(false);
-  let message = $state<string | null>(null);
+  // A refused file is said on the file (its `role="alert"` error); anything else in the dialog only, and handed to the
+  // page if the dialog closes while it still applies (README «Диалог», polish P2).
+  const failure = new DialogAlert();
+  const close = () => {
+    failure.handOff();
+    onclose();
+  };
   const wait = new Countdown();
   $effect(() => () => wait.stop());
   let button = $state<HTMLElement | null>(null);
@@ -48,7 +52,7 @@
   function pick(files: File[]) {
     const file = files[0];
     if (!file) return;
-    message = null;
+    failure.clear();
     let error: string | undefined;
     if (!isImportFile(file)) error = t('files.unsupported', { allowed: typesText(IMPORT_TYPES) });
     else if (file.size > UPLOAD_MAX_BYTES) error = tooLargeText(UPLOAD_MAX_BYTES);
@@ -57,8 +61,7 @@
 
   async function send() {
     if (!picked || picked.error) return;
-    alert.clear();
-    message = null;
+    failure.clear();
     busy = true;
     try {
       const body = new FormData();
@@ -82,9 +85,7 @@
       const problem = importFileProblem(e, dict);
       if (problem && picked) picked = { ...picked, error: problem };
       if (e instanceof ApiProblem && e.status === 429) wait.start(retryAfterOf(e));
-      const text = problem ?? errorText(e);
-      if (!problem) message = text;
-      alert.show(text, problem ? 'danger' : errorTone(e));
+      if (!problem) failure.show(errorText(e), errorTone(e));
     } finally {
       busy = false;
     }
@@ -106,9 +107,9 @@
   );
 </script>
 
-<Dialog open {onclose} title={t('dict.import.title', { name: enumLabel(t, 'DictionaryName', dict) })}>
+<Dialog open onclose={close} title={t('dict.import.title', { name: enumLabel(t, 'DictionaryName', dict) })}>
   {#snippet actions()}
-    <Button variant="ghost" onclick={onclose}>{t('action.cancel')}</Button>
+    <Button variant="ghost" onclick={close}>{t('action.cancel')}</Button>
     <Button
       bind:element={button}
       variant="primary"
@@ -121,7 +122,7 @@
     </Button>
   {/snippet}
   <div style={STACK}>
-    <DialogMessage text={message} />
+    <DialogMessage text={failure.message} />
     <FileField
       id="import-file"
       label={t('field.file')}

@@ -3,7 +3,8 @@
   import { formatBytes } from '@agrotrace/i18n';
   import { tooLargeText, typesText } from './admin';
   import { Countdown, errorText, errorTone, focusAfterWait, retryAfterOf } from './api.svelte';
-  import { FormAlert } from './forms.svelte';
+  import { untrack } from 'svelte';
+  import { FormAlert, type DialogAlert } from './forms.svelte';
   import { userAction } from './focusRescue';
   import { LOCALE, t } from './i18n';
   import Button from '../ui/Button.svelte';
@@ -11,8 +12,8 @@
 
   /** One image to upload (a product photo, an organization logo): picked or dropped into an `at-file`, checked against
    * the contract's types and size before sending (the server checks the signature again: 415 / 413), previewed, sent
-   * with «Загрузить». A failure is said on the file (and as the screen's message); a 429 waits on the button. As the
-   * React app's ImageUpload. */
+   * with «Загрузить». A failure is said on the file (and as the screen's message — inside a dialog, the dialog's own,
+   * README «Диалог»); a 429 waits on the button. As the React app's ImageUpload. */
   let {
     id,
     label,
@@ -21,6 +22,7 @@
     maxBytes,
     upload,
     ondone,
+    dialogAlert,
   }: {
     id: string;
     label: string;
@@ -30,10 +32,15 @@
     /** Sends the file; rejects with the API problem. */
     upload: (file: File) => Promise<void>;
     ondone?: () => void;
+    /** Inside a dialog: its message (said in the dialog, not as a toast behind it). */
+    dialogAlert?: DialogAlert;
   } = $props();
 
-  const alert = new FormAlert();
-  $effect(() => () => alert.clear());
+  const inDialog = untrack(() => dialogAlert);
+  const alert = inDialog ?? new FormAlert();
+  $effect(() => () => {
+    if (!inDialog) alert.clear();
+  });
   let picked = $state<{ file: File; url: string; error?: string } | null>(null);
   let busy = $state(false);
   const wait = new Countdown();
@@ -79,7 +86,8 @@
       else if (e instanceof ApiProblem && e.code === 'VALIDATION' && e.errors?.file?.[0]) error = t(e.errors.file[0]);
       if (e instanceof ApiProblem && e.status === 429) wait.start(retryAfterOf(e));
       if (error && picked) picked = { ...picked, error };
-      alert.show(error ?? errorText(e), error ? 'danger' : errorTone(e));
+      // In a dialog a refused file is said on the file only (its `role="alert"` error).
+      if (!(inDialog && error)) alert.show(error ?? errorText(e), error ? 'danger' : errorTone(e));
     } finally {
       busy = false;
     }

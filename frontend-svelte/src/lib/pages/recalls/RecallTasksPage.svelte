@@ -4,7 +4,7 @@
   import { call, Countdown, errorText, errorTone, retryAfterOf } from '../../app/api.svelte';
   import { cache, query } from '../../app/cache.svelte';
   import CodeConfirmDialog from '../../app/CodeConfirmDialog.svelte';
-  import { FormAlert } from '../../app/forms.svelte';
+  import { DialogAlert, FormAlert } from '../../app/forms.svelte';
   import { userAction } from '../../app/focusRescue';
   import { LOCALE, t } from '../../app/i18n';
   import { Idempotency } from '../../app/idempotency';
@@ -85,21 +85,24 @@
   let busy = $state(false);
   const wait = new Countdown();
   $effect(() => () => wait.stop());
-  let message = $state<string | null>(null);
+  const failure = new DialogAlert();
   const shown = $derived(items.find((x) => x.id === target) ?? null);
   const stale = $derived(target !== null && tasks.data !== null && (!shown || !taskConfirmable(shown.status)));
   $effect(() => {
-    if (stale) target = null;
-  });
-  function close() {
+    if (!stale) return;
     target = null;
-    message = null;
+    failure.clear();
+  });
+  // Closed by the person: a failure that still applies goes to the page (README «Диалог», polish P2).
+  function close() {
+    failure.handOff();
+    target = null;
   }
 
   const reread = () => void cache.invalidate(['recallTasks']);
   async function confirm(task: Task) {
     busy = true;
-    message = null;
+    failure.clear();
     alert.clear();
     try {
       await idempotent.run(
@@ -138,10 +141,11 @@
         if (e instanceof ApiProblem && e.status === 429) wait.start(retryAfterOf(e));
         text = errorText(e);
       }
-      // Said in the dialog (the toast region is behind the modal) and as the page message (README «Диалог»).
-      if (closing) close();
-      else message = text;
-      alert.show(text, errorTone(e));
+      // Said in the dialog only (README «Диалог»); a task that can no longer be confirmed closes it and the page says why.
+      if (closing) {
+        target = null;
+        alert.show(text, errorTone(e));
+      } else failure.show(text, errorTone(e));
     } finally {
       busy = false;
     }
@@ -182,7 +186,7 @@
       icon="check"
       aria-label={t('recallTasks.confirmFor', { code: x.batch.publicCode })}
       onclick={() => {
-        message = null;
+        failure.clear();
         target = x.id;
       }}
     >
@@ -287,7 +291,7 @@
     confirmLabel={enumLabel(t, 'BatchActionName', 'writeOff')}
     {busy}
     wait={wait.left}
-    {message}
+    message={failure.message}
     onclose={close}
     onconfirm={() => {
       const task = shown;

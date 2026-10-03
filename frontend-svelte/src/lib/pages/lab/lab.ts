@@ -93,6 +93,8 @@ export const isNormsMismatch = (e: unknown) =>
 
 /** Failures of the card's actions (FM13): the text and tone, re-reading the card when stale. */
 export interface LabProblems {
+  /** Describes the failure (re-reading when stale) without showing it — a dialog says it (README «Диалог»). */
+  describe: (e: unknown) => { text: string; tone: 'danger' | 'attention' };
   /** Describes the failure (re-reading when stale) and shows it as the page message. */
   fail: (e: unknown) => { text: string; tone: 'danger' | 'attention' };
   alert: { show: (text: string, tone?: 'danger' | 'attention') => void; clear: () => void };

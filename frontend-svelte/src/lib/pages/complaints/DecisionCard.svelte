@@ -2,9 +2,9 @@
   import { ApiProblem, type Schemas } from '@agrotrace/api-client';
   import { enumLabel } from '@agrotrace/i18n';
   import { ComplaintDecisionSchema } from '@agrotrace/validation';
-  import { call, errorTone } from '../../app/api.svelte';
+  import { call, errorTone, retryAfterOf } from '../../app/api.svelte';
   import CodeConfirmDialog from '../../app/CodeConfirmDialog.svelte';
-  import { form, SchemaForm, wireSchema } from '../../app/forms.svelte';
+  import { DialogAlert, form, SchemaForm, wireSchema } from '../../app/forms.svelte';
   import { userAction } from '../../app/focusRescue';
   import { t } from '../../app/i18n';
   import OrgPicker from '../../app/OrgPicker.svelte';
@@ -55,7 +55,9 @@
   const screen = screenScope();
   let busy = $state(false);
   let confirming = $state<Schemas['ComplaintDecision'] | null>(null);
-  let message = $state<string | null>(null);
+  // A recall decision fails inside its code dialog: said there only (README «Диалог», polish P2), other decisions on
+  // the page.
+  const failure = new DialogAlert();
   const code = $derived(complaint.batch.publicCode);
 
   const f = new SchemaForm<DecisionValues, Schemas['ComplaintDecision']>({
@@ -65,7 +67,7 @@
     send: async (body) => {
       // A recall is irreversible: its own dialog with the batch code repeated (spec §9.3).
       if (body.decision === 'RECALL') {
-        message = null;
+        failure.clear();
         confirming = body;
       } else await send(body);
     },
@@ -78,8 +80,9 @@
   };
 
   async function send(body: Schemas['ComplaintDecision']) {
+    const inDialog = body.decision === 'RECALL';
     busy = true;
-    message = null;
+    failure.clear();
     f.alert.clear();
     try {
       const next = await call<Complaint>(
@@ -95,7 +98,7 @@
         f.fail(e);
         return;
       }
-      if (e instanceof ApiProblem && e.status === 429) f.fail(e);
+      if (e instanceof ApiProblem && e.status === 429) f.wait.start(retryAfterOf(e));
       const text = describe(e);
       if (e instanceof ApiProblem && e.code === 'INVALID_TRANSITION') {
         // Decided meanwhile: the re-read card drops this form (and its form message with it) — the page says it.
@@ -103,8 +106,8 @@
         screen.push({ tone: 'danger', text });
         return;
       }
-      message = text;
-      f.alert.show(text, errorTone(e));
+      if (inDialog) failure.show(text, errorTone(e));
+      else f.alert.show(text, errorTone(e));
     } finally {
       busy = false;
     }
@@ -166,8 +169,11 @@
     confirmLabel={t('complaints.submit.RECALL')}
     {busy}
     wait={f.wait.left}
-    {message}
-    onclose={() => (confirming = null)}
+    message={failure.message}
+    onclose={() => {
+      failure.handOff();
+      confirming = null;
+    }}
     onconfirm={() => {
       const body = confirming;
       if (body) void userAction(() => send(body));

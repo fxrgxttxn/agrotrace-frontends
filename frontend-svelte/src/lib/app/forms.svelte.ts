@@ -1,7 +1,7 @@
 import { tick } from 'svelte';
 import { z, type ZodTypeAny } from 'zod';
 import { ApiProblem } from '@agrotrace/api-client';
-import { cache } from './cache.svelte';
+import { cache, screenAlive } from './cache.svelte';
 import { userAction } from './focusRescue';
 import { session } from './session.svelte';
 import { Countdown, errorText, errorTone, isCancellation, retryAfterOf } from './api.svelte';
@@ -45,6 +45,44 @@ export class FormAlert {
   };
 }
 
+/** README «Диалог» (polish P1/P2, React's useDialogAlert): a failure inside an open modal dialog is said once — in the
+ * dialog's `role="alert"` (`DialogMessage`), never at the same time as a page toast (the toast region is behind the
+ * modal, and both would be announced). When the dialog closes while the failure still applies (no retry or success
+ * cleared it), `handOff` gives it to the page as a toast — only while the screen is still there (FM26). Create during
+ * component initialisation. */
+export class DialogAlert {
+  message = $state<string | null>(null);
+  #current: { text: string; tone: 'danger' | 'attention' } | null = null;
+  readonly #alive = screenAlive();
+
+  show = (text: string, tone: 'danger' | 'attention' = 'danger'): void => {
+    this.#current = { text, tone };
+    this.message = text;
+  };
+
+  /** The text of a failed request (a 429 in the attention tone); nothing for a cancellation (FM29). */
+  problem = (e: unknown): void => {
+    if (!isCancellation(e)) this.show(errorText(e), errorTone(e));
+  };
+
+  /** A new attempt or a success: the failure no longer applies. */
+  clear = (): void => {
+    this.#current = null;
+    this.message = null;
+  };
+
+  /** The dialog closes (Отмена, the cross, Esc, or the screen closes it): a failure that still applies goes to the
+   * page as a toast. */
+  handOff = (): void => {
+    const failure = this.#current;
+    this.clear();
+    if (failure && this.#alive()) toasts.push(failure);
+  };
+}
+
+/** What a form says its form-level message with: the page's toast (`FormAlert`) or a dialog's own (`DialogAlert`). */
+export type MessageAlert = FormAlert | DialogAlert;
+
 /** Error paths of a Zod issue list: `['admin','email']` → `admin.email`, `['items',1,'batchId']` → `items[1].batchId`;
  * the first message of each path. */
 function issuesByPath(schema: ZodTypeAny, value: unknown): Record<string, string> {
@@ -77,7 +115,7 @@ export interface SchemaFormOptions<F, B> {
   alias?: (path: string) => string;
   /** The page's own message (FM13: one message at a time, owned by the page so it survives this form going away) —
    * a dialog or card driven by the page uses the page's instance instead of a fresh one. Default: a fresh one. */
-  alert?: FormAlert;
+  alert?: MessageAlert;
 }
 
 /** A form on a shared schema. Controls bind to `values` and carry `name` = their path; `<form use:form={f}>` wires the
@@ -87,7 +125,7 @@ export class SchemaForm<F extends Record<string, unknown>, B = F> {
   /** Sending (the submit is `aria-busy`). */
   busy = $state(false);
   readonly wait = new Countdown();
-  readonly alert: FormAlert;
+  readonly alert: MessageAlert;
   readonly fields: readonly string[];
 
   #client = $state<Record<string, string>>({});

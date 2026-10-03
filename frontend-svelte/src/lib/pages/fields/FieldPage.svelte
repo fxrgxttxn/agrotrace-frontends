@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
   import { page } from '$app/state';
   import { ApiProblem } from '@agrotrace/api-client';
   import { formatDecimal } from '@agrotrace/i18n';
@@ -7,7 +6,7 @@
   import { cache, query } from '../../app/cache.svelte';
   import { dictionary } from '../../app/dictionaries';
   import { userAction } from '../../app/focusRescue';
-  import { FormAlert } from '../../app/forms.svelte';
+  import { DialogAlert } from '../../app/forms.svelte';
   import { LOCALE, t } from '../../app/i18n';
   import { screenScope } from '../../app/screen';
   import { session } from '../../app/session.svelte';
@@ -19,8 +18,10 @@
   import CardBody from '../../ui/CardBody.svelte';
   import CardFacts from '../../ui/CardFacts.svelte';
   import Dialog from '../../ui/Dialog.svelte';
+  import DialogMessage from '../../ui/DialogMessage.svelte';
   import Empty from '../../ui/Empty.svelte';
   import Page from '../../ui/Page.svelte';
+  import { FORM_GRID } from '../layout';
   import { viewerOf } from '../viewer';
   import FieldFormReady from './FieldFormReady.svelte';
   import { dateOrDash, GAP, type FieldT } from './fields';
@@ -39,8 +40,12 @@
   // Each opening of the edit dialog starts from the field as it is now.
   let editKey = $state(0);
   let deleting = $state(false);
-  const alert = new FormAlert();
-  onDestroy(() => alert.clear());
+  // The delete failure is said in its dialog; closed with it still standing, the page says it (README «Диалог»,
+  // polish P2).
+  const failure = new DialogAlert();
+  $effect(() => {
+    if (dialog !== 'delete') failure.handOff();
+  });
 
   const fieldQuery = query(
     () => ['field', id],
@@ -56,7 +61,7 @@
     const current = field;
     if (!current) return;
     deleting = true;
-    alert.clear();
+    failure.clear();
     try {
       await call(session.api.DELETE('/fields/{id}', { params: { path: { id: current.id } } }));
       if (screen.alive()) dialog = null;
@@ -65,7 +70,7 @@
       screen.done({ tone: 'ok', text: t('fields.deleted', { name: current.name }) });
       screen.navigate('/fields');
     } catch (e) {
-      if (screen.alive()) alert.problem(e);
+      if (screen.alive()) failure.problem(e);
     } finally {
       deleting = false;
     }
@@ -141,7 +146,10 @@
         <Button variant="ghost" onclick={() => (dialog = null)}>{t('action.cancel')}</Button>
         <Button variant="danger" busy={deleting} onclick={() => void userAction(remove)}>{t('fields.delete')}</Button>
       {/snippet}
-      <p>{t('fields.deleteText', { name: field?.name ?? '' })}</p>
+      <div style={FORM_GRID}>
+        <DialogMessage text={failure.message} />
+        <p style="margin: 0">{t('fields.deleteText', { name: field?.name ?? '' })}</p>
+      </div>
     </Dialog>
   </Page>
 {/if}

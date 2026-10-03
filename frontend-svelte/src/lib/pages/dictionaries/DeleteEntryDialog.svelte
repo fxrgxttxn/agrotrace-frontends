@@ -4,6 +4,7 @@
   import type { DictName } from '../../app/admin';
   import { call, Countdown, errorText, errorTone, focusAfterWait, retryAfterOf } from '../../app/api.svelte';
   import { userAction } from '../../app/focusRescue';
+  import { DialogAlert } from '../../app/forms.svelte';
   import { t } from '../../app/i18n';
   import { screenScope } from '../../app/screen';
   import { session } from '../../app/session.svelte';
@@ -22,7 +23,12 @@
   const entry = untrack(() => shown);
   const label = entryName(dict, entry);
   let busy = $state(false);
-  let message = $state<string | null>(null);
+  // Said in the dialog only; closed with the failure still standing, the page says it (README «Диалог», polish P2).
+  const failure = new DialogAlert();
+  const close = () => {
+    failure.handOff();
+    onclose();
+  };
   const wait = new Countdown();
   $effect(() => () => wait.stop());
   let button = $state<HTMLElement | null>(null);
@@ -33,7 +39,7 @@
 
   async function remove() {
     busy = true;
-    message = null;
+    failure.clear();
     try {
       await call(session.api.DELETE('/dictionaries/{name}/{id}', { params: { path: { name: dict, id: entry.id } } }));
       refresh(dict);
@@ -52,23 +58,22 @@
         return;
       }
       if (e instanceof ApiProblem && e.status === 429) wait.start(retryAfterOf(e));
-      message = text;
-      screen.push({ tone: errorTone(e), text });
+      failure.show(text, errorTone(e));
     } finally {
       busy = false;
     }
   }
 </script>
 
-<Dialog open {onclose} title={t('dict.deleteTitle', { name: label })}>
+<Dialog open onclose={close} title={t('dict.deleteTitle', { name: label })}>
   {#snippet actions()}
-    <Button variant="ghost" onclick={onclose}>{t('action.cancel')}</Button>
+    <Button variant="ghost" onclick={close}>{t('action.cancel')}</Button>
     <Button bind:element={button} variant="danger" {busy} disabled={wait.left > 0} onclick={() => void userAction(remove)}>
       {wait.left > 0 ? t('auth.retryIn', { seconds: wait.left }) : t('action.delete')}
     </Button>
   {/snippet}
   <div style={STACK}>
-    <DialogMessage text={message} />
+    <DialogMessage text={failure.message} />
     <p style="margin: 0">{SOFT.includes(dict) ? t('dict.deleteSoft') : t('dict.deleteHard')}</p>
   </div>
 </Dialog>

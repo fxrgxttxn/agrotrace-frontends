@@ -5,7 +5,7 @@
   import { LabResultsInputSchema } from '@agrotrace/validation';
   import { call, Countdown, retryAfterOf } from '../../app/api.svelte';
   import CodeConfirmDialog from '../../app/CodeConfirmDialog.svelte';
-  import { applyProblem } from '../../app/forms.svelte';
+  import { applyProblem, DialogAlert } from '../../app/forms.svelte';
   import { userAction } from '../../app/focusRescue';
   import { t } from '../../app/i18n';
   import { screenScope } from '../../app/screen';
@@ -54,7 +54,9 @@
   let busy = $state(false);
   const wait = new Countdown();
   let confirming = $state<Record<string, string> | null>(null);
-  let message = $state<string | null>(null);
+  // The failure of a confirmation is said in its dialog only (README «Диалог», polish P2); closed with it still
+  // standing — by the person or by a re-read that no longer covers the values — the page says it.
+  const failure = new DialogAlert();
   let formEl = $state<HTMLFormElement | null>(null);
   const submitState = {
     get busy() {
@@ -99,10 +101,9 @@
       previewConclusion(norms, confirming) === 'FAIL',
   );
   $effect(() => {
-    if (confirming && !covered) confirming = null;
-  });
-  $effect(() => {
-    if (!confirming) message = null;
+    if (!confirming || covered) return;
+    failure.handOff();
+    confirming = null;
   });
 
   // A changed set of norms: the first norm still without a value gets the focus (after a closing dialog returned its
@@ -136,9 +137,10 @@
     formEl?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
   }
 
-  /** Sends the values; a failure to show in the confirmation dialog is returned (it stays open). */
-  async function send(v: Record<string, string>): Promise<string | null> {
+  /** Sends the values; from the confirmation dialog (`inDialog`) a failure is said in it (it stays open). */
+  async function send(v: Record<string, string>, inDialog = false): Promise<void> {
     problems.alert.clear();
+    failure.clear();
     busy = true;
     const body = toBody(v) as Schemas['LabResultsInput'];
     try {
@@ -158,9 +160,8 @@
             ? t('lab.submittedRecall', { code: next.batch.publicCode })
             : t('lab.submitted', { conclusion: enumLabel(t, 'LabConclusion', next.conclusion ?? 'PASS') }),
       });
-      return null;
     } catch (e) {
-      if (!screen.alive()) return null;
+      if (!screen.alive()) return;
       if (e instanceof ApiProblem && e.code === 'VALIDATION' && !isNormsMismatch(e)) {
         confirming = null;
         applyProblem(e, {
@@ -176,10 +177,15 @@
             void focusFirstInvalid();
           },
         });
-        return null;
+        return;
       }
       if (e instanceof ApiProblem && e.status === 429) wait.start(retryAfterOf(e));
-      return problems.fail(e).text;
+      if (!inDialog) {
+        problems.fail(e);
+        return;
+      }
+      const p = problems.describe(e);
+      failure.show(p.text, p.tone);
     } finally {
       busy = false;
     }
@@ -197,7 +203,7 @@
     }
     // A FAIL starts a recall of the batch and its derived batches: confirmed with the batch code (spec §9.3).
     if (previewConclusion(norms, snapshot) === 'FAIL') {
-      message = null;
+      failure.clear();
       confirming = snapshot;
     } else await userAction(() => send(snapshot));
   }
@@ -274,11 +280,14 @@
     fieldLabel={t('lab.failConfirm')}
     {busy}
     wait={wait.left}
-    {message}
-    onclose={() => (confirming = null)}
+    message={failure.message}
+    onclose={() => {
+      failure.handOff();
+      confirming = null;
+    }}
     onconfirm={() => {
       const v = confirming;
-      if (v && covered) void userAction(() => send(v)).then((m) => (message = m));
+      if (v && covered) void userAction(() => send(v, true));
     }}
   />
 </Card>

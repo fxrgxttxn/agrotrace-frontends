@@ -2,6 +2,7 @@
   import { ApiProblem } from '@agrotrace/api-client';
   import { enumLabel } from '@agrotrace/i18n';
   import { call, Countdown, focusAfterWait, retryAfterOf } from '../../app/api.svelte';
+  import { DialogAlert } from '../../app/forms.svelte';
   import { t } from '../../app/i18n';
   import { session } from '../../app/session.svelte';
   import Button from '../../ui/Button.svelte';
@@ -12,31 +13,35 @@
   let {
     open,
     waybill,
-    fail,
+    describe,
     onclose,
     ondone,
   }: {
     open: boolean;
     waybill: Waybill;
-    fail: (e: unknown) => { text: string; tone: 'danger' | 'attention' };
+    /** The failure in words (re-reading when stale), not shown — the dialog says it (README «Диалог»). */
+    describe: (e: unknown) => { text: string; tone: 'danger' | 'attention' };
     onclose: () => void;
     ondone: () => void;
   } = $props();
 
   let busy = $state(false);
   const wait = new Countdown();
-  let message = $state<string | null>(null);
+  // Said in the dialog only; any close with the failure still standing (the person, or a re-read that no longer allows
+  // the action) hands it to the page (README «Диалог», polish P2).
+  const failure = new DialogAlert();
   let confirmButton = $state<HTMLElement | null>(null);
   focusAfterWait(
     () => wait.left,
     () => confirmButton,
   );
   $effect(() => {
-    if (!open) message = null;
+    if (!open) failure.handOff();
   });
 
   async function remove() {
     busy = true;
+    failure.clear();
     try {
       await call(
         session.api.DELETE('/waybills/{id}', { params: { path: { id: waybill.id }, header: { 'If-Match': waybill.version } } }),
@@ -44,7 +49,8 @@
       ondone();
     } catch (e) {
       if (e instanceof ApiProblem && e.status === 429) wait.start(retryAfterOf(e));
-      message = fail(e).text;
+      const p = describe(e);
+      failure.show(p.text, p.tone);
     } finally {
       busy = false;
     }
@@ -58,5 +64,5 @@
       {wait.left > 0 ? t('auth.retryIn', { seconds: wait.left }) : enumLabel(t, 'WaybillActionName', 'delete')}
     </Button>
   {/snippet}
-  <DialogMessage text={message} />
+  <DialogMessage text={failure.message} />
 </Dialog>

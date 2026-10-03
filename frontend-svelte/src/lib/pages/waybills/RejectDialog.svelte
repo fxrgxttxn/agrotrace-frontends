@@ -3,6 +3,7 @@
   import { enumLabel } from '@agrotrace/i18n';
   import { WaybillRejectSchema } from '@agrotrace/validation';
   import { call, Countdown, focusAfterWait, retryAfterOf } from '../../app/api.svelte';
+  import { DialogAlert } from '../../app/forms.svelte';
   import { t } from '../../app/i18n';
   import { session } from '../../app/session.svelte';
   import Button from '../../ui/Button.svelte';
@@ -15,17 +16,19 @@
   import type { Waybill } from './waybills';
 
   /** Refusal (spec §9.3: an irreversible action in its own dialog, the key parameter repeated — the waybill number,
-   * README «Диалог»). A failure keeps what was typed; any close clears it (a reopened dialog asks again). */
+   * README «Диалог»). A failure keeps what was typed; any close clears the form (a reopened dialog asks again) and hands
+   * a failure still standing to the page. */
   let {
     open,
     waybill,
-    fail,
+    describe,
     onclose,
     ondone,
   }: {
     open: boolean;
     waybill: Waybill;
-    fail: (e: unknown) => { text: string; tone: 'danger' | 'attention' };
+    /** The failure in words (re-reading when stale), not shown — the dialog says it (README «Диалог»). */
+    describe: (e: unknown) => { text: string; tone: 'danger' | 'attention' };
     onclose: () => void;
     ondone: (next: Waybill) => void;
   } = $props();
@@ -33,7 +36,9 @@
   let reason = $state('');
   let number = $state('');
   let error = $state<string | null>(null);
-  let message = $state<string | null>(null);
+  // Said in the dialog only; any close with the failure still standing (the person, or a re-read that no longer allows
+  // the action) hands it to the page (README «Диалог», polish P2).
+  const failure = new DialogAlert();
   let busy = $state(false);
   const wait = new Countdown();
   const matches = $derived(waybill.number !== '' && number.trim().toUpperCase() === waybill.number);
@@ -47,7 +52,7 @@
     reason = '';
     number = '';
     error = null;
-    message = null;
+    failure.handOff();
   });
 
   async function reject() {
@@ -57,7 +62,7 @@
       return;
     }
     busy = true;
-    message = null;
+    failure.clear();
     try {
       const next = await call<Waybill>(
         session.api.POST('/waybills/{id}/reject', {
@@ -73,7 +78,8 @@
       if (key) error = t(key);
       else {
         if (e instanceof ApiProblem && e.status === 429) wait.start(retryAfterOf(e));
-        message = fail(e).text;
+        const p = describe(e);
+        failure.show(p.text, p.tone);
       }
     } finally {
       busy = false;
@@ -95,7 +101,7 @@
     </Button>
   {/snippet}
   <div style={FORM_GRID}>
-    <DialogMessage text={message} />
+    <DialogMessage text={failure.message} />
     <Field id="reject-reason" label={t('waybills.rejectReason')} error={error}>
       <Textarea
         rows={3}
