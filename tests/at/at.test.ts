@@ -224,6 +224,18 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
       '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte build:mock',
     ]);
     expect(sh(['./at', 'fe:build', 'svelte', '--prod'], { AT_DRY_RUN: '1' }).code).toBe(2);
+    // Polish P2: a running stand holds the build directory as a bind mount — stopped for the build, recreated after.
+    expect(
+      plus(sh(['./at', 'fe:build', 'svelte', '--mock'], { AT_DRY_RUN: '1', AT_DRY_STAND: '1' }).out),
+    ).toEqual([
+      '+ docker compose -f docker-compose.svelte-mock.yml stop gateway-svelte',
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte build:mock',
+      '+ docker compose -f docker-compose.svelte-mock.yml up -d --build --force-recreate --wait gateway-svelte',
+    ]);
+    // …and the shared suite says what to do when the stand is down, instead of failing on every page.
+    const down = sh(['./at', 'e2e', 'svelte', 'mock'], { AT_DRY_RUN: '1', AT_DRY_STAND: '0' });
+    expect(down.code).toBe(1);
+    expect(down.err).toMatch(/Svelte stand .* is not running .* \.\/at fe:gateway svelte up/);
     expect(plus(sh(['./at', 'fe:test', 'svelte'], { AT_DRY_RUN: '1' }).out)).toEqual([
       '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte test',
     ]);

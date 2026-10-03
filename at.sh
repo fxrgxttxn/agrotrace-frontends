@@ -286,6 +286,32 @@ fe_gateway() (
   esac
 )
 
+# Whether the Svelte stand (gateway-svelte) runs: 1 or 0 (dry run: AT_DRY_STAND, default 0).
+svelte_stand() {
+  if [ "${AT_DRY_RUN:-}" = "1" ]; then echo "${AT_DRY_STAND:-0}"; return; fi
+  [ -n "$($DCS ps -q --status running gateway-svelte 2>/dev/null)" ] && echo 1 || echo 0
+}
+
+# `fe:build <front> [--mock]`. Svelte (polish P2): adapter-static deletes and recreates frontend-svelte/build[-mock],
+# which a running gateway-svelte holds as a bind mount — on Docker Desktop the build then fails (`ENOENT: mkdir
+# build/assets/…`) or the stand keeps serving the deleted directory. A running stand is stopped for the build and
+# recreated afterwards, whatever the build's outcome.
+fe_build() (
+  set -euo pipefail
+  fe_front "${1:-}"; local front="$1"; shift
+  local script
+  case "${1:-}" in
+    '') script=build ;;
+    --mock) script=build:mock ;;
+    *) echo "usage: ./at fe:build react|svelte [--mock]" >&2; exit 2 ;;
+  esac
+  if [ "$front" = svelte ] && [ "$(svelte_stand)" = "1" ]; then
+    run $DCS stop gateway-svelte
+    trap 'fe_gateway svelte up' EXIT
+  fi
+  run $T pnpm --filter "@agrotrace/frontend-$front" "$script"
+)
+
 # `fe:e2e-smoke <front> [playwright args…]`: the build through its gateway (started if needed), Playwright one-off —
 # react: the `playwright` service on network agrotrace_at; svelte: `playwright-svelte` of its own project
 # (`//repo`: no Git Bash path conversion).
@@ -325,6 +351,12 @@ e2e() (
   case "${1:-}" in react|angular|svelte) front="$1"; shift ;; esac
   case "${1:-}" in mock|express|django|laravel) back="$1"; shift ;; esac
   gw="$(e2e_gateway "$front")"
+  if [ "$front" = svelte ] && [ "$gw" = gateway ]; then
+    # Polish P2: without its stand the run would only fail later on every page with a DNS error of Playwright.
+    echo "e2e: the Svelte stand (gateway-svelte, compose project agrotrace-svelte) is not running —" \
+      "build and start it first: ./at fe:build svelte --mock && ./at fe:gateway svelte up" >&2
+    exit 1
+  fi
   if [ "$front" = svelte ]; then
     # gateway-svelte sits on its own isolated network (ruling FM23): the shared `playwright` service of docker-compose.yml
     # (network agrotrace_at) cannot resolve it. `playwright-svelte` (docker-compose.svelte-mock.yml, network
@@ -467,17 +499,7 @@ case "$cmd" in
   # the Vite dev server on http://localhost:5173 (API proxied to api-express), the separate gateway, the smoke e2e.
   # `fe:build <front> [--mock]`: the production build or, with --mock (ruling FM23), the build with the in-browser
   # backend of @agrotrace/mock-api (svelte: frontend-svelte/build-mock, served at svelte-mock.localhost:8091).
-  fe:build)  fe_front "${1:-}"; front="$1"; shift
-             case "${1:-}" in
-               '') run $T pnpm --filter "@agrotrace/frontend-$front" build ;;
-               --mock) run $T pnpm --filter "@agrotrace/frontend-$front" build:mock ;;
-               *) echo "usage: ./at fe:build react|svelte [--mock]" >&2; exit 2 ;;
-             esac
-             # A running Svelte stand is recreated so that it serves the new build directory (see fe_e2e_smoke).
-             if [ "$front" = svelte ] && [ "${AT_DRY_RUN:-}" != "1" ] \
-               && [ -n "$($DCS ps -q --status running gateway-svelte 2>/dev/null)" ]; then
-               fe_gateway svelte up
-             fi ;;
+  fe:build)  fe_build "$@" ;;
   fe:test)   fe_front "${1:-}"; front="$1"; shift; run $T pnpm --filter "@agrotrace/frontend-$front" test "$@" ;;
   fe:dev)    fe_front "${1:-}"; run $DC run --rm -p 5173:5173 tools pnpm --filter "@agrotrace/frontend-$1" dev ;;
   fe:gateway) fe_gateway "$@" ;;
