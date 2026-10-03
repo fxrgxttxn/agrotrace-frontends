@@ -129,6 +129,7 @@
             },
             allLabel: t('waybills.pickAll'),
             rowLabel: (b) => t('waybills.pick', { code: b.publicCode }),
+            errorId: f.error('picked') ? 'waybill-items-error' : null,
           }}
           {cell}
         />

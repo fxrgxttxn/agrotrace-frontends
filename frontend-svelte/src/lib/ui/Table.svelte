@@ -116,7 +116,13 @@
         <tr data-selected={on ? '' : undefined}>
           {#if selection}
             <td class="at-table__select">
-              <Checkbox checked={on} onchange={() => toggle(k)} aria-label={selection.rowLabel(row)} />
+              <Checkbox
+                checked={on}
+                onchange={() => toggle(k)}
+                aria-label={selection.rowLabel(row)}
+                aria-invalid={selection.errorId ? 'true' : undefined}
+                aria-describedby={selection.errorId ?? undefined}
+              />
             </td>
           {/if}
           {#each columns as c (c.key)}

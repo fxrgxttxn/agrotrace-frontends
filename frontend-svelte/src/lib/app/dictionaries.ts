@@ -16,10 +16,13 @@ type Entries = {
 
 const PAGE = 100;
 
-/** The whole dictionary `name` (call during component initialisation). */
-export function dictionary<N extends keyof Entries>(name: N): Query<Entries[N][]> {
+/** The whole dictionary `name` (call during component initialisation); `enabled` returning false — not read (yet). */
+export function dictionary<N extends keyof Entries>(
+  name: N,
+  enabled: () => boolean = () => true,
+): Query<Entries[N][]> {
   return query(
-    () => ['dictionary', name],
+    () => (enabled() ? ['dictionary', name] : null),
     async () => {
       const items: Entries[N][] = [];
       for (let page = 1; ; page++) {

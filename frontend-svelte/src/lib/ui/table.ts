@@ -35,6 +35,9 @@ export interface TableSelection<T> {
   allLabel: string;
   /** `aria-label` of a row box, e.g. «Выбрать AT-2026-000123». */
   rowLabel: (row: T) => string;
+  /** Id of the error of the choice (nothing picked, README «Таблица»): every row box is `aria-invalid` and described
+   * by it, so the first box takes the focus of a failed submit. */
+  errorId?: string | null;
 }
 
 export function ariaSort(col: { sortField?: string }, sort: SortState | null | undefined) {

@@ -5,6 +5,7 @@
   import { call, Countdown, errorText, errorTone, focusAfterWait, retryAfterOf } from '../../app/api.svelte';
   import { cache, query } from '../../app/cache.svelte';
   import { dictionary } from '../../app/dictionaries';
+  import { DialogAlert } from '../../app/forms.svelte';
   import { userAction } from '../../app/focusRescue';
   import { LOCALE, t } from '../../app/i18n';
   import { isBadListQuery, listGap, listParams, type ListSpec } from '../../app/listState.svelte';
@@ -93,7 +94,13 @@
   const wait = new Countdown();
   $effect(() => () => wait.stop());
   let confirming = $state<{ org: Org; action: OrgAction } | null>(null);
-  let message = $state<string | null>(null);
+  // A confirmed action fails inside its dialog: said there only (README «Диалог», polish P2); closed with the failure
+  // still standing, the page says it.
+  const failure = new DialogAlert();
+  const closeConfirm = () => {
+    failure.handOff();
+    confirming = null;
+  };
   let editing = $state<Org | null>(null);
   let confirmButton = $state<HTMLElement | null>(null);
   focusAfterWait(
@@ -126,7 +133,7 @@
 
   async function act(org: Org, action: OrgAction) {
     busyId = org.id;
-    message = null;
+    failure.clear();
     try {
       const next =
         action === 'approve'
@@ -145,8 +152,8 @@
       const text = describe(e, org);
       const stale = e instanceof ApiProblem && (e.code === 'INVALID_TRANSITION' || e.status === 404);
       if (stale) confirming = null;
-      else message = text;
-      screen.push({ tone: errorTone(e), text });
+      if (CONFIRMED.includes(action) && !stale) failure.show(text, errorTone(e));
+      else screen.push({ tone: errorTone(e), text });
     } finally {
       busyId = null;
     }
@@ -155,7 +162,6 @@
   const columns: Column<Org>[] = [
     { key: 'name', header: t('orgs.name'), primary: true, sortField: 'name' },
     { key: 'status', header: t('orgs.status'), status: true },
-    { key: 'type', header: t('orgs.typeRegion') },
     { key: 'head', header: t('orgs.head') },
     { key: 'created', header: t('orgs.createdAt'), sortField: 'createdAt' },
   ];
@@ -178,13 +184,13 @@
 
 {#snippet cell(o: Org, c: Column<Org>)}
   {#if c.key === 'name'}
-    <span class="at-table__primary"><span>{o.name}</span><span class="at-table__sub">{t('orgs.inn', { inn: o.inn })}</span></span>
+    <span class="at-table__primary"
+      ><span>{o.name}</span><span class="at-table__sub">{t('orgs.inn', { inn: o.inn })}</span><span class="at-table__sub"
+        >{t('orgs.typeRegionOf', { type: enumLabel(t, 'OrganizationType', o.type), region: o.region.name })}</span
+      ></span
+    >
   {:else if c.key === 'status'}
     <Chip tone={ORG_TONE[o.status]}>{enumLabel(t, 'OrganizationStatus', o.status)}</Chip>
-  {:else if c.key === 'type'}
-    <span class="at-table__primary"
-      ><span>{enumLabel(t, 'OrganizationType', o.type)}</span><span class="at-table__sub">{o.region.name}</span></span
-    >
   {:else if c.key === 'head'}
     {#if o.head}<span class="at-table__primary"
         ><span>{o.head.fullName}</span><span class="at-table__sub" style="overflow-wrap: anywhere">{o.head.email}</span></span
@@ -205,7 +211,7 @@
       aria-label={t(`orgs.actionOf.${action}`, { name: o.name })}
       onclick={() => {
         if (CONFIRMED.includes(action)) {
-          message = null;
+          failure.clear();
           confirming = { org: o, action };
         } else void userAction(() => act(o, action));
       }}
@@ -303,11 +309,11 @@
   {/if}
   <Dialog
     open={confirming !== null}
-    onclose={() => (confirming = null)}
+    onclose={closeConfirm}
     title={confirming ? t(`orgs.confirm.${confirming.action}.title`, { name: confirming.org.name }) : ''}
   >
     {#snippet actions()}
-      <Button variant="ghost" onclick={() => (confirming = null)}>{t('action.cancel')}</Button>
+      <Button variant="ghost" onclick={closeConfirm}>{t('action.cancel')}</Button>
       <Button
         bind:element={confirmButton}
         variant="danger"
@@ -326,7 +332,7 @@
       </Button>
     {/snippet}
     <div style={STACK}>
-      <DialogMessage text={message} />
+      <DialogMessage text={failure.message} />
       <p style="margin: 0">{confirming ? t(`orgs.confirm.${confirming.action}.text`) : ''}</p>
     </div>
   </Dialog>

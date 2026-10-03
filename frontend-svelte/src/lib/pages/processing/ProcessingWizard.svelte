@@ -177,6 +177,7 @@
               },
               allLabel: t('processing.pickAll'),
               rowLabel: (b) => t('processing.pick', { code: b.publicCode }),
+              errorId: f.error('picked') ? 'processing-inputs-error' : null,
             }}
             cell={inputCell}
           />

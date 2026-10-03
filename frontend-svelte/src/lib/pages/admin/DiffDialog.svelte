@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Schemas } from '@agrotrace/api-client';
-  import { enumLabel, formatLocalDateTime } from '@agrotrace/i18n';
+  import { auditActionLabel, auditFieldLabel, auditValue, enumLabel, formatLocalDateTime } from '@agrotrace/i18n';
+  import { dictionary } from '../../app/dictionaries';
   import { LOCALE, t } from '../../app/i18n';
   import Button from '../../ui/Button.svelte';
   import CardFacts from '../../ui/CardFacts.svelte';
@@ -8,19 +9,31 @@
   import Table from '../../ui/Table.svelte';
   import type { Column } from '../../ui/table';
 
-  /** The diff of an audit entry: its facts and each changed field before and after (a created row has no «before»,
-   * secrets stay «***»). */
+  /** The diff of an audit entry: its facts and each changed field before and after by its label (a created row has no
+   * «before», secrets stay «***», instants in the viewer's time). */
   type Entry = Schemas['AuditEntry'];
   type Row = { field: string; before: unknown; after: unknown };
   let { entry, onclose }: { entry: Entry | null; onclose: () => void } = $props();
 
-  /** A value of the diff as the API wrote it: null — «—», texts as they are, the rest as JSON. */
-  function shown(v: unknown): string {
-    if (v === null || v === undefined) return '—';
-    if (typeof v === 'string') return v;
-    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-    return JSON.stringify(v);
+  // Values in words (polish P1, P1b): instants in the viewer's time, dates, yes / no, the entity's statuses, decimals in
+  // the locale, and a referenced dictionary record by its name (the dictionary is read when the diff refers to it; a
+  // record it no longer lists stays an id).
+  const has = (...fields: string[]) => entry !== null && fields.some((f) => f in entry!.diff);
+  const products = dictionary('products', () => has('productId'));
+  const indicators = dictionary('indicators', () => has('indicatorId'));
+  const substances = dictionary('substances', () => has('substanceId'));
+  const regions = dictionary('regions', () => has('regionId', 'regionCode'));
+  function resolve(field: string, value: string): string | undefined {
+    const byId = (list: { id: string; name: string }[] | null | undefined) => list?.find((x) => x.id === value)?.name;
+    if (field === 'productId') return byId(products.data);
+    if (field === 'indicatorId') return byId(indicators.data);
+    if (field === 'substanceId') return byId(substances.data);
+    if (field === 'regionId') return byId(regions.data);
+    if (field === 'regionCode') return regions.data?.find((r) => r.code === value)?.name;
+    return undefined;
   }
+  const shown = (v: unknown, field: string) =>
+    auditValue(t, v, LOCALE, entry ? { field, entityType: entry.entityType, resolve } : undefined);
   const at = (iso: string) => formatLocalDateTime(iso, LOCALE);
   const rows = $derived<Row[]>(
     entry
@@ -39,8 +52,10 @@
 </script>
 
 {#snippet cell(r: Row, c: Column<Row>)}
-  {#if c.key === 'field'}<span class="at-mono">{r.field}</span>{:else}<span
-      style="overflow-wrap: anywhere; white-space: pre-wrap">{shown(c.key === 'before' ? r.before : r.after)}</span
+  {#if c.key === 'field'}<span class="at-table__primary"
+      ><span>{auditFieldLabel(t, r.field)}</span><span class="at-table__sub at-mono">{r.field}</span></span
+    >{:else}<span style="overflow-wrap: anywhere; white-space: pre-wrap"
+      >{shown(c.key === 'before' ? r.before : r.after, r.field)}</span
     >{/if}
 {/snippet}
 {#snippet mono(text: string)}<span class="at-mono">{text}</span>{/snippet}
@@ -54,7 +69,10 @@
   size="l"
   lightDismiss
   title={entry
-    ? t('audit.diffTitle', { entity: enumLabel(t, 'AuditEntityType', entry.entityType), action: entry.action })
+    ? t('audit.diffTitle', {
+        entity: enumLabel(t, 'AuditEntityType', entry.entityType),
+        action: auditActionLabel(t, entry.action),
+      })
     : ''}
 >
   {#snippet actions()}

@@ -168,6 +168,8 @@ describe('/waybills/new', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Создать накладную' }));
     expect(await screen.findByText('Выберите хотя бы одну партию')).toBeInTheDocument();
     expect(screen.getByText('Обязательное поле')).toBeInTheDocument();
+    // Polish P1/P2: the first invalid field in the order of the form — the receiver — takes the focus.
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Получатель' })).toHaveFocus());
     await userEvent.click(screen.getByRole('checkbox', { name: 'Выбрать AT-2026-000123' }));
     const mass = screen.getByLabelText('Заявленная масса AT-2026-000123');
     await userEvent.clear(mass);
