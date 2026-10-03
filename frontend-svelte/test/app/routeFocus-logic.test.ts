@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { arrive, resetRouteFocus, skipRouteFocus } from '../../src/lib/app/routeFocus';
+import {
+  arrive,
+  keepFocusFor,
+  resetRouteFocus,
+  restoreKeptFocus,
+  skipRouteFocus,
+} from '../../src/lib/app/routeFocus';
 
 // Ruling F4 as logic (README «Фокус при смене маршрута»). The behaviour in the browser — the real SvelteKit router with
 // its own blur/reset of focus, redirects, back/forward, query-only navigation, «Ещё» — is verified by Playwright in
@@ -55,5 +61,28 @@ describe('route focus rule', () => {
     const h1 = title();
     arrive('/403', h1);
     expect(document.activeElement).toBe(h1);
+  });
+});
+
+describe('FM7: a query-only navigation that started with nothing focused (polish P2)', () => {
+  const at = (path: string) => new URL(path, 'http://app.test');
+
+  it('leaves nothing focused when only the router moved the focus meanwhile', () => {
+    const select = document.createElement('select');
+    document.body.append(select);
+    keepFocusFor(at('/batches'), at('/batches?status=SHIPPED'));
+    select.focus(); // the router's own focus handling, no input of the person
+    restoreKeptFocus();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('keeps a focus the person moved during the navigation (no blur of their field)', () => {
+    const search = document.createElement('input');
+    document.body.append(search);
+    keepFocusFor(at('/batches'), at('/batches?status=SHIPPED'));
+    search.dispatchEvent(new Event('pointerdown', { bubbles: true })); // jsdom has no PointerEvent
+    search.focus();
+    restoreKeptFocus();
+    expect(document.activeElement).toBe(search);
   });
 });

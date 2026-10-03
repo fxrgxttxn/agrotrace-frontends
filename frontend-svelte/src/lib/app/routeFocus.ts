@@ -70,9 +70,19 @@ export function resetRouteFocus(): void {
 // element before such a navigation and puts the focus back afterwards — or, when that element is gone (or inside a
 // closed dialog), on the page title.
 let kept: HTMLElement | null = null;
+/** The person's own input (a press, a key) since the kept navigation started: a focus they moved stays (polish P2). */
+let movedByPerson = false;
+if (typeof document !== 'undefined') {
+  const input = () => {
+    if (kept) movedByPerson = true;
+  };
+  document.addEventListener('pointerdown', input, true);
+  document.addEventListener('keydown', input, true);
+}
 
 /** `beforeNavigate`: remember the focus when only the query (or hash) changes. */
 export function keepFocusFor(from: URL | null | undefined, to: URL | null | undefined): void {
+  movedByPerson = false;
   kept =
     from && to && from.pathname === to.pathname && document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -84,9 +94,12 @@ export function restoreKeptFocus(): void {
   const el = kept;
   kept = null;
   if (!el) return;
-  // Nothing was focused (the body): nothing is focused afterwards either (FM7, as React).
+  // Nothing was focused (the body): nothing is focused afterwards either (FM7, as React) — only the router's own focus
+  // is undone; a field the person pressed or typed into during the navigation keeps the focus (polish P2).
   if (el === document.body) {
-    if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body)
+    const person = movedByPerson;
+    movedByPerson = false;
+    if (!person && document.activeElement instanceof HTMLElement && document.activeElement !== document.body)
       document.activeElement.blur();
     return;
   }
