@@ -1070,7 +1070,15 @@ function ImportReportCard({
   onClose: () => void;
 }) {
   const rejected = new Set(report.errors.map((x) => x.row)).size;
-  const shown = report.errors.slice(0, REPORT_ROWS);
+  // A file may reject up to 10 000 rows: read page by page (README «Пагинация»: страницы без URL).
+  const [page, setPage] = useState(1);
+  const [seen, setSeen] = useState(report);
+  if (seen !== report) {
+    // Another import: its report starts on its first page.
+    setSeen(report);
+    setPage(1);
+  }
+  const shown = report.errors.slice((page - 1) * REPORT_ROWS, page * REPORT_ROWS);
   const columns: Column<ReportError & { key: string }>[] = [
     { key: 'row', header: t('dict.report.row'), numeric: true, cell: (x) => x.row },
     {
@@ -1110,14 +1118,21 @@ function ImportReportCard({
               cards
               caption={t('dict.report.errors')}
               columns={columns}
-              rows={shown.map((x, i) => ({ ...x, key: `${x.row}-${x.column ?? ''}-${i}` }))}
+              rows={shown.map((x, i) => ({
+                ...x,
+                key: `${x.row}-${x.column ?? ''}-${(page - 1) * REPORT_ROWS + i}`,
+              }))}
               rowKey={(x) => x.key}
             />
           )}
-          {report.errors.length > shown.length && (
-            <p style={{ margin: 0 }}>
-              {t('dict.report.more', { shown: shown.length, total: report.errors.length })}
-            </p>
+          {report.errors.length > REPORT_ROWS && (
+            <Pagination
+              page={page}
+              size={REPORT_ROWS}
+              total={report.errors.length}
+              label={t('dict.report.pages')}
+              onPage={setPage}
+            />
           )}
         </div>
       </CardBody>

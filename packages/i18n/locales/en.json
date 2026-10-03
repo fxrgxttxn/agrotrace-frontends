@@ -1450,7 +1450,7 @@
       "column": "Column",
       "message": "Error",
       "wholeRow": "Whole row",
-      "more": "The first {shown} of {total} errors are shown."
+      "pages": "Pages of rejected rows"
     }
   },
   "audit": {

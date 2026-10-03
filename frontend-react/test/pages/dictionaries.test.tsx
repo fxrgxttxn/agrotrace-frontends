@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { server } from '../setup';
 import { contractExample, contractResponse, type Json } from '../msw/fromContract';
@@ -131,6 +131,47 @@ describe('/admin/dictionaries/:name', () => {
     expect(within(rows[0]!).getByText('Недопустимый формат')).toBeInTheDocument();
     expect(within(rows[1]!).getByText('Повторяющееся значение')).toBeInTheDocument();
     await waitFor(() => expect(toastText('polite')).toContain('отклонено строк 2'));
+    // FM21 (polish P1): the dialog closed on success — the focus is back on «Импорт», not on the page title.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Импорт' })).toHaveFocus());
+  });
+
+  it('a report of more than 200 errors is read page by page (200 rows each)', async () => {
+    const errors = Array.from({ length: 450 }, (_, i) => ({
+      row: i + 2,
+      column: 'lossNormPercent',
+      message: 'validation.format',
+    }));
+    server.use(
+      asAdmin(),
+      dictionaries(),
+      contractResponse('importDictionary', {
+        body: { created: 0, updated: 0, unchanged: 0, errors },
+      }),
+    );
+    await open();
+    await userEvent.click(screen.getByRole('button', { name: 'Импорт' }));
+    const dialog = screen.getByRole('dialog', { name: 'Импорт: Продукты' });
+    await userEvent.upload(within(dialog).getByLabelText('Файл'), csv());
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Импортировать' }));
+    const report = (await screen.findByRole('heading', { name: 'Отчёт об импорте: Продукты' })).closest(
+      'article',
+    )!;
+    const table = within(report).getByRole('table', { name: 'Отклонённые строки' });
+    const bodyRows = () => within(table).getAllByRole('row').slice(1);
+    expect(bodyRows()).toHaveLength(200);
+    expect(within(bodyRows()[0]!).getByText('2')).toBeInTheDocument();
+    const pages = within(report).getByRole('navigation', { name: 'Страницы отклонённых строк' });
+    expect(within(pages).getByText('1–200 из 450')).toBeInTheDocument();
+    await userEvent.click(within(pages).getByRole('button', { name: 'Следующая страница' }));
+    expect(within(pages).getByText('201–400 из 450')).toBeInTheDocument();
+    expect(within(bodyRows()[0]!).getByText('202')).toBeInTheDocument();
+    await userEvent.click(within(pages).getByRole('button', { name: 'Следующая страница' }));
+    expect(bodyRows()).toHaveLength(50);
+    expect(within(bodyRows()[49]!).getByText('451')).toBeInTheDocument();
+    // The arrow that became disabled hands the focus to the current page.
+    expect(within(pages).getByRole('button', { name: 'Следующая страница' })).toBeDisabled();
+    expect(within(pages).getByRole('button', { name: '3' })).toHaveFocus();
+    expect(within(pages).getByRole('button', { name: '3' })).toHaveAttribute('aria-current', 'page');
   });
 
   const refusals: [string, Json, string][] = [
@@ -209,6 +250,21 @@ describe('/admin/dictionaries/:name', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Загрузить' }));
     await waitFor(() => expect(sent).toBe(true));
     await waitFor(() => expect(toastText('polite')).toContain(`Фото ${name} сохранено`));
+  });
+
+  it('Esc in the photo dialog gives the focus back to the row «Фото» button (FM25)', async () => {
+    server.use(asAdmin(), dictionaries());
+    await open();
+    const name = PRODUCTS[0]!.name;
+    const opener = await screen.findByRole('button', { name: `Фото ${name}` });
+    await userEvent.click(opener);
+    const dialog = screen.getByRole('dialog', { name: `Фото: ${name}` });
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(opener).toHaveFocus();
+    // …and stays there (the focus rescue never takes it to the page title).
+    await new Promise((r) => setTimeout(r, 50));
+    expect(opener).toHaveFocus();
   });
 
   it('«Показывать удалённые» asks with includeDeleted and marks the deleted rows', async () => {

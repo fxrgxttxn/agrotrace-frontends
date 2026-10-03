@@ -1,3 +1,4 @@
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { t } from '../app/i18n';
 
@@ -22,36 +23,81 @@ function Arrow({ dir }: { dir: 'left' | 'right' }) {
   );
 }
 
-/** `at-pagination` (README «Пагинация»): links keep the rest of the URL state (`hrefFor` builds them). */
+type Target =
+  { hrefFor: (page: number) => string; onPage?: never } | { onPage: (page: number) => void; hrefFor?: never };
+
+/** `at-pagination` (README «Пагинация»): links keep the rest of the URL state (`hrefFor` builds them); with `onPage`
+ * the pages of a list held in memory (inside a card) are buttons and the `nav` has its own `label`. */
 export function Pagination({
   page,
   size,
   total,
-  hrefFor,
+  label,
+  ...target
 }: {
   /** 1-based, as in the contract. */
   page: number;
   size: number;
   total: number;
-  hrefFor: (page: number) => string;
-}) {
+  /** Name of the `nav` (default «Страницы»). */
+  label?: string;
+} & Target) {
   const pages = Math.max(1, Math.ceil(total / size));
   const from = total === 0 ? 0 : (page - 1) * size + 1;
   const to = Math.min(total, page * size);
+  const nav = useRef<HTMLElement>(null);
+  const moved = useRef(false);
+  // An arrow that became disabled by its own press hands the focus to the current page (README).
+  useEffect(() => {
+    if (!moved.current) return;
+    moved.current = false;
+    const active = document.activeElement;
+    if (active === null || active === document.body || (active as HTMLButtonElement).disabled)
+      nav.current?.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
+  }, [page]);
+
+  const item = (p: number, content: ReactNode, aria: { label?: string; current?: boolean } = {}) => {
+    const common = {
+      className: 'at-pagination__item',
+      'aria-label': aria.label,
+      'aria-current': aria.current ? ('page' as const) : undefined,
+    };
+    if (target.onPage) {
+      const onPage = target.onPage;
+      return (
+        <button
+          type="button"
+          {...common}
+          onClick={() => {
+            if (p === page) return;
+            moved.current = true;
+            onPage(p);
+          }}
+        >
+          {content}
+        </button>
+      );
+    }
+    return (
+      <Link {...common} to={target.hrefFor(p)}>
+        {content}
+      </Link>
+    );
+  };
+  const none = (content: ReactNode, name: string) => (
+    <button className="at-pagination__item" type="button" aria-label={name} disabled>
+      {content}
+    </button>
+  );
+
   return (
-    <nav className="at-pagination" aria-label={t('ui.pages')}>
+    <nav className="at-pagination" aria-label={label ?? t('ui.pages')} ref={nav}>
       <p className="at-pagination__summary">{t('ui.pageSummary', { from, to, total })}</p>
       <ul className="at-pagination__pages">
         <li>
-          {page > 1 ? (
-            <Link className="at-pagination__item" to={hrefFor(page - 1)} aria-label={t('ui.prevPage')}>
-              <Arrow dir="left" />
-            </Link>
-          ) : (
-            <button className="at-pagination__item" type="button" aria-label={t('ui.prevPage')} disabled>
-              <Arrow dir="left" />
-            </button>
-          )}
+          {page > 1
+            ? item(page - 1, <Arrow dir="left" />, { label: t('ui.prevPage') })
+            : none(<Arrow dir="left" />, t('ui.prevPage'))}
         </li>
         {pageWindow(page, pages).map((p, i) => (
           <li key={p ?? `gap-${i}`}>
@@ -60,26 +106,14 @@ export function Pagination({
                 …
               </span>
             ) : (
-              <Link
-                className="at-pagination__item"
-                to={hrefFor(p)}
-                aria-current={p === page ? 'page' : undefined}
-              >
-                {p}
-              </Link>
+              item(p, p, { current: p === page })
             )}
           </li>
         ))}
         <li>
-          {page < pages ? (
-            <Link className="at-pagination__item" to={hrefFor(page + 1)} aria-label={t('ui.nextPage')}>
-              <Arrow dir="right" />
-            </Link>
-          ) : (
-            <button className="at-pagination__item" type="button" aria-label={t('ui.nextPage')} disabled>
-              <Arrow dir="right" />
-            </button>
-          )}
+          {page < pages
+            ? item(page + 1, <Arrow dir="right" />, { label: t('ui.nextPage') })
+            : none(<Arrow dir="right" />, t('ui.nextPage'))}
         </li>
       </ul>
     </nav>

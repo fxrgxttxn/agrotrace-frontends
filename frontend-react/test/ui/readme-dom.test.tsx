@@ -407,6 +407,12 @@ describe('README markup contract: data and feedback', () => {
     );
   });
 
+  it('at-pagination without URLs (pages of a list inside a card: buttons, its own name)', () => {
+    expect(
+      dom(<Pagination page={2} size={200} total={450} label="Страницы отклонённых строк" onPage={noop} />),
+    ).toBe(canonicalHtml(readmeBlock('Пагинация', 1)));
+  });
+
   it('at-tabs', () => {
     const got = dom(
       <Tabs
