@@ -155,6 +155,10 @@ describe('README markup contract: data and feedback', () => {
     expect(dom('pagination')).toBe(canonicalHtml(readmeBlock('Пагинация')));
   });
 
+  it('at-pagination without URLs (pages of a list inside a card: buttons, its own name)', () => {
+    expect(dom('pagination-buttons')).toBe(canonicalHtml(readmeBlock('Пагинация', 1)));
+  });
+
   it('at-tabs', () => {
     expect(dom('tabs')).toBe(canonicalHtml(readmeBlock('Вкладки')));
   });

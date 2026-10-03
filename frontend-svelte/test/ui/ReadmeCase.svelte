@@ -183,6 +183,8 @@
   />
 {:else if name === 'pagination'}
   <Pagination page={1} size={20} total={248} hrefFor={(p) => `/batches?page=${p}`} />
+{:else if name === 'pagination-buttons'}
+  <Pagination page={2} size={200} total={450} label="Страницы отклонённых строк" onpage={noop} />
 {:else if name === 'tabs'}
   <Tabs
     label="Партия AT-2026-000123"

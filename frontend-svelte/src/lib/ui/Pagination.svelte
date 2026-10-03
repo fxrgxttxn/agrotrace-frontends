@@ -14,39 +14,81 @@
 </script>
 
 <script lang="ts">
+  import { tick, type Snippet } from 'svelte';
   import { t } from '../app/i18n';
 
-  /** `at-pagination` (README «Пагинация»): links keep the rest of the URL state (`hrefFor` builds them). */
+  /** `at-pagination` (README «Пагинация»): links keep the rest of the URL state (`hrefFor` builds them); with `onpage`
+   * the pages of a list held in memory (inside a card) are buttons and the `nav` has its own `label`. */
   let {
     page,
     size,
     total,
+    label,
     hrefFor,
+    onpage,
   }: {
     /** 1-based, as in the contract. */
     page: number;
     size: number;
     total: number;
-    hrefFor: (page: number) => string;
+    /** Name of the `nav` (default «Страницы»). */
+    label?: string;
+    hrefFor?: (page: number) => string;
+    onpage?: (page: number) => void;
   } = $props();
 
   const pages = $derived(Math.max(1, Math.ceil(total / size)));
   const from = $derived(total === 0 ? 0 : (page - 1) * size + 1);
   const to = $derived(Math.min(total, page * size));
+  let nav: HTMLElement | null = $state(null);
+
+  /** A page button: an arrow that became disabled by its own press hands the focus to the current page (README). */
+  async function go(p: number) {
+    if (p === page || !onpage) return;
+    onpage(p);
+    await tick();
+    const active = document.activeElement;
+    if (active === null || active === document.body || (active as HTMLButtonElement).disabled)
+      nav?.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
+  }
 </script>
 
 {#snippet arrow(dir: 'left' | 'right')}<svg aria-hidden="true"><use href="#i-chevron-{dir}" /></svg>{/snippet}
 
-<nav class="at-pagination" aria-label={t('ui.pages')}>
+{#snippet item(p: number, content: Snippet, aria: { label?: string; current?: boolean })}
+  {#if onpage}
+    <button
+      class="at-pagination__item"
+      type="button"
+      aria-label={aria.label}
+      aria-current={aria.current ? 'page' : undefined}
+      onclick={() => void go(p)}>{@render content()}</button
+    >
+  {:else}
+    <a
+      class="at-pagination__item"
+      href={hrefFor?.(p)}
+      aria-label={aria.label}
+      aria-current={aria.current ? 'page' : undefined}>{@render content()}</a
+    >
+  {/if}
+{/snippet}
+
+{#snippet none(content: Snippet, name: string)}
+  <button class="at-pagination__item" type="button" aria-label={name} disabled>{@render content()}</button>
+{/snippet}
+
+{#snippet left()}{@render arrow('left')}{/snippet}
+{#snippet right()}{@render arrow('right')}{/snippet}
+
+<nav class="at-pagination" aria-label={label ?? t('ui.pages')} bind:this={nav}>
   <p class="at-pagination__summary">{t('ui.pageSummary', { from, to, total })}</p>
   <ul class="at-pagination__pages">
     <li>
       {#if page > 1}
-        <a class="at-pagination__item" href={hrefFor(page - 1)} aria-label={t('ui.prevPage')}>{@render arrow('left')}</a>
+        {@render item(page - 1, left, { label: t('ui.prevPage') })}
       {:else}
-        <button class="at-pagination__item" type="button" aria-label={t('ui.prevPage')} disabled
-          >{@render arrow('left')}</button
-        >
+        {@render none(left, t('ui.prevPage'))}
       {/if}
     </li>
     {#each pageWindow(page, pages) as p, i (p ?? `gap-${i}`)}
@@ -54,17 +96,16 @@
         {#if p === null}
           <span class="at-pagination__gap" aria-hidden="true">…</span>
         {:else}
-          <a class="at-pagination__item" href={hrefFor(p)} aria-current={p === page ? 'page' : undefined}>{p}</a>
+          {#snippet num()}{p}{/snippet}
+          {@render item(p, num, { current: p === page })}
         {/if}
       </li>
     {/each}
     <li>
       {#if page < pages}
-        <a class="at-pagination__item" href={hrefFor(page + 1)} aria-label={t('ui.nextPage')}>{@render arrow('right')}</a>
+        {@render item(page + 1, right, { label: t('ui.nextPage') })}
       {:else}
-        <button class="at-pagination__item" type="button" aria-label={t('ui.nextPage')} disabled
-          >{@render arrow('right')}</button
-        >
+        {@render none(right, t('ui.nextPage'))}
       {/if}
     </li>
   </ul>

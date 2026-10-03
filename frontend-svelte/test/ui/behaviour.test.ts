@@ -174,6 +174,29 @@ describe('at-dialog', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Закрыть' }));
     expect(container.querySelector('dialog')).not.toHaveAttribute('open');
   });
+
+  // FM21/FM25 (polish P2, React P1): a dialog rendered only while open is removed from the page by its close — Esc, the
+  // cross, a success — and still hands the focus back to its opener (not the body or the h1).
+  it('a dialog removed by Esc or by its action returns the focus to the opener', async () => {
+    render(Behaviour, { name: 'dialog-mounted' });
+    const opener = screen.getByRole('button', { name: 'Открыть' });
+    await userEvent.click(opener);
+    await fireEvent(document.querySelector('dialog')!, new Event('cancel', { cancelable: true }));
+    expect(document.querySelector('dialog')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+    await userEvent.click(opener);
+    await userEvent.click(screen.getByRole('button', { name: 'Готово' }));
+    expect(document.querySelector('dialog')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('a removed dialog leaves alone a focus its screen already moved out of it', async () => {
+    render(Behaviour, { name: 'dialog-mounted', elsewhere: true });
+    await userEvent.click(screen.getByRole('button', { name: 'Открыть' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Готово' }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Другое' }));
+  });
 });
 
 describe('at-toast', () => {

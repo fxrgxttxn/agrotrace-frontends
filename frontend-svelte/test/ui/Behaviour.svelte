@@ -24,6 +24,7 @@
     loading = false,
     options,
     lightDismiss = false,
+    elsewhere = false,
   }: {
     name: string;
     min?: string;
@@ -32,6 +33,7 @@
     loading?: boolean;
     options?: ComboOption[];
     lightDismiss?: boolean;
+    elsewhere?: boolean;
   } = $props();
 
   const OPTIONS: ComboOption[] = [
@@ -93,6 +95,22 @@
     <label for="code">Код партии</label>
     <input id="code" />
   </Dialog>
+{:else if name === 'dialog-mounted'}
+  <!-- FM21/FM25 (polish P2): a dialog rendered only while open is removed by its close (Esc, an action). -->
+  <Button onclick={() => (open = true)}>Открыть</Button>
+  <Button>Другое</Button>
+  {#if open}
+    <Dialog open onclose={() => (open = false)} title="Фото">
+      <label for="file">Файл</label>
+      <input id="file" />
+      <Button
+        onclick={() => {
+          if (elsewhere) (document.querySelectorAll('button')[1] as HTMLElement).focus();
+          open = false;
+        }}>Готово</Button
+      >
+    </Dialog>
+  {/if}
 {:else if name === 'toasts'}
   <button onclick={() => toasts.push({ tone: 'ok', text: 'тост ok' })}>push ok</button>
   <button onclick={() => toasts.push({ tone: 'danger', text: 'тост danger' })}>push danger</button>

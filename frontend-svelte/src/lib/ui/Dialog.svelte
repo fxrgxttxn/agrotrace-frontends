@@ -92,9 +92,21 @@
     if (back && back.isConnected) back.focus();
   }
 
-  // A dialog removed while open (its owner unmounts it on close) gives the focus back to its opener too (FM21).
+  // A dialog removed while open (its owner unmounts it on close: Esc, the cross, a success) gives the focus back to its
+  // opener too (FM21/FM25) — only if it held the focus: a focus the screen already moved out of it stays there.
   onDestroy(() => {
-    if (opener) queueMicrotask(closed);
+    const back = opener;
+    if (!back) return;
+    opener = null;
+    const d = dialog;
+    const active = document.activeElement;
+    const held = active === null || active === document.body || (d?.contains(active) ?? false);
+    if (d?.open) d.close();
+    if (!held) return;
+    queueMicrotask(() => {
+      const now = document.activeElement;
+      if (back.isConnected && (now === null || now === document.body || !now.isConnected)) back.focus();
+    });
   });
 </script>
 

@@ -7,6 +7,7 @@
   import CardBody from '../../ui/CardBody.svelte';
   import CardHeader from '../../ui/CardHeader.svelte';
   import Metric from '../../ui/Metric.svelte';
+  import Pagination from '../../ui/Pagination.svelte';
   import Table from '../../ui/Table.svelte';
   import type { Column } from '../../ui/table';
   import { COLUMN_LABEL, STACK, type Report } from './dictionaries';
@@ -15,14 +16,23 @@
    * its column (the field label and the file's column name) and reason. */
   let { name, report, onclose }: { name: DictName; report: Report; onclose: () => void } = $props();
 
-  /** Rows of the import report shown at once (a file may reject up to 10 000). */
+  /** Rows of the import report per page (a file may reject up to 10 000: read page by page, README «Пагинация»:
+   * страницы без URL). */
   const REPORT_ROWS = 200;
   const METRICS =
     'display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr))';
   type Row = Report['errors'][number] & { key: string };
   const rejected = $derived(new Set(report.errors.map((x) => x.row)).size);
+  let page = $state(1);
+  // Another import: its report starts on its first page.
+  $effect.pre(() => {
+    void report;
+    page = 1;
+  });
   const shown = $derived<Row[]>(
-    report.errors.slice(0, REPORT_ROWS).map((x, i) => ({ ...x, key: `${x.row}-${x.column ?? ''}-${i}` })),
+    report.errors
+      .slice((page - 1) * REPORT_ROWS, page * REPORT_ROWS)
+      .map((x, i) => ({ ...x, key: `${x.row}-${x.column ?? ''}-${(page - 1) * REPORT_ROWS + i}` })),
   );
   const columns: Column<Row>[] = [
     { key: 'row', header: t('dict.report.row'), numeric: true },
@@ -60,8 +70,14 @@
       {#if shown.length > 0}
         <Table cards caption={t('dict.report.errors')} {columns} rows={shown} rowKey={(x) => x.key} {cell} />
       {/if}
-      {#if report.errors.length > shown.length}
-        <p style="margin: 0">{t('dict.report.more', { shown: shown.length, total: report.errors.length })}</p>
+      {#if report.errors.length > REPORT_ROWS}
+        <Pagination
+          {page}
+          size={REPORT_ROWS}
+          total={report.errors.length}
+          label={t('dict.report.pages')}
+          onpage={(p) => (page = p)}
+        />
       {/if}
     </div>
   </CardBody>
