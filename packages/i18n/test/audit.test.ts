@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { auditFieldLabel, auditValue, createT, formatLocalDateTime } from '../src/index';
+import { auditActionLabel, auditFieldLabel, auditValue, createT, formatLocalDateTime } from '../src/index';
 import ru from '../locales/ru.json' with { type: 'json' };
 
 // The audit diff in words (polish P1): a field's label instead of its API name, instants in the viewer's time zone,
@@ -38,9 +38,31 @@ describe('audit diff', () => {
       'Приостановлена',
     );
     expect(auditValue(t, 'Approved', 'ru', { field: 'status', entityType: 'product' })).toBe('Approved');
-    expect(auditValue(t, '12480.000', 'ru')).toBe('12480.000');
+    expect(auditValue(t, '12480.000', 'ru')).toBe('12 480');
     expect(auditValue(t, '***', 'ru')).toBe('***');
     expect(auditValue(t, 3, 'ru')).toBe('3');
     expect(auditValue(t, { email: true }, 'ru')).toBe('{"email":true}');
+  });
+});
+
+describe('audit diff (polish P1b)', () => {
+  it('an action (operationId, system.<job>, seed) by its label; an unknown one as it is', () => {
+    expect(auditActionLabel(t, 'deleteDictionaryEntry')).toBe('Удаление записи справочника');
+    expect(auditActionLabel(t, 'sendWaybill')).toBe('Отгрузка накладной');
+    expect(auditActionLabel(t, 'system.vsdImport')).toBe('Импорт ВСД (система)');
+    expect(auditActionLabel(t, 'seed')).toBe('Начальное наполнение');
+    expect(auditActionLabel(t, 'milkCow')).toBe('milkCow');
+  });
+
+  it('decimals in the locale without trailing zeros; masses as masses; names of referenced records', () => {
+    expect(auditValue(t, '0.010000', 'ru')).toBe('0,01');
+    expect(auditValue(t, '3.50', 'ru')).toBe('3,5');
+    expect(auditValue(t, '2.000', 'ru')).toBe('2');
+    expect(auditValue(t, '12480.000', 'ru', { field: 'massKg', entityType: 'batch' })).toBe('12 480,000');
+    expect(auditValue(t, 0.95, 'ru')).toBe('0,95');
+    const resolve = (field: string, v: string) =>
+      field === 'productId' && v === 'p1' ? 'Пшеница' : undefined;
+    expect(auditValue(t, 'p1', 'ru', { field: 'productId', entityType: 'norm', resolve })).toBe('Пшеница');
+    expect(auditValue(t, 'p2', 'ru', { field: 'productId', entityType: 'norm', resolve })).toBe('p2');
   });
 });

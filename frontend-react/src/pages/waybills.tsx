@@ -582,6 +582,7 @@ function WaybillNewForm({ batches }: { batches: BatchItem[] }) {
               rowKey={(b) => b.id}
               selection={{
                 selected: pickedSet,
+                errorId: pickedError ? 'waybill-items-error' : null,
                 onChange: (next) =>
                   form.setValue(
                     'picked',

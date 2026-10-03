@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { server } from '../setup';
 import { contractResponse, operation, type Json } from '../msw/fromContract';
-import { asMe, pageOf, problem, toastText } from '../msw/data';
+import { asMe, dictionaries, pageOf, problem, PRODUCTS, toastText } from '../msw/data';
 import { renderApp } from '../app/renderApp';
 import { REPORT_ACCESS, reportTypes } from '../../src/pages/reports';
 import { formatLocalDateTime } from '@agrotrace/i18n';
@@ -76,7 +76,7 @@ describe('/admin/audit', () => {
     expect(new URLSearchParams(router.state.location.search).get('entityType')).toBe('batch');
 
     await userEvent.click(screen.getByRole('button', { name: 'Изменения записи журнала 104233' }));
-    const dialog = screen.getByRole('dialog', { name: 'Партия: sendWaybill' });
+    const dialog = screen.getByRole('dialog', { name: 'Партия: Отгрузка накладной' });
     // Polish P1: the field by its label (the API name under it), the status by the batch's own statuses.
     const row = within(within(dialog).getByRole('table', { name: 'Изменённые поля' }))
       .getByText('status')
@@ -91,6 +91,7 @@ describe('/admin/audit', () => {
     const at = '2026-08-01T08:15:00Z';
     server.use(
       asInspector(),
+      dictionaries(),
       contractResponse('listAuditLog', {
         body: pageOf([
           {
@@ -98,8 +99,10 @@ describe('/admin/audit', () => {
             action: 'deleteDictionaryEntry',
             entityType: 'norm',
             diff: {
-              productId: ['4b7e1c2a-0d3f-4e5a-9b6c-7d8e9f0a1b2c', null],
-              maxValue: ['0.100', null],
+              productId: [PRODUCTS[0]!.id, null],
+              indicatorId: ['4b7e1c2a-0d3f-4e5a-9b6c-7d8e9f0a1b2c', null],
+              maxValue: ['0.010000', null],
+              regionCode: ['33', null],
               deletedAt: [null, at],
               issueDate: ['2026-08-14', null],
               isOrgAdmin: [false, true],
@@ -110,10 +113,17 @@ describe('/admin/audit', () => {
     );
     await open('/admin/audit', 'Журнал аудита');
     await userEvent.click(await screen.findByRole('button', { name: 'Изменения записи журнала 104233' }));
+    // P1b: the title says the action in words, not the operationId.
+    expect(screen.getByRole('dialog', { name: 'Норматив: Удаление записи справочника' })).toBeInTheDocument();
     const table = within(screen.getByRole('dialog')).getByRole('table', { name: 'Изменённые поля' });
     const row = (api: string) => within(table).getByText(api).closest('tr')!;
     expect(within(row('productId')).getByText('Продукт')).toBeInTheDocument();
     expect(within(row('maxValue')).getByText('Максимальное значение')).toBeInTheDocument();
+    // P1b: referenced records by name where the dictionary is read (else the id), decimals in the locale.
+    expect(await within(row('productId')).findByText(PRODUCTS[0]!.name)).toBeInTheDocument();
+    expect(within(row('indicatorId')).getByText('4b7e1c2a-0d3f-4e5a-9b6c-7d8e9f0a1b2c')).toBeInTheDocument();
+    expect(within(row('regionCode')).getByText('Владимирская область')).toBeInTheDocument();
+    expect(within(row('maxValue')).getByText('0,01')).toBeInTheDocument();
     expect(within(row('deletedAt')).getByText('Удалено')).toBeInTheDocument();
     expect(within(row('deletedAt')).getByText(formatLocalDateTime(at, 'ru'))).toBeInTheDocument();
     expect(within(row('deletedAt')).queryByText(at)).toBeNull();

@@ -191,10 +191,18 @@ describe('/processing/new', () => {
     await screen.findByRole('checkbox', { name: 'Выбрать AT-2026-000123' });
     await userEvent.click(screen.getByRole('button', { name: 'Далее' }));
     expect(await screen.findByText('Выберите хотя бы одну партию')).toBeInTheDocument();
+    // Polish P1b: the batch boxes carry the error and the first one takes the focus.
+    const box = screen.getByRole('checkbox', { name: 'Выбрать AT-2026-000123' });
+    await waitFor(() => expect(box).toHaveFocus());
+    expect(box).toHaveAttribute('aria-invalid', 'true');
+    expect(box).toHaveAccessibleDescription('Выберите хотя бы одну партию');
     expect(screen.queryByRole('heading', { name: 'Выходы' })).toBeNull();
     // Polish P1: after «Далее» the step's fields are checked again on every change, like after a submit.
     await userEvent.click(screen.getByRole('checkbox', { name: 'Выбрать AT-2026-000123' }));
     await waitFor(() => expect(screen.queryByText('Выберите хотя бы одну партию')).toBeNull());
+    expect(screen.getByRole('checkbox', { name: 'Выбрать AT-2026-000123' })).not.toHaveAttribute(
+      'aria-invalid',
+    );
     await userEvent.clear(screen.getByLabelText('Использовать из AT-2026-000123'));
     expect(await screen.findByText('Обязательное поле')).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Использовать из AT-2026-000123'), '100');

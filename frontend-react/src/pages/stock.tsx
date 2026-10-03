@@ -693,6 +693,7 @@ function ProcessingWizard({ batches, products }: { batches: BatchItem[]; product
                 rowKey={(b) => b.id}
                 selection={{
                   selected: pickedSet,
+                  errorId: pickedError ? 'processing-inputs-error' : null,
                   onChange: (next) =>
                     form.setValue(
                       'picked',

@@ -2,9 +2,16 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
-import { auditFieldLabel, auditValue, enumLabel, formatLocalDateTime } from '@agrotrace/i18n';
+import {
+  auditActionLabel,
+  auditFieldLabel,
+  auditValue,
+  enumLabel,
+  formatLocalDateTime,
+} from '@agrotrace/i18n';
 import { call } from '../app/api';
 import { DateFilter } from '../app/DateFilter';
+import { useDictionary } from '../app/dictionaries';
 import { LOCALE, t } from '../app/i18n';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
 import { useSession } from '../app/session';
@@ -356,9 +363,26 @@ function IdFilter({
 }
 
 function DiffDialog({ entry, onClose }: { entry: Entry | null; onClose: () => void }) {
-  // Values in words (polish P1): instants in the viewer's time, dates, yes / no, the entity's statuses.
+  // Values in words (polish P1, P1b): instants in the viewer's time, dates, yes / no, the entity's statuses, decimals in
+  // the locale, and a referenced dictionary record by its name (the dictionary is read when the diff refers to it;
+  // a record it no longer lists stays an id).
+  const has = (...fields: string[]) => entry !== null && fields.some((f) => f in entry.diff);
+  const products = useDictionary('products', has('productId'));
+  const indicators = useDictionary('indicators', has('indicatorId'));
+  const substances = useDictionary('substances', has('substanceId'));
+  const regions = useDictionary('regions', has('regionId', 'regionCode'));
+  const resolve = (field: string, value: string): string | undefined => {
+    const byId = (list: { id: string; name: string }[] | undefined) =>
+      list?.find((x) => x.id === value)?.name;
+    if (field === 'productId') return byId(products.data);
+    if (field === 'indicatorId') return byId(indicators.data);
+    if (field === 'substanceId') return byId(substances.data);
+    if (field === 'regionId') return byId(regions.data);
+    if (field === 'regionCode') return regions.data?.find((r) => r.code === value)?.name;
+    return undefined;
+  };
   const shown = (v: unknown, field: string) =>
-    auditValue(t, v, LOCALE, entry ? { field, entityType: entry.entityType } : undefined);
+    auditValue(t, v, LOCALE, entry ? { field, entityType: entry.entityType, resolve } : undefined);
   const rows = entry
     ? Object.entries(entry.diff).map(([field, pair]) => ({ field, before: pair[0], after: pair[1] }))
     : [];
@@ -395,7 +419,7 @@ function DiffDialog({ entry, onClose }: { entry: Entry | null; onClose: () => vo
         entry
           ? t('audit.diffTitle', {
               entity: enumLabel(t, 'AuditEntityType', entry.entityType),
-              action: entry.action,
+              action: auditActionLabel(t, entry.action),
             })
           : ''
       }

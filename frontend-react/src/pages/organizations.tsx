@@ -184,6 +184,12 @@ export function OrganizationsPage() {
         <span className="at-table__primary">
           <span>{o.name}</span>
           <span className="at-table__sub">{t('orgs.inn', { inn: o.inn })}</span>
+          <span className="at-table__sub">
+            {t('orgs.typeRegionOf', {
+              type: enumLabel(t, 'OrganizationType', o.type),
+              region: o.region.name,
+            })}
+          </span>
         </span>
       ),
     },
@@ -192,16 +198,6 @@ export function OrganizationsPage() {
       header: t('orgs.status'),
       status: true,
       cell: (o) => <Chip tone={ORG_TONE[o.status]}>{enumLabel(t, 'OrganizationStatus', o.status)}</Chip>,
-    },
-    {
-      key: 'type',
-      header: t('orgs.typeRegion'),
-      cell: (o) => (
-        <span className="at-table__primary">
-          <span>{enumLabel(t, 'OrganizationType', o.type)}</span>
-          <span className="at-table__sub">{o.region.name}</span>
-        </span>
-      ),
     },
     {
       key: 'head',

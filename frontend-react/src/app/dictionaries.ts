@@ -16,10 +16,12 @@ type Entries = {
 
 const PAGE = 100;
 
-export function useDictionary<N extends keyof Entries>(name: N) {
+/** `enabled: false` — not read (yet); a dictionary already read is still served from the cache. */
+export function useDictionary<N extends keyof Entries>(name: N, enabled = true) {
   const { api } = useSession();
   return useQuery({
     queryKey: ['dictionary', name],
+    enabled,
     staleTime: Infinity,
     gcTime: Infinity,
     queryFn: async () => {

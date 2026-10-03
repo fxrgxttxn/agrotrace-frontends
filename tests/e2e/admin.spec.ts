@@ -30,9 +30,9 @@ test('ADMIN approves a fresh application, edits and suspends it, invites an empl
   const row = page.getByRole('row').filter({ hasText: name });
   await expect(row).toBeVisible();
   await shot(page, SHOTS, 'organizations-applications');
-  // Polish P1 (README «Таблица»): approve / reject / edit of an application are reachable without scrolling the
-  // table at 1024 and 1280 px.
-  for (const width of [1024, 1280]) {
+  // Polish P1, P1b (README «Таблица»): approve / reject / edit of an application are reachable without scrolling the
+  // table at 768–1439 px.
+  for (const width of [768, 900, 1024, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     const wrap = page.locator('.at-table-wrap').first();
     expect(await wrap.evaluate((el) => el.scrollWidth - el.clientWidth), `table scroll at ${width}`).toBe(0);
@@ -262,4 +262,22 @@ test('a head of organization: staff, invitation into the own organization, the o
   expect((await pdf).suggestedFilename()).toMatch(/^agrotrace-org_2312450016_.*\.pdf$/);
   await shot(page, SHOTS, 'reports-head');
   expect(unexpected(w)).toEqual([]);
+});
+
+test('organizations: a single row action stands where the stacked ones do (polish P1b)', async ({ page }) => {
+  await signIn(page, 'admin@agrotrace.test');
+  await page.goto('/admin/organizations');
+  await expect(page.getByRole('table', { name: 'Организации' })).toBeVisible();
+  for (const width of [768, 1024, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    const edits = page.getByRole('button', { name: /^Изменить / });
+    const boxes = await edits.evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return `${Math.round(r.left)}–${Math.round(r.right)}`;
+      }),
+    );
+    // The platform's row has «Изменить» only, the others «Приостановить» above it: all at the same place.
+    expect(new Set(boxes).size, `${width}: ${boxes.join(' ')}`).toBe(1);
+  }
 });
