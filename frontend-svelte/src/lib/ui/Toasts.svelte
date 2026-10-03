@@ -10,17 +10,17 @@
 </script>
 
 {#snippet toast(x: ToastEntry)}
-  <div class="at-toast" data-tone={x.tone}>
-    <p class="at-toast__text">{x.text}{#if x.detail}<small>{x.detail}</small>{/if}</p>
-    <Button
+  <div class="at-toast" data-tone={x.tone}
+    ><p class="at-toast__text">{x.text}{#if x.detail}<small>{x.detail}</small>{/if}</p
+    ><Button
       variant="ghost"
       size="s"
       iconOnly
       icon="close"
       aria-label={t('shell.close')}
       onclick={() => toasts.dismiss(x.id)}
-    />
-  </div>
+    /></div
+  >
 {/snippet}
 
 <div class="at-toasts">

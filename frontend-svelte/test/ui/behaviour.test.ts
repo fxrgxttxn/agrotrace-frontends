@@ -186,6 +186,8 @@ describe('at-toast', () => {
     const [alert, polite] = document.querySelectorAll('.at-toast-region');
     expect(alert!.textContent).toContain('тост danger');
     expect(polite!.textContent).toContain('тост ok');
+    // A region reads out the text alone (no whitespace of the markup around it, as React's).
+    expect(alert!.textContent).toBe('тост danger');
     vi.advanceTimersByTime(TOAST_HIDE_MS + 10);
     await tick();
     expect(polite!.textContent).toBe('');
