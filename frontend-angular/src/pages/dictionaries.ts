@@ -46,7 +46,7 @@ import { injectDictionary } from '../app/dictionaries';
 import {
   errorTone,
   FocusAfterWaitDirective,
-  formAlert,
+  dialogAlert,
   normalizeDecimal,
   SchemaForm,
   wireSchema,
@@ -94,7 +94,7 @@ const CATEGORIES: readonly Schemas['ProductCategory'][] = [
 const SUBSTANCE_TYPES: readonly Schemas['SubstanceType'][] = ['PESTICIDE', 'FERTILIZER'];
 /** Softly deleted dictionaries (deletedAt; `includeDeleted` for ADMIN). */
 const SOFT: readonly DictName[] = ['products', 'substances', 'indicators'];
-/** Rows of the import report shown at once (a file may reject up to 10 000). */
+/** Rows of the import report per page (a file may reject up to 10 000). */
 const REPORT_ROWS = 200;
 const METRICS =
   'display: grid; gap: var(--sp-3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr))';
@@ -315,6 +315,7 @@ export class EntryFormComponent implements OnInit {
   readonly gone = output<void>();
   private readonly session = inject(SessionService);
   private readonly cache = inject(QueryCache);
+  private readonly toasts = inject(ToastService);
   private readonly injector = inject(Injector);
   private readonly live = injectLive();
   f!: SchemaForm<Values>;
@@ -349,6 +350,7 @@ export class EntryFormComponent implements OnInit {
         wireSchema<Values>(def.schema, def.toWire, def.precheck),
         def.defaults(this.entry()),
         def.fields,
+        { dialog: true },
       );
     });
   }
@@ -373,8 +375,12 @@ export class EntryFormComponent implements OnInit {
               }),
             );
         if (generation !== this.session.generation) return;
-        // FM26: session-bound, not screen-bound (the dialog may be gone)
+        // FM26: session-bound, not screen-bound (the dialog may be gone); FM29: the success is said all the same
         refreshAfter(this.cache, name);
+        this.toasts.push({
+          tone: 'ok',
+          text: t(entry ? 'dict.saved' : 'dict.created', { name: entryName(name, saved) }),
+        });
         this.saved.emit(saved);
       } catch (err) {
         if (
@@ -398,7 +404,7 @@ const ENTRY_DIALOG = `@if (entryDialog(); as d) {
         class="at-dialog"
         [open]="true"
         [dialogTitle]="d.entry ? t('dict.editTitle', { name: entryName(d.name, d.entry) }) : t('dict.addTitle.' + d.name)"
-        (closed)="entryDialog.set(null)"
+        (closed)="closeEntry()"
       >
         @if (d.name === 'norms' && (!products.data() || !indicators.data())) {
           ${areaLoading(1)}
@@ -408,12 +414,12 @@ const ENTRY_DIALOG = `@if (entryDialog(); as d) {
             [entry]="d.entry"
             [products]="products.data() ?? []"
             [indicators]="indicators.data() ?? []"
-            (saved)="entrySaved(d.name, d.entry, $event)"
+            (saved)="entrySaved(d.name)"
             (gone)="entryGone(d.name, d.entry!)"
           ></form>
         }
         <div class="at-dialog__actions">
-          <button class="at-button" [variant]="'ghost'" (click)="entryDialog.set(null)">{{ t('action.cancel') }}</button>
+          <button class="at-button" [variant]="'ghost'" (click)="closeEntry()">{{ t('action.cancel') }}</button>
           <button
             class="at-button"
             [type]="'submit'"
@@ -443,13 +449,16 @@ abstract class EntryHost {
   protected readonly indicators = injectDictionary('indicators');
   protected readonly entryDialog = signal<{ name: DictName; entry?: Entry } | null>(null);
 
-  protected entrySaved(name: DictName, entry: Entry | undefined, saved: Entry): void {
+  /** The form said the success (FM29: even with its dialog gone). */
+  protected entrySaved(name: DictName): void {
     refreshAfter(this.cache, name);
     this.entryDialog.set(null);
-    this.toasts.push({
-      tone: 'ok',
-      text: t(entry ? 'dict.saved' : 'dict.created', { name: entryName(name, saved) }),
-    });
+  }
+
+  /** Closed with a form message still standing: the page says it (README «Диалог»). */
+  protected closeEntry(): void {
+    this.entryForm()?.f?.handOff();
+    this.entryDialog.set(null);
   }
 
   protected entryGone(name: DictName, entry: Entry): void {
@@ -677,16 +686,16 @@ const STATE_COLUMN = `@if (deleted() && soft) {
         class="at-dialog"
         [open]="true"
         [dialogTitle]="t('dict.deleteTitle', { name: entryName(name, e) })"
-        (closed)="removing.set(null)"
+        (closed)="closeRemove()"
       >
         <div style="${STACK}">
-          @if (removeMessage()) {
-            <p class="at-field__error" role="alert" style="margin: 0">{{ removeMessage() }}</p>
+          @if (removeFailure.message()) {
+            <p class="at-field__error" role="alert" style="margin: 0">{{ removeFailure.message() }}</p>
           }
           <p style="margin: 0">{{ soft ? t('dict.deleteSoft') : t('dict.deleteHard') }}</p>
         </div>
         <div class="at-dialog__actions">
-          <button class="at-button" [variant]="'ghost'" (click)="removing.set(null)">
+          <button class="at-button" [variant]="'ghost'" (click)="closeRemove()">
             {{ t('action.cancel') }}
           </button>
           <button
@@ -709,9 +718,12 @@ const STATE_COLUMN = `@if (deleted() && soft) {
         class="at-dialog"
         [open]="true"
         [dialogTitle]="t('dict.photoTitle', { name: p.name })"
-        (closed)="photo.set(null)"
+        (closed)="closePhoto()"
       >
         <div style="${STACK}">
+          @if (photoFailure.message()) {
+            <p class="at-field__error" role="alert" style="margin: 0">{{ photoFailure.message() }}</p>
+          }
           @if (p.imageUrl) {
             <img
               [attr.src]="photoUrl(p.imageUrl)"
@@ -726,11 +738,12 @@ const STATE_COLUMN = `@if (deleted() && soft) {
             [types]="imageTypes"
             [maxBytes]="maxBytes"
             [upload]="uploadPhoto(p)"
-            (done)="photoSaved(p)"
+            [dialogAlert]="photoFailure"
+            (done)="closePhoto()"
           ></div>
         </div>
         <div class="at-dialog__actions">
-          <button class="at-button" [variant]="'ghost'" (click)="photo.set(null)">
+          <button class="at-button" [variant]="'ghost'" (click)="closePhoto()">
             {{ t('action.cancel') }}
           </button>
         </div>
@@ -816,7 +829,9 @@ export class DictionaryListComponent extends EntryHost {
 
   protected readonly removing = signal<Entry | null>(null);
   protected readonly removeBusy = signal(false);
-  protected readonly removeMessage = signal<string | null>(null);
+  /** Failures of the delete and of the photo, said in their dialogs (README «Диалог»). */
+  protected readonly removeFailure = dialogAlert();
+  protected readonly photoFailure = dialogAlert();
   protected readonly removeWait = countdown();
   protected readonly photo = signal<Product | null>(null);
 
@@ -829,8 +844,19 @@ export class DictionaryListComponent extends EntryHost {
   }
 
   protected openRemove(e: Entry): void {
-    this.removeMessage.set(null);
+    this.removeFailure.clear();
     this.removing.set(e);
+  }
+
+  /** Closed with a failure still standing: the page says it (README «Диалог»). */
+  protected closeRemove(): void {
+    this.removeFailure.handOff();
+    this.removing.set(null);
+  }
+
+  protected closePhoto(): void {
+    this.photoFailure.handOff();
+    this.photo.set(null);
   }
 
   protected async remove(entry: Entry): Promise<void> {
@@ -838,7 +864,7 @@ export class DictionaryListComponent extends EntryHost {
     const label = entryName(name, entry);
     const generation = this.session.generation;
     this.removeBusy.set(true);
-    this.removeMessage.set(null);
+    this.removeFailure.clear();
     try {
       await call(
         this.session.api.DELETE('/dictionaries/{name}/{id}', { params: { path: { name, id: entry.id } } }),
@@ -848,21 +874,22 @@ export class DictionaryListComponent extends EntryHost {
       this.toasts.push({ tone: 'ok', text: t('dict.removed', { name: label }) });
       if (this.alive()) this.removing.set(null);
     } catch (e) {
+      const gone = e instanceof ApiProblem && e.status === 404;
+      // FM26 amendment: the record is gone — the dictionary is stale for this session, screen or not
+      if (gone && generation === this.session.generation) refreshAfter(this.cache, name);
       if (!this.live(generation)) return;
       let text = errorText(e);
       if (e instanceof ApiProblem && e.code === 'REFERENCE_IN_USE') {
         const usedBy = e.params?.['usedBy'];
         const used = Array.isArray(usedBy) ? (usedBy as string[]) : [];
         text = t('dict.inUseBy', { name: label, by: used.map((u) => t(`dict.usedBy.${u}`)).join(', ') });
-      } else if (e instanceof ApiProblem && e.status === 404) {
-        refreshAfter(this.cache, name);
+      } else if (gone) {
         this.removing.set(null);
         this.toasts.push({ tone: 'danger', text: t('dict.gone', { name: label }) });
         return;
       }
       if (e instanceof ApiProblem && e.status === 429) this.removeWait.start(retryAfterOf(e));
-      this.removeMessage.set(text);
-      this.toasts.push({ tone: errorTone(e), text });
+      this.removeFailure.show(text, errorTone(e));
     } finally {
       if (this.alive()) this.removeBusy.set(false);
     }
@@ -878,13 +905,11 @@ export class DictionaryListComponent extends EntryHost {
         body: body as never,
       }),
     );
-    if (generation === this.session.generation) refreshAfter(this.cache, 'products');
-  };
-
-  protected photoSaved(p: Product): void {
-    this.photo.set(null);
+    if (generation !== this.session.generation) return;
+    refreshAfter(this.cache, 'products');
+    // FM29: the success of this session is said even after the screen is gone
     this.toasts.push({ tone: 'ok', text: t('dict.photoSaved', { name: p.name }) });
-  }
+  };
 }
 
 // ── the page ──
@@ -990,7 +1015,7 @@ export class DictionaryListComponent extends EntryHost {
                         class="at-table-wrap"
                         [cards]="true"
                         [caption]="t('dict.report.errors')"
-                        [rows]="reportRows(r.report)"
+                        [rows]="reportRows(r.report, reportPage())"
                         [rowKey]="reportKey"
                       >
                         <ng-template
@@ -1016,9 +1041,14 @@ export class DictionaryListComponent extends EntryHost {
                       </div>
                     }
                     @if (r.report.errors.length > reportLimit) {
-                      <p style="margin: 0">
-                        {{ t('dict.report.more', { shown: reportLimit, total: r.report.errors.length }) }}
-                      </p>
+                      <nav
+                        class="at-pagination"
+                        [page]="reportPage()"
+                        [size]="reportLimit"
+                        [total]="r.report.errors.length"
+                        [label]="t('dict.report.pages')"
+                        (pageChange)="reportPage.set($event)"
+                      ></nav>
                     }
                   </div>
                 </div>
@@ -1034,11 +1064,11 @@ export class DictionaryListComponent extends EntryHost {
           class="at-dialog"
           [open]="true"
           [dialogTitle]="t('dict.import.title', { name: label('DictionaryName', name()!) })"
-          (closed)="importing.set(false)"
+          (closed)="closeImport()"
         >
           <div style="${STACK}">
-            @if (importMessage()) {
-              <p class="at-field__error" role="alert" style="margin: 0">{{ importMessage() }}</p>
+            @if (importFailure.message()) {
+              <p class="at-field__error" role="alert" style="margin: 0">{{ importFailure.message() }}</p>
             }
             <div
               class="at-field"
@@ -1054,7 +1084,7 @@ export class DictionaryListComponent extends EntryHost {
             ></div>
           </div>
           <div class="at-dialog__actions">
-            <button class="at-button" [variant]="'ghost'" (click)="importing.set(false)">
+            <button class="at-button" [variant]="'ghost'" (click)="closeImport()">
               {{ t('action.cancel') }}
             </button>
             <button
@@ -1085,8 +1115,11 @@ export class DictionaryPage extends EntryHost {
   protected readonly importAccept = IMPORT_ACCEPT;
   protected readonly reportLimit = REPORT_ROWS;
   protected readonly rejected = (r: Report) => new Set(r.errors.map((x) => x.row)).size;
-  protected readonly reportRows = (r: Report) =>
-    r.errors.slice(0, REPORT_ROWS).map((x, i) => ({ ...x, key: `${x.row}-${x.column ?? ''}-${i}` }));
+  /** A file may reject up to 10 000 rows: read page by page (README «Пагинация»: страницы без URL). */
+  protected readonly reportRows = (r: Report, page: number) =>
+    r.errors
+      .slice((page - 1) * REPORT_ROWS, page * REPORT_ROWS)
+      .map((x, i) => ({ ...x, key: `${x.row}-${x.column ?? ''}-${(page - 1) * REPORT_ROWS + i}` }));
   protected readonly reportKey = (x: ReportError & { key: string }) => x.key;
   protected readonly columnLabel = (c: string) => (COLUMN_LABEL[c] ? t(COLUMN_LABEL[c]!) : c);
   private readonly session = inject(SessionService);
@@ -1100,6 +1133,8 @@ export class DictionaryPage extends EntryHost {
     return isDict(n) ? n : null;
   });
   protected readonly report = signal<{ name: DictName; report: Report } | null>(null);
+  /** Page of the rejected rows (another import starts on its first page). */
+  protected readonly reportPage = signal(1);
 
   protected showTab(id: string): void {
     if (id === this.name()) return;
@@ -1110,11 +1145,11 @@ export class DictionaryPage extends EntryHost {
   }
 
   // ── import ──
-  private readonly importAlert = formAlert();
   protected readonly importing = signal(false);
   protected readonly picked = signal<{ file: File; error?: string } | null>(null);
   protected readonly importBusy = signal(false);
-  protected readonly importMessage = signal<string | null>(null);
+  /** The failure of the import, said in its dialog (README «Диалог»). */
+  protected readonly importFailure = dialogAlert();
   protected readonly importWait = countdown();
   protected readonly importItems = computed<FileItem[]>(() => {
     const p = this.picked();
@@ -1133,14 +1168,20 @@ export class DictionaryPage extends EntryHost {
 
   protected openImport(): void {
     this.picked.set(null);
-    this.importMessage.set(null);
+    this.importFailure.clear();
     this.importing.set(true);
+  }
+
+  /** Closed with a failure still standing: the page says it (README «Диалог»). */
+  protected closeImport(): void {
+    this.importFailure.handOff();
+    this.importing.set(false);
   }
 
   protected pick(files: File[]): void {
     const file = files[0];
     if (!file) return;
-    this.importMessage.set(null);
+    this.importFailure.clear();
     let error: string | undefined;
     if (!isImportFile(file)) error = t('files.unsupported', { allowed: typesText(IMPORT_TYPES) });
     else if (file.size > UPLOAD_MAX_BYTES) error = tooLargeText(UPLOAD_MAX_BYTES);
@@ -1151,8 +1192,7 @@ export class DictionaryPage extends EntryHost {
     const picked = this.picked();
     if (!picked || picked.error) return;
     const generation = this.session.generation;
-    this.importAlert.clear();
-    this.importMessage.set(null);
+    this.importFailure.clear();
     this.importBusy.set(true);
     try {
       const body = new FormData();
@@ -1176,15 +1216,15 @@ export class DictionaryPage extends EntryHost {
       });
       if (!this.alive()) return;
       this.importing.set(false);
+      this.reportPage.set(1);
       this.report.set({ name, report });
     } catch (e) {
       if (!this.live(generation)) return;
       const problem = importFileProblem(e, name);
       if (problem) this.picked.update((p) => (p ? { ...p, error: problem } : p));
       if (e instanceof ApiProblem && e.status === 429) this.importWait.start(retryAfterOf(e));
-      const text = problem ?? errorText(e);
-      if (!problem) this.importMessage.set(text);
-      this.importAlert.show(text, problem ? 'danger' : errorTone(e));
+      // A refused file is said on the file (its `role="alert"` error); anything else in the dialog (README «Диалог»).
+      if (!problem) this.importFailure.show(errorText(e), errorTone(e));
     } finally {
       if (this.alive()) this.importBusy.set(false);
     }

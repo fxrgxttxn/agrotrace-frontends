@@ -695,7 +695,7 @@ describe('/lab/tests/:id — protocol', () => {
 describe('/batches/:id — unscheduled test (INSPECTOR)', () => {
   const BATCH_ID = '1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c';
 
-  it('a failure of the assignment is said in the dialog and as the page message', async () => {
+  it('a failure of the assignment is said in the dialog only; the page says it once the dialog is closed', async () => {
     server.use(
       asMe({ roles: ['INSPECTOR'] }),
       contractResponse('listOrganizations', {
@@ -713,8 +713,13 @@ describe('/batches/:id — unscheduled test (INSPECTOR)', () => {
     );
     await userEvent.click(within(dialog).getByRole('button', { name: 'Назначить анализ' }));
     const inDialog = await within(dialog).findByRole('alert');
-    expect(inDialog.textContent).not.toBe('');
-    expect(toastText()).toBe(inDialog.textContent);
+    const text = inDialog.textContent;
+    expect(text).not.toBe('');
+    // README «Диалог» (polish P1): not also as a page toast behind the modal…
+    expect(toastText()).toBe('');
+    // …but handed to the page when the dialog closes with the failure still standing.
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+    await waitFor(() => expect(toastText()).toBe(text));
   });
 
   it('«Назначить анализ»: a laboratory from the directory, POST /lab-tests, the tests tab', async () => {

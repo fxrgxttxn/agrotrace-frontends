@@ -19,7 +19,14 @@ import { injectAlive, injectLive } from '../app/alive';
 import { call, countdown, errorText, retryAfterOf } from '../app/api';
 import { CodeConfirm, codeConfirmDialog } from '../app/code-confirm';
 import { DateFilterComponent } from '../app/date-filter';
-import { errorTone, FocusAfterWaitDirective, formAlert, SchemaForm, wireSchema } from '../app/forms';
+import {
+  dialogAlert,
+  errorTone,
+  FocusAfterWaitDirective,
+  formAlert,
+  SchemaForm,
+  wireSchema,
+} from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { idempotency } from '../app/idempotency';
 import { injectListParams, isBadListQuery, listGap, type ListSpec } from '../app/list-state';
@@ -385,7 +392,9 @@ export class RecallTasksPage extends RecallView {
   protected readonly shown = computed(() => this.items().find((x) => x.id === this.target()) ?? null);
   protected readonly busy = signal(false);
   protected readonly wait = countdown();
-  protected readonly message = signal<string | null>(null);
+  /** Said in the dialog only (README «Диалог»); closed by the person with it still standing, the page says it. */
+  protected readonly failure = dialogAlert();
+  protected readonly message = this.failure.message;
   protected readonly confirmCode = new CodeConfirm(() => this.shown() !== null);
 
   constructor() {
@@ -399,7 +408,10 @@ export class RecallTasksPage extends RecallView {
         const target = this.target();
         const shown = this.shown();
         if (target !== null && this.query.data() && (!shown || !taskConfirmable(shown.status)))
-          untracked(() => this.target.set(null));
+          untracked(() => {
+            this.target.set(null);
+            this.failure.clear();
+          });
       },
       { allowSignalWrites: true },
     );
@@ -417,13 +429,14 @@ export class RecallTasksPage extends RecallView {
   }
 
   protected open(x: Task): void {
-    this.message.set(null);
+    this.failure.clear();
     this.target.set(x.id);
   }
 
+  /** Closed by the person: a failure that still applies goes to the page (README «Диалог»). */
   protected close(): void {
+    this.failure.handOff();
     this.target.set(null);
-    this.message.set(null);
   }
 
   private reread(): void {
@@ -439,7 +452,7 @@ export class RecallTasksPage extends RecallView {
   private async confirm(task: Task): Promise<void> {
     const generation = this.session.generation;
     this.busy.set(true);
-    this.message.set(null);
+    this.failure.clear();
     this.alert.clear();
     try {
       await this.idempotent(
@@ -459,7 +472,7 @@ export class RecallTasksPage extends RecallView {
         this.cache.invalidate(key);
       this.toasts.push({ tone: 'ok', text: t('recallTasks.confirmed', { code: task.batch.publicCode }) });
       if (!this.alive()) return;
-      this.close();
+      this.target.set(null);
       this.reread();
     } catch (e) {
       if (!this.live(generation)) return;
@@ -481,10 +494,11 @@ export class RecallTasksPage extends RecallView {
         if (e instanceof ApiProblem && e.status === 429) this.wait.start(retryAfterOf(e));
         text = errorText(e);
       }
-      // Said in the dialog (the toast region is behind the modal) and as the page message (README «Диалог»).
-      if (closing) this.close();
-      else this.message.set(text);
-      this.alert.show(text, errorTone(e));
+      // Said in the dialog only (README «Диалог»); a task that can no longer be confirmed closes it and the page says why.
+      if (closing) {
+        this.target.set(null);
+        this.alert.show(text, errorTone(e));
+      } else this.failure.show(text, errorTone(e));
     } finally {
       this.busy.set(false);
     }
@@ -1138,7 +1152,7 @@ export class BatchPickerComponent extends FieldContext {
       busy: 'busy()',
       wait: 'f.wait()',
       message: 'message()',
-      close: 'confirming.set(null)',
+      close: 'closeConfirm()',
       confirm: 'confirm()',
       text: `<p style="margin: 0">{{ t('recalls.new.confirmText') }}</p>
         @if (confirming()?.blockUpstream) {
@@ -1167,8 +1181,16 @@ export class RecallNewPage {
   protected readonly linkPending = signal(false);
   protected readonly confirming = signal<Schemas['RecallCreate'] | null>(null);
   protected readonly busy = signal(false);
-  protected readonly message = signal<string | null>(null);
+  /** The start fails inside the code dialog: said there only (README «Диалог»). */
+  protected readonly failure = dialogAlert();
+  protected readonly message = this.failure.message;
   protected readonly confirmCode = new CodeConfirm(() => this.confirming() !== null && this.code() !== '');
+
+  /** Closed with a failure still standing: the page says it (README «Диалог»). */
+  protected closeConfirm(): void {
+    this.failure.handOff();
+    this.confirming.set(null);
+  }
 
   protected setBatch(b: { id: string; code: string } | null): void {
     this.code.set(b?.code ?? '');
@@ -1185,7 +1207,7 @@ export class RecallNewPage {
         if (!this.linkPending()) document.getElementById('recall-batch')?.focus();
         return;
       }
-      this.message.set(null);
+      this.failure.clear();
       this.confirming.set(body);
     });
   }
@@ -1198,7 +1220,7 @@ export class RecallNewPage {
   private async start(v: Schemas['RecallCreate']): Promise<void> {
     const generation = this.session.generation;
     this.busy.set(true);
-    this.message.set(null);
+    this.failure.clear();
     this.f.alert.clear();
     try {
       const res = await this.session.api.POST('/recalls', { body: v });
@@ -1223,9 +1245,8 @@ export class RecallNewPage {
         this.f.fail(e);
         return;
       }
-      if (e instanceof ApiProblem && e.status === 429) this.f.fail(e);
-      else this.f.alert.show(errorText(e), errorTone(e));
-      this.message.set(errorText(e));
+      if (e instanceof ApiProblem && e.status === 429) this.f.rateLimited(retryAfterOf(e));
+      this.failure.error(e);
     } finally {
       this.busy.set(false);
     }

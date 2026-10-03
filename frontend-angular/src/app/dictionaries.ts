@@ -17,26 +17,32 @@ type Entries = {
 
 const PAGE = 100;
 
-/** The whole dictionary `name` (create it in an injection context). */
-export function injectDictionary<N extends keyof Entries>(name: N): Query<Entries[N][]> {
+/** The whole dictionary `name` (create it in an injection context). `enabled` false — not read (yet). */
+export function injectDictionary<N extends keyof Entries>(
+  name: N,
+  enabled: () => boolean = () => true,
+): Query<Entries[N][]> {
   const session = inject(SessionService);
   return injectQuery(
-    () => ({
-      key: `dictionary:${name}`,
-      load: async () => {
-        const items: Entries[N][] = [];
-        for (let page = 1; ; page++) {
-          const res = await call<Schemas['DictionaryPage']>(
-            session.api.GET('/dictionaries/{name}', {
-              params: { path: { name }, query: { page, size: PAGE, sort: 'name,asc' } },
-            }),
-          );
-          items.push(...(res.items as Entries[N][]));
-          if (items.length >= res.total || res.items.length === 0) break;
-        }
-        return items;
-      },
-    }),
+    () =>
+      enabled()
+        ? {
+            key: `dictionary:${name}`,
+            load: async () => {
+              const items: Entries[N][] = [];
+              for (let page = 1; ; page++) {
+                const res = await call<Schemas['DictionaryPage']>(
+                  session.api.GET('/dictionaries/{name}', {
+                    params: { path: { name }, query: { page, size: PAGE, sort: 'name,asc' } },
+                  }),
+                );
+                items.push(...(res.items as Entries[N][]));
+                if (items.length >= res.total || res.items.length === 0) break;
+              }
+              return items;
+            },
+          }
+        : null,
     { freshMs: FOREVER },
   );
 }

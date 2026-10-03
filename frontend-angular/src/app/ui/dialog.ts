@@ -82,8 +82,28 @@ export class DialogComponent implements OnChanges, OnDestroy {
     queueMicrotask(() => this.sync());
   }
 
+  /** A dialog rendered only while open (`@if (x) { <dialog [open]="true"> }`) is removed by its close — Esc, the
+   * cross, a success — without its native `close` reaching us: it still gives the focus back to its opener if it held
+   * it (FM21/FM25, polish P1 — the React Dialog's removal), closing first so the opener is no longer behind the modal.
+   * A focus the screen already moved elsewhere stays there. */
   ngOnDestroy(): void {
-    if (this.el.open) this.el.close();
+    if (this.el.open) this.closeAndReturn();
+  }
+
+  /** Closes, and gives the focus back to the opener if the dialog held it (FM21) — at once, not on the native `close`
+   * event, so the app-wide focus rescue never sees a lost focus in between (a body swapped or removed while closing).
+   * A focus the screen already moved out of the dialog stays where it is. */
+  private closeAndReturn(): void {
+    const dialog = this.el;
+    const back = this.opener;
+    this.opener = null;
+    const active = document.activeElement;
+    const held =
+      active === null || active === document.body || !active.isConnected || dialog.contains(active);
+    dialog.close();
+    if (held) {
+      if (back?.isConnected) back.focus();
+    } else if (active instanceof HTMLElement && document.activeElement !== active) active.focus();
   }
 
   private sync(): void {
@@ -103,7 +123,7 @@ export class DialogComponent implements OnChanges, OnDestroy {
         this.focusTitle();
       }
     } else if (!this.open() && dialog.open) {
-      dialog.close();
+      this.closeAndReturn();
     }
   }
 

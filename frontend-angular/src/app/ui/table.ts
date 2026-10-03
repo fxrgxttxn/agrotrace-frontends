@@ -37,6 +37,9 @@ export interface TableSelection<T> {
   allLabel: string;
   /** `aria-label` of a row box, e.g. «Выбрать AT-2026-000123». */
   rowLabel: (row: T) => string;
+  /** Id of the error of the choice (nothing picked, README «Таблица»): every row box is `aria-invalid` and described
+   * by it, so the first box takes the focus of a failed submit. */
+  errorId?: string | null;
 }
 
 export interface CellContext<T> {
@@ -124,6 +127,8 @@ export class RowActionsDirective<T = unknown> {
                 class="at-check"
                 [checked]="isSelected(row)"
                 [ariaLabel]="sel.rowLabel(row)"
+                [invalid]="!!sel.errorId"
+                [describedBy]="sel.errorId"
                 (toggled)="toggle(row)"
               ></label>
             </td>

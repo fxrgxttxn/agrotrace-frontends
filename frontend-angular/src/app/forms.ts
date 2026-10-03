@@ -97,6 +97,53 @@ export function formAlert(): {
   };
 }
 
+/** The message of a failure inside a modal dialog (README «Диалог», polish P1 — the React app's `useDialogAlert`). */
+export interface DialogAlert {
+  /** The failure said in the dialog (`role="alert"` in its body), null — none. */
+  readonly message: Signal<string | null>;
+  show: (text: string, tone?: 'danger' | 'attention') => void;
+  /** The message of a failed request, unless it is one nobody should be told of (FM29). */
+  error: (e: unknown, text?: string) => void;
+  /** A new attempt or a success: the failure no longer applies. */
+  clear: () => void;
+  /** The dialog closes (Отмена, the cross, Esc, or the screen closes it): a failure that still applies goes to the
+   * page as a toast. */
+  handOff: () => void;
+}
+
+/** README «Диалог» (polish P1): a failure inside an open modal dialog is said once — in the dialog's `role="alert"`,
+ * never at the same time as a page toast (the toast region is behind the modal, and both would be announced). When
+ * the dialog closes while the failure still applies (no retry or success cleared it), the page gets it as a toast.
+ * Must be created in an injection context. */
+export function dialogAlert(): DialogAlert {
+  const toasts = inject(ToastService);
+  const alive = injectAlive();
+  const message = signal<string | null>(null);
+  let current: { text: string; tone: 'danger' | 'attention' } | null = null;
+  const show = (text: string, tone: 'danger' | 'attention' = 'danger') => {
+    current = { text, tone };
+    message.set(text);
+  };
+  const clear = () => {
+    current = null;
+    message.set(null);
+  };
+  return {
+    message: message.asReadonly(),
+    show,
+    error: (e, text) => {
+      if (!quietFailure(e)) show(text ?? errorText(e), errorTone(e));
+    },
+    clear,
+    handOff: () => {
+      const failure = current;
+      clear();
+      // FM26: a failure of a screen that is gone is not shown.
+      if (failure && alive()) toasts.push(failure);
+    },
+  };
+}
+
 /** FM29: failures nobody is told of — a cancelled request (AbortError / CancelledError), and a 401 of a signed-in
  * request that the auth flow handles itself (the session-lost message and the login). A 401 answer of the login /
  * 2FA screens (INVALID_CREDENTIALS, INVALID_TWO_FACTOR_CODE, …) is an answer and is shown. */
@@ -115,7 +162,7 @@ export function errorTone(e: unknown): 'danger' | 'attention' {
 }
 
 /** Focuses the first invalid control of `root` (form order) once the view shows the errors. */
-function focusFirstInvalid(root: HTMLElement | null, injector: Injector): void {
+export function focusFirstInvalid(root: HTMLElement | null, injector: Injector): void {
   if (!root) return;
   afterNextRender(() => root.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(), { injector });
 }
@@ -137,6 +184,9 @@ export interface SchemaFormOptions<V> {
   toWire?: (values: V) => unknown;
   /** Server error paths onto form fields (`geometry.coordinates[0]` → `geometry`). */
   alias?: (path: string) => string;
+  /** A form inside a modal dialog (README «Диалог»): the form-level message is said only in the dialog (`message`);
+   * `handOff()` on close gives a message that still applies to the page as a toast. */
+  dialog?: boolean;
 }
 
 /** A form on a shared schema: the Reactive Forms group (validated by {@link zodValidator}), the error texts the
@@ -148,22 +198,30 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
   /** Seconds left of a 429 wait (0 — free). */
   readonly wait: Signal<number>;
   private readonly toastAlert = formAlert();
-  /** The form-level message is also kept as `message`: a form inside a modal dialog says it in its body (README
-   * «Диалог»: the page's toast region is behind the modal). */
-  readonly message = signal<string | null>(null);
+  private readonly dialogAlert = dialogAlert();
+  private inDialog: boolean;
+  /** The form-level message of a form inside a modal dialog (`dialog: true`), said in its body only (README «Диалог»:
+   * the page's toast region is behind the modal); null for a form on the page (its message is a toast). */
+  readonly message: Signal<string | null> = this.dialogAlert.message;
   readonly alert = {
     show: (text: string, tone?: 'danger' | 'attention') => {
-      this.message.set(text);
-      this.toastAlert.show(text, tone);
+      if (this.inDialog) this.dialogAlert.show(text, tone);
+      else this.toastAlert.show(text, tone);
     },
     error: (e: unknown, text?: string) => {
       if (!quietFailure(e)) this.alert.show(text ?? errorText(e), errorTone(e));
     },
     clear: () => {
-      this.message.set(null);
+      this.dialogAlert.clear();
       this.toastAlert.clear();
     },
   };
+  /** The dialog of the form closes: a form message that still applies goes to the page as a toast. */
+  readonly handOff = (): void => this.dialogAlert.handOff();
+  /** A form whose place (a dialog or the page) is known only once its inputs are set. */
+  useDialog(on: boolean): void {
+    this.inDialog = on;
+  }
 
   private readonly submitted = signal(false);
   private readonly server = signal<Record<string, string>>({});
@@ -185,6 +243,7 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
   ) {
     this.toWire = options.toWire ?? ((v) => v);
     this.alias = options.alias;
+    this.inDialog = options.dialog ?? false;
     this.group = build(defaults) as FormGroup<Controls<V>>;
     this.group.addValidators(zodValidator(schema, this.toWire as (v: never) => unknown));
     this.group.updateValueAndValidity();
@@ -244,6 +303,11 @@ export class SchemaForm<V extends Record<string, unknown>, B = V> {
   fieldError(path: string, message: string | null): void {
     if (message === null) this.clearError(path);
     else this.server.update((s) => ({ ...s, [path]: message }));
+  }
+
+  /** A 429 outside `fail` (a failure said elsewhere — a dialog): the submit waits with its countdown. */
+  rateLimited(seconds: number): void {
+    this.startWait(seconds);
   }
 
   /** Removes the server / import error of a field. */

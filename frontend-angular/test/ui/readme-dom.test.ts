@@ -296,6 +296,15 @@ describe('README markup contract: data and feedback', () => {
     ).toBe(canonicalHtml(readmeBlock('Пагинация')));
   });
 
+  it('at-pagination without URLs (pages of a list inside a card: buttons, its own name)', () => {
+    expect(
+      dom(
+        `<nav class="at-pagination" [page]="2" [size]="200" [total]="450" [label]="'Страницы отклонённых строк'" (pageChange)="noop()"></nav>`,
+        { noop: () => undefined },
+      ),
+    ).toBe(canonicalHtml(readmeBlock('Пагинация', 1)));
+  });
+
   it('at-tabs', () => {
     expect(
       dom(

@@ -23,7 +23,7 @@ import { injectAlive, injectLive } from '../app/alive';
 import { call, countdown, errorText, retryAfterOf } from '../app/api';
 import { DateFilterComponent } from '../app/date-filter';
 import { focusLost } from '../app/focus';
-import { errorTone, FocusAfterWaitDirective, formAlert } from '../app/forms';
+import { dialogAlert, errorTone, FocusAfterWaitDirective, formAlert } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { CONCLUSION_TONE, LAB_STATUS_TONE } from '../app/lab-tests';
 import { injectListParams, isBadListQuery, listGap, type ListSpec } from '../app/list-state';
@@ -547,8 +547,11 @@ export class ResultsFormComponent extends LabView implements OnInit {
   readonly sending = signal(false);
   /** The values the FAIL confirmation was opened with. */
   readonly confirming = signal<Record<string, string> | null>(null);
+  /** The failure of a confirmation, said in its dialog only (README «Диалог»); closed with it still standing — by the
+   * person or by a re-read that no longer allows it — the page says it. */
+  private readonly failure = dialogAlert();
   /** The message of the dialog's last attempt. */
-  readonly message = signal<string | null>(null);
+  readonly message = this.failure.message;
   readonly code = signal('');
   protected readonly preview = computed(() => previewConclusion(this.norms(), this.f.values()));
   /** The confirmation stays only while its values still cover every current norm with a number and still conclude
@@ -573,7 +576,7 @@ export class ResultsFormComponent extends LabView implements OnInit {
     super();
     effect(
       () => {
-        if (this.confirming() && !this.covered()) untracked(() => this.close());
+        if (this.confirming() && !this.covered()) untracked(() => this.dismiss());
       },
       { allowSignalWrites: true },
     );
@@ -645,14 +648,20 @@ export class ResultsFormComponent extends LabView implements OnInit {
   close(): void {
     this.confirming.set(null);
     this.code.set('');
-    this.message.set(null);
+    this.failure.clear();
+  }
+
+  /** The dialog closes (Отмена, the cross, Esc, a re-read): a failure still standing goes to the page. */
+  dismiss(): void {
+    this.failure.handOff();
+    this.close();
   }
 
   protected submit(e: Event): void {
     void this.f.submit(e, async (v) => {
       // A FAIL starts a recall of the batch and its derived batches: confirmed with the batch code (spec §9.3).
       if (previewConclusion(this.norms(), v) === 'FAIL') {
-        this.message.set(null);
+        this.failure.clear();
         this.confirming.set({ ...v });
       } else await this.send(v);
     });
@@ -662,13 +671,14 @@ export class ResultsFormComponent extends LabView implements OnInit {
   async confirm(): Promise<void> {
     const values = this.confirming();
     if (!values || !this.covered()) return;
-    this.message.set(await this.send(values));
+    await this.send(values, true);
   }
 
-  /** Sends the values; a failure to show in the confirmation dialog is returned (it stays open). */
-  private async send(v: Record<string, string>): Promise<string | null> {
+  /** Sends the values; from the confirmation dialog (`inDialog`) a failure is said in it (it stays open). */
+  private async send(v: Record<string, string>, inDialog = false): Promise<void> {
     const problems = this.problems();
     problems.alert.clear();
+    this.failure.clear();
     this.sending.set(true);
     // The version of the card as it is now (a re-read after a conflict brings a new one).
     const test = this.atResults();
@@ -681,7 +691,7 @@ export class ResultsFormComponent extends LabView implements OnInit {
           body,
         }),
       );
-      if (generation !== this.session.generation) return null;
+      if (generation !== this.session.generation) return;
       this.close();
       this.done.emit(next);
       this.toasts.push({
@@ -691,9 +701,8 @@ export class ResultsFormComponent extends LabView implements OnInit {
             ? t('lab.submittedRecall', { code: next.batch.publicCode })
             : t('lab.submitted', { conclusion: enumLabel(t, 'LabConclusion', next.conclusion ?? 'PASS') }),
       });
-      return null;
     } catch (e) {
-      if (!this.live(generation)) return null;
+      if (!this.live(generation)) return;
       if (e instanceof ApiProblem && e.code === 'VALIDATION' && !isNormsMismatch(e)) {
         this.close();
         const norms = this.norms();
@@ -708,10 +717,15 @@ export class ResultsFormComponent extends LabView implements OnInit {
           (text, tone) => problems.alert.show(text, tone),
         );
         afterNextRender(() => this.f.focusFirstInvalid(), { injector: this.injector });
-        return null;
+        return;
       }
       if (e instanceof ApiProblem && e.status === 429) this.f.rateLimited(retryAfterOf(e));
-      return problems.fail(e).text;
+      if (!inDialog) {
+        problems.fail(e);
+        return;
+      }
+      const p = problems.describe(e);
+      this.failure.show(p.text, p.tone);
     } finally {
       this.sending.set(false);
     }
@@ -847,7 +861,7 @@ const unsupportedText = () => t('files.unsupported', { allowed: 'PDF' });
                     class="at-dialog"
                     [open]="rf.confirming() !== null"
                     [dialogTitle]="t('lab.failTitle', { code: query.data()!.batch.publicCode })"
-                    (closed)="rf.close()"
+                    (closed)="rf.dismiss()"
                   >
                     <div style="${STACK}">
                       @if (rf.message()) {
@@ -864,7 +878,7 @@ const unsupportedText = () => t('files.unsupported', { allowed: 'PDF' });
                       </div>
                     </div>
                     <div class="at-dialog__actions">
-                      <button class="at-button" [variant]="'ghost'" (click)="rf.close()">
+                      <button class="at-button" [variant]="'ghost'" (click)="rf.dismiss()">
                         {{ t('action.cancel') }}
                       </button>
                       <button

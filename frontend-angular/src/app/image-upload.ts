@@ -13,14 +13,14 @@ import { formatBytes } from '@agrotrace/i18n';
 import { injectAlive } from './alive';
 import { tooLargeText, typesText } from './admin';
 import { countdown, errorText, retryAfterOf } from './api';
-import { errorTone, FocusAfterWaitDirective, formAlert } from './forms';
+import { errorTone, FocusAfterWaitDirective, formAlert, type DialogAlert } from './forms';
 import { LOCALE, t } from './i18n';
 import { ButtonComponent, FileFieldComponent, type FileItem } from './ui';
 
 // One image to upload (a product photo, an organization logo), the React app's ImageUpload.tsx: picked or dropped
 // into an `at-file`, checked against the contract's types and size before sending (the server checks the signature
-// again: 415 / 413), previewed, sent with «Загрузить». A failure is said on the file (and as the screen's message); a
-// 429 waits on the button.
+// again: 415 / 413), previewed, sent with «Загрузить». A failure is said on the file (and as the screen's message — inside
+// a dialog, the dialog's own, README «Диалог»); a 429 waits on the button.
 
 interface Picked {
   file: File;
@@ -73,8 +73,15 @@ export class ImageUploadComponent {
   /** Sends the file; rejects with the API problem. */
   readonly upload = input.required<(file: File) => Promise<void>>();
   readonly done = output<void>();
+  /** Inside a dialog: its message (said in the dialog, not as a toast behind it). */
+  readonly dialogAlert = input<DialogAlert | undefined>(undefined);
 
-  private readonly alert = formAlert();
+  private readonly formAlert = formAlert();
+  private readonly alert = {
+    show: (text: string, tone?: 'danger' | 'attention') =>
+      (this.dialogAlert() ?? this.formAlert).show(text, tone),
+    clear: () => (this.dialogAlert() ?? this.formAlert).clear(),
+  };
   private readonly alive = injectAlive();
   protected readonly picked = signal<Picked | null>(null);
   protected readonly busy = signal(false);
@@ -145,7 +152,9 @@ export class ImageUploadComponent {
         error = t(e.errors['file'][0]);
       if (e instanceof ApiProblem && e.status === 429) this.wait.start(retryAfterOf(e));
       if (error) this.picked.update((p) => (p ? { ...p, error } : p));
-      this.alert.show(error ?? errorText(e), error ? 'danger' : errorTone(e));
+      // In a dialog a refused file is said on the file only (its `role="alert"` error).
+      if (!(this.dialogAlert() && error))
+        this.alert.show(error ?? errorText(e), error ? 'danger' : errorTone(e));
     } finally {
       if (this.alive()) this.busy.set(false);
     }

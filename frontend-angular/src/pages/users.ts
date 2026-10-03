@@ -17,7 +17,7 @@ import type { Role } from '../app/access';
 import { IMAGE_TYPES, ROLE_OF_TYPE, USER_TONE } from '../app/admin';
 import { injectAlive, injectLive } from '../app/alive';
 import { call, errorText } from '../app/api';
-import { errorTone, FocusAfterWaitDirective, formAlert, SchemaForm, wireSchema } from '../app/forms';
+import { dialogAlert, errorTone, FocusAfterWaitDirective, SchemaForm, wireSchema } from '../app/forms';
 import { t } from '../app/i18n';
 import { ImageUploadComponent } from '../app/image-upload';
 import { injectListParams, isBadListQuery, listGap, type ListSpec } from '../app/list-state';
@@ -149,7 +149,9 @@ export class InviteFormComponent {
     })),
     { email: '', fullName: '', organizationId: '', isOrgAdmin: false },
     ['email', 'fullName', 'organizationId', 'isOrgAdmin'],
+    { dialog: true },
   );
+  private readonly toasts = inject(ToastService);
 
   protected submit(e: Event): void {
     void this.f.submit(e, async (body) => {
@@ -157,8 +159,9 @@ export class InviteFormComponent {
       try {
         const user = await call<User>(this.session.api.POST('/users', { body }));
         if (generation !== this.session.generation) return;
-        // FM26: session-bound, not screen-bound (the dialog may be gone)
+        // FM26: session-bound, not screen-bound (the dialog may be gone); FM29: the success is said all the same
         this.cache.invalidate(KEY);
+        this.toasts.push({ tone: 'ok', text: t('users.invited', { email: user.email }) });
         this.done.emit(user);
       } catch (err) {
         if (this.live(generation)) this.f.fail(err);
@@ -191,7 +194,6 @@ const TEMPLATE = `<div class="at-page__header" [pageTitle]="admin ? t('page.user
                   [types]="logoTypes"
                   [maxBytes]="logoMax"
                   [upload]="uploadLogo"
-                  (done)="logoSaved()"
                 ></div>
               </div>
             </div>
@@ -311,10 +313,10 @@ const TEMPLATE = `<div class="at-page__header" [pageTitle]="admin ? t('page.user
       </div>
     </div>
     @if (inviting()) {
-      <dialog class="at-dialog" [open]="true" [dialogTitle]="t('users.inviteTitle')" (closed)="inviting.set(false)">
-        <form #inv="atInvite" [atInvite]="admin" (done)="invited($event)"></form>
+      <dialog class="at-dialog" [open]="true" [dialogTitle]="t('users.inviteTitle')" (closed)="closeInvite(inv)">
+        <form #inv="atInvite" [atInvite]="admin" (done)="invited()"></form>
         <div class="at-dialog__actions">
-          <button class="at-button" [variant]="'ghost'" (click)="inviting.set(false)">{{ t('action.cancel') }}</button>
+          <button class="at-button" [variant]="'ghost'" (click)="closeInvite(inv)">{{ t('action.cancel') }}</button>
           <button
             class="at-button"
             [type]="'submit'"
@@ -334,11 +336,11 @@ const TEMPLATE = `<div class="at-page__header" [pageTitle]="admin ? t('page.user
         class="at-dialog"
         [open]="true"
         [dialogTitle]="t('users.editTitle', { name: u.fullName })"
-        (closed)="editing.set(null)"
+        (closed)="closeEdit()"
       >
         <div style="${FORM_GRID}">
-          @if (editMessage()) {
-            <p class="at-field__error" role="alert" style="margin: 0">{{ editMessage() }}</p>
+          @if (editFailure.message()) {
+            <p class="at-field__error" role="alert" style="margin: 0">{{ editFailure.message() }}</p>
           }
           <label
             class="at-check"
@@ -367,7 +369,7 @@ const TEMPLATE = `<div class="at-page__header" [pageTitle]="admin ? t('page.user
           }
         </div>
         <div class="at-dialog__actions">
-          <button class="at-button" [variant]="'ghost'" (click)="editing.set(null)">{{ t('action.cancel') }}</button>
+          <button class="at-button" [variant]="'ghost'" (click)="closeEdit()">{{ t('action.cancel') }}</button>
           <button class="at-button" [variant]="'primary'" [busy]="editBusy()" (click)="saveEdit(u)">
             {{ t('action.save') }}
           </button>
@@ -401,7 +403,6 @@ abstract class UsersScreen {
   private readonly toasts = inject(ToastService);
   private readonly alive = injectAlive();
   private readonly live = injectLive();
-  private readonly editAlert = formAlert();
   protected readonly meId = computed(() => this.session.me()?.id);
   protected readonly org = computed(() => this.session.me()?.organization);
   protected readonly logo = computed(() => {
@@ -425,7 +426,8 @@ abstract class UsersScreen {
   protected readonly editHead = signal(false);
   protected readonly editStatus = signal<UserStatus>('ACTIVE');
   protected readonly editBusy = signal(false);
-  protected readonly editMessage = signal<string | null>(null);
+  /** The failure of the edit, said in its dialog (README «Диалог»). */
+  protected readonly editFailure = dialogAlert();
 
   constructor(admin: boolean) {
     this.admin = admin;
@@ -492,8 +494,8 @@ abstract class UsersScreen {
     if (this.alive()) void this.query.refetch();
   }
 
-  protected invited(u: User): void {
-    this.toasts.push({ tone: 'ok', text: t('users.invited', { email: u.email }) });
+  /** The form said the success (FM29: even with its dialog gone). */
+  protected invited(): void {
     if (!this.alive()) return;
     this.inviting.set(false);
     this.reread();
@@ -502,8 +504,19 @@ abstract class UsersScreen {
   protected openEdit(u: User): void {
     this.editHead.set(u.isOrgAdmin);
     this.editStatus.set(u.status);
-    this.editMessage.set(null);
+    this.editFailure.clear();
     this.editing.set(u);
+  }
+
+  /** Closed with a failure still standing: the page says it (README «Диалог»). */
+  protected closeInvite(form: InviteFormComponent): void {
+    form.f.handOff();
+    this.inviting.set(false);
+  }
+
+  protected closeEdit(): void {
+    this.editFailure.handOff();
+    this.editing.set(null);
   }
 
   protected async saveEdit(user: User): Promise<void> {
@@ -519,7 +532,7 @@ abstract class UsersScreen {
     }
     const generation = this.session.generation;
     this.editBusy.set(true);
-    this.editMessage.set(null);
+    this.editFailure.clear();
     try {
       const next = await call<User>(
         this.session.api.PATCH('/users/{id}', { params: { path: { id: user.id } }, body: body as never }),
@@ -545,11 +558,7 @@ abstract class UsersScreen {
         this.editing.set(null);
         this.reread();
         this.toasts.push({ tone: 'danger', text: stale });
-      } else {
-        const text = errorText(e);
-        this.editMessage.set(text);
-        this.editAlert.show(text, errorTone(e));
-      }
+      } else this.editFailure.show(errorText(e), errorTone(e));
     } finally {
       if (this.alive()) this.editBusy.set(false);
     }
@@ -565,13 +574,12 @@ abstract class UsersScreen {
     await call(
       this.session.api.PUT('/organizations/{id}/logo', { params: { path: { id } }, body: body as never }),
     );
+    if (generation !== this.session.generation) return;
+    // FM29: the success of this session is said even after the screen is gone
+    this.toasts.push({ tone: 'ok', text: t('users.logoSaved') });
     // the header shows the logo: re-read the person (session-bound)
     void this.session.reloadMe(generation);
   };
-
-  protected logoSaved(): void {
-    this.toasts.push({ tone: 'ok', text: t('users.logoSaved') });
-  }
 }
 
 /** `/admin/users` (ADMIN). */

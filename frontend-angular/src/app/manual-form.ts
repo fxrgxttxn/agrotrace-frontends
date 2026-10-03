@@ -69,9 +69,8 @@ export class ManualForm<V> {
     return !Object.keys(this.errors()).some(paths);
   }
 
-  /** Focuses the first invalid control of the form once the view shows the errors. */
-  focusFirstInvalid(): void {
-    const root = this.formEl;
+  /** Focuses the first invalid control of the form (or of `root`) once the view shows the errors. */
+  focusFirstInvalid(root: HTMLElement | null = this.formEl): void {
     if (!root) return;
     afterNextRender(() => root.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(), {
       injector: this.injector,

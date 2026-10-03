@@ -16,6 +16,7 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
       [attr.value]="value() ?? null"
       [attr.aria-label]="ariaLabel() ?? null"
       [attr.aria-invalid]="invalid() ? 'true' : null"
+      [attr.aria-describedby]="describedBy() ?? null"
       (change)="toggled.emit(box.checked)"
     />
     @if (label() !== undefined) {
@@ -31,6 +32,7 @@ export class CheckboxComponent {
   readonly value = input<string | undefined>(undefined);
   readonly ariaLabel = input<string | undefined>(undefined);
   readonly invalid = input(false);
+  readonly describedBy = input<string | null | undefined>(undefined);
   readonly toggled = output<boolean>();
 }
 

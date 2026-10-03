@@ -10,9 +10,16 @@ import {
   untracked,
 } from '@angular/core';
 import { type Schemas } from '@agrotrace/api-client';
-import { enumLabel, formatLocalDateTime } from '@agrotrace/i18n';
+import {
+  auditActionLabel,
+  auditFieldLabel,
+  auditValue,
+  enumLabel,
+  formatLocalDateTime,
+} from '@agrotrace/i18n';
 import { call } from '../app/api';
 import { DateFilterComponent } from '../app/date-filter';
+import { injectDictionary } from '../app/dictionaries';
 import { LOCALE, t } from '../app/i18n';
 import { injectListParams, isBadListQuery, listGap, type ListSpec } from '../app/list-state';
 import { injectQuery } from '../app/query';
@@ -23,8 +30,8 @@ import { areaLoading, listChanged, loadFailed } from './lists';
 // Audit log (FR-ADM-03, п. 8.8), ADMIN and INSPECTOR, read only — the Angular mirror of the React screen
 // (pages/audit.tsx). Every filter of the contract is in the URL: the action (exact `operationId`, the search field),
 // entity type and id, author, implementation (`backend`), the UTC date window. A row's author or record narrows the
-// log to it with one press; «Изменения» opens the diff — each changed field before and after (a created row has no
-// «before», secrets stay «***»).
+// log to it with one press; «Изменения» opens the diff — each changed field before and after by its label (a created
+// row has no «before», secrets stay «***», instants in the viewer's time).
 
 type Entry = Schemas['AuditEntry'];
 type EntityType = Schemas['AuditEntityType'];
@@ -66,14 +73,6 @@ const SPEC: ListSpec = {
 };
 
 const at = (iso: string) => formatLocalDateTime(iso, LOCALE);
-
-/** A value of the diff as the API wrote it: null — «—», texts as they are, the rest as JSON. */
-function shown(v: unknown): string {
-  if (v === null || v === undefined) return '—';
-  if (typeof v === 'string') return v;
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-  return JSON.stringify(v);
-}
 
 /** An id filter (an `at-field`): the URL changes on a whole UUID or when the text is cleared (not while typing). */
 @Component({
@@ -288,7 +287,7 @@ export class IdFilterComponent extends FieldContext {
         viewing()
           ? t('audit.diffTitle', {
               entity: label('AuditEntityType', viewing()!.entityType),
-              action: viewing()!.action,
+              action: actionLabel(viewing()!.action),
             })
           : ''
       "
@@ -319,13 +318,16 @@ export class IdFilterComponent extends FieldContext {
               [rowKey]="diffKey"
             >
               <ng-template [atColumn]="'field'" [header]="t('audit.field')" [primary]="true" let-r>
-                <span class="at-mono">{{ r.field }}</span>
+                <span class="at-table__primary"
+                  ><span>{{ fieldLabel(r.field) }}</span
+                  ><span class="at-table__sub at-mono">{{ r.field }}</span></span
+                >
               </ng-template>
               <ng-template [atColumn]="'before'" [header]="t('audit.before')" let-r>
-                <span style="${VALUE}">{{ shown(r.before) }}</span>
+                <span style="${VALUE}">{{ shown(r.before, r.field) }}</span>
               </ng-template>
               <ng-template [atColumn]="'after'" [header]="t('audit.after')" let-r>
-                <span style="${VALUE}">{{ shown(r.after) }}</span>
+                <span style="${VALUE}">{{ shown(r.after, r.field) }}</span>
               </ng-template>
             </div>
           } @else {
@@ -343,7 +345,6 @@ export class IdFilterComponent extends FieldContext {
 export class AuditPage {
   protected readonly t = t;
   protected readonly at = at;
-  protected readonly shown = shown;
   protected readonly size = SIZE;
   protected readonly entityTypes = ENTITY_TYPES;
   protected readonly backends = BACKENDS;
@@ -430,6 +431,38 @@ export class AuditPage {
   protected readonly badQuery = computed(() => isBadListQuery(this.query.error()));
 
   protected readonly viewing = signal<Entry | null>(null);
+  // Values in words (polish P1, P1b): instants in the viewer's time, dates, yes / no, the entity's statuses, decimals in
+  // the locale, and a referenced dictionary record by its name (the dictionary is read when the diff refers to it; a
+  // record it no longer lists stays an id).
+  private readonly has = (...fields: string[]) => {
+    const e = this.viewing();
+    return e !== null && fields.some((f) => f in e.diff);
+  };
+  private readonly products = injectDictionary('products', () => this.has('productId'));
+  private readonly indicators = injectDictionary('indicators', () => this.has('indicatorId'));
+  private readonly substances = injectDictionary('substances', () => this.has('substanceId'));
+  private readonly regions = injectDictionary('regions', () => this.has('regionId', 'regionCode'));
+  private readonly resolve = (field: string, value: string): string | undefined => {
+    const byId = (list: { id: string; name: string }[] | null | undefined) =>
+      list?.find((x) => x.id === value)?.name;
+    if (field === 'productId') return byId(this.products.data());
+    if (field === 'indicatorId') return byId(this.indicators.data());
+    if (field === 'substanceId') return byId(this.substances.data());
+    if (field === 'regionId') return byId(this.regions.data());
+    if (field === 'regionCode') return this.regions.data()?.find((r) => r.code === value)?.name;
+    return undefined;
+  };
+  protected readonly shown = (v: unknown, field: string): string => {
+    const e = this.viewing();
+    return auditValue(
+      t,
+      v,
+      LOCALE,
+      e ? { field, entityType: e.entityType, resolve: this.resolve } : undefined,
+    );
+  };
+  protected readonly fieldLabel = (field: string) => auditFieldLabel(t, field);
+  protected readonly actionLabel = (action: string) => auditActionLabel(t, action);
   protected readonly diffRows = computed(() => {
     const e = this.viewing();
     return e

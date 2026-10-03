@@ -282,6 +282,31 @@ class DialogHarness {
   readonly light = DialogHarness.light;
 }
 
+// FM21/FM25 (polish P1): a dialog rendered only while open (`@if (x) { <dialog [open]="true"> }`) is removed from the
+// page by its close — Esc, the cross, a success — and still hands the focus back to its opener (not the body or h1).
+@Component({
+  standalone: true,
+  imports: [...UI],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<button class="at-button" (click)="open.set(true)">Открыть</button>
+    <button type="button" #other>Другое</button>
+    @if (open()) {
+      <dialog class="at-dialog" [open]="true" [dialogTitle]="'Фото'" (closed)="open.set(false)">
+        <label for="file">Файл</label>
+        <input id="file" />
+        <button class="at-button" (click)="done(other)">Готово</button>
+      </dialog>
+    }`,
+})
+class MountedDialogHarness {
+  static elsewhere = false;
+  readonly open = signal(false);
+  done(other: HTMLElement): void {
+    if (MountedDialogHarness.elsewhere) other.focus();
+    this.open.set(false);
+  }
+}
+
 describe('at-dialog', () => {
   it('focuses the first field of the body, Esc closes, focus returns to the opener', async () => {
     DialogHarness.light = false;
@@ -325,6 +350,33 @@ describe('at-dialog', () => {
     await waitFor(() =>
       expect((f.nativeElement as HTMLElement).querySelector('dialog')).not.toHaveAttribute('open'),
     );
+  });
+
+  it('a dialog removed by Esc or by its action returns the focus to the opener', async () => {
+    MountedDialogHarness.elsewhere = false;
+    mount(MountedDialogHarness);
+    const opener = screen.getByRole('button', { name: 'Открыть' });
+    await userEvent.click(opener);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Файл')));
+    fireEvent(document.querySelector('dialog')!, new Event('cancel', { cancelable: true }));
+    await waitFor(() => expect(document.querySelector('dialog')).toBeNull());
+    expect(document.activeElement).toBe(opener);
+    await userEvent.click(opener);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Файл')));
+    await userEvent.click(screen.getByRole('button', { name: 'Готово' }));
+    await waitFor(() => expect(document.querySelector('dialog')).toBeNull());
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('a removed dialog leaves alone a focus its screen already moved out of it', async () => {
+    MountedDialogHarness.elsewhere = true;
+    mount(MountedDialogHarness);
+    await userEvent.click(screen.getByRole('button', { name: 'Открыть' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Файл')));
+    await userEvent.click(screen.getByRole('button', { name: 'Готово' }));
+    await waitFor(() => expect(document.querySelector('dialog')).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Другое' }));
+    MountedDialogHarness.elsewhere = false;
   });
 });
 

@@ -22,7 +22,7 @@ import { injectAlive, injectLive } from '../app/alive';
 import { call, countdown, errorText, retryAfterOf } from '../app/api';
 import { DateFilterComponent } from '../app/date-filter';
 import { actionOrigin, focusLost, restoreFocus } from '../app/focus';
-import { errorTone, FocusAfterWaitDirective, formAlert, normalizeDecimal } from '../app/forms';
+import { dialogAlert, errorTone, FocusAfterWaitDirective, formAlert, normalizeDecimal } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { idempotency } from '../app/idempotency';
 import { injectListParams, isBadListQuery, listGap, type ListSpec } from '../app/list-state';
@@ -498,6 +498,7 @@ export class WaybillNewFormComponent implements OnInit {
     selected: new Set(this.f.values().picked),
     allLabel: t('waybills.pickAll'),
     rowLabel: (b: BatchItem) => t('waybills.pick', { code: b.publicCode }),
+    errorId: this.f.errorOf('picked') ? 'waybill-items-error' : null,
   }));
 
   ngOnInit(): void {
@@ -1014,7 +1015,7 @@ export class AcceptFormComponent implements OnInit {
           [dialogTitle]="t('waybills.deleteTitle', { number: w.number })"
           (closed)="dialog.set(null)"
         >
-          ${dialogMessage('deleteMessage()')}
+          ${dialogMessage('deleteFailure.message()')}
           <div class="at-dialog__actions">
             <button class="at-button" [variant]="'ghost'" (click)="dialog.set(null)">
               {{ t('action.cancel') }}
@@ -1042,7 +1043,7 @@ export class AcceptFormComponent implements OnInit {
           (closed)="dialog.set(null)"
         >
           <div style="${FORM_GRID}">
-            ${dialogMessage('rejectMessage()')}
+            ${dialogMessage('rejectFailure.message()')}
             <div
               class="at-field"
               [fieldId]="'reject-reason'"
@@ -1148,10 +1149,12 @@ export class WaybillPage {
   protected readonly sendWait = countdown();
   protected readonly deleting = signal(false);
   protected readonly deleteWait = countdown();
-  protected readonly deleteMessage = signal<string | null>(null);
+  /** Failures of the dialogs, said in them only; any close with the failure still standing (the person, or a re-read
+   * that no longer allows the action) hands it to the page (README «Диалог»). */
+  protected readonly deleteFailure = dialogAlert();
   protected readonly rejecting = signal(false);
   protected readonly rejectWait = countdown();
-  protected readonly rejectMessage = signal<string | null>(null);
+  protected readonly rejectFailure = dialogAlert();
   protected readonly reason = signal('');
   protected readonly reasonError = signal<string | null>(null);
   protected readonly number = signal('');
@@ -1172,14 +1175,14 @@ export class WaybillPage {
             this.reason.set('');
             this.number.set('');
             this.reasonError.set(null);
-            this.rejectMessage.set(null);
+            this.rejectFailure.handOff();
           }
-          if (open !== 'delete') this.deleteMessage.set(null);
+          if (open !== 'delete') this.deleteFailure.handOff();
         });
       },
       { allowSignalWrites: true },
     );
-    // A dialog whose action the re-read card no longer allows closes (its message stays on the page).
+    // A dialog whose action the re-read card no longer allows closes (its message goes to the page).
     effect(
       () => {
         const open = this.dialog();
@@ -1252,6 +1255,7 @@ export class WaybillPage {
   protected async remove(w: Waybill): Promise<void> {
     const generation = this.session.generation;
     this.deleting.set(true);
+    this.deleteFailure.clear();
     try {
       await call(
         this.session.api.DELETE('/waybills/{id}', {
@@ -1261,7 +1265,8 @@ export class WaybillPage {
     } catch (e) {
       if (this.live(generation)) {
         if (e instanceof ApiProblem && e.status === 429) this.deleteWait.start(retryAfterOf(e));
-        this.deleteMessage.set(this.problems.fail(e).text);
+        const p = this.problems.describe(e);
+        this.deleteFailure.show(p.text, p.tone);
       }
       this.deleting.set(false);
       return;
@@ -1292,7 +1297,7 @@ export class WaybillPage {
     const generation = this.session.generation;
     const write = this.query.writer();
     this.rejecting.set(true);
-    this.rejectMessage.set(null);
+    this.rejectFailure.clear();
     let next: Waybill;
     try {
       next = await call<Waybill>(
@@ -1308,7 +1313,8 @@ export class WaybillPage {
         if (key) this.reasonError.set(t(key));
         else {
           if (e instanceof ApiProblem && e.status === 429) this.rejectWait.start(retryAfterOf(e));
-          this.rejectMessage.set(this.problems.fail(e).text);
+          const p = this.problems.describe(e);
+          this.rejectFailure.show(p.text, p.tone);
         }
       }
       this.rejecting.set(false);

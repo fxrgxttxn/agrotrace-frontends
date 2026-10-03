@@ -24,7 +24,7 @@ import { call } from '../app/api';
 import { addDays } from '../app/dates';
 import { injectDictionary } from '../app/dictionaries';
 import { focusLost, gone } from '../app/focus';
-import { FocusAfterWaitDirective, formAlert, normalizeDecimal, SchemaForm, wireSchema } from '../app/forms';
+import { dialogAlert, FocusAfterWaitDirective, normalizeDecimal, SchemaForm, wireSchema } from '../app/forms';
 import { GEOJSON_MAX_BYTES, parseGeometry, prettyGeometry, readText } from '../app/geometry';
 import { LOCALE, t } from '../app/i18n';
 import { injectListParams, isBadListQuery, listGap, type ListSpec } from '../app/list-state';
@@ -354,7 +354,10 @@ function valuesOf(f?: FieldT): FieldValues {
   exportAs: 'atFieldForm',
   imports: IMPORTS,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<div
+  template: `@if (f.message()) {
+      <p class="at-field__error" role="alert" style="margin: 0">{{ f.message() }}</p>
+    }
+    <div
       class="at-field"
       [fieldId]="atFieldForm() + '-name'"
       [label]="t('field.name')"
@@ -428,6 +431,9 @@ export class FieldFormComponent implements OnInit {
   readonly regions = input.required<Schemas['RegionEntry'][]>();
   /** Saved (emitted only for the session the request was made in). */
   readonly saved = output<FieldT>();
+  /** The body of a dialog (README «Диалог»): a failure is said in the dialog, and handed to the page if the dialog
+   * closes while it still applies (`f.handOff()`). */
+  readonly inDialog = input(false);
 
   private readonly session = inject(SessionService);
   private readonly live = injectLive();
@@ -438,6 +444,7 @@ export class FieldFormComponent implements OnInit {
   protected readonly fileError = signal<string | null>(null);
 
   ngOnInit(): void {
+    this.f.useDialog(this.inDialog());
     this.f.reset(valuesOf(this.field()));
   }
 
@@ -576,7 +583,10 @@ function treatmentValues(tr?: Treatment): TreatmentValues {
   exportAs: 'atTreatmentForm',
   imports: IMPORTS,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<div
+  template: `@if (f.message()) {
+      <p class="at-field__error" role="alert" style="margin: 0">{{ f.message() }}</p>
+    }
+    <div
       class="at-field"
       [fieldId]="'treatment-substance'"
       [label]="t('field.substanceId')"
@@ -633,6 +643,7 @@ export class TreatmentFormComponent implements OnInit {
     treatmentSchema,
     treatmentValues(),
     TREATMENT_FIELDS,
+    { dialog: true },
   );
   /** A substance that left the dictionary still names the edited record. */
   protected readonly options = computed(() => {
@@ -820,6 +831,7 @@ export class TreatmentsComponent {
   private readonly alive = injectAlive();
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   private readonly addButton = viewChild('add', { read: ElementRef });
+  private readonly treatmentForm = viewChild(TreatmentFormComponent);
   /** Loaded before a dialog opens: the dialog is mounted with its choices (its opener gets the focus back). */
   protected readonly substances = injectDictionary('substances');
   protected readonly list = injectListParams(() => `/fields/${this.field().id}`, TREATMENTS_SPEC);
@@ -908,6 +920,8 @@ export class TreatmentsComponent {
   }
 
   protected close(): void {
+    // Closed with a form message still standing: the page says it (README «Диалог»).
+    this.treatmentForm()?.f.handOff();
     const cur = untracked(this.editing);
     if (cur) this.editing.set({ ...cur, open: false });
   }
@@ -984,17 +998,18 @@ export class TreatmentsComponent {
               class="at-dialog"
               [open]="dialog() === 'edit'"
               [dialogTitle]="t('fields.editTitle')"
-              (closed)="dialog.set(null)"
+              (closed)="closeEdit(ef)"
             >
               <form
                 [atFieldForm]="'field-edit'"
                 #ef="atFieldForm"
+                [inDialog]="true"
                 [field]="field"
                 [regions]="list"
                 (saved)="saved($event)"
               ></form>
               <div class="at-dialog__actions">
-                <button class="at-button" [variant]="'ghost'" (click)="dialog.set(null)">
+                <button class="at-button" [variant]="'ghost'" (click)="closeEdit(ef)">
                   {{ t('action.cancel') }}
                 </button>
                 ${outsideSubmit('ef', "'field-edit'", "t('action.save')")}
@@ -1007,11 +1022,16 @@ export class TreatmentsComponent {
         class="at-dialog"
         [open]="dialog() === 'delete'"
         [dialogTitle]="t('fields.deleteTitle')"
-        (closed)="dialog.set(null)"
+        (closed)="closeDelete()"
       >
-        <p>{{ t('fields.deleteText', { name: query.data()?.name ?? '' }) }}</p>
+        <div style="${FORM_GRID}">
+          @if (deleteFailure.message()) {
+            <p class="at-field__error" role="alert" style="margin: 0">{{ deleteFailure.message() }}</p>
+          }
+          <p style="margin: 0">{{ t('fields.deleteText', { name: query.data()?.name ?? '' }) }}</p>
+        </div>
         <div class="at-dialog__actions">
-          <button class="at-button" [variant]="'ghost'" (click)="dialog.set(null)">
+          <button class="at-button" [variant]="'ghost'" (click)="closeDelete()">
             {{ t('action.cancel') }}
           </button>
           <button class="at-button" [variant]="'danger'" [busy]="deleting()" (click)="remove()">
@@ -1029,7 +1049,8 @@ export class FieldPage {
   private readonly router = inject(Router);
   private readonly alive = injectAlive();
   private readonly live = injectLive();
-  private readonly alert = formAlert();
+  /** The delete failure is said in its dialog; closed with it still standing, the page says it (README «Диалог»). */
+  protected readonly deleteFailure = dialogAlert();
   private readonly params = toSignal(inject(ActivatedRoute).paramMap, { requireSync: true });
   private readonly id = computed(() => this.params().get('id') ?? '');
   protected readonly roles = computed(() => rolesOf(this.session.me()?.roles));
@@ -1087,6 +1108,16 @@ export class FieldPage {
     this.dialog.set('edit');
   }
 
+  protected closeEdit(form: FieldFormComponent): void {
+    form.f.handOff();
+    this.dialog.set(null);
+  }
+
+  protected closeDelete(): void {
+    this.deleteFailure.handOff();
+    this.dialog.set(null);
+  }
+
   protected saved(f: FieldT): void {
     this.cache.put(fieldKey(f.id), f, this.cache.generation);
     this.cache.invalidate(FIELDS_KEY);
@@ -1101,11 +1132,11 @@ export class FieldPage {
     if (!field) return;
     const generation = this.session.generation;
     this.deleting.set(true);
-    this.alert.clear();
+    this.deleteFailure.clear();
     try {
       await call(this.session.api.DELETE('/fields/{id}', { params: { path: { id: field.id } } }));
     } catch (e) {
-      if (this.live(generation)) this.alert.error(e);
+      if (this.live(generation)) this.deleteFailure.error(e);
       this.deleting.set(false);
       return;
     }

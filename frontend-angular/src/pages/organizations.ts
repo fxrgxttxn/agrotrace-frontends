@@ -18,7 +18,7 @@ import { APPLICATION, ORG_TONE, orgActions, orgTarget, type OrgAction } from '..
 import { injectAlive, injectLive } from '../app/alive';
 import { call, countdown, errorText, retryAfterOf } from '../app/api';
 import { injectDictionary } from '../app/dictionaries';
-import { errorTone, FocusAfterWaitDirective, SchemaForm, wireSchema } from '../app/forms';
+import { dialogAlert, errorTone, FocusAfterWaitDirective, SchemaForm, wireSchema } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { injectListParams, isBadListQuery, listGap, type ListSpec } from '../app/list-state';
 import { injectQuery, QueryCache } from '../app/query';
@@ -131,7 +131,9 @@ export class OrgFormComponent implements OnInit {
     ),
     { name: '', address: '', regionCode: '' },
     ['name', 'address', 'regionCode'],
+    { dialog: true },
   );
+  private readonly toasts = inject(ToastService);
 
   ngOnInit(): void {
     const o = this.atOrgForm();
@@ -172,12 +174,16 @@ export class OrgFormComponent implements OnInit {
           }),
         );
         if (generation !== this.session.generation) return;
-        // FM26: session-bound, not screen-bound (the dialog may be gone)
+        // FM26: session-bound, not screen-bound (the dialog may be gone); FM29: the success is said all the same
         this.cache.invalidate(KEY);
+        this.toasts.push({ tone: 'ok', text: t('orgs.saved', { name: next.name }) });
         this.saved.emit(next);
       } catch (e) {
+        const gone = e instanceof ApiProblem && e.status === 404;
+        // FM26 amendment: the organization is gone — the list is stale for this session, screen or not
+        if (gone && generation === this.session.generation) this.cache.invalidate(KEY);
         if (!this.live(generation)) return;
-        if (e instanceof ApiProblem && e.status === 404) this.gone.emit(e);
+        if (gone) this.gone.emit(e);
         else this.f.fail(e);
       }
     });
@@ -281,17 +287,12 @@ export class OrgFormComponent implements OnInit {
           >
             <span class="at-table__primary"
               ><span>{{ o.name }}</span
-              ><span class="at-table__sub">{{ t('orgs.inn', { inn: o.inn }) }}</span></span
+              ><span class="at-table__sub">{{ t('orgs.inn', { inn: o.inn }) }}</span
+              ><span class="at-table__sub">{{ typeRegion(o) }}</span></span
             >
           </ng-template>
           <ng-template [atColumn]="'status'" [header]="t('orgs.status')" [status]="true" let-o>
             <span class="at-chip" [tone]="tone(o.status)">{{ label('OrganizationStatus', o.status) }}</span>
-          </ng-template>
-          <ng-template [atColumn]="'type'" [header]="t('orgs.typeRegion')" let-o>
-            <span class="at-table__primary"
-              ><span>{{ label('OrganizationType', o.type) }}</span
-              ><span class="at-table__sub">{{ o.region.name }}</span></span
-            >
           </ng-template>
           <ng-template [atColumn]="'head'" [header]="t('orgs.head')" let-o>
             @if (o.head) {
@@ -352,16 +353,16 @@ export class OrgFormComponent implements OnInit {
           ? t('orgs.confirm.' + confirming()!.action + '.title', { name: confirming()!.org.name })
           : ''
       "
-      (closed)="confirming.set(null)"
+      (closed)="closeConfirm()"
     >
       <div style="${STACK}">
-        @if (message()) {
-          <p class="at-field__error" role="alert" style="margin: 0">{{ message() }}</p>
+        @if (failure.message()) {
+          <p class="at-field__error" role="alert" style="margin: 0">{{ failure.message() }}</p>
         }
         <p style="margin: 0">{{ confirming() ? t('orgs.confirm.' + confirming()!.action + '.text') : '' }}</p>
       </div>
       <div class="at-dialog__actions">
-        <button class="at-button" [variant]="'ghost'" (click)="confirming.set(null)">
+        <button class="at-button" [variant]="'ghost'" (click)="closeConfirm()">
           {{ t('action.cancel') }}
         </button>
         <button
@@ -387,18 +388,18 @@ export class OrgFormComponent implements OnInit {
         class="at-dialog"
         [open]="true"
         [dialogTitle]="t('orgs.editTitle', { name: o.name })"
-        (closed)="editing.set(null)"
+        (closed)="closeEdit(ef)"
       >
         <form
           #ef="atOrgForm"
           [atOrgForm]="o"
           [regions]="regions.data() ?? []"
-          (saved)="saved($event)"
+          (saved)="saved()"
           (gone)="gone($event, o)"
           (unchanged)="editing.set(null)"
         ></form>
         <div class="at-dialog__actions">
-          <button class="at-button" [variant]="'ghost'" (click)="editing.set(null)">
+          <button class="at-button" [variant]="'ghost'" (click)="closeEdit(ef)">
             {{ t('action.cancel') }}
           </button>
           <button
@@ -427,6 +428,8 @@ export class OrganizationsPage {
   protected readonly tone = (s: Status): Tone => ORG_TONE[s];
   protected readonly day = (iso: string) => formatLocalDate(iso, LOCALE);
   protected readonly rowKey = (o: Org) => o.id;
+  protected readonly typeRegion = (o: Org) =>
+    t('orgs.typeRegionOf', { type: enumLabel(t, 'OrganizationType', o.type), region: o.region.name });
   protected readonly actionsOf = (o: Org) => orgActions(o.status, o.type);
   protected readonly confirmed = (a: OrgAction) => CONFIRMED.includes(a);
   protected readonly sortOptions = [
@@ -510,7 +513,8 @@ export class OrganizationsPage {
   protected readonly busyId = signal<string | null>(null);
   protected readonly wait = countdown();
   protected readonly confirming = signal<{ org: Org; action: OrgAction } | null>(null);
-  protected readonly message = signal<string | null>(null);
+  /** A confirmed action fails inside its dialog: said there only (README «Диалог»). */
+  protected readonly failure = dialogAlert();
   protected readonly editing = signal<Org | null>(null);
 
   constructor() {
@@ -552,7 +556,7 @@ export class OrganizationsPage {
 
   protected press(o: Org, action: OrgAction): void {
     if (CONFIRMED.includes(action)) {
-      this.message.set(null);
+      this.failure.clear();
       this.confirming.set({ org: o, action });
     } else void this.act(o, action);
   }
@@ -565,7 +569,7 @@ export class OrganizationsPage {
   private async act(org: Org, action: OrgAction): Promise<void> {
     const generation = this.session.generation;
     this.busyId.set(org.id);
-    this.message.set(null);
+    this.failure.clear();
     try {
       const next =
         action === 'approve'
@@ -591,16 +595,28 @@ export class OrganizationsPage {
       if (!this.live(generation)) return;
       const text = this.describe(e, org);
       const stale = e instanceof ApiProblem && (e.code === 'INVALID_TRANSITION' || e.status === 404);
+      // A confirmed action fails inside its dialog: said there only (README «Диалог»); a stale row closes the dialog.
       if (stale) this.confirming.set(null);
-      else this.message.set(text);
-      this.toasts.push({ tone: errorTone(e), text });
+      if (CONFIRMED.includes(action) && !stale) this.failure.show(text, errorTone(e));
+      else this.toasts.push({ tone: errorTone(e), text });
     } finally {
       if (this.alive()) this.busyId.set(null);
     }
   }
 
-  protected saved(next: Org): void {
-    this.toasts.push({ tone: 'ok', text: t('orgs.saved', { name: next.name }) });
+  protected closeConfirm(): void {
+    this.failure.handOff();
+    this.confirming.set(null);
+  }
+
+  /** Closed with a form message still standing: the page says it (README «Диалог»). */
+  protected closeEdit(form: OrgFormComponent): void {
+    form.f.handOff();
+    this.editing.set(null);
+  }
+
+  /** The form said the success (FM29: even with its dialog gone). */
+  protected saved(): void {
     this.editing.set(null);
     this.reread();
   }

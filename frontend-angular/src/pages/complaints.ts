@@ -20,7 +20,7 @@ import { call, countdown, errorText, retryAfterOf } from '../app/api';
 import { CodeConfirm, codeConfirmDialog } from '../app/code-confirm';
 import { DateFilterComponent } from '../app/date-filter';
 import { focusLost } from '../app/focus';
-import { errorTone, FocusAfterWaitDirective, SchemaForm, wireSchema } from '../app/forms';
+import { dialogAlert, errorTone, FocusAfterWaitDirective, SchemaForm, wireSchema } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { injectListParams, isBadListQuery, listGap, type ListSpec } from '../app/list-state';
 import { OrgPickerComponent } from '../app/org-picker';
@@ -406,7 +406,7 @@ const decisionSchema = wireSchema<DecisionValues>(ComplaintDecisionSchema, toWir
       busy: 'busy()',
       wait: 'f.wait()',
       message: 'message()',
-      close: 'confirming.set(null)',
+      close: 'closeConfirm()',
       confirm: 'confirm()',
       text: `<p style="margin: 0">{{ t('complaints.confirmText') }}</p>`,
     })}`,
@@ -427,7 +427,9 @@ export class DecisionComponent extends ComplaintView {
   );
   protected readonly busy = signal(false);
   protected readonly confirming = signal<Schemas['ComplaintDecision'] | null>(null);
-  protected readonly message = signal<string | null>(null);
+  /** A recall decision fails inside its code dialog: said there only (README «Диалог»), other decisions on the page. */
+  private readonly failure = dialogAlert();
+  protected readonly message = this.failure.message;
   protected readonly code = computed(() => this.atDecision().batch.publicCode);
   protected readonly confirmCode = new CodeConfirm(() => this.confirming() !== null);
 
@@ -435,10 +437,16 @@ export class DecisionComponent extends ComplaintView {
     void this.f.submit(e, async (body) => {
       // A recall is irreversible: its own dialog with the batch code repeated (spec §9.3).
       if (body.decision === 'RECALL') {
-        this.message.set(null);
+        this.failure.clear();
         this.confirming.set(body);
       } else await this.send(body);
     });
+  }
+
+  /** Closed with a failure still standing: the page says it (README «Диалог»). */
+  protected closeConfirm(): void {
+    this.failure.handOff();
+    this.confirming.set(null);
   }
 
   protected confirm(): void {
@@ -450,8 +458,9 @@ export class DecisionComponent extends ComplaintView {
     const complaint = this.atDecision();
     const code = complaint.batch.publicCode;
     const generation = this.session.generation;
+    const inDialog = body.decision === 'RECALL';
     this.busy.set(true);
-    this.message.set(null);
+    this.failure.clear();
     this.f.alert.clear();
     try {
       const next = await call<Complaint>(
@@ -468,7 +477,7 @@ export class DecisionComponent extends ComplaintView {
         this.f.fail(e);
         return;
       }
-      if (e instanceof ApiProblem && e.status === 429) this.f.fail(e);
+      if (e instanceof ApiProblem && e.status === 429) this.f.rateLimited(retryAfterOf(e));
       const text = this.describe()(e);
       if (e instanceof ApiProblem && e.code === 'INVALID_TRANSITION') {
         // Decided meanwhile: the re-read card drops this form (and its form message with it) — the page says it.
@@ -476,8 +485,8 @@ export class DecisionComponent extends ComplaintView {
         this.toasts.push({ tone: 'danger', text });
         return;
       }
-      this.message.set(text);
-      this.f.alert.show(text, errorTone(e));
+      if (inDialog) this.failure.show(text, errorTone(e));
+      else this.f.alert.show(text, errorTone(e));
     } finally {
       this.busy.set(false);
     }

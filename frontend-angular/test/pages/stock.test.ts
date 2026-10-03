@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/angular';
+import { fireEvent, screen, waitFor, within } from '@testing-library/angular';
 import userEvent from '@testing-library/user-event';
 import { server } from '../setup';
 import { contractExample, contractResponse } from '../msw/fromContract';
@@ -191,7 +191,22 @@ describe('/processing/new', () => {
     await screen.findByRole('checkbox', { name: 'Выбрать AT-2026-000123' });
     await userEvent.click(screen.getByRole('button', { name: 'Далее' }));
     expect(await screen.findByText('Выберите хотя бы одну партию')).toBeInTheDocument();
+    // Polish P1b: the batch boxes carry the error and the first one takes the focus.
+    const box = screen.getByRole('checkbox', { name: 'Выбрать AT-2026-000123' });
+    await waitFor(() => expect(box).toHaveFocus());
+    expect(box).toHaveAttribute('aria-invalid', 'true');
+    expect(box).toHaveAccessibleDescription('Выберите хотя бы одну партию');
     expect(screen.queryByRole('heading', { name: 'Выходы' })).toBeNull();
+    // Polish P1: after «Далее» the step's fields are checked again on every change, like after a submit.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Выбрать AT-2026-000123' }));
+    await waitFor(() => expect(screen.queryByText('Выберите хотя бы одну партию')).toBeNull());
+    expect(screen.getByRole('checkbox', { name: 'Выбрать AT-2026-000123' })).not.toHaveAttribute(
+      'aria-invalid',
+    );
+    await userEvent.clear(screen.getByLabelText('Использовать из AT-2026-000123'));
+    expect(await screen.findByText('Обязательное поле')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Использовать из AT-2026-000123'), '100');
+    await waitFor(() => expect(screen.queryByText('Обязательное поле')).toBeNull());
   });
 
   it('a 400 on an input brings the person back to the inputs, the error under its row; 422 BR-05 as the rule', async () => {
@@ -279,6 +294,51 @@ describe('/qr', () => {
     );
     await open('/qr', 'Печать QR');
     await userEvent.click(await screen.findByRole('button', { name: 'Сформировать QR-код AT-2026-000123' }));
+    await waitFor(() => expect(toastText()).toContain('QR-код нельзя сформировать для партии в статусе'));
+  });
+
+  it('Esc right after the links replaced the loading state gives the focus back to «Скачать» (backlog A3+A4)', async () => {
+    server.use(
+      asRetailer(),
+      contractResponse('listBatches', {
+        body: pageOf([item({ status: 'OnSale', holder: MARKET, qrGeneratedAt: '2026-08-03T09:00:00Z' })]),
+      }),
+      contractResponse('getBatchDocuments', {
+        body: { ...(contractExample('getBatchDocuments').body as Record<string, unknown>), qr: QR },
+      }),
+    );
+    await open('/qr', 'Печать QR');
+    const opener = await screen.findByRole('button', { name: 'Скачать QR-код AT-2026-000123' });
+    await userEvent.click(opener);
+    const dialog = await screen.findByRole('dialog', { name: 'QR-код AT-2026-000123' });
+    await within(dialog).findByRole('link', { name: /PNG/ });
+    // the person had moved into the swapped-in links
+    within(dialog).getByRole('link', { name: /PNG/ }).focus();
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    await waitFor(() => expect(dialog).not.toHaveAttribute('open'));
+    await waitFor(() => expect(opener).toHaveFocus());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(opener).toHaveFocus();
+  });
+
+  it('«Сформировать заново» failing in the dialog is said there; closed, the page says it (README «Диалог»)', async () => {
+    server.use(
+      asRetailer(),
+      contractResponse('listBatches', {
+        body: pageOf([item({ status: 'OnSale', holder: MARKET, qrGeneratedAt: '2026-08-03T09:00:00Z' })]),
+      }),
+      contractResponse('getBatchDocuments', { status: 404 }),
+      contractResponse('createBatchQr', { status: 403, example: 'batchStatus' }),
+    );
+    await open('/qr', 'Печать QR');
+    await userEvent.click(await screen.findByRole('button', { name: 'Скачать QR-код AT-2026-000123' }));
+    const dialog = await screen.findByRole('dialog', { name: 'QR-код AT-2026-000123' });
+    await userEvent.click(await within(dialog).findByRole('button', { name: 'Сформировать заново' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'QR-код нельзя сформировать для партии в статусе',
+    );
+    expect(toastText()).toBe('');
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
     await waitFor(() => expect(toastText()).toContain('QR-код нельзя сформировать для партии в статусе'));
   });
 });

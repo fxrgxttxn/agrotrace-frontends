@@ -155,7 +155,8 @@ describe('/recall-tasks', () => {
     await userEvent.type(within(dialog).getByLabelText('Код партии для подтверждения'), 'AT-2026-000457');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Подтвердить изъятие' }));
     expect(await within(dialog).findByText(/Задача изменилась: список обновлён/)).toBeInTheDocument();
-    expect(toastText()).toContain('Задача изменилась');
+    // README «Диалог» (polish P1): said once — in the dialog, not also as a page toast behind it.
+    expect(toastText()).toBe('');
     // the typed code stays; the repeat carries the version of the re-read list
     expect(within(dialog).getByLabelText('Код партии для подтверждения')).toHaveValue('AT-2026-000457');
     // (repeated until the re-read list is there: Angular's waitFor takes no async callback)
@@ -444,6 +445,9 @@ describe('/recalls/new', () => {
     expect(screen.getByLabelText('Причина')).toHaveAccessibleDescription('Обязательное поле');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(calls).toBe(0);
+    // The first invalid field in the order of the form takes the focus — the batch, not the reason (polish P1).
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.getByRole('combobox', { name: 'Исходная партия' })).toHaveFocus();
   });
 
   it('the source batch is found by its code in the registry', async () => {

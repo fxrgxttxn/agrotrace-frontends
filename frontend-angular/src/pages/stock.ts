@@ -20,7 +20,7 @@ import { ProcessingRequestSchema } from '@agrotrace/validation';
 import { injectAlive, injectLive } from '../app/alive';
 import { call, errorText } from '../app/api';
 import { injectDictionary } from '../app/dictionaries';
-import { errorTone, FocusAfterWaitDirective, normalizeDecimal } from '../app/forms';
+import { dialogAlert, errorTone, FocusAfterWaitDirective, normalizeDecimal } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { injectListParams, isBadListQuery, listGap, type ListParams, type ListSpec } from '../app/list-state';
 import { ManualForm } from '../app/manual-form';
@@ -624,6 +624,7 @@ export class ProcessingWizardComponent implements OnInit {
     selected: new Set(this.f.values().picked),
     allLabel: t('processing.pickAll'),
     rowLabel: (b: BatchItem) => t('processing.pick', { code: b.publicCode }),
+    errorId: this.f.errorOf('picked') ? 'processing-inputs-error' : null,
   }));
   /** On wide screens every step is on the page; below 768 px one step per screen. */
   protected readonly shownSteps = computed(() => (this.wide() ? [0, 1, 2] : [this.step()]));
@@ -759,7 +760,10 @@ export class ProcessingWizardComponent implements OnInit {
 
   protected next(): void {
     const n = this.step();
+    // «Далее» checks the fields of the step like a submit (README «Поле формы»): the first invalid field takes the
+    // focus, and from then on those fields are checked again on every change.
     if (this.f.valid(n === 0 ? isInputPath : isOutputPath)) this.goTo(n + 1);
+    else this.f.focusFirstInvalid(this.host);
   }
 
   protected submit(e: Event): void {
@@ -952,9 +956,12 @@ const QR_SPEC: ListSpec = {
       [open]="shown() !== null"
       [lightDismiss]="true"
       [dialogTitle]="shown() ? t('qr.title', { code: shown()!.batch.publicCode }) : ''"
-      (closed)="shown.set(null)"
+      (closed)="closeQr()"
     >
       @if (shown(); as s) {
+        @if (qrFailure.message()) {
+          <p class="at-field__error" role="alert" style="margin: 0">{{ qrFailure.message() }}</p>
+        }
         @if (qrOf(s); as qr) {
           <div style="display: grid; gap: var(--sp-4); justify-items: start">
             <span
@@ -987,7 +994,11 @@ const QR_SPEC: ListSpec = {
       }
       @if (shown() && !shown()!.links) {
         <div class="at-dialog__actions">
-          <button class="at-button" [busy]="busy() === shown()!.batch.id" (click)="generate(shown()!.batch)">
+          <button
+            class="at-button"
+            [busy]="busy() === shown()!.batch.id"
+            (click)="generate(shown()!.batch, true)"
+          >
             {{ t('qr.regenerate') }}
           </button>
         </div>
@@ -1014,6 +1025,8 @@ export class QrPage {
   protected readonly own = injectOwnBatches('qr', this.statuses, QR_SPEC, '/qr');
   protected readonly busy = signal<string | null>(null);
   protected readonly shown = signal<{ batch: BatchItem; links: QrLinks | null } | null>(null);
+  /** «Сформировать заново» fails inside the QR dialog: said there (README «Диалог»). */
+  protected readonly qrFailure = dialogAlert();
   protected readonly search = computed(() => ({
     label: t('qr.search'),
     placeholder: t('qr.searchPlaceholder'),
@@ -1041,9 +1054,15 @@ export class QrPage {
   );
   protected readonly qrOf = (s: { links: QrLinks | null }) => s.links ?? this.docs.data()?.qr ?? null;
 
-  protected async generate(b: BatchItem): Promise<void> {
+  protected closeQr(): void {
+    this.qrFailure.handOff();
+    this.shown.set(null);
+  }
+
+  protected async generate(b: BatchItem, inDialog = false): Promise<void> {
     const generation = this.session.generation;
     this.busy.set(b.id);
+    this.qrFailure.clear();
     try {
       const links = await call<QrLinks>(
         this.session.api.POST('/batches/{id}/qr', { params: { path: { id: b.id } }, body: {} }),
@@ -1060,7 +1079,9 @@ export class QrPage {
         this.cache.invalidate(BATCHES_KEY);
         if (this.alive()) void this.own.query.refetch();
       }
-      if (this.live(generation)) this.toasts.push({ tone: errorTone(e), text: errorText(e) });
+      if (!this.live(generation)) return;
+      if (inDialog) this.qrFailure.show(errorText(e), errorTone(e));
+      else this.toasts.push({ tone: errorTone(e), text: errorText(e) });
     } finally {
       if (this.alive()) this.busy.set(null);
     }

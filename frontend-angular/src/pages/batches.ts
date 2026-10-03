@@ -32,7 +32,7 @@ import { injectDictionary } from '../app/dictionaries';
 import {
   errorTone,
   FocusAfterWaitDirective,
-  formAlert,
+  dialogAlert,
   normalizeDecimal,
   SchemaForm,
   wireSchema,
@@ -1117,11 +1117,11 @@ interface Fact {
           class="at-dialog"
           [open]="assigning()"
           [dialogTitle]="t('lab.assignTitle', { code: query.data()!.publicCode })"
-          (closed)="assigning.set(false)"
+          (closed)="closeAssign()"
         >
           <div style="display: grid; gap: var(--sp-4)">
-            @if (assignMessage()) {
-              <p class="at-field__error" role="alert" style="margin: 0">{{ assignMessage() }}</p>
+            @if (assignFailure.message()) {
+              <p class="at-field__error" role="alert" style="margin: 0">{{ assignFailure.message() }}</p>
             }
             <div
               class="at-field"
@@ -1134,7 +1134,7 @@ interface Fact {
             ></div>
           </div>
           <div class="at-dialog__actions">
-            <button class="at-button" [variant]="'ghost'" (click)="assigning.set(false)">
+            <button class="at-button" [variant]="'ghost'" (click)="closeAssign()">
               {{ t('action.cancel') }}
             </button>
             <button
@@ -1365,7 +1365,7 @@ export class BatchPage {
         untracked(() => {
           this.labOrgId.set('');
           this.labError.set(null);
-          this.assignMessage.set(null);
+          this.assignFailure.clear();
         });
       },
       { allowSignalWrites: true },
@@ -1388,10 +1388,15 @@ export class BatchPage {
   protected readonly assigning = signal(false);
   protected readonly labOrgId = signal('');
   protected readonly labError = signal<string | null>(null);
-  protected readonly assignMessage = signal<string | null>(null);
+  /** Said in the dialog only; the page gets it if the dialog closes while it still applies (README «Диалог»). */
+  protected readonly assignFailure = dialogAlert();
   protected readonly assignBusy = signal(false);
   protected readonly assignWait = countdown();
-  private readonly assignAlert = formAlert();
+
+  protected closeAssign(): void {
+    this.assignFailure.handOff();
+    this.assigning.set(false);
+  }
 
   protected async assign(b: Batch): Promise<void> {
     const labOrgId = this.labOrgId();
@@ -1401,8 +1406,7 @@ export class BatchPage {
     }
     const generation = this.session.generation;
     this.assignBusy.set(true);
-    this.assignMessage.set(null);
-    this.assignAlert.clear();
+    this.assignFailure.clear();
     try {
       const test = await call<Schemas['LabTest']>(
         this.session.api.POST('/lab-tests', { body: { batchId: b.id, labOrgId } }),
@@ -1421,9 +1425,8 @@ export class BatchPage {
       if (key) this.labError.set(t(key));
       else {
         if (e instanceof ApiProblem && e.status === 429) this.assignWait.start(retryAfterOf(e));
-        // Said in the dialog (the page toast region is behind the modal) and as the page message (README «Диалог»).
-        this.assignMessage.set(errorText(e));
-        this.assignAlert.show(errorText(e), errorTone(e));
+        // Said in the dialog only; the page gets it if the dialog closes while it still applies (README «Диалог»).
+        this.assignFailure.show(errorText(e), errorTone(e));
       }
     } finally {
       this.assignBusy.set(false);
