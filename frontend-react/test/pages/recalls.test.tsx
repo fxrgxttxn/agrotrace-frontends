@@ -438,6 +438,9 @@ describe('/recalls/new', () => {
     expect(screen.getByLabelText('Причина')).toHaveAccessibleDescription('Обязательное поле');
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(calls).toBe(0);
+    // The first invalid field in the order of the form takes the focus — the batch, not the reason (polish P1).
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.getByRole('combobox', { name: 'Исходная партия' })).toHaveFocus();
   });
 
   it('the source batch is found by its code in the registry', async () => {

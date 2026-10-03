@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
@@ -8,7 +8,7 @@ import { call, errorText, errorTone, retryAfterOf, useCountdown, useFormAlert } 
 import { useCacheWriter, useScreenNavigate, useScreenToast } from '../app/cache';
 import { CodeConfirmDialog } from '../app/CodeConfirm';
 import { DateFilter } from '../app/DateFilter';
-import { errorOf, FORM_GRID, Submit, useSchemaForm, wireSchema } from '../app/forms';
+import { errorOf, focusFirstInvalid, FORM_GRID, Submit, useSchemaForm, wireSchema } from '../app/forms';
 import { LOCALE, t } from '../app/i18n';
 import { useIdempotency } from '../app/idempotency';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
@@ -1037,7 +1037,10 @@ export function RecallNewPage() {
     newRecallSchema,
     { sourceBatchId: /^[0-9a-f-]{36}$/i.test(linked) ? linked : '', reason: '', blockUpstream: false },
     ['sourceBatchId', 'reason', 'blockUpstream'],
+    undefined,
+    false,
   );
+  const formRef = useRef<HTMLFormElement>(null);
   const [code, setCode] = useState('');
   const [linkPending, setLinkPending] = useState(false);
   const [confirming, setConfirming] = useState<NewRecall | null>(null);
@@ -1088,18 +1091,15 @@ export function RecallNewPage() {
       setMessage(null);
       setConfirming(v);
     },
-    (errors) => {
-      // The batch field is a combobox without a form ref: the first invalid field is focused by hand.
-      if (errors.sourceBatchId) document.getElementById('recall-batch')?.focus();
-      else if (errors.reason) form.setFocus('reason');
-    },
+    // The batch field is a combobox without a form ref: the first invalid field in the order of the form takes the focus.
+    () => focusFirstInvalid(formRef.current),
   );
 
   return (
     <Page title={t('page.recallNew')}>
       <Card>
         <CardBody>
-          <form noValidate onSubmit={(e) => void submit(e)} style={FORM_GRID}>
+          <form ref={formRef} noValidate onSubmit={(e) => void submit(e)} style={FORM_GRID}>
             <BatchPicker
               value={sourceBatchId}
               error={errorOf(form, 'sourceBatchId')}

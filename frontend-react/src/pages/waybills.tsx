@@ -17,7 +17,7 @@ import {
   useFormAlert,
 } from '../app/api';
 import { DateFilter } from '../app/DateFilter';
-import { errorOf, FORM_GRID, normalizeDecimal, Submit } from '../app/forms';
+import { errorOf, focusFirstInvalid, FORM_GRID, normalizeDecimal, Submit } from '../app/forms';
 import { useCacheWriter, useScreenNavigate, useScreenToast } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { useIdempotency } from '../app/idempotency';
@@ -467,6 +467,8 @@ function WaybillNewForm({ batches }: { batches: BatchItem[] }) {
       picked: byId.has(wanted) ? [wanted] : [],
       mass: Object.fromEntries(batches.map((b) => [b.id, massText(b.massKg)])),
     },
+    // The receiver (a picker without a form ref) comes first: the form focuses its first invalid field itself.
+    shouldFocusError: false,
   });
   const picked = form.watch('picked');
   const receiverOrgId = form.watch('receiverOrgId');
@@ -474,38 +476,42 @@ function WaybillNewForm({ batches }: { batches: BatchItem[] }) {
   const [wait, startWait] = useCountdown();
   const sentIds = useRef<string[]>([]);
 
-  const submit = form.handleSubmit(async (values) => {
-    const body = toBody(values) as Schemas['WaybillCreate'];
-    sentIds.current = body.items.map((i) => i.batchId);
-    alert.clear();
-    setBusy(true);
-    try {
-      const waybill = await idempotent(body, (key) =>
-        call<Waybill>(api.POST('/waybills', { params: { header: { 'Idempotency-Key': key } }, body })),
-      );
-      cache.set(['waybill', waybill.id], waybill);
-      void queryClient.invalidateQueries({ queryKey: ['waybills'] });
-      toast.done({ tone: 'ok', text: t('waybills.created', { number: waybill.number }) });
-      navigate(`/waybills/${waybill.id}`);
-    } catch (e) {
-      const ids = sentIds.current;
-      applyProblem(e, {
-        form,
-        fields: ['receiverOrgId', 'picked', ...ids.map((id) => `mass.${id}` as const)],
-        alert: alert.show,
-        onRateLimit: startWait,
-        // `items[1].batchId` / `items[1].massDeclaredKg` → the row of that batch; `items` → the choice itself.
-        alias: (path) => {
-          const m = /^items\[(\d+)\]\./.exec(path);
-          const id = m ? ids[Number(m[1])] : undefined;
-          if (id) return `mass.${id}`;
-          return path === 'items' ? 'picked' : path;
-        },
-      });
-    } finally {
-      setBusy(false);
-    }
-  });
+  const formRef = useRef<HTMLFormElement>(null);
+  const submit = form.handleSubmit(
+    async (values) => {
+      const body = toBody(values) as Schemas['WaybillCreate'];
+      sentIds.current = body.items.map((i) => i.batchId);
+      alert.clear();
+      setBusy(true);
+      try {
+        const waybill = await idempotent(body, (key) =>
+          call<Waybill>(api.POST('/waybills', { params: { header: { 'Idempotency-Key': key } }, body })),
+        );
+        cache.set(['waybill', waybill.id], waybill);
+        void queryClient.invalidateQueries({ queryKey: ['waybills'] });
+        toast.done({ tone: 'ok', text: t('waybills.created', { number: waybill.number }) });
+        navigate(`/waybills/${waybill.id}`);
+      } catch (e) {
+        const ids = sentIds.current;
+        applyProblem(e, {
+          form,
+          fields: ['receiverOrgId', 'picked', ...ids.map((id) => `mass.${id}` as const)],
+          alert: alert.show,
+          onRateLimit: startWait,
+          // `items[1].batchId` / `items[1].massDeclaredKg` → the row of that batch; `items` → the choice itself.
+          alias: (path) => {
+            const m = /^items\[(\d+)\]\./.exec(path);
+            const id = m ? ids[Number(m[1])] : undefined;
+            if (id) return `mass.${id}`;
+            return path === 'items' ? 'picked' : path;
+          },
+        });
+      } finally {
+        setBusy(false);
+      }
+    },
+    () => focusFirstInvalid(formRef.current),
+  );
 
   const pickedSet = new Set(picked);
   const columns: Column<BatchItem>[] = [
@@ -542,7 +548,7 @@ function WaybillNewForm({ batches }: { batches: BatchItem[] }) {
   const pickedError = errorOf(form, 'picked');
 
   return (
-    <form id="waybill-new" noValidate onSubmit={(e) => void submit(e)} style={GAP}>
+    <form id="waybill-new" ref={formRef} noValidate onSubmit={(e) => void submit(e)} style={GAP}>
       <Card style={{ maxWidth: '40rem' }}>
         <CardBody>
           <OrgPicker

@@ -44,10 +44,17 @@ export function useSchemaForm<F extends FieldValues>(
   defaultValues: F,
   fields: readonly Path<F>[],
   alias?: (path: string) => string,
+  /** `false`: the form focuses its first invalid field itself (`focusFirstInvalid`) — when a field without a form ref
+   * (a combobox, a picker) comes first, React Hook Form's own choice (the first registered field) would be wrong. */
+  shouldFocusError = true,
 ) {
   // The cast: @hookform/resolvers declares no zod peer, so its own `zod` types do not resolve to ours (runtime is
   // duck-typed: `schema.parseAsync`).
-  const form = useForm<F>({ resolver: zodResolver(schema as never), defaultValues: defaultValues as never });
+  const form = useForm<F>({
+    resolver: zodResolver(schema as never),
+    defaultValues: defaultValues as never,
+    shouldFocusError,
+  });
   const toastAlert = useFormAlert();
   // The form-level message is also kept as `message`: a form inside a modal dialog says it in its body (README
   // «Диалог»: the page's toast region is behind the modal).
@@ -112,4 +119,11 @@ export function wireSchema<F>(
     }
     return z.NEVER;
   });
+}
+
+/** The first invalid field in the order of the form takes the focus (README «Поле формы», the same in every frontend):
+ * once the errors are on the page, the first `[aria-invalid="true"]` inside `root` in document order — a combobox or a
+ * picker without a React Hook Form ref included. For forms with `shouldFocusError: false`. */
+export function focusFirstInvalid(root: ParentNode | null | undefined): void {
+  setTimeout(() => root?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(), 0);
 }

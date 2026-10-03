@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFieldArray, useForm, type FieldErrors, type Resolver } from 'react-hook-form';
@@ -8,7 +8,7 @@ import { enumLabel, formatDecimal, formatLocalDate, formatLocalDateTime, formatM
 import { ProcessingRequestSchema } from '@agrotrace/validation';
 import { applyProblem, call, errorText, errorTone, useCountdown, useFormAlert } from '../app/api';
 import { useDictionary } from '../app/dictionaries';
-import { errorOf, FORM_GRID, normalizeDecimal, Submit } from '../app/forms';
+import { errorOf, focusFirstInvalid, FORM_GRID, normalizeDecimal, Submit } from '../app/forms';
 import { useCacheWriter, useScreenNavigate, useScreenToast } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { isBadListQuery, listGap, useListParams, type ListSpec } from '../app/listState';
@@ -548,13 +548,29 @@ function ProcessingWizard({ batches, products }: { batches: BatchItem[]; product
     moved.current = true;
     setStep(n);
   };
+  // «Далее» checks the fields of the step being left like a submit (README «Поле формы»; Svelte's checkFields): the
+  // first invalid field takes the focus, and from then on those fields are checked again on every change (polish P1).
+  const formRef = useRef<HTMLFormElement>(null);
+  const checkedSteps = useRef(new Set<number>());
+  const stepNames = useCallback(
+    (n: number) => (n === 0 ? ['picked', ...batches.map((b) => `used.${b.id}`)] : ['outputs']) as never,
+    [batches],
+  );
   const next = async () => {
-    const names =
-      step === 0
-        ? (['picked', ...values.picked.map((id) => `used.${id}` as const)] as const)
-        : (['outputs'] as const);
-    if (await form.trigger(names as never)) goTo(step + 1);
+    if (await form.trigger(stepNames(step))) goTo(step + 1);
+    else {
+      checkedSteps.current.add(step);
+      focusFirstInvalid(formRef.current);
+    }
   };
+  useEffect(() => {
+    const sub = form.watch(() => {
+      // After a submit React Hook Form checks the changed fields itself.
+      if (form.formState.isSubmitted) return;
+      for (const n of checkedSteps.current) void form.trigger(stepNames(n));
+    });
+    return () => sub.unsubscribe();
+  }, [form, stepNames]);
 
   const sent = useRef<{ inputs: string[] }>({ inputs: [] });
   const submit = form.handleSubmit(
@@ -776,7 +792,7 @@ function ProcessingWizard({ batches, products }: { batches: BatchItem[]; product
   const current = wide ? (done[0] ? (done[1] ? 2 : 1) : 0) : step;
 
   return (
-    <form id="processing" noValidate onSubmit={(e) => void submit(e)} style={GAP}>
+    <form id="processing" ref={formRef} noValidate onSubmit={(e) => void submit(e)} style={GAP}>
       <Stepper
         label={t('processing.steps')}
         steps={STEPS.map((s) => t(`processing.step.${s}`))}

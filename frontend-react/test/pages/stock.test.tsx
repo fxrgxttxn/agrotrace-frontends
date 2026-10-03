@@ -192,6 +192,13 @@ describe('/processing/new', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Далее' }));
     expect(await screen.findByText('Выберите хотя бы одну партию')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Выходы' })).toBeNull();
+    // Polish P1: after «Далее» the step's fields are checked again on every change, like after a submit.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Выбрать AT-2026-000123' }));
+    await waitFor(() => expect(screen.queryByText('Выберите хотя бы одну партию')).toBeNull());
+    await userEvent.clear(screen.getByLabelText('Использовать из AT-2026-000123'));
+    expect(await screen.findByText('Обязательное поле')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Использовать из AT-2026-000123'), '100');
+    await waitFor(() => expect(screen.queryByText('Обязательное поле')).toBeNull());
   });
 
   it('a 400 on an input brings the person back to the inputs, the error under its row; 422 BR-05 as the rule', async () => {
