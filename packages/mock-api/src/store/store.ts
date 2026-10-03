@@ -60,6 +60,13 @@ export function auditDiff(
   return diff;
 }
 
+/** A permanent delete: every non-null field of the removed row → `[before, null]` (the mirror of a creation, P23). */
+export function auditRemoval(before: Record<string, unknown>): Record<string, [unknown, unknown]> {
+  const out: Record<string, [unknown, unknown]> = {};
+  for (const [k, v] of Object.entries(before)) if (v !== null && v !== undefined) out[k] = [v, null];
+  return out;
+}
+
 export const emptyTables = (): Tables => ({
   regions: [],
   files: [],

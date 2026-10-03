@@ -56,6 +56,25 @@ async function tour() {
   log('avatarUrl', upBody.url);
 }
 
+// #navigate: a product photo is requested while the server holds the seed asset the mock reads its bytes from, and the
+// page navigates away meanwhile — the mock's asset fetch is aborted with the document; nothing may be logged.
+async function navigateAway() {
+  const pub = await (await fetch('/api/v1/public/batches/AT-2026-000001')).json();
+  const login = await fetch('/api/v1/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'zarya.head@agrotrace.test', password: 'agrotrace-demo' }),
+  });
+  const { user } = await login.json();
+  await fetch('/__slow-assets');
+  const img = document.getElementById('photo') as HTMLImageElement;
+  img.src = pub.product.imageUrl;
+  void fetch(user.avatarUrl).catch(() => undefined);
+  await new Promise((r) => setTimeout(r, 400));
+  location.href = '/?after#idle';
+  await new Promise(() => undefined);
+}
+
 async function main() {
   await startBrowserMock({ delayMs: 0 });
   const step = location.hash.slice(1) || 'login';
@@ -63,6 +82,7 @@ async function main() {
   if (step === 'refresh') log('refresh', (await fetch('/api/v1/auth/refresh', { method: 'POST', credentials: 'include' })).status);
   if (step === 'logout') log('logout', (await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' })).status);
   if (step.startsWith('file=')) log('file', (await fetch(decodeURIComponent(step.slice(5)))).status);
+  if (step === 'navigate') await navigateAway();
   log('done', true);
 }
 main().catch((e) => log('error', String(e)));

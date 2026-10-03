@@ -7,8 +7,16 @@ import { extname, join } from 'node:path';
 const [, , dir, shots, playwrightPath] = process.argv;
 const { chromium } = await import(playwrightPath ?? 'playwright');
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.css': 'text/css' };
+// /__slow-assets: for the next 5 s the images the mock reads its seed bytes from are held 3 s (the #navigate step).
+let slowUntil = 0;
 const server = createServer(async (req, res) => {
   const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  if (path === '/__slow-assets') {
+    slowUntil = Date.now() + 5000;
+    res.writeHead(204);
+    return res.end();
+  }
+  if (extname(path) === '.webp' && Date.now() < slowUntil) await new Promise((r) => setTimeout(r, 3000));
   const file = path === '/' ? '/index.html' : path;
   try {
     const body = await readFile(join(dir, file));
@@ -73,8 +81,13 @@ const persisted = await rc.evaluate(async (token) => {
   return (await r.json()).items.map((x) => x.name).filter((n) => /^[ABC]\d$/.test(n)).length;
 }, token);
 const persistErrors = await Promise.all([ra, rb].map((p) => p.evaluate(() => String(globalThis.__agrotraceMock?.persistError ?? null))));
+
+// An image download in flight when the page navigates away: the mock's aborted asset fetch logs nothing.
+const nav = await open('navigate');
+await nav.waitForTimeout(3500);
+const navigatedAway = { url: new URL(nav.url()).search, errors: errors.filter((e) => e.startsWith('navigate')).length };
 const race = { statuses: [...sa, ...sb, ...sc].every((s) => s === 201) ? '30 x 201' : [...sa, ...sb, ...sc], persisted, expected: 30, persistErrors };
 
-console.log(JSON.stringify({ tour, tabBRefresh: b1.refresh, tabBReadsUpload: b2.file, logoutInA: a2.logout, tabBAfterLogout: b3.refresh, race, errors }, null, 2));
+console.log(JSON.stringify({ tour, tabBRefresh: b1.refresh, tabBReadsUpload: b2.file, logoutInA: a2.logout, tabBAfterLogout: b3.refresh, race, navigatedAway, errors }, null, 2));
 await browser.close();
 server.close();
