@@ -21,6 +21,7 @@ import { ApiError, notFound, validation } from '../http/problem.js';
 import { compareValues, contains, sortBy } from '../lib/sort.js';
 import { INVALID, isWorkbook, isZip, readXlsx, WorkbookTooLarge, type Cell } from '../lib/xlsx.js';
 import type { Mock } from '../runtime.js';
+import { auditRemoval, auditView } from '../store/store.js';
 import type { IndicatorRow, NormRow, ProductRow, RegionRow, SubstanceRow } from '../store/types.js';
 import { logoUrl } from '../views/refs.js';
 import { dec6 } from './lab.js';
@@ -378,10 +379,8 @@ export const dictionariesHandlers: Record<string, Handler> = {
         ];
         if (usedBy.length > 0) throw new ApiError(409, 'REFERENCE_IN_USE', { params: { usedBy } });
       }
-      const before = Object.fromEntries(
-        Object.entries(entryView(ctx, name, row)).filter(([k, v]) => k !== 'id' && v !== null && typeof v !== 'object'),
-      );
-      ctx.store.audit({ entityType: ENTITY[name], entityId: id, diff: Object.fromEntries(Object.entries(before).map(([k, v]) => [k, [v, null]])) });
+      // Every non-empty field of the removed row → [before, null], the mirror of its creation (P23).
+      ctx.store.audit({ entityType: ENTITY[name], entityId: id, diff: auditRemoval(auditView(row)) });
       (ctx.store.remove as (t: string, r: AnyRow) => void)(name, row);
     }
     return noContent();

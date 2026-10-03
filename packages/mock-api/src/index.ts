@@ -76,6 +76,12 @@ export interface MockApiOptions {
   telegramBot?: string | null;
   /** Every e-mail the mock "sends" (also collected in `api.mailbox`). */
   onMail?: (mail: MockMail) => void;
+  /**
+   * Where `pagehide`/`pageshow` of the document are heard (default: `globalThis` in a browser; null — never). A request
+   * that fails while the document is being unloaded (its own fetches, e.g. a seed asset, are aborted with it) answers
+   * 500 without logging: nobody reads that answer.
+   */
+  lifecycle?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'> | null;
 }
 
 export interface MockApi {
@@ -218,6 +224,14 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     }
   };
 
+  // The document is being unloaded (pagehide; a page restored from the back-forward cache shows again — pageshow).
+  let leaving = false;
+  const lifecycle = options.lifecycle !== undefined ? options.lifecycle : g.addEventListener ? (globalThis as unknown as EventTarget) : null;
+  const onPageHide = (): void => void (leaving = true);
+  const onPageShow = (): void => void (leaving = false);
+  lifecycle?.addEventListener('pagehide', onPageHide);
+  lifecycle?.addEventListener('pageshow', onPageShow);
+
   const lock: CrossTabLock | null = options.lock !== undefined ? options.lock : storage ? webLock() : null;
   if (storage && options.lock === undefined && !lock) warnNoLocks();
   const router = createRouter(m, handlers, {
@@ -228,6 +242,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     },
     afterEach: save,
     checkpoint: lock ? async () => undefined : save,
+    unloading: () => leaving,
   });
   /** Runs `fn` alone: across the tabs of the origin (the lock) and within this tab (the router's queue). */
   const serial = <T>(fn: () => Promise<T>): Promise<T> => (lock ? lock(() => router.exclusive(fn)) : router.exclusive(fn));
@@ -305,6 +320,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     dispose() {
       hub.closeAll();
       if (storage && g.removeEventListener) g.removeEventListener('storage', onStorage);
+      lifecycle?.removeEventListener('pagehide', onPageHide);
+      lifecycle?.removeEventListener('pageshow', onPageShow);
     },
   };
 }
