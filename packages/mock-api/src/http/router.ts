@@ -56,6 +56,8 @@ export interface RouterHooks {
   afterEach: () => Promise<void>;
   /** Publishes the state mid-request (the pending idempotency mark) — needed only when tabs are not serialized by a lock. */
   checkpoint: () => Promise<void>;
+  /** The document is being unloaded: its own loads are aborted, so a crash then is not logged (nobody reads the answer). */
+  unloading?: () => boolean;
 }
 
 export function createRouter(m: Mock, handlers: Record<string, Handler>, hooks: RouterHooks) {
@@ -165,7 +167,9 @@ export function createRouter(m: Mock, handlers: Record<string, Handler>, hooks: 
       return response;
     } catch (e) {
       if (e instanceof ApiError) return problemResponse(e);
-      console.error('[mock-api]', op.operationId, e);
+      // A download in flight when the page navigates away: the mock's asset fetch dies with the document ("Failed to
+      // fetch") — not an error of the mock.
+      if (!hooks.unloading?.()) console.error('[mock-api]', op.operationId, e);
       return problemResponse(new ApiError(500, 'INTERNAL'));
     } finally {
       // Not kept (a non-2xx answer or a crash): the key is free again.
