@@ -61,6 +61,8 @@ const PAIRS: [fg: string, bg: string, min: number][] = [
   ['--c-ink', '--c-surface-sunk', 4.5],
   ['--c-ink-muted', '--c-surface', 4.5],
   ['--c-ink-muted', '--c-ground', 4.5],
+  // Text of a disabled control and the unit of a disabled input group (on the sunk fill of the disabled field).
+  ['--c-ink-disabled', '--c-surface-sunk', 4.5],
   ['--c-field-ink', '--c-field', 4.5],
   ['--c-field-ink', '--c-field-hover', 4.5],
   ['--c-field', '--c-surface', 4.5],

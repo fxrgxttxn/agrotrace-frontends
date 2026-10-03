@@ -77,6 +77,41 @@
   }
 }
 
+/* Up to 1439 px (README «Таблица»): several text actions of a row stand one under another at the width of the widest
+   (icon buttons follow in a row), and a long word of the title cell breaks instead of widening the table — every
+   action stays reachable without scrolling the table at 1024 and 1280 px. */
+@media (min-width: 768px) and (max-width: 1439px) {
+  .at-table .at-table__actions:has(> .at-button:not([data-icon-only]) ~ .at-button:not([data-icon-only])) {
+    white-space: normal;
+  }
+
+  .at-table
+    .at-table__actions:has(> .at-button:not([data-icon-only]) ~ .at-button:not([data-icon-only]))
+    > .at-button:not([data-icon-only]) {
+    display: flex;
+    width: 100%;
+    margin-inline-start: 0;
+  }
+
+  .at-table
+    .at-table__actions:has(> .at-button:not([data-icon-only]) ~ .at-button:not([data-icon-only]))
+    > .at-button
+    + .at-button {
+    margin-top: var(--sp-2);
+  }
+
+  .at-table
+    .at-table__actions:has(> .at-button:not([data-icon-only]) ~ .at-button:not([data-icon-only]))
+    > .at-button:not([data-icon-only])
+    + .at-button[data-icon-only] {
+    margin-inline-start: 0;
+  }
+
+  .at-table td[data-primary] .at-table__primary > * {
+    overflow-wrap: anywhere;
+  }
+}
+
 /* Numbers (masses, counts): right-aligned, tabular. */
 .at-table [data-numeric] {
   text-align: end;
