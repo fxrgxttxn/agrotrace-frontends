@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ApiProblem, type Schemas } from '@agrotrace/api-client';
-import { enumLabel, formatLocalDateTime } from '@agrotrace/i18n';
+import { auditFieldLabel, auditValue, enumLabel, formatLocalDateTime } from '@agrotrace/i18n';
 import { call } from '../app/api';
 import { DateFilter } from '../app/DateFilter';
 import { LOCALE, t } from '../app/i18n';
@@ -30,7 +30,7 @@ import {
 // Audit log (FR-ADM-03, п. 8.8), ADMIN and INSPECTOR, read only. Every filter of the contract is in the URL: the action
 // (exact `operationId`, the search field), entity type and id, author, implementation (`backend`), the UTC date window.
 // A row's author or record narrows the log to it with one press; «Изменения» opens the diff — each changed field before
-// and after (a created row has no «before», secrets stay «***»).
+// and after by its label (a created row has no «before», secrets stay «***», instants in the viewer's time).
 
 type Entry = Schemas['AuditEntry'];
 type EntityType = Schemas['AuditEntityType'];
@@ -74,14 +74,6 @@ const SPEC: ListSpec = {
 const retryTransient = (n: number, e: unknown) => !(e instanceof ApiProblem && e.status < 500) && n < 2;
 const at = (iso: string) => formatLocalDateTime(iso, LOCALE);
 const short = (id: string) => id.slice(0, 8);
-
-/** A value of the diff as the API wrote it: null — «—», texts as they are, the rest as JSON. */
-function shown(v: unknown): string {
-  if (v === null || v === undefined) return '—';
-  if (typeof v === 'string') return v;
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-  return JSON.stringify(v);
-}
 
 export function AuditPage() {
   const { api } = useSession();
@@ -364,6 +356,9 @@ function IdFilter({
 }
 
 function DiffDialog({ entry, onClose }: { entry: Entry | null; onClose: () => void }) {
+  // Values in words (polish P1): instants in the viewer's time, dates, yes / no, the entity's statuses.
+  const shown = (v: unknown, field: string) =>
+    auditValue(t, v, LOCALE, entry ? { field, entityType: entry.entityType } : undefined);
   const rows = entry
     ? Object.entries(entry.diff).map(([field, pair]) => ({ field, before: pair[0], after: pair[1] }))
     : [];
@@ -372,10 +367,23 @@ function DiffDialog({ entry, onClose }: { entry: Entry | null; onClose: () => vo
       key: 'field',
       header: t('audit.field'),
       primary: true,
-      cell: (r) => <span className="at-mono">{r.field}</span>,
+      cell: (r) => (
+        <span className="at-table__primary">
+          <span>{auditFieldLabel(t, r.field)}</span>
+          <span className="at-table__sub at-mono">{r.field}</span>
+        </span>
+      ),
     },
-    { key: 'before', header: t('audit.before'), cell: (r) => <span style={VALUE}>{shown(r.before)}</span> },
-    { key: 'after', header: t('audit.after'), cell: (r) => <span style={VALUE}>{shown(r.after)}</span> },
+    {
+      key: 'before',
+      header: t('audit.before'),
+      cell: (r) => <span style={VALUE}>{shown(r.before, r.field)}</span>,
+    },
+    {
+      key: 'after',
+      header: t('audit.after'),
+      cell: (r) => <span style={VALUE}>{shown(r.after, r.field)}</span>,
+    },
   ];
   return (
     <Dialog

@@ -6,6 +6,7 @@ import { contractResponse, operation, type Json } from '../msw/fromContract';
 import { asMe, pageOf, problem, toastText } from '../msw/data';
 import { renderApp } from '../app/renderApp';
 import { REPORT_ACCESS, reportTypes } from '../../src/pages/reports';
+import { formatLocalDateTime } from '@agrotrace/i18n';
 
 // The audit log (ADMIN, INSPECTOR: filters in the URL, the diff of an entry) and reports (types by role and head, the
 // period checked before the request, the file saved under the server's name, server errors on their fields).
@@ -76,12 +77,49 @@ describe('/admin/audit', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Изменения записи журнала 104233' }));
     const dialog = screen.getByRole('dialog', { name: 'Партия: sendWaybill' });
+    // Polish P1: the field by its label (the API name under it), the status by the batch's own statuses.
     const row = within(within(dialog).getByRole('table', { name: 'Изменённые поля' }))
       .getByText('status')
       .closest('tr')!;
-    expect(within(row).getByText('Approved')).toBeInTheDocument();
-    expect(within(row).getByText('InTransit')).toBeInTheDocument();
+    expect(within(row).getByText('Статус')).toBeInTheDocument();
+    expect(within(row).getByText('Допущена')).toBeInTheDocument();
+    expect(within(row).getByText('В пути')).toBeInTheDocument();
     expect(within(dialog).getByText('172.18.0.1')).toBeInTheDocument();
+  });
+
+  it('the diff of a deleted norm: every field by its label, instants and dates readable (polish P1)', async () => {
+    const at = '2026-08-01T08:15:00Z';
+    server.use(
+      asInspector(),
+      contractResponse('listAuditLog', {
+        body: pageOf([
+          {
+            ...(auditEntry() as Record<string, Json>),
+            action: 'deleteDictionaryEntry',
+            entityType: 'norm',
+            diff: {
+              productId: ['4b7e1c2a-0d3f-4e5a-9b6c-7d8e9f0a1b2c', null],
+              maxValue: ['0.100', null],
+              deletedAt: [null, at],
+              issueDate: ['2026-08-14', null],
+              isOrgAdmin: [false, true],
+            },
+          },
+        ]),
+      }),
+    );
+    await open('/admin/audit', 'Журнал аудита');
+    await userEvent.click(await screen.findByRole('button', { name: 'Изменения записи журнала 104233' }));
+    const table = within(screen.getByRole('dialog')).getByRole('table', { name: 'Изменённые поля' });
+    const row = (api: string) => within(table).getByText(api).closest('tr')!;
+    expect(within(row('productId')).getByText('Продукт')).toBeInTheDocument();
+    expect(within(row('maxValue')).getByText('Максимальное значение')).toBeInTheDocument();
+    expect(within(row('deletedAt')).getByText('Удалено')).toBeInTheDocument();
+    expect(within(row('deletedAt')).getByText(formatLocalDateTime(at, 'ru'))).toBeInTheDocument();
+    expect(within(row('deletedAt')).queryByText(at)).toBeNull();
+    expect(within(row('issueDate')).getByText('14.08.2026')).toBeInTheDocument();
+    expect(within(row('isOrgAdmin')).getByText('нет')).toBeInTheDocument();
+    expect(within(row('isOrgAdmin')).getByText('да')).toBeInTheDocument();
   });
 
   it('a bad link is cleaned before the request (unknown entity type, malformed id)', async () => {
