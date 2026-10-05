@@ -1,0 +1,21 @@
+.at-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-12) var(--sp-4);
+  text-align: center;
+}
+
+.at-empty__art {
+  width: 240px;
+  max-width: 100%;
+  height: auto;
+  margin-bottom: var(--sp-2);
+}
+
+.at-empty__text {
+  margin: 0;
+  color: var(--c-ink);
+  font: 600 var(--fs-18) / var(--lh-18) var(--font-display);
+  text-wrap: balance;
+}

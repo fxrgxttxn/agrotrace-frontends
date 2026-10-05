@@ -1,0 +1,328 @@
+# Накладные (FR-PROD-05, БП-3: DRAFT → send → SENT → accept | reject).
+WaybillNumber:
+  type: string
+  pattern: '^WB-\d{4}-\d{6,}$'
+  description: Номер накладной `WB-{год}-{номер}` из последовательности `waybill_number_seq`.
+  example: WB-2026-000017
+WaybillStatus:
+  type: string
+  description: >-
+    DRAFT — черновик (виден только отправителю, партии не заблокированы); SENT — отправлена, партии InTransit;
+    ACCEPTED — принята получателем; REJECTED — отказ получателя, партии вернулись отправителю.
+  enum: [DRAFT, SENT, ACCEPTED, REJECTED]
+  example: SENT
+WaybillActionName:
+  type: string
+  description: >-
+    Действие над накладной: send, delete — отправитель при DRAFT (роль FARMER или PROCESSOR);
+    accept, reject — получатель при SENT (роль PROCESSOR или RETAILER).
+  enum: [send, delete, accept, reject]
+  example: accept
+DiscrepancyPercent:
+  type: string
+  pattern: '^\d{1,15}\.\d{2}$'
+  description: >-
+    Расхождение `|факт − заявлено| / заявлено × 100`, два знака после точки с округлением половины вверх
+    (функция `checkDiscrepancy`, поле `percent`).
+  example: '3.20'
+WaybillItem:
+  type: object
+  required: [batch, massDeclaredKg, massActualKg, discrepancyPercent, discrepancyAct]
+  additionalProperties: false
+  properties:
+    batch:
+      description: Партия в её текущем состоянии (не на момент отправки).
+      $ref: './batches.yaml#/BatchListItem'
+    massDeclaredKg:
+      $ref: './common.yaml#/Mass'
+    massActualKg:
+      description: Фактическая масса при приёмке; null до приёмки.
+      type: [string, 'null']
+      pattern: '^\d{1,9}\.\d{3}$'
+    discrepancyPercent:
+      description: Расхождение массы; null до приёмки.
+      type: [string, 'null']
+      pattern: '^\d{1,15}\.\d{2}$'
+    discrepancyAct:
+      description: Текст акта расхождения (BR-07); null, если не составлялся.
+      type: [string, 'null']
+  example:
+    batch:
+      id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+      publicCode: AT-2026-000123
+      product:
+        id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+        name: Пшеница озимая
+        category: GRAIN
+        imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+      massKg: '12080.000'
+      status: Accepted
+      kind: RAW
+      holder:
+        id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+        name: ООО «Кубанский мукомол»
+        type: PROCESSOR
+        logoUrl: null
+      origin:
+        id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+        name: КФХ Петров
+        type: FARM
+        logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+      harvestedAt: '2026-07-18T06:00:00Z'
+      producedAt: null
+      updatedAt: '2026-08-02T09:30:00Z'
+      qrGeneratedAt: null
+    massDeclaredKg: '12480.000'
+    massActualKg: '12080.000'
+    discrepancyPercent: '3.21'
+    discrepancyAct: Недостача 400 кг при контрольном взвешивании на элеваторе, акт № 17 от 02.08.2026.
+Waybill:
+  type: object
+  description: >-
+    Накладная. `items` упорядочены по `batch.publicCode` по возрастанию — в этом же порядке сервер проверяет
+    позиции при отправке и приёмке. `actions` — действия, доступные текущему пользователю (см. `WaybillActionName`).
+  required:
+    [
+      id,
+      number,
+      status,
+      sender,
+      receiver,
+      items,
+      createdAt,
+      sentAt,
+      acceptedAt,
+      rejectReason,
+      version,
+      actions,
+    ]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    number:
+      $ref: '#/WaybillNumber'
+    status:
+      $ref: '#/WaybillStatus'
+    sender:
+      $ref: './common.yaml#/OrganizationRef'
+    receiver:
+      $ref: './common.yaml#/OrganizationRef'
+    items:
+      type: array
+      minItems: 1
+      items:
+        $ref: '#/WaybillItem'
+    createdAt:
+      $ref: './common.yaml#/DateTime'
+    sentAt:
+      $ref: './common.yaml#/NullableDateTime'
+    acceptedAt:
+      $ref: './common.yaml#/NullableDateTime'
+    rejectReason:
+      type: [string, 'null']
+    version:
+      type: integer
+      minimum: 1
+      description: >-
+        Версия для оптимистичной блокировки (передаётся в `If-Match`); увеличивается на 1 при каждой смене
+        статуса накладной.
+    actions:
+      type: array
+      uniqueItems: true
+      items:
+        $ref: '#/WaybillActionName'
+  example:
+    id: 7e9a1c3e-5b7d-4f9b-a1c3-5e7a9c1e3b5d
+    number: WB-2026-000017
+    status: SENT
+    sender:
+      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+      name: КФХ Петров
+      type: FARM
+      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+    receiver:
+      id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+      name: ООО «Кубанский мукомол»
+      type: PROCESSOR
+      logoUrl: null
+    items:
+      - batch:
+          id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+          publicCode: AT-2026-000123
+          product:
+            id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+            name: Пшеница озимая
+            category: GRAIN
+            imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+          massKg: '12480.000'
+          status: InTransit
+          kind: RAW
+          holder:
+            id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+            name: КФХ Петров
+            type: FARM
+            logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+          origin:
+            id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+            name: КФХ Петров
+            type: FARM
+            logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+          harvestedAt: '2026-07-18T06:00:00Z'
+          producedAt: null
+          updatedAt: '2026-08-01T08:15:00Z'
+          qrGeneratedAt: null
+        massDeclaredKg: '12480.000'
+        massActualKg: null
+        discrepancyPercent: null
+        discrepancyAct: null
+    createdAt: '2026-08-01T07:50:00Z'
+    sentAt: '2026-08-01T08:15:00Z'
+    acceptedAt: null
+    rejectReason: null
+    version: 2
+    actions: [accept, reject]
+WaybillPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/Waybill'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items:
+      - id: 7e9a1c3e-5b7d-4f9b-a1c3-5e7a9c1e3b5d
+        number: WB-2026-000017
+        status: DRAFT
+        sender:
+          id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+          name: КФХ Петров
+          type: FARM
+          logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+        receiver:
+          id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+          name: ООО «Кубанский мукомол»
+          type: PROCESSOR
+          logoUrl: null
+        items:
+          - batch:
+              id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+              publicCode: AT-2026-000123
+              product:
+                id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+                name: Пшеница озимая
+                category: GRAIN
+                imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+              massKg: '12480.000'
+              status: Approved
+              kind: RAW
+              holder:
+                id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                name: КФХ Петров
+                type: FARM
+                logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+              origin:
+                id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                name: КФХ Петров
+                type: FARM
+                logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+              harvestedAt: '2026-07-18T06:00:00Z'
+              producedAt: null
+              updatedAt: '2026-07-25T14:10:00Z'
+              qrGeneratedAt: null
+            massDeclaredKg: '12480.000'
+            massActualKg: null
+            discrepancyPercent: null
+            discrepancyAct: null
+        createdAt: '2026-08-01T07:50:00Z'
+        sentAt: null
+        acceptedAt: null
+        rejectReason: null
+        version: 1
+        actions: [send, delete]
+    page: 1
+    size: 20
+    total: 1
+WaybillCreate:
+  type: object
+  description: >-
+    Создание черновика накладной (статус DRAFT). `receiverOrgId` — организация в статусе ACTIVE типа PROCESSOR
+    или RETAILER, не своя. Позиции — партии, видимые пользователю и находящиеся у его организации, без повторов,
+    с `massDeclaredKg` ≤ текущей массы партии. Статусы партий и BR-01/BR-06 при создании не проверяются —
+    только при отправке.
+  required: [receiverOrgId, items]
+  additionalProperties: false
+  properties:
+    receiverOrgId:
+      $ref: './common.yaml#/Uuid'
+    items:
+      type: array
+      minItems: 1
+      maxItems: 100
+      items:
+        type: object
+        required: [batchId, massDeclaredKg]
+        additionalProperties: false
+        properties:
+          batchId:
+            $ref: './common.yaml#/Uuid'
+          massDeclaredKg:
+            $ref: './common.yaml#/PositiveMass'
+  example:
+    receiverOrgId: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+    items:
+      - batchId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+        massDeclaredKg: '12480.000'
+WaybillAccept:
+  type: object
+  description: >-
+    Приёмка: ровно по одной позиции на каждую партию накладной (иначе 400 `errors.items: [validation.items.mismatch]`).
+    `discrepancyAct` обязателен, если расхождение больше 2% (BR-07, 422); при меньшем расхождении
+    допускается и сохраняется.
+  required: [items]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      minItems: 1
+      maxItems: 100
+      items:
+        type: object
+        required: [batchId, massActualKg]
+        additionalProperties: false
+        properties:
+          batchId:
+            $ref: './common.yaml#/Uuid'
+          massActualKg:
+            description: Фактическая масса; становится новой массой партии (`massKg`).
+            $ref: './common.yaml#/PositiveMass'
+          discrepancyAct:
+            type: string
+            minLength: 1
+            maxLength: 2000
+            pattern: '\S'
+  example:
+    items:
+      - batchId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+        massActualKg: '12080.000'
+        discrepancyAct: Недостача 400 кг при контрольном взвешивании на элеваторе, акт № 17 от 02.08.2026.
+WaybillReject:
+  type: object
+  required: [reason]
+  additionalProperties: false
+  properties:
+    reason:
+      type: string
+      minLength: 1
+      maxLength: 500
+      pattern: '\S'
+  example:
+    reason: Влажность зерна 17% при допустимых 14%, партия не соответствует договору.

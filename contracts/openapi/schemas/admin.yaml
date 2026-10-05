@@ -1,0 +1,254 @@
+# Администрирование: организации (заявки) и журнал аудита (FR-ADM-01, FR-ADM-03).
+OrganizationAdmin:
+  type: object
+  description: >-
+    Организация для администратора: поля `Organization` и дополнительные. `head` — руководитель, созданный при
+    регистрации (самый ранний по `created_at` неудалённый пользователь организации с `is_org_admin`); null — нет
+    (например, организация из начального наполнения без пользователей). `usersCount` — неудалённые пользователи.
+  required:
+    [
+      id,
+      name,
+      type,
+      logoUrl,
+      inn,
+      address,
+      region,
+      trustRating,
+      status,
+      createdAt,
+      updatedAt,
+      usersCount,
+      head,
+    ]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    name:
+      type: string
+    type:
+      $ref: './common.yaml#/OrganizationType'
+    logoUrl:
+      $ref: './common.yaml#/NullablePublicFileUrl'
+    inn:
+      type: string
+      pattern: '^\d{10}(\d{2})?$'
+    address:
+      type: [string, 'null']
+    region:
+      $ref: './common.yaml#/Region'
+    trustRating:
+      type: [integer, 'null']
+      minimum: 0
+      maximum: 100
+      description: Не null только для FARM (BR-09).
+    status:
+      $ref: './organizations.yaml#/OrganizationStatus'
+    createdAt:
+      $ref: './common.yaml#/DateTime'
+    updatedAt:
+      $ref: './common.yaml#/DateTime'
+    usersCount:
+      type: integer
+      minimum: 0
+    head:
+      type: [object, 'null']
+      required: [id, fullName, email, phone]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: './common.yaml#/Uuid'
+        fullName:
+          type: string
+        email:
+          $ref: './common.yaml#/Email'
+        phone:
+          type: [string, 'null']
+  example:
+    id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+    name: КФХ Петров
+    type: FARM
+    logoUrl: null
+    inn: '2311123457'
+    address: 352380, Краснодарский край, г. Кропоткин, ул. Полевая, д. 12
+    region:
+      code: '23'
+      name: Краснодарский край
+    trustRating: 80
+    status: PENDING
+    createdAt: '2026-07-01T08:00:00Z'
+    updatedAt: '2026-07-01T08:00:00Z'
+    usersCount: 1
+    head:
+      id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+      fullName: Петров Иван Сергеевич
+      email: petrov@kfh-petrov.ru
+      phone: null
+OrganizationAdminPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/OrganizationAdmin'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items: []
+    page: 1
+    size: 20
+    total: 0
+OrganizationAdminPatch:
+  type: object
+  description: >-
+    Частичное изменение организации администратором. `status` допускает только переходы из
+    `contracts/rules/entity-state-machines.json` (`organization`) с `by` = `updateAdminOrganization`: PENDING или
+    MANUAL_CHECK → REJECTED, ACTIVE → SUSPENDED, SUSPENDED → ACTIVE; одобрение (→ ACTIVE из PENDING/MANUAL_CHECK) —
+    только `approveOrganization`. `status`, равный текущему, — не изменение (без ошибки). ИНН и тип не меняются.
+  minProperties: 1
+  additionalProperties: false
+  properties:
+    name:
+      $ref: './common.yaml#/NameString'
+    address:
+      type: [string, 'null']
+      maxLength: 500
+      pattern: '\S'
+    regionCode:
+      $ref: './dictionaries-ref.yaml#/RegionCode'
+    status:
+      type: string
+      enum: [ACTIVE, REJECTED, SUSPENDED]
+  example:
+    status: SUSPENDED
+AuditEntityType:
+  type: string
+  description: Тип изменённой сущности (строка `audit_log.entity_type`).
+  enum:
+    - organization
+    - user
+    - field
+    - treatment
+    - batch
+    - waybill
+    - labTest
+    - recall
+    - recallTask
+    - complaint
+    - product
+    - substance
+    - indicator
+    - norm
+    - region
+    - file
+    - batchDocument
+  example: batch
+AuditEntry:
+  type: object
+  description: |
+    Запись журнала аудита (`audit_log`, только INSERT). Каждая успешная изменяющая операция API пишет по одной записи
+    на каждую изменённую строку сущностей из `AuditEntityType` в той же транзакции, что и изменение:
+
+    - `action` — `operationId` операции (`sendWaybill`, `confirmRecallTask`, …); действия без запроса API —
+      `system.<задача>` (`system.labTestEscalate`, `system.recallTaskOverdue`, `system.ratingRecalculate`) или `seed`;
+      действия движка отзыва внутри операции пишутся с `action` этой операции;
+    - `diff` — объект «имя поля API (camelCase) → `[до, после]`» только по изменившимся полям, значения — в формате
+      API (масса — строка `Mass`, даты — ISO 8601 UTC); создание — `до` = null у всех заполненных полей; мягкое
+      удаление — `{"deletedAt": [null, "<момент>"]}`; физическое удаление — `[до, null]` по всем непустым полям
+      удалённой строки (P23); секреты (пароль, TOTP, токены, хеши) — значение `"***"` с обеих
+      сторон; двоичные файлы — id файла;
+    - операция, ничего не изменившая (тело совпадает с текущими значениями), записей не пишет (P23);
+    - `actor` — пользователь-автор; null — система, начальное наполнение или покупатель (публичная жалоба);
+    - `ip` — IP клиента (как видит его backend за шлюзом, из `X-Forwarded-For`), null для системных записей;
+    - `requestId` — `X-Request-Id` запроса (у всех записей одного запроса одинаковый), null для системных.
+  required: [id, actor, action, entityType, entityId, diff, ip, backend, requestId, createdAt]
+  additionalProperties: false
+  properties:
+    id:
+      type: integer
+      minimum: 1
+      description: '`audit_log.id` (bigserial), монотонно растёт.'
+    actor:
+      type: [object, 'null']
+      required: [id, fullName, organization]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: './common.yaml#/Uuid'
+        fullName:
+          type: string
+        organization:
+          $ref: './common.yaml#/OrganizationRef'
+    action:
+      type: string
+      pattern: '^([a-z][a-zA-Z0-9]*|system\.[a-z][a-zA-Z0-9]*|seed)$'
+    entityType:
+      $ref: '#/AuditEntityType'
+    entityId:
+      type: [string, 'null']
+      format: uuid
+    diff:
+      type: object
+      additionalProperties:
+        type: array
+        minItems: 2
+        maxItems: 2
+    ip:
+      type: [string, 'null']
+      description: IPv4 или IPv6 в текстовом виде.
+    backend:
+      type: string
+      enum: [express, django, laravel, seed, system]
+      description: Реализация, записавшая строку; `seed` — начальное наполнение; `system` — зарезервировано.
+    requestId:
+      type: [string, 'null']
+      maxLength: 64
+    createdAt:
+      $ref: './common.yaml#/DateTime'
+  example:
+    id: 104233
+    actor:
+      id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+      fullName: Петров Иван Сергеевич
+      organization:
+        id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+        name: КФХ Петров
+        type: FARM
+        logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+    action: sendWaybill
+    entityType: batch
+    entityId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+    diff:
+      status: [Approved, InTransit]
+      version: [2, 3]
+    ip: 172.18.0.1
+    backend: laravel
+    requestId: 4f1c2a7e-9b3d-4e5f-8a6b-0c1d2e3f4a5b
+    createdAt: '2026-08-01T08:15:00Z'
+AuditPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/AuditEntry'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items: []
+    page: 1
+    size: 20
+    total: 0

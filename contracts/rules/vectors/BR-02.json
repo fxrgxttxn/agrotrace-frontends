@@ -1,0 +1,109 @@
+{
+  "rule": "BR-02",
+  "fn": "concludeLabTest",
+  "description": "Lab test conclusion is automatic: any indicator whose value strictly exceeds its norm (maxValue) fails the batch. The comparison is decimal-numeric (not lexicographic string comparison, not naive float equality) - see the 'decimal comparison' cases. Indicators with maxValue null are not normalized and never cause a failure. Empty results is an error.",
+  "cases": [
+    {
+      "name": "empty results list - NO_RESULTS error",
+      "input": { "results": [] },
+      "expected": { "error": "NO_RESULTS" }
+    },
+    {
+      "name": "single indicator within norm - PASS",
+      "input": { "results": [{ "indicatorId": "nitrates", "value": "10.500", "maxValue": "50.000" }] },
+      "expected": { "conclusion": "PASS", "exceeded": [] }
+    },
+    {
+      "name": "single indicator equals max exactly - PASS (strict greater required)",
+      "input": { "results": [{ "indicatorId": "pesticide-1", "value": "2.00", "maxValue": "2.00" }] },
+      "expected": { "conclusion": "PASS", "exceeded": [] }
+    },
+    {
+      "name": "single indicator exceeds max - FAIL",
+      "input": { "results": [{ "indicatorId": "pesticide-1", "value": "2.01", "maxValue": "2.00" }] },
+      "expected": { "conclusion": "FAIL", "exceeded": ["pesticide-1"] }
+    },
+    {
+      "name": "multiple indicators, one exceeds - FAIL lists only the exceeded indicator",
+      "input": {
+        "results": [
+          { "indicatorId": "nitrates", "value": "10.0", "maxValue": "50.0" },
+          { "indicatorId": "pesticide-1", "value": "3.5", "maxValue": "2.0" },
+          { "indicatorId": "heavy-metals", "value": "0.01", "maxValue": "0.05" }
+        ]
+      },
+      "expected": { "conclusion": "FAIL", "exceeded": ["pesticide-1"] }
+    },
+    {
+      "name": "multiple indicators, all exceed - FAIL lists all in input order",
+      "input": {
+        "results": [
+          { "indicatorId": "nitrates", "value": "60.0", "maxValue": "50.0" },
+          { "indicatorId": "pesticide-1", "value": "3.5", "maxValue": "2.0" }
+        ]
+      },
+      "expected": { "conclusion": "FAIL", "exceeded": ["nitrates", "pesticide-1"] }
+    },
+    {
+      "name": "indicator without a norm (maxValue null) never exceeds - PASS",
+      "input": { "results": [{ "indicatorId": "moisture", "value": "999.000", "maxValue": null }] },
+      "expected": { "conclusion": "PASS", "exceeded": [] }
+    },
+    {
+      "name": "mix of null maxValue and an exceeded indicator - FAIL excludes the null-norm indicator",
+      "input": {
+        "results": [
+          { "indicatorId": "moisture", "value": "999.000", "maxValue": null },
+          { "indicatorId": "pesticide-1", "value": "3.0", "maxValue": "2.0" }
+        ]
+      },
+      "expected": { "conclusion": "FAIL", "exceeded": ["pesticide-1"] }
+    },
+    {
+      "name": "exceeds max by a small decimal margin - FAIL",
+      "input": { "results": [{ "indicatorId": "cadmium", "value": "10.001", "maxValue": "10.000" }] },
+      "expected": { "conclusion": "FAIL", "exceeded": ["cadmium"] }
+    },
+    {
+      "name": "multiple indicators all within norm - PASS",
+      "input": {
+        "results": [
+          { "indicatorId": "nitrates", "value": "10.0", "maxValue": "50.0" },
+          { "indicatorId": "pesticide-1", "value": "1.0", "maxValue": "2.0" },
+          { "indicatorId": "heavy-metals", "value": "0.01", "maxValue": "0.05" }
+        ]
+      },
+      "expected": { "conclusion": "PASS", "exceeded": [] }
+    },
+    {
+      "name": "zero value equals zero max - PASS (not exceeding)",
+      "input": { "results": [{ "indicatorId": "lead", "value": "0", "maxValue": "0" }] },
+      "expected": { "conclusion": "PASS", "exceeded": [] }
+    },
+    {
+      "name": "all indicators have null maxValue - PASS regardless of value",
+      "input": {
+        "results": [
+          { "indicatorId": "moisture", "value": "500", "maxValue": null },
+          { "indicatorId": "color", "value": "1", "maxValue": null }
+        ]
+      },
+      "expected": { "conclusion": "PASS", "exceeded": [] }
+    },
+    {
+      "name": "decimal comparison - value below max despite being lexicographically larger (9.5 vs 10.0)",
+      "input": { "results": [{ "indicatorId": "test-a", "value": "9.5", "maxValue": "10.0" }] },
+      "expected": { "conclusion": "PASS", "exceeded": [] }
+    },
+    {
+      "name": "decimal comparison - value exceeds max despite being lexicographically smaller (10 vs 9.99)",
+      "input": { "results": [{ "indicatorId": "test-b", "value": "10", "maxValue": "9.99" }] },
+      "expected": { "conclusion": "FAIL", "exceeded": ["test-b"] }
+    },
+    {
+      "name": "decimal comparison - numerically equal values with different decimal representations (2.0 vs 2.00)",
+      "input": { "results": [{ "indicatorId": "test-c", "value": "2.0", "maxValue": "2.00" }] },
+      "expected": { "conclusion": "PASS", "exceeded": [] }
+    }
+  ]
+}

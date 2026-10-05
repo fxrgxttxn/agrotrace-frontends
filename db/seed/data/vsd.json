@@ -1,0 +1,167 @@
+[
+  {
+    "uuid": "d3bc6508-f9e7-412e-a6c4-690f31cd59f0",
+    "number": "VSD-2026-000001",
+    "issueDate": "2026-01-15",
+    "status": "CONFIRMED",
+    "product": { "code": "10.51.11", "name": "Молоко сырое коровье" },
+    "volume": { "value": 12500, "unit": "л" },
+    "consignor": { "inn": "2312450016", "name": "ООО «Агрофирма Заря»" },
+    "consignee": { "inn": "7705120028", "name": "ООО «Молкомбинат Ставропольский»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-01-14", "doctor": "Сидорова Е.В." }
+  },
+  {
+    "uuid": "61f002a5-5fe1-45f2-9772-2a6c1e3728e1",
+    "number": "VSD-2026-000002",
+    "issueDate": "2026-02-03",
+    "status": "CONFIRMED",
+    "product": { "code": "10.51.11", "name": "Молоко сырое коровье" },
+    "volume": { "value": 8300, "unit": "л" },
+    "consignor": { "inn": "7806540043", "name": "ООО «Молочная ферма Луговая»" },
+    "consignee": { "inn": "7705120028", "name": "ООО «Молкомбинат Ставропольский»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-02-02", "doctor": "Кузнецов А.Н." }
+  },
+  {
+    "uuid": "23e2de69-6cb3-42c4-8959-1291b37c0b7f",
+    "number": "VSD-2026-000003",
+    "issueDate": "2026-02-20",
+    "status": "CONFIRMED",
+    "product": { "code": "10.11.11", "name": "Мясо говядина" },
+    "volume": { "value": 2400, "unit": "кг" },
+    "consignor": { "inn": "2312450016", "name": "ООО «Агрофирма Заря»" },
+    "consignee": { "inn": "5009870030", "name": "ООО «Мясокомбинат Заречный»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-02-19", "doctor": "Морозова О.П." }
+  },
+  {
+    "uuid": "304d237c-ce96-4ec5-91ad-07af5d7bae29",
+    "number": "VSD-2026-000004",
+    "issueDate": "2026-03-05",
+    "status": "WITHDRAWN",
+    "product": { "code": "10.11.11", "name": "Мясо говядина" },
+    "volume": { "value": 1150, "unit": "кг" },
+    "consignor": { "inn": "502701234075", "name": "КФХ Петров И.С." },
+    "consignee": { "inn": "5009870030", "name": "ООО «Мясокомбинат Заречный»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-03-04", "doctor": "Волков Д.С." }
+  },
+  {
+    "uuid": "a33bce11-6bf3-42bc-8850-80858cd53130",
+    "number": "VSD-2026-000005",
+    "issueDate": "2026-03-18",
+    "status": "CONFIRMED",
+    "product": { "code": "01.47.21", "name": "Яйцо куриное" },
+    "volume": { "value": 45000, "unit": "шт" },
+    "consignor": { "inn": "2302220060", "name": "ООО «Птицефабрика Рассвет»" },
+    "consignee": { "inn": "231099887716", "name": "ООО «Торговый дом Провизия»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-03-17", "doctor": "Сидорова Е.В." }
+  },
+  {
+    "uuid": "6d7e77c2-4ce4-47d8-a198-2b38a562571d",
+    "number": "VSD-2026-000006",
+    "issueDate": "2026-04-02",
+    "status": "CONFIRMED",
+    "product": { "code": "01.49.24", "name": "Мёд натуральный" },
+    "volume": { "value": 620, "unit": "кг" },
+    "consignor": { "inn": "3601110050", "name": "ООО «Пасека Медовый край»" },
+    "consignee": { "inn": "231099887716", "name": "ООО «Торговый дом Провизия»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-04-01", "doctor": "Кузнецов А.Н." }
+  },
+  {
+    "uuid": "61fb166e-233c-40a7-878d-9d5666fc257b",
+    "number": "VSD-2026-000007",
+    "issueDate": "2026-04-22",
+    "status": "UTILIZED",
+    "product": { "code": "10.51.11", "name": "Молоко сырое коровье" },
+    "volume": { "value": 9100, "unit": "л" },
+    "consignor": { "inn": "7806540043", "name": "ООО «Молочная ферма Луговая»" },
+    "consignee": { "inn": "7705120028", "name": "ООО «Молкомбинат Ставропольский»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-04-21", "doctor": "Морозова О.П." }
+  },
+  {
+    "uuid": "22945241-f4b5-49b7-b23e-317c97f1505d",
+    "number": "VSD-2026-000008",
+    "issueDate": "2026-05-10",
+    "status": "CONFIRMED",
+    "product": { "code": "10.11.11", "name": "Мясо говядина" },
+    "volume": { "value": 3000, "unit": "кг" },
+    "consignor": { "inn": "2312450016", "name": "ООО «Агрофирма Заря»" },
+    "consignee": { "inn": "5009870030", "name": "ООО «Мясокомбинат Заречный»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-05-09", "doctor": "Волков Д.С." }
+  },
+  {
+    "uuid": "6992b428-f69f-47fb-83ba-63327f61e311",
+    "number": "VSD-2026-000009",
+    "issueDate": "2026-05-27",
+    "status": "CONFIRMED",
+    "product": { "code": "01.47.21", "name": "Яйцо куриное" },
+    "volume": { "value": 38000, "unit": "шт" },
+    "consignor": { "inn": "2302220060", "name": "ООО «Птицефабрика Рассвет»" },
+    "consignee": { "inn": "231099887716", "name": "ООО «Торговый дом Провизия»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-05-26", "doctor": "Сидорова Е.В." }
+  },
+  {
+    "uuid": "a15c3d26-a7a2-4d21-83d8-7296c1362afd",
+    "number": "VSD-2026-000010",
+    "issueDate": "2026-06-14",
+    "status": "WITHDRAWN",
+    "product": { "code": "01.49.24", "name": "Мёд натуральный" },
+    "volume": { "value": 410, "unit": "кг" },
+    "consignor": { "inn": "3601110050", "name": "ООО «Пасека Медовый край»" },
+    "consignee": { "inn": "231099887716", "name": "ООО «Торговый дом Провизия»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-06-13", "doctor": "Кузнецов А.Н." }
+  },
+  {
+    "uuid": "3304dbab-b7aa-485d-a945-ec4036f08727",
+    "number": "VSD-2026-000011",
+    "issueDate": "2026-07-08",
+    "status": "CONFIRMED",
+    "product": { "code": "10.51.11", "name": "Молоко сырое коровье" },
+    "volume": { "value": 5230, "unit": "л" },
+    "consignor": { "inn": "7806540043", "name": "ООО «Молочная ферма Луговая»" },
+    "consignee": { "inn": "7705120028", "name": "ООО «Молкомбинат Ставропольский»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-07-07", "doctor": "Волков Д.С." }
+  },
+  {
+    "uuid": "5ea83aa8-d2dc-47dd-b39d-382e2f127201",
+    "number": "VSD-2026-000012",
+    "issueDate": "2026-08-02",
+    "status": "CONFIRMED",
+    "product": { "code": "10.11.11", "name": "Мясо говядина" },
+    "volume": { "value": 640, "unit": "кг" },
+    "consignor": { "inn": "502701234075", "name": "КФХ Петров И.С." },
+    "consignee": { "inn": "5009870030", "name": "ООО «Мясокомбинат Заречный»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-08-01", "doctor": "Морозова О.П." }
+  },
+  {
+    "uuid": "71977834-425a-4d8a-b18d-f5a6e03d853b",
+    "number": "VSD-2026-000013",
+    "issueDate": "2026-08-08",
+    "status": "CONFIRMED",
+    "product": { "code": "10.51.11", "name": "Молоко сырое коровье" },
+    "volume": { "value": 7600, "unit": "л" },
+    "consignor": { "inn": "2312450016", "name": "ООО «Агрофирма Заря»" },
+    "consignee": { "inn": "7705120028", "name": "ООО «Молкомбинат Ставропольский»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-08-07", "doctor": "Сидорова Е.В." }
+  },
+  {
+    "uuid": "3f74273a-4834-4243-92b5-398a22dad385",
+    "number": "VSD-2026-000014",
+    "issueDate": "2026-08-25",
+    "status": "UTILIZED",
+    "product": { "code": "01.47.21", "name": "Яйцо куриное" },
+    "volume": { "value": 52000, "unit": "шт" },
+    "consignor": { "inn": "2302220060", "name": "ООО «Птицефабрика Рассвет»" },
+    "consignee": { "inn": "231099887716", "name": "ООО «Торговый дом Провизия»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-08-24", "doctor": "Кузнецов А.Н." }
+  },
+  {
+    "uuid": "3a4d8c3a-3710-41c2-ac9c-ccf417c319c6",
+    "number": "VSD-2026-000015",
+    "issueDate": "2026-09-10",
+    "status": "CONFIRMED",
+    "product": { "code": "01.49.24", "name": "Мёд натуральный" },
+    "volume": { "value": 580, "unit": "кг" },
+    "consignor": { "inn": "3601110050", "name": "ООО «Пасека Медовый край»" },
+    "consignee": { "inn": "231099887716", "name": "ООО «Торговый дом Провизия»" },
+    "vetInspection": { "result": "HEALTHY", "date": "2026-09-09", "doctor": "Морозова О.П." }
+  }
+]

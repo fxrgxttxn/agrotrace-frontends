@@ -1,0 +1,42 @@
+{
+  "name": "@agrotrace/mock-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stateful in-browser mock backend (MSW 2) for every operation of the AgroTrace contract, seeded with the demo world of db/seed; shared by the React, Angular and Svelte frontends.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./browser": "./src/browser.ts",
+    "./mockServiceWorker.js": "./public/mockServiceWorker.js"
+  },
+  "scripts": {
+    "gen": "tsx scripts/gen-contract.ts && tsx scripts/gen-assets.ts",
+    "test": "vitest run",
+    "build:check": "vite build --config test/browser/vite.config.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@agrotrace/domain": "workspace:*",
+    "@agrotrace/seed": "workspace:*",
+    "@agrotrace/validation": "workspace:*",
+    "@noble/hashes": "^1.5.0",
+    "fflate": "^0.8.2",
+    "msw": "2.15.0",
+    "saxes": "6.0.0",
+    "uqr": "0.1.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@agrotrace/api-client": "workspace:*",
+    "@redocly/openapi-core": "^1.25.11",
+    "@types/node": "^22.9.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "~5.6.3",
+    "vite": "5.4.11",
+    "vitest": "^2.1.4"
+  }
+}

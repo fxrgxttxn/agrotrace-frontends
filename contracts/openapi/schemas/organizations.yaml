@@ -1,0 +1,117 @@
+# Организации.
+OrganizationStatus:
+  type: string
+  description: >-
+    PENDING — ожидает одобрения; MANUAL_CHECK — требует ручной проверки (DaData была недоступна);
+    ACTIVE — активна; REJECTED — заявка отклонена; SUSPENDED — деятельность приостановлена.
+  enum: [PENDING, MANUAL_CHECK, ACTIVE, REJECTED, SUSPENDED]
+  example: ACTIVE
+Organization:
+  type: object
+  required: [id, name, type, logoUrl, inn, address, region, trustRating, status]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    name:
+      type: string
+    type:
+      $ref: './common.yaml#/OrganizationType'
+    logoUrl:
+      $ref: './common.yaml#/NullablePublicFileUrl'
+    inn:
+      type: string
+      pattern: '^\d{10}(\d{2})?$'
+    address:
+      type: [string, 'null']
+    region:
+      $ref: './common.yaml#/Region'
+    trustRating:
+      type: [integer, 'null']
+      minimum: 0
+      maximum: 100
+      description: Рейтинг доверия хозяйства (BR-09); не null только для организаций типа FARM, для остальных — null.
+    status:
+      $ref: '#/OrganizationStatus'
+  if:
+    properties:
+      type:
+        const: FARM
+  then:
+    properties:
+      trustRating:
+        type: integer
+  else:
+    properties:
+      trustRating:
+        type: 'null'
+  example:
+    id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+    name: КФХ Петров
+    type: FARM
+    logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+    inn: '2311123457'
+    address: 352380, Краснодарский край, г. Кропоткин, ул. Полевая, д. 12
+    region:
+      code: '23'
+      name: Краснодарский край
+    trustRating: 80
+    status: ACTIVE
+OrganizationDirectoryItem:
+  type: object
+  description: Строка справочника организаций (`OrganizationRef` + регион), R46. ИНН, адрес и рейтинг не отдаются.
+  required: [id, name, type, logoUrl, region]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    name:
+      type: string
+    type:
+      $ref: './common.yaml#/OrganizationType'
+    logoUrl:
+      $ref: './common.yaml#/NullablePublicFileUrl'
+    region:
+      $ref: './common.yaml#/Region'
+  example:
+    id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+    name: ООО «Кубанский мукомол»
+    type: PROCESSOR
+    logoUrl: null
+    region:
+      code: '23'
+      name: Краснодарский край
+OrganizationDirectoryPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/OrganizationDirectoryItem'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items:
+      - id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+        name: ООО «Кубанский мукомол»
+        type: PROCESSOR
+        logoUrl: null
+        region:
+          code: '23'
+          name: Краснодарский край
+      - id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+        name: ООО «Кубань-Маркет»
+        type: RETAILER
+        logoUrl: null
+        region:
+          code: '23'
+          name: Краснодарский край
+    page: 1
+    size: 20
+    total: 2

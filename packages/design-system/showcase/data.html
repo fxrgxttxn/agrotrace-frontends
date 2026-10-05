@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Данные — «Поле»</title>
+    <link rel="stylesheet" href="../index.css" />
+    <link rel="stylesheet" href="showcase.css" />
+    <script src="showcase.js" defer></script>
+  </head>
+  <body data-ds-split>
+    <header class="ds-header">
+      <a class="ds-brand" href="index.html" data-ds-keep-theme>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <path d="M4 20 9 4M10 20l5-16M16 20l4-13" />
+        </svg>
+        Поле
+      </a>
+      <nav aria-label="Разделы витрины">
+        <ul class="ds-nav">
+          <li><a href="index.html" data-ds-keep-theme>Основа</a></li>
+          <li><a href="forms.html" data-ds-keep-theme>Формы</a></li>
+          <li><a href="data.html" aria-current="page" data-ds-keep-theme>Данные</a></li>
+          <li><a href="shell.html" data-ds-keep-theme>Каркас</a></li>
+          <li><a href="icons.html" data-ds-keep-theme>Графика</a></li>
+        </ul>
+      </nav>
+    </header>
+
+    <main class="ds-cols">
+      <div class="ds-col" data-theme="light">
+        <h1>Данные</h1>
+
+        <section class="ds-section" aria-labelledby="s-chip">
+          <h2 id="s-chip">Статусы</h2>
+          <p class="ds-name">.at-chip[data-status]</p>
+          <div class="ds-row">
+            <span class="at-chip" data-status="Created">Создана</span>
+            <span class="at-chip" data-status="OnTest">На анализе</span>
+            <span class="at-chip" data-status="Approved">Допущена</span>
+            <span class="at-chip" data-status="InTransit">В пути</span>
+            <span class="at-chip" data-status="Accepted">Принята</span>
+            <span class="at-chip" data-status="Processed">Переработана</span>
+            <span class="at-chip" data-status="OnSale">В продаже</span>
+            <span class="at-chip" data-status="Sold">Реализована</span>
+            <span class="at-chip" data-status="Blocked">Заблокирована</span>
+            <span class="at-chip" data-status="Recalled">Отозвана</span>
+            <span class="at-chip" data-status="WrittenOff">Списана</span>
+          </div>
+          <p class="ds-name" style="margin-top: var(--sp-5)">
+            .at-chip[data-tone] — накладные, анализы, отзывы, задачи
+          </p>
+          <div class="ds-row">
+            <span class="at-chip" data-tone="neutral">Черновик</span>
+            <span class="at-chip" data-tone="move">Отправлена</span>
+            <span class="at-chip" data-tone="ok">Принята</span>
+            <span class="at-chip" data-tone="danger">Отказано</span>
+            <span class="at-chip" data-tone="attention">Ожидает отбора пробы</span>
+            <span class="at-chip" data-tone="attention">Ожидает изъятия</span>
+            <span class="at-chip" data-tone="danger">Просрочено</span>
+            <span class="at-chip" data-tone="danger-solid">Открыт</span>
+            <span class="at-chip" data-status="Recalled" data-size="l">Отозвана</span>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-metric">
+          <h2 id="s-metric">Показатели</h2>
+          <div class="ds-grid">
+            <div class="at-metric">
+              <p class="at-metric__label">Партии в работе</p>
+              <p class="at-metric__value">38</p>
+              <div class="at-metric__spark" aria-hidden="true">
+                <svg
+                  viewBox="0 0 96 32"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="0,24 12,22 24,25 36,18 48,20 60,12 72,14 84,8 96,10" />
+                </svg>
+              </div>
+            </div>
+            <div class="at-metric">
+              <p class="at-metric__label">Масса на складе</p>
+              <p class="at-metric__value">212,4<span class="at-metric__unit">т</span></p>
+              <div class="at-metric__spark" aria-hidden="true">
+                <svg
+                  viewBox="0 0 96 32"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="0,10 12,12 24,9 36,14 48,16 60,15 72,20 84,19 96,22" />
+                </svg>
+              </div>
+            </div>
+            <div class="at-metric" data-tone="danger">
+              <p class="at-metric__label">Задачи отзыва просрочены</p>
+              <p class="at-metric__value">2<span class="at-metric__unit">из 12</span></p>
+              <div class="at-metric__spark" aria-hidden="true">
+                <svg
+                  viewBox="0 0 96 32"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="0,28 24,28 48,26 72,18 96,14" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-table">
+          <h2 id="s-table">Таблица</h2>
+          <div class="at-table-mobilebar">
+            <label class="at-check"
+              ><input type="checkbox" data-indeterminate /><span>Выбрать все</span></label
+            >
+            <label class="at-table-mobilebar__sort">
+              <span class="at-visually-hidden">Сортировка</span>
+              <select class="at-select">
+                <option>Сначала тяжёлые</option>
+                <option>Сначала лёгкие</option>
+                <option>По коду партии</option>
+                <option>Сначала новые</option>
+              </select>
+            </label>
+          </div>
+          <div class="at-table-wrap">
+            <table class="at-table" data-cards>
+              <thead>
+                <tr>
+                  <th class="at-table__select" scope="col">
+                    <label class="at-check"
+                      ><input type="checkbox" data-indeterminate aria-label="Выбрать все партии"
+                    /></label>
+                  </th>
+                  <th scope="col" aria-sort="none">
+                    <button class="at-table__sort" type="button">Партия</button>
+                  </th>
+                  <th scope="col">Статус</th>
+                  <th scope="col" data-numeric aria-sort="descending">
+                    <button class="at-table__sort" type="button">Масса, кг</button>
+                  </th>
+                  <th scope="col">Держатель</th>
+                  <th scope="col" aria-sort="none">
+                    <button class="at-table__sort" type="button">Дата уборки</button>
+                  </th>
+                  <th scope="col"><span class="at-visually-hidden">Действия</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-selected>
+                  <td class="at-table__select">
+                    <label class="at-check"
+                      ><input type="checkbox" checked aria-label="Выбрать AT-2026-000123"
+                    /></label>
+                  </td>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#b123">AT-2026-000123</a
+                      ><span class="at-table__sub">Пшеница озимая</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="Approved">Допущена</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>12 480,000</td>
+                  <td data-label="Держатель">КФХ Петров</td>
+                  <td data-label="Дата уборки">14.08.2026</td>
+                  <td class="at-table__actions">
+                    <button class="at-button" data-variant="secondary" data-size="s" type="button">
+                      Отгрузить
+                    </button>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="at-table__select">
+                    <label class="at-check"
+                      ><input type="checkbox" aria-label="Выбрать AT-2026-000118"
+                    /></label>
+                  </td>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#b118">AT-2026-000118</a
+                      ><span class="at-table__sub">Ячмень яровой</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="InTransit">В пути</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>8 050,500</td>
+                  <td data-label="Держатель">ООО «Мельница Заречье»</td>
+                  <td data-label="Дата уборки">09.08.2026</td>
+                  <td class="at-table__actions"></td>
+                </tr>
+                <tr>
+                  <td class="at-table__select">
+                    <label class="at-check"
+                      ><input type="checkbox" aria-label="Выбрать AT-2026-000112"
+                    /></label>
+                  </td>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#b112">AT-2026-000112</a
+                      ><span class="at-table__sub">Подсолнечник</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="OnTest">На анализе</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>5 320,000</td>
+                  <td data-label="Держатель">КФХ Петров</td>
+                  <td data-label="Дата уборки">02.08.2026</td>
+                  <td class="at-table__actions"></td>
+                </tr>
+                <tr>
+                  <td class="at-table__select">
+                    <label class="at-check"
+                      ><input type="checkbox" aria-label="Выбрать AT-2026-000097"
+                    /></label>
+                  </td>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#b097">AT-2026-000097</a
+                      ><span class="at-table__sub">Пшеница озимая</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="Recalled">Отозвана</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>3 900,000</td>
+                  <td data-label="Держатель">АО «Хлебозавод №3»</td>
+                  <td data-label="Дата уборки">28.07.2026</td>
+                  <td class="at-table__actions"></td>
+                </tr>
+                <tr>
+                  <td class="at-table__select">
+                    <label class="at-check"
+                      ><input type="checkbox" aria-label="Выбрать AT-2026-000090"
+                    /></label>
+                  </td>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#b090">AT-2026-000090</a
+                      ><span class="at-table__sub">Ячмень яровой</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="WrittenOff">Списана</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>640,250</td>
+                  <td data-label="Держатель">КФХ Петров</td>
+                  <td data-label="Дата уборки">21.07.2026</td>
+                  <td class="at-table__actions"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <nav class="at-pagination" aria-label="Страницы" style="margin-top: var(--sp-4)">
+            <p class="at-pagination__summary">1–20 из 248</p>
+            <ul class="at-pagination__pages">
+              <li>
+                <button class="at-pagination__item" type="button" aria-label="Предыдущая страница" disabled>
+                  <svg aria-hidden="true"><use href="#i-chevron-left" /></svg>
+                </button>
+              </li>
+              <li><a class="at-pagination__item" href="#p1" aria-current="page">1</a></li>
+              <li><a class="at-pagination__item" href="#p2">2</a></li>
+              <li><a class="at-pagination__item" href="#p3">3</a></li>
+              <li><span class="at-pagination__gap" aria-hidden="true">…</span></li>
+              <li><a class="at-pagination__item" href="#p13">13</a></li>
+              <li>
+                <a class="at-pagination__item" href="#p2" aria-label="Следующая страница">
+                  <svg aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                </a>
+              </li>
+            </ul>
+          </nav>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-table-field">
+          <h2 id="s-table-field">Поле в ячейке</h2>
+          <div class="at-table-wrap">
+            <table class="at-table" data-cards>
+              <thead>
+                <tr>
+                  <th class="at-table__select" scope="col">
+                    <label class="at-check"
+                      ><input type="checkbox" checked aria-label="Выбрать все партии"
+                    /></label>
+                  </th>
+                  <th scope="col">Партия</th>
+                  <th scope="col" data-numeric>Масса партии, кг</th>
+                  <th scope="col">Заявлено, кг</th>
+                  <th scope="col"><span class="at-visually-hidden">Действия</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-selected>
+                  <td class="at-table__select">
+                    <label class="at-check"
+                      ><input type="checkbox" checked aria-label="Выбрать AT-2026-000131"
+                    /></label>
+                  </td>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#b131">AT-2026-000131</a
+                      ><span class="at-table__sub">Пшеница озимая</span></span
+                    >
+                  </td>
+                  <td data-label="Масса партии, кг" data-numeric>123 456 789,000</td>
+                  <td data-label="Заявлено, кг">
+                    <div class="at-field">
+                      <div class="at-input-group">
+                        <input
+                          class="at-input"
+                          id="ds-declared-131"
+                          inputmode="decimal"
+                          value="123456789,000"
+                          aria-label="Заявленная масса AT-2026-000131"
+                        />
+                        <span class="at-input-group__suffix">кг</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="at-table__actions">
+                    <button class="at-button" data-variant="secondary" data-size="s" type="button">
+                      Переработать
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-card">
+          <h2 id="s-card">Карточки</h2>
+          <div class="ds-grid ds-grid--wide">
+            <article class="at-card">
+              <header class="at-card__header">
+                <h3 class="at-card__title at-mono">AT-2026-000123</h3>
+                <span class="at-chip" data-status="Approved">Допущена</span>
+              </header>
+              <div class="at-card__body">
+                <dl class="at-card__facts">
+                  <div>
+                    <dt>Продукт</dt>
+                    <dd>Пшеница озимая</dd>
+                  </div>
+                  <div>
+                    <dt>Масса</dt>
+                    <dd>12 480,000 кг</dd>
+                  </div>
+                  <div>
+                    <dt>Держатель</dt>
+                    <dd>КФХ Петров</dd>
+                  </div>
+                  <div>
+                    <dt>Дата уборки</dt>
+                    <dd>14.08.2026</dd>
+                  </div>
+                </dl>
+              </div>
+              <footer class="at-card__footer">
+                <button class="at-button" data-variant="primary" type="button">Отгрузить</button>
+                <button class="at-button" data-variant="ghost" type="button">Сформировать QR-код</button>
+              </footer>
+            </article>
+            <article class="at-card" data-furrow>
+              <div class="at-card__body">
+                <div class="ds-stack">
+                  <div class="ds-row">
+                    <span
+                      class="at-avatar"
+                      data-size="l"
+                      data-shape="square"
+                      role="img"
+                      aria-label="КФХ Петров"
+                      >КП</span
+                    >
+                    <div>
+                      <p style="font: 600 var(--fs-18) / var(--lh-18) var(--font-display)">Пшеница озимая</p>
+                      <p class="at-mono" style="color: var(--c-ink-muted)">AT-2026-000123</p>
+                    </div>
+                  </div>
+                  <span class="at-chip" data-status="OnSale" data-size="l">В продаже</span>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-tabs">
+          <h2 id="s-tabs">Вкладки, история</h2>
+          <div class="at-tabs" role="tablist" aria-label="Партия AT-2026-000123">
+            <button
+              class="at-tabs__tab"
+              role="tab"
+              id="t-history"
+              aria-selected="true"
+              aria-controls="p-history"
+              type="button"
+            >
+              История
+            </button>
+            <button
+              class="at-tabs__tab"
+              role="tab"
+              id="t-path"
+              aria-selected="false"
+              aria-controls="p-path"
+              tabindex="-1"
+              type="button"
+            >
+              Путь
+            </button>
+            <button
+              class="at-tabs__tab"
+              role="tab"
+              id="t-graph"
+              aria-selected="false"
+              aria-controls="p-graph"
+              tabindex="-1"
+              type="button"
+            >
+              Граф
+            </button>
+            <button
+              class="at-tabs__tab"
+              role="tab"
+              id="t-tests"
+              aria-selected="false"
+              aria-controls="p-tests"
+              tabindex="-1"
+              type="button"
+            >
+              Анализы <span class="at-tabs__count">3</span>
+            </button>
+            <button
+              class="at-tabs__tab"
+              role="tab"
+              id="t-docs"
+              aria-selected="false"
+              aria-controls="p-docs"
+              tabindex="-1"
+              type="button"
+            >
+              Документы
+            </button>
+          </div>
+          <div class="at-tabs__panel" role="tabpanel" id="p-history" aria-labelledby="t-history" tabindex="0">
+            <ol class="at-timeline">
+              <li class="at-timeline__item" data-tone="ok" data-current>
+                <time class="at-timeline__time" datetime="2026-08-19T11:05">19.08.2026, 11:05</time>
+                <p class="at-timeline__title">Допущена</p>
+                <p class="at-timeline__meta">
+                  <span class="at-avatar" data-size="s" role="img" aria-label="Мария Соколова">МС</span>Мария
+                  Соколова, ФГБУ «Липецкая МВЛ»
+                </p>
+              </li>
+              <li class="at-timeline__item" data-tone="attention">
+                <time class="at-timeline__time" datetime="2026-08-15T09:40">15.08.2026, 09:40</time>
+                <p class="at-timeline__title">На анализе</p>
+                <p class="at-timeline__meta">Проба отобрана</p>
+              </li>
+              <li class="at-timeline__item">
+                <time class="at-timeline__time" datetime="2026-08-14T17:20">14.08.2026, 17:20</time>
+                <p class="at-timeline__title">Создана</p>
+                <p class="at-timeline__meta">
+                  <span class="at-avatar" data-size="s" role="img" aria-label="Иван Петров">ИП</span>Иван
+                  Петров, КФХ Петров
+                </p>
+              </li>
+            </ol>
+          </div>
+          <div
+            class="at-tabs__panel"
+            role="tabpanel"
+            id="p-path"
+            aria-labelledby="t-path"
+            tabindex="0"
+            hidden
+          ></div>
+          <div
+            class="at-tabs__panel"
+            role="tabpanel"
+            id="p-graph"
+            aria-labelledby="t-graph"
+            tabindex="0"
+            hidden
+          ></div>
+          <div
+            class="at-tabs__panel"
+            role="tabpanel"
+            id="p-tests"
+            aria-labelledby="t-tests"
+            tabindex="0"
+            hidden
+          ></div>
+          <div
+            class="at-tabs__panel"
+            role="tabpanel"
+            id="p-docs"
+            aria-labelledby="t-docs"
+            tabindex="0"
+            hidden
+          ></div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-steps">
+          <h2 id="s-steps">Шаги, прогресс</h2>
+          <div class="ds-grid ds-grid--wide">
+            <ol class="at-stepper" aria-label="Переработка">
+              <li class="at-stepper__step" data-done>
+                <span class="at-stepper__marker">1</span><span class="at-stepper__label">Входы</span>
+              </li>
+              <li class="at-stepper__step" aria-current="step">
+                <span class="at-stepper__marker">2</span><span class="at-stepper__label">Выходы</span>
+              </li>
+              <li class="at-stepper__step">
+                <span class="at-stepper__marker">3</span
+                ><span class="at-stepper__label">Проверка баланса</span>
+              </li>
+            </ol>
+            <div class="ds-stack">
+              <div class="at-progress">
+                <span class="at-progress__label" id="pr-1">Подтверждено</span>
+                <span class="at-progress__value">7 из 12</span>
+                <progress class="at-progress__bar" max="12" value="7" aria-labelledby="pr-1"></progress>
+              </div>
+              <div class="at-progress" data-tone="danger">
+                <span class="at-progress__label" id="pr-2">Просрочено</span>
+                <span class="at-progress__value">2 из 12</span>
+                <progress class="at-progress__bar" max="12" value="2" aria-labelledby="pr-2"></progress>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-section ds-inline" aria-labelledby="s-dialog">
+          <h2 id="s-dialog">Диалог, уведомления</h2>
+          <div class="ds-grid ds-grid--wide">
+            <dialog class="at-dialog" open aria-labelledby="d-title">
+              <div class="at-dialog__header">
+                <h3 class="at-dialog__title" id="d-title">Запустить отзыв</h3>
+              </div>
+              <div class="at-dialog__body">
+                <p>
+                  Партия <b class="at-mono">AT-2026-000097</b> и 14 производных партий у 5 организаций будут
+                  отозваны.
+                </p>
+                <div class="at-field">
+                  <label class="at-field__label" for="d-code">Код партии</label>
+                  <input class="at-input at-mono" id="d-code" value="AT-2026-000097" />
+                </div>
+              </div>
+              <div class="at-dialog__actions">
+                <button class="at-button" data-variant="ghost" type="button">Отмена</button>
+                <button class="at-button" data-variant="danger" type="button">Запустить отзыв</button>
+              </div>
+            </dialog>
+            <div class="ds-stack">
+              <div class="at-toasts">
+                <div class="at-toast-region" role="alert">
+                  <div class="at-toast" data-tone="danger">
+                    <p class="at-toast__text">
+                      Отгрузка возможна после 25.09.2026<small>Срок ожидания препарата Хлорпирифос</small>
+                    </p>
+                    <button
+                      class="at-button"
+                      data-variant="ghost"
+                      data-size="s"
+                      data-icon-only
+                      type="button"
+                      aria-label="Закрыть"
+                    >
+                      <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="at-toast-region" aria-live="polite">
+                  <div class="at-toast" data-tone="ok">
+                    <p class="at-toast__text">Партия <span class="at-mono">AT-2026-000123</span> отгружена</p>
+                    <button
+                      class="at-button"
+                      data-variant="ghost"
+                      data-size="s"
+                      data-icon-only
+                      type="button"
+                      aria-label="Закрыть"
+                    >
+                      <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+                    </button>
+                  </div>
+                  <div class="at-toast" data-tone="move">
+                    <p class="at-toast__text">
+                      Входящая накладная <span class="at-mono">НК-2026-00481</span>
+                    </p>
+                    <button
+                      class="at-button"
+                      data-variant="ghost"
+                      data-size="s"
+                      data-icon-only
+                      type="button"
+                      aria-label="Закрыть"
+                    >
+                      <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <button
+                  class="at-button"
+                  data-variant="secondary"
+                  type="button"
+                  data-ds-open-dialog="d-modal"
+                >
+                  Открыть диалог
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-empty">
+          <h2 id="s-empty">Пусто, загрузка</h2>
+          <div class="ds-grid ds-grid--wide">
+            <div class="ds-frame">
+              <div class="at-empty">
+                <svg class="at-empty__art" aria-hidden="true" data-ds-art="empty-batches"></svg>
+                <p class="at-empty__text">Партий пока нет.</p>
+                <button class="at-button" data-variant="primary" type="button">
+                  Зарегистрировать партию
+                </button>
+              </div>
+            </div>
+            <div class="ds-frame" aria-busy="true" aria-label="Загрузка списка" role="region">
+              <div class="ds-stack" style="padding: var(--sp-5)">
+                <div class="ds-row" style="flex-wrap: nowrap">
+                  <span class="at-skeleton" data-shape="circle"></span>
+                  <span class="ds-stack" style="flex: 1; gap: 0">
+                    <span class="at-skeleton" data-shape="text" style="width: 45%"></span>
+                    <span class="at-skeleton" data-shape="text" style="width: 30%"></span>
+                  </span>
+                </div>
+                <span class="at-skeleton" data-shape="block"></span>
+                <span class="at-skeleton" data-shape="text"></span>
+                <span class="at-skeleton" data-shape="text" style="width: 80%"></span>
+                <span class="at-skeleton" data-shape="text" style="width: 60%"></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-avatar">
+          <h2 id="s-avatar">Аватары</h2>
+          <div class="ds-row">
+            <span class="at-avatar" data-size="s" role="img" aria-label="Иван Петров">ИП</span>
+            <span class="at-avatar" data-size="m" role="img" aria-label="Иван Петров">ИП</span>
+            <span class="at-avatar" data-size="l" role="img" aria-label="Иван Петров">ИП</span>
+            <span class="at-avatar" data-size="l"><img src="assets/wheat.svg" alt="Мария Соколова" /></span>
+            <span
+              class="at-avatar"
+              data-size="m"
+              data-shape="square"
+              role="img"
+              aria-label="ООО «Мельница Заречье»"
+              >МЗ</span
+            >
+            <span class="at-avatar" data-size="l" data-shape="square"
+              ><img src="assets/wheat.svg" alt="КФХ Петров"
+            /></span>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-graph">
+          <h2 id="s-graph">Граф партий</h2>
+          <div class="at-graph">
+            <div
+              class="at-graph__canvas"
+              role="img"
+              aria-label="Граф партии AT-2026-000097: 1 источник, 3 производные партии"
+            >
+              <svg
+                viewBox="0 0 640 300"
+                width="100%"
+                height="100%"
+                preserveAspectRatio="xMidYMid meet"
+                aria-hidden="true"
+                style="max-height: 360px; font: 500 12px var(--font-mono)"
+              >
+                <g style="stroke: var(--c-line-strong)" stroke-width="1.5" fill="none">
+                  <path
+                    d="M150 150C220 150 220 70 290 70M150 150h140M150 150C220 150 220 230 290 230M410 150C470 150 470 110 500 110M410 150C470 150 470 190 500 190"
+                  />
+                </g>
+                <g>
+                  <rect
+                    x="30"
+                    y="130"
+                    width="120"
+                    height="40"
+                    rx="20"
+                    style="fill: var(--status-recalled-bg)"
+                  />
+                  <text x="90" y="155" text-anchor="middle" style="fill: var(--status-recalled-fg)">
+                    AT-…000097
+                  </text>
+                  <rect
+                    x="290"
+                    y="50"
+                    width="120"
+                    height="40"
+                    rx="20"
+                    style="fill: var(--status-blocked-bg)"
+                  />
+                  <text x="350" y="75" text-anchor="middle" style="fill: var(--status-blocked-fg)">
+                    AT-…000131
+                  </text>
+                  <rect
+                    x="290"
+                    y="130"
+                    width="120"
+                    height="40"
+                    rx="20"
+                    style="fill: var(--status-blocked-bg)"
+                  />
+                  <text x="350" y="155" text-anchor="middle" style="fill: var(--status-blocked-fg)">
+                    AT-…000132
+                  </text>
+                  <rect x="290" y="210" width="120" height="40" rx="20" style="fill: var(--status-sold-bg)" />
+                  <text x="350" y="235" text-anchor="middle" style="fill: var(--status-sold-fg)">
+                    AT-…000140
+                  </text>
+                  <rect
+                    x="500"
+                    y="90"
+                    width="120"
+                    height="40"
+                    rx="20"
+                    style="fill: var(--status-blocked-bg)"
+                  />
+                  <text x="560" y="115" text-anchor="middle" style="fill: var(--status-blocked-fg)">
+                    AT-…000158
+                  </text>
+                  <rect
+                    x="500"
+                    y="170"
+                    width="120"
+                    height="40"
+                    rx="20"
+                    style="fill: var(--status-blocked-bg)"
+                  />
+                  <text x="560" y="195" text-anchor="middle" style="fill: var(--status-blocked-fg)">
+                    AT-…000159
+                  </text>
+                </g>
+              </svg>
+            </div>
+            <div class="at-graph__toolbar">
+              <button
+                class="at-button"
+                data-variant="ghost"
+                data-size="s"
+                data-icon-only
+                type="button"
+                aria-label="Приблизить"
+              >
+                <svg class="at-button__icon" aria-hidden="true"><use href="#i-plus" /></svg>
+              </button>
+              <button
+                class="at-button"
+                data-variant="ghost"
+                data-size="s"
+                data-icon-only
+                type="button"
+                aria-label="Отдалить"
+              >
+                <svg class="at-button__icon" aria-hidden="true"><use href="#i-minus" /></svg>
+              </button>
+            </div>
+            <ul class="at-graph__legend" aria-label="Обозначения">
+              <li><span class="at-chip" data-status="Recalled">Отозвана</span></li>
+              <li><span class="at-chip" data-status="Blocked">Заблокирована</span></li>
+              <li><span class="at-chip" data-status="Sold">Реализована</span></li>
+            </ul>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <dialog class="at-dialog" id="d-modal" aria-labelledby="d-modal-title">
+      <div class="at-dialog__header">
+        <h2 class="at-dialog__title" id="d-modal-title">Отказать в приёмке</h2>
+        <button
+          class="at-button"
+          data-variant="ghost"
+          data-icon-only
+          type="button"
+          aria-label="Закрыть"
+          data-ds-close
+        >
+          <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <div class="at-dialog__body">
+        <div class="at-field">
+          <label class="at-field__label" for="d-reason">Причина</label>
+          <textarea class="at-textarea" id="d-reason"></textarea>
+        </div>
+      </div>
+      <div class="at-dialog__actions">
+        <button class="at-button" data-variant="ghost" type="button" data-ds-close>Отмена</button>
+        <button class="at-button" data-variant="danger" type="button" data-ds-close>Отклонить</button>
+      </div>
+    </dialog>
+  </body>
+</html>

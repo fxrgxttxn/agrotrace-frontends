@@ -1,0 +1,113 @@
+# Уведомления (центр уведомлений и SSE).
+NotificationType:
+  type: string
+  description: >-
+    LAB_ASSIGNED — партия направлена на анализ; LAB_RESULT — результат анализа; WAYBILL_INCOMING — входящая накладная;
+    RECALL — отзыв; RECALL_TASK — задача отзыва; OVERDUE — просрочка задачи отзыва; COMPLAINT — жалоба;
+    LAB_OVERDUE — просроченная проба.
+  enum: [LAB_ASSIGNED, LAB_RESULT, WAYBILL_INCOMING, RECALL, RECALL_TASK, OVERDUE, COMPLAINT, LAB_OVERDUE]
+  example: RECALL_TASK
+Notification:
+  type: object
+  description: Внутреннее уведомление (канал IN_APP). `seq` монотонно растёт и служит `id` события SSE.
+  required: [id, seq, type, payload, isRead, createdAt]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    seq:
+      type: integer
+      minimum: 1
+    type:
+      $ref: '#/NotificationType'
+    payload:
+      type: object
+      additionalProperties: true
+      description: >-
+        Данные для текста и ссылки: ровно ключи, перечисленные для `type` в `contracts/rules/notifications.json`
+        (`types.<TYPE>.payload`).
+        Идентификаторы — uuid, даты — ISO 8601 UTC.
+    isRead:
+      type: boolean
+    createdAt:
+      $ref: './common.yaml#/DateTime'
+  example:
+    id: b7c8d9e0-f1a2-4b3c-8d4e-5f6a7b8c9d0e
+    seq: 1042
+    type: RECALL_TASK
+    payload:
+      recallId: 4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d
+      taskId: 5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e
+      batchId: 6c7d8e9f-0a1b-4c2d-9e3f-4a5b6c7d8e9f
+      publicCode: AT-2026-000123
+      dueAt: '2026-09-25T15:00:00Z'
+      event: CREATED
+    isRead: false
+    createdAt: '2026-09-24T09:00:12Z'
+UnreadCount:
+  type: object
+  required: [count]
+  additionalProperties: false
+  properties:
+    count:
+      type: integer
+      minimum: 0
+  example:
+    count: 3
+NotificationPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/Notification'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items:
+      - id: b7c8d9e0-f1a2-4b3c-8d4e-5f6a7b8c9d0e
+        seq: 1042
+        type: RECALL_TASK
+        payload:
+          recallId: 4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d
+          taskId: 5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e
+          batchId: 6c7d8e9f-0a1b-4c2d-9e3f-4a5b6c7d8e9f
+          publicCode: AT-2026-000123
+          dueAt: '2026-09-25T15:00:00Z'
+          event: CREATED
+        isRead: false
+        createdAt: '2026-09-24T09:00:12Z'
+    page: 1
+    size: 20
+    total: 1
+MarkReadRequest:
+  description: >-
+    Какие уведомления отметить прочитанными: `ids` — перечисленные (1–100 id собственных уведомлений канала IN_APP);
+    `upToSeq` — все собственные уведомления IN_APP с `seq` ≤ `upToSeq` («прочитать все» до последнего показанного).
+  oneOf:
+    - type: object
+      required: [ids]
+      additionalProperties: false
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: './common.yaml#/Uuid'
+    - type: object
+      required: [upToSeq]
+      additionalProperties: false
+      properties:
+        upToSeq:
+          type: integer
+          minimum: 1
+  example:
+    ids: [b7c8d9e0-f1a2-4b3c-8d4e-5f6a7b8c9d0e]

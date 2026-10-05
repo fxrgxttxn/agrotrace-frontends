@@ -1,0 +1,333 @@
+<div class="at-page__header" [pageTitle]="'Витрина компонентов'">
+  <div class="at-page__actions"><fieldset class="at-field" [themeSwitch]="true"></fieldset></div>
+</div>
+
+<section aria-labelledby="ds-buttons" [style]="SECTION">
+  <h2 id="ds-buttons" [style]="HEADING">at-button</h2>
+  <div [style]="ROW">
+    <button class="at-button" [variant]="'primary'" [icon]="'truck'">Отгрузить</button>
+    <button class="at-button">Принять</button>
+    <button class="at-button" [variant]="'ghost'">Отмена</button>
+    <button class="at-button" [variant]="'danger'">Запустить отзыв</button>
+    <button class="at-button" [size]="'s'">Маленькая</button>
+    <button class="at-button" [iconOnly]="true" [icon]="'download'" aria-label="Скачать список"></button>
+    <button class="at-button" [variant]="'primary'" [busy]="true">Сохранить</button>
+    <button class="at-button" disabled>Недоступна</button>
+  </div>
+</section>
+
+<section aria-labelledby="ds-fields" [style]="SECTION">
+  <h2 id="ds-fields" [style]="HEADING">at-field, at-input, at-date, at-combobox, at-select</h2>
+  <div [style]="ROW">
+    <div class="at-field" [fieldId]="'ds-mass'" [label]="'Масса'" [error]="'Обязательное поле'">
+      <input class="at-input" />
+    </div>
+    <div class="at-field" [fieldId]="'ds-inn'" [label]="'ИНН'">
+      <input class="at-input at-mono" inputmode="numeric" value="7701234567" />
+    </div>
+    <div class="at-field" [fieldId]="'ds-kg'" [label]="'Масса'">
+      <div class="at-input-group" [suffix]="'кг'">
+        <input class="at-input" inputmode="decimal" value="12 480,000" />
+      </div>
+    </div>
+    <div class="at-field" [fieldId]="'ds-ro'" [label]="'Рассчитано'">
+      <input class="at-input" readonly value="98,40 %" />
+    </div>
+    <div class="at-field" [fieldId]="'ds-cat'" [label]="'Категория'">
+      <select class="at-select">
+        <option value="grain" selected>Зерно</option>
+        <option value="milk">Молоко</option>
+      </select>
+    </div>
+    <div
+      class="at-field"
+      [fieldId]="'ds-date'"
+      [label]="'Дата уборки'"
+      [error]="dateError() ? 'Недопустимый формат даты' : null"
+    >
+      <div
+        class="at-date"
+        [value]="iso()"
+        [max]="'2026-09-25'"
+        (valueChange)="iso.set($event)"
+        (validate)="dateError.set($event)"
+      ></div>
+    </div>
+    <div class="at-field" [fieldId]="'ds-product'" [label]="'Продукт'">
+      <div
+        class="at-combobox"
+        [listLabel]="'Продукт'"
+        [query]="query()"
+        [options]="options()"
+        [selected]="chosen()"
+        (queryChange)="query.set($event)"
+        (chosen)="pickProduct($event)"
+      ></div>
+    </div>
+    <div class="at-field" [fieldId]="'ds-loading'" [label]="'Лаборатория'">
+      <div
+        class="at-combobox"
+        [listLabel]="'Лаборатория'"
+        [query]="'аг'"
+        [options]="[]"
+        [loading]="true"
+      ></div>
+    </div>
+    <div class="at-field" [fieldId]="'ds-comment'" [label]="'Комментарий'">
+      <textarea class="at-textarea"></textarea>
+    </div>
+    <div class="at-field" [fieldId]="'ds-off'" [label]="'Недоступно'">
+      <input class="at-input" disabled />
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="ds-choice" [style]="SECTION">
+  <h2 id="ds-choice" [style]="HEADING">at-check, at-radio, at-switch</h2>
+  <div [style]="ROW">
+    <fieldset class="at-field" [legend]="'Каналы'">
+      <label class="at-check" [label]="'Email'" [checked]="true"></label>
+      <label class="at-check" [label]="'Telegram'"></label>
+      <label class="at-check" [label]="'Частично'" [indeterminate]="true"></label>
+    </fieldset>
+    <fieldset class="at-field" [legend]="'Решение'" [direction]="'row'">
+      <label
+        class="at-radio"
+        [name]="'ds-decision'"
+        [value]="'APPROVE'"
+        [label]="'Допустить'"
+        [checked]="true"
+      ></label>
+      <label class="at-radio" [name]="'ds-decision'" [value]="'REJECT'" [label]="'Отклонить'"></label>
+    </fieldset>
+    <button class="at-switch" [checked]="on()" (toggled)="on.set($event)">Уведомления в Telegram</button>
+  </div>
+</section>
+
+<section aria-labelledby="ds-file" [style]="SECTION">
+  <h2 id="ds-file" [style]="HEADING">at-file</h2>
+  <div [style]="ROW">
+    <div style="width: min(100%, 420px)">
+      <div
+        class="at-field"
+        [fileId]="'ds-proto'"
+        [label]="'Протокол анализа'"
+        [accept]="'application/pdf,image/*'"
+        [hint]="'PDF, JPG или PNG до 10 МБ'"
+        [files]="files"
+      ></div>
+    </div>
+    <div style="width: min(100%, 420px)">
+      <div
+        class="at-field"
+        [fileId]="'ds-proto2'"
+        [label]="'Протокол анализа'"
+        [accept]="'application/pdf'"
+        [error]="'Файл слишком большой'"
+        [files]="badFiles"
+      ></div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="ds-chips" [style]="SECTION">
+  <h2 id="ds-chips" [style]="HEADING">at-chip</h2>
+  <div [style]="ROW">
+    @for (s of statuses; track s) {
+    <span class="at-chip" [status]="s"></span>
+    } @for (tone of tones; track tone) {
+    <span class="at-chip" [tone]="tone">{{ tone }}</span>
+    }
+    <span class="at-chip" [status]="'Recalled'" [size]="'l'"></span>
+  </div>
+</section>
+
+<section aria-labelledby="ds-table" [style]="SECTION">
+  <h2 id="ds-table" [style]="HEADING">at-table, at-pagination</h2>
+  <div [style]="ROW">
+    <div style="width: 100%">
+      <div
+        class="at-table-mobilebar"
+        [table]="tbl"
+        [sortOptions]="[
+          { value: 'massKg,desc', label: 'Масса, по убыванию' },
+          { value: 'code,asc', label: 'Код партии' },
+        ]"
+      ></div>
+      <div
+        class="at-table-wrap"
+        #tbl="atTable"
+        [cards]="true"
+        [caption]="'Партии'"
+        [rows]="rows"
+        [rowKey]="rowKey"
+        [sort]="sort()"
+        [selection]="selection()"
+        (sortChange)="sort.set($event)"
+        (selectionChange)="selected.set($event)"
+      >
+        <ng-template [atColumn]="'code'" [header]="'Партия'" [primary]="true" [sortField]="'code'" let-r>
+          <span class="at-table__primary" [href]="'/_ds'" [code]="r.code" [sub]="r.product"></span>
+        </ng-template>
+        <ng-template [atColumn]="'status'" [header]="'Статус'" [status]="true" let-r>
+          <span class="at-chip" [status]="r.status"></span>
+        </ng-template>
+        <ng-template [atColumn]="'mass'" [header]="'Масса, кг'" [numeric]="true" [sortField]="'massKg'" let-r
+          >{{ r.mass }}</ng-template
+        >
+        <ng-template atRowActions let-r>
+          @if (r.status === 'Approved') {
+          <button class="at-button" [size]="'s'" [icon]="'truck'">Отгрузить</button>
+          }
+        </ng-template>
+      </div>
+      <nav class="at-pagination" [page]="2" [size]="20" [total]="248" [hrefFor]="hrefFor"></nav>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="ds-card" [style]="SECTION">
+  <h2 id="ds-card" [style]="HEADING">at-card, at-tabs, at-stepper, at-timeline, at-progress, at-metric</h2>
+  <div [style]="ROW">
+    <div style="width: min(100%, 420px)">
+      <article class="at-card">
+        <header class="at-card__header" [cardTitle]="'AT-2026-000123'">
+          <span class="at-chip" [status]="'Approved'"></span>
+        </header>
+        <div class="at-card__body">
+          <dl
+            class="at-card__facts"
+            [facts]="[
+              { term: 'Масса', value: '12 480,000 кг' },
+              { term: 'Держатель', value: 'КФХ Петров' },
+            ]"
+          ></dl>
+        </div>
+        <footer class="at-card__footer">
+          <button class="at-button" [variant]="'primary'">Отгрузить</button>
+        </footer>
+      </article>
+    </div>
+    <div style="width: min(100%, 520px)">
+      <div
+        class="at-tabs"
+        [label]="'Партия AT-2026-000123'"
+        [tabs]="[
+          { id: 'history', label: 'История' },
+          { id: 'path', label: 'Путь' },
+          { id: 'tests', label: 'Анализы', count: 3 },
+        ]"
+        [selected]="tab()"
+        (select)="tab.set($event)"
+      >
+        <ng-template [atTabPanel]="'history'">
+          <ol class="at-timeline" [items]="timeline">
+            <ng-template #meta let-item>
+              @if (item.meta) {
+              <span class="at-avatar" [name]="'Мария Соколова'" [size]="'s'" [decorative]="true"></span>{{
+              item.meta }} }
+            </ng-template>
+          </ol>
+        </ng-template>
+        <ng-template [atTabPanel]="'path'">
+          <ol
+            class="at-stepper"
+            [label]="'Переработка'"
+            [steps]="['Входы', 'Выходы', 'Проверка баланса']"
+            [current]="1"
+          ></ol>
+        </ng-template>
+        <ng-template [atTabPanel]="'tests'">
+          <div
+            class="at-progress"
+            [progressId]="'ds-progress'"
+            [label]="'Подтверждено'"
+            [value]="7"
+            [max]="12"
+          ></div>
+        </ng-template>
+      </div>
+    </div>
+    <div
+      class="at-metric"
+      [label]="'Масса на складе'"
+      [value]="'212,4'"
+      [unit]="'т'"
+      [spark]="[3, 5, 4, 7, 6, 9]"
+    ></div>
+    <div
+      class="at-metric"
+      [label]="'Доля брака'"
+      [value]="'2,4'"
+      [unit]="'%'"
+      [tone]="'danger'"
+      [spark]="[1, 2, 2, 3, 5, 4]"
+    ></div>
+    <div
+      class="at-progress"
+      [progressId]="'ds-progress-danger'"
+      [label]="'Изъято'"
+      [value]="2"
+      [max]="12"
+      [tone]="'danger'"
+    ></div>
+  </div>
+</section>
+
+<section aria-labelledby="ds-feedback" [style]="SECTION">
+  <h2 id="ds-feedback" [style]="HEADING">at-dialog, at-toast, at-spinner, at-skeleton, at-avatar</h2>
+  <div [style]="ROW">
+    <button class="at-button" [variant]="'danger'" (click)="open.set(true)">Запустить отзыв</button>
+    <button class="at-button" (click)="toast(false)">Тост</button>
+    <button class="at-button" (click)="toast(true)">Тост-ошибка</button>
+    <dialog class="at-dialog" [open]="open()" [dialogTitle]="'Запустить отзыв'" (closed)="open.set(false)">
+      <div class="at-field" [fieldId]="'ds-recall-code'" [label]="'Код партии'">
+        <input
+          class="at-input at-mono"
+          autocomplete="off"
+          [value]="code()"
+          (input)="code.set($any($event.target).value)"
+        />
+      </div>
+      <div class="at-dialog__actions">
+        <button class="at-button" [variant]="'ghost'" (click)="open.set(false)">Отмена</button>
+        <button
+          class="at-button"
+          [variant]="'danger'"
+          [disabled]="code() !== 'AT-2026-000123'"
+          (click)="open.set(false)"
+        >
+          Запустить отзыв
+        </button>
+      </div>
+    </dialog>
+    <span class="at-spinner"></span>
+    <div aria-busy="true" style="display: grid; gap: var(--sp-2); width: 240px">
+      <span class="at-skeleton" [width]="'60%'"></span>
+      <span class="at-skeleton" [shape]="'block'"></span>
+      <span class="at-skeleton" [shape]="'circle'"></span>
+    </div>
+    <span class="at-avatar" [name]="'Иван Петров'"></span>
+    <span class="at-avatar" [name]="'Иван Петров'" [size]="'l'"></span>
+    <span class="at-avatar" [name]="'КФХ Петров'" [shape]="'square'" [size]="'l'"></span>
+  </div>
+</section>
+
+<section aria-labelledby="ds-art" [style]="SECTION">
+  <h2 id="ds-art" [style]="HEADING">Иллюстрации, at-empty</h2>
+  <div [style]="ROW">
+    @for (art of arts; track art) {
+    <article class="at-card">
+      <div class="at-card__body">
+        <svg class="at-empty__art" [art]="art"></svg>
+        <p class="at-mono">{{ art }}</p>
+      </div>
+    </article>
+    }
+    <article class="at-card">
+      <div class="at-empty" [art]="'empty-batches'" [text]="'Партий пока нет.'">
+        <button class="at-button" [variant]="'primary'">Зарегистрировать партию</button>
+      </div>
+    </article>
+  </div>
+</section>

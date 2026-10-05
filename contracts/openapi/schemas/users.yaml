@@ -1,0 +1,254 @@
+# Профиль текущего пользователя и сотрудники организации.
+UserStatus:
+  type: string
+  description: INVITED — приглашён, пароль не задан; ACTIVE — активен; BLOCKED — заблокирован руководителем или администратором.
+  enum: [INVITED, ACTIVE, BLOCKED]
+  example: ACTIVE
+NotificationChannels:
+  type: object
+  description: >-
+    Каналы внешних уведомлений. Внутренние уведомления (IN_APP) не отключаются; уведомления об отзыве
+    отправляются во все доступные каналы независимо от настроек (FR-NOTIF-03).
+  required: [email, telegram, telegramLinked]
+  additionalProperties: false
+  properties:
+    email:
+      type: boolean
+    telegram:
+      type: boolean
+    telegramLinked:
+      type: boolean
+      description: Аккаунт Telegram привязан через одноразовый код.
+  example:
+    email: true
+    telegram: true
+    telegramLinked: true
+ChannelsUpdate:
+  type: object
+  description: '`telegram: true` допускается только при привязанном Telegram, иначе 400 VALIDATION (`errors.telegram`).'
+  required: [email, telegram]
+  additionalProperties: false
+  properties:
+    email:
+      type: boolean
+    telegram:
+      type: boolean
+  example:
+    email: true
+    telegram: false
+TelegramCode:
+  type: object
+  description: Одноразовый код привязки Telegram; пользователь отправляет его боту `/start <code>`.
+  required: [code, expiresAt, botUsername]
+  additionalProperties: false
+  properties:
+    code:
+      type: string
+      pattern: '^[A-Z0-9]{8}$'
+    expiresAt:
+      $ref: './common.yaml#/DateTime'
+    botUsername:
+      type: string
+      pattern: '^[A-Za-z0-9_]{5,32}$'
+      description: Имя бота без `@` — значение `TELEGRAM_BOT_USERNAME` конфигурации развёртывания (P14).
+  example:
+    code: K7M2Q9XA
+    expiresAt: '2026-09-24T08:45:00Z'
+    botUsername: agrotrace_bot
+Me:
+  type: object
+  required: [id, email, fullName, phone, avatarUrl, roles, organization, isOrgAdmin, totpEnabled, channels]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    email:
+      $ref: './common.yaml#/Email'
+    fullName:
+      type: string
+    phone:
+      type: [string, 'null']
+      pattern: '^\+[1-9]\d{6,14}$'
+    avatarUrl:
+      $ref: './common.yaml#/NullableSignedFileUrl'
+    roles:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        $ref: './common.yaml#/RoleCode'
+    organization:
+      $ref: './common.yaml#/OrganizationRef'
+    isOrgAdmin:
+      type: boolean
+      description: Руководитель организации.
+    totpEnabled:
+      type: boolean
+    channels:
+      $ref: '#/NotificationChannels'
+  example:
+    id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+    email: petrov@kfh-petrov.ru
+    fullName: Петров Иван Сергеевич
+    phone: '+79181234567'
+    avatarUrl: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+    roles: [FARMER]
+    organization:
+      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+      name: КФХ Петров
+      type: FARM
+      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+    isOrgAdmin: true
+    totpEnabled: false
+    channels:
+      email: true
+      telegram: false
+      telegramLinked: false
+MeUpdate:
+  type: object
+  description: >-
+    Частичное изменение профиля; `phone: null` удаляет телефон.
+  minProperties: 1
+  additionalProperties: false
+  properties:
+    fullName:
+      $ref: './common.yaml#/NameString'
+    phone:
+      type: [string, 'null']
+      pattern: '^\+[1-9]\d{6,14}$'
+  example:
+    fullName: Петров Иван Сергеевич
+    phone: '+79181234567'
+User:
+  type: object
+  required: [id, email, fullName, phone, avatarUrl, roles, isOrgAdmin, status, organization]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    email:
+      $ref: './common.yaml#/Email'
+    fullName:
+      type: string
+    phone:
+      type: [string, 'null']
+      pattern: '^\+[1-9]\d{6,14}$'
+    avatarUrl:
+      $ref: './common.yaml#/NullableSignedFileUrl'
+    roles:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        $ref: './common.yaml#/RoleCode'
+    isOrgAdmin:
+      type: boolean
+    status:
+      $ref: '#/UserStatus'
+    organization:
+      $ref: './common.yaml#/OrganizationRef'
+  example:
+    id: 6d7e8f9a-0b1c-4d2e-8f3a-4b5c6d7e8f9a
+    email: sidorova@kfh-petrov.ru
+    fullName: Сидорова Анна Викторовна
+    phone: null
+    avatarUrl: null
+    roles: [FARMER]
+    isOrgAdmin: false
+    status: INVITED
+    organization:
+      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+      name: КФХ Петров
+      type: FARM
+      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+UserPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/User'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items:
+      - id: 6d7e8f9a-0b1c-4d2e-8f3a-4b5c6d7e8f9a
+        email: sidorova@kfh-petrov.ru
+        fullName: Сидорова Анна Викторовна
+        phone: '+79184567890'
+        avatarUrl: null
+        roles: [FARMER]
+        isOrgAdmin: false
+        status: ACTIVE
+        organization:
+          id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+          name: КФХ Петров
+          type: FARM
+          logoUrl: null
+    page: 1
+    size: 20
+    total: 1
+UserInvite:
+  type: object
+  description: >-
+    Приглашение сотрудника (FR-IAM-02): создаётся пользователь со статусом INVITED и отправляется письмо
+    со ссылкой-токеном. `organizationId` задаёт только ADMIN (иначе 400); руководитель приглашает в свою организацию.
+    Роли должны соответствовать типу организации (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB,
+    RETAILER→RETAILER, AUTHORITY→INSPECTOR, PLATFORM→ADMIN): набор ролей — ровно роль типа организации, иначе 400
+    VALIDATION `errors.roles: [validation.notAllowed]` (P14). Занятый email — 400 VALIDATION (`errors.email: [validation.email.taken]`).
+  required: [email, fullName, roles, isOrgAdmin]
+  additionalProperties: false
+  properties:
+    email:
+      $ref: './common.yaml#/Email'
+    fullName:
+      $ref: './common.yaml#/NameString'
+    roles:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        $ref: './common.yaml#/RoleCode'
+    isOrgAdmin:
+      type: boolean
+    organizationId:
+      $ref: './common.yaml#/Uuid'
+  example:
+    email: sidorova@kfh-petrov.ru
+    fullName: Сидорова Анна Викторовна
+    roles: [FARMER]
+    isOrgAdmin: false
+UserPatch:
+  type: object
+  description: >-
+    Изменение ролей, признака руководителя и статуса сотрудника. Переходы статуса: только ACTIVE → BLOCKED
+    и BLOCKED → ACTIVE (блокировка отзывает refresh-токены пользователя); INVITED → ACTIVE выполняется только
+    через `POST /auth/accept-invite` — любое изменение `status` у пользователя INVITED даёт 409 INVALID_TRANSITION
+    (`params.from`, `params.to`); `status`, равный текущему, — без изменений (200). Роли должны соответствовать
+    типу организации пользователя (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB, RETAILER→RETAILER,
+    AUTHORITY→INSPECTOR, PLATFORM→ADMIN): набор ролей — ровно роль типа организации, иначе 400 VALIDATION
+    `errors.roles: [validation.notAllowed]` (P14). Изменить собственные роли, признак руководителя или статус нельзя:
+    каждое из этих полей, присутствующее в теле запроса к самому себе (даже с текущим значением), — 400 VALIDATION
+    `errors.<поле>: [validation.notAllowed]` (P14).
+  minProperties: 1
+  additionalProperties: false
+  properties:
+    roles:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        $ref: './common.yaml#/RoleCode'
+    isOrgAdmin:
+      type: boolean
+    status:
+      type: string
+      enum: [ACTIVE, BLOCKED]
+  example:
+    status: BLOCKED

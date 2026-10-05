@@ -1,0 +1,445 @@
+# Модуль Dictionaries (п. 7.2, FR-ADM-02, FR-ANL-05). Чтение — все авторизованные, изменение — ADMIN.
+/dictionaries/{name}:
+  get:
+    operationId: listDictionary
+    summary: Строки справочника
+    description: |
+      Строки справочника `name` (схема строки — `DictionaryEntry`: products → `Product`, substances → `Substance`,
+      indicators → `Indicator`, norms → `Norm`, regions → `RegionEntry`). Читают все авторизованные роли (п. 4.3; в том
+      числе `lossNormPercent` продуктов — T9 note b). Мягко удалённые строки (products, substances, indicators) не
+      отдаются, кроме `includeDeleted=true` (только ADMIN). Фильтры (объединяются по И; параметр, неприменимый к
+      справочнику или недоступный роли, — 400 `errors.<параметр>: [validation.<параметр>.notAllowed]`, R51):
+
+      - `q` — подстрока без учёта регистра: названия (products, substances, indicators), названия продукта или
+        показателя (norms), названия или кода (regions);
+      - `category` — только products; `type` — только substances; `productId`, `indicatorId` — только norms;
+      - `includeDeleted` — только ADMIN и только products, substances, indicators; параметр, переданный роли без
+        права или для norms/regions, — 400 при любом значении, в том числе `false` (P23).
+
+      Сортировка — `x-sort`; `name` для norms — название продукта, затем название показателя; для regions — название.
+    tags: [Dictionaries]
+    x-roles: [ANY]
+    x-sort:
+      fields: [name]
+      default: name,asc
+    parameters:
+      - $ref: '../components/parameters.yaml#/DictionaryName'
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: category
+        in: query
+        description: Категория продукта (только products).
+        schema:
+          $ref: '../schemas/common.yaml#/ProductCategory'
+      - name: type
+        in: query
+        description: Тип препарата (только substances).
+        schema:
+          $ref: '../schemas/common.yaml#/SubstanceType'
+      - name: productId
+        in: query
+        description: Нормативы продукта (только norms).
+        schema:
+          type: string
+          format: uuid
+      - name: indicatorId
+        in: query
+        description: Нормативы показателя (только norms).
+        schema:
+          type: string
+          format: uuid
+      - name: includeDeleted
+        in: query
+        description: Включить мягко удалённые строки (только ADMIN).
+        schema:
+          type: boolean
+          default: false
+    responses:
+      '200':
+        description: Страница строк справочника.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dictionaries.yaml#/DictionaryPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  post:
+    operationId: createDictionaryEntry
+    summary: Добавление строки справочника
+    description: |
+      Добавляет строку справочника `name`; тело — схема этого справочника (`DictionaryInput`), тело другой схемы — 400.
+      Порядок проверок: тело — 400; ссылки norms (`productId`, `indicatorId` — неудалённые) — 400
+      `validation.notFound`; уникальность — 400 `validation.duplicate`:
+
+      - products, substances, indicators — `name` (точное совпадение с учётом регистра, среди всех строк, включая мягко
+        удалённые): совпадение с неудалённой строкой — `errors.name: [validation.duplicate]`; совпадение с мягко
+        удалённой — эта строка восстанавливается (`deletedAt` = null) со значениями из тела, ответ 201 с её `id`;
+      - regions — `code` (`errors.code`); norms — пара (`productId`, `indicatorId`) (`errors.indicatorId`).
+
+      Ответ 201 — созданная строка (схема строки справочника). Запись аудита — `entityType` по справочнику
+      (product, substance, indicator, norm, region).
+    tags: [Dictionaries]
+    x-roles: [ADMIN]
+    parameters:
+      - $ref: '../components/parameters.yaml#/DictionaryName'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/dictionaries.yaml#/DictionaryInput'
+          examples:
+            product:
+              summary: products
+              value:
+                name: Ячмень яровой
+                category: GRAIN
+                lossNormPercent: '3.50'
+            dairyProduct:
+              summary: products (с кодом Меркурия для импорта ВСД, R81)
+              value:
+                name: Молоко сырое козье
+                category: DAIRY
+                lossNormPercent: '1.00'
+                mercuryCode: '10.51.12'
+            norm:
+              summary: norms
+              value:
+                productId: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+                indicatorId: 2b4d6f8a-0c2e-4a4b-8d6f-8a0c2e4b6d8f
+                maxValue: '500'
+    responses:
+      '201':
+        description: Строка создана (или восстановлена).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dictionaries.yaml#/DictionaryEntry'
+            example:
+              id: 1b3d5f7a-9c1e-4b3d-8f7a-9c1e3b5d7f9a
+              name: Ячмень яровой
+              category: GRAIN
+              lossNormPercent: '3.50'
+              mercuryCode: null
+              imageUrl: null
+              createdAt: '2026-09-24T12:00:00Z'
+              updatedAt: '2026-09-24T12:00:00Z'
+              deletedAt: null
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/dictionaries/{name}/{id}:
+  put:
+    operationId: updateDictionaryEntry
+    summary: Изменение строки справочника
+    description: >-
+      Полностью заменяет редактируемые поля строки (тело — схема справочника, как при создании). Строка не существует
+      или мягко удалена — 404. Уникальность — как при создании, но совпадение с любой другой строкой (в том числе мягко
+      удалённой) — 400 `validation.duplicate`. Тело, совпадающее со строкой (десятичные значения — численно), — не
+      изменение: строка не записывается (`updatedAt` прежний), записи аудита нет (P23). Изменение норматива не меняет уже внесённые результаты анализов
+      (`normValue` — снимок) и применяется к анализам, результаты которых ещё не внесены. Ответ — изменённая строка.
+    tags: [Dictionaries]
+    x-roles: [ADMIN]
+    parameters:
+      - $ref: '../components/parameters.yaml#/DictionaryName'
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/dictionaries.yaml#/DictionaryInput'
+          example:
+            name: Хлорпирифос
+            type: PESTICIDE
+            waitingPeriodDays: 45
+    responses:
+      '200':
+        description: Строка изменена.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dictionaries.yaml#/DictionaryEntry'
+            example:
+              id: 9e1f3a5b-7c9d-4e0f-a2b4-c6d8e0f2a4b6
+              name: Хлорпирифос
+              type: PESTICIDE
+              waitingPeriodDays: 45
+              createdAt: '2026-06-01T00:00:00Z'
+              updatedAt: '2026-09-24T12:00:00Z'
+              deletedAt: null
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  delete:
+    operationId: deleteDictionaryEntry
+    summary: Удаление строки справочника
+    description: |
+      Удаляет строку справочника (запись аудита). Строка не существует или уже мягко удалена — 404.
+
+      - products, substances, indicators — мягкое удаление (`deleted_at`): строка исчезает из списков и выбора,
+        существующие партии, обработки, нормативы и результаты сохраняют ссылку; показатель после удаления не входит
+        в `LabTest.norms` новых вводов результатов;
+      - norms — физическое удаление (колонки `deleted_at` нет; результаты анализов хранят снимок норматива);
+      - regions — физическое удаление, только если на регион не ссылается ни одна организация и ни одно поле (включая
+        мягко удалённые), иначе 409 REFERENCE_IN_USE `{usedBy}` — список таблиц в порядке `organizations`, `fields`.
+
+      Запись аудита физического удаления (norms, regions) — `diff` вида «поле → `[значение до, null]`» по всем
+      непустым полям удалённой строки (зеркально созданию, P23).
+    tags: [Dictionaries]
+    x-roles: [ADMIN]
+    parameters:
+      - $ref: '../components/parameters.yaml#/DictionaryName'
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '204':
+        description: Строка удалена.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: На регион есть ссылки (REFERENCE_IN_USE).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/reference-in-use
+              title: Reference in use
+              status: 409
+              code: REFERENCE_IN_USE
+              params:
+                usedBy: [organizations, fields]
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/dictionaries/{name}/import:
+  post:
+    operationId: importDictionary
+    summary: Импорт справочника
+    description: |
+      Импорт строк справочника из CSV или XLSX (FR-ANL-05, п. 8.6): файл до 5 МБ (≤ 5 242 880 байт), не хранится,
+      результат — `ImportReport`. Импорт только добавляет и изменяет строки, никогда не удаляет.
+
+      Формат файла:
+
+      - CSV — UTF-8 (BOM `EF BB BF` в начале допускается и пропускается), разделитель `;`, кавычки по RFC 4180 (`"`,
+        внутри — `""`), концы строк CRLF или LF; некорректный UTF-8 или незакрытая кавычка — 400
+        `errors.file: [validation.import.format]`;
+      - XLSX — первый лист книги; строки и колонки листа как в CSV (строка 1 — заголовок, колонка A — первая); строковые
+        ячейки берутся как есть; числовые — десятичной записью кратчайшего вида, однозначно восстанавливающего значение
+        (`2` → `"2"`, `0.1` → `"0.1"`, без экспоненты); ячейки других типов (дата, логическая, ошибка) — ошибка строки
+        `validation.pattern` для этой колонки; лист не хранит пустых ячеек, поэтому строка листа короче заголовка
+        дополняется пустыми ячейками, а длиннее — ошибка `validation.import.columns`. Пределы книги (P23): не больше
+        64 элементов архива, не больше 16 МиБ на элемент и 32 МиБ в сумме (и по объявленным размерам, и по фактически
+        распакованным байтам), не больше 20 000 элементов `<row>` на листе (включая пустые), не больше 64 ячеек в
+        строке, не больше 10 с на чтение; превышение — 415 UNSUPPORTED_MEDIA_TYPE `{allowed, reason:
+        "workbook-too-large"}`; ZIP, не являющийся книгой, или книга, которую нельзя прочитать, — 415 `{allowed}`;
+      - строка 1 — заголовок, ровно эти имена колонок в этом порядке: products `name;category;lossNormPercent`;
+        substances `name;type;waitingPeriodDays`; indicators `name;unit`; norms `product;indicator;maxValue`; regions
+        `code;name`. Иной заголовок — 400 `errors.file: [validation.import.header]` (файл не обрабатывается);
+      - строки, все ячейки которых пусты, пропускаются; более 10 000 непустых строк данных — 400
+        `errors.file: [validation.import.tooManyRows]` (проверяется при чтении файла, до проверки заголовка, P23); номер строки в отчёте — номер записи CSV / строки листа с 1
+        (заголовок — 1), пропущенные пустые строки тоже считаются;
+      - значения не обрезаются (R36). Правила значений — как у `DictionaryInput`, кроме: `lossNormPercent` —
+        `^\d{1,3}(\.\d{1,2})?$` и не больше 100 (сохраняется с двумя знаками, R23); `waitingPeriodDays` — `^\d{1,4}$`
+        и не больше 3650; `maxValue` — `Decimal`; `category`, `type` — коды перечислений; `product`, `indicator` —
+        точное название неудалённого продукта / показателя (иначе `validation.notFound`). Ключи ошибок значений (P23):
+        пустая ячейка — `validation.required`; строка длиннее `maxLength` — `validation.maxLength`; строка только из
+        пробельных символов или число не по шаблону — `validation.pattern`; число больше предела — `validation.max`;
+        значение не из перечисления — `validation.enum`.
+
+      Обработка — строки по порядку, в одной транзакции: строка с неверным числом ячеек — ошибка
+      `{column: null, message: validation.import.columns}`; ошибки значений — по колонкам; ошибки одной строки — в порядке колонок заголовка, у одной колонки
+      `validation.duplicate` — после ошибок её значения (P23); повтор ключа в файле
+      (products/substances/indicators — `name`, regions — `code`, norms — пара `product` + `indicator`) — ошибка
+      `validation.duplicate` у колонки ключа (`name`, `code`, `indicator`): ключ занимает первая по порядку файла строка с этим ключом (даже если
+      в ней есть ошибки значений), все последующие строки с тем же ключом — ошибки (R59). Строка с
+      ошибками пропускается, остальные применяются. Ключ не найден — строка создаётся (`created`); найден (в том числе
+      мягко удалённая строка — восстанавливается) — изменяется (`updated`) или остаётся как есть, если все значения
+      совпадают (`unchanged`; десятичные значения сравниваются численно — `5` и `5.00` равны, R59). Аудит — по записи на каждую созданную или изменённую строку.
+      Код Меркурия продукта (`mercuryCode`, R81) импортом не задаётся и не меняется: у созданных продуктов — null,
+      у существующих — прежний.
+    tags: [Dictionaries]
+    x-roles: [ADMIN]
+    parameters:
+      - $ref: '../components/parameters.yaml#/DictionaryName'
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            $ref: '../schemas/files.yaml#/ImportUpload'
+          encoding:
+            file:
+              contentType: text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+    responses:
+      '200':
+        description: Отчёт об импорте.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dictionaries.yaml#/ImportReport'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '413':
+        description: Файл больше 5 МБ (FILE_TOO_LARGE).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/file-too-large
+              title: File too large
+              status: 413
+              code: FILE_TOO_LARGE
+              params:
+                maxBytes: 5242880
+      '415':
+        description: >-
+          ZIP, не являющийся книгой XLSX, книга сверх пределов P23 (`params.reason` = `workbook-too-large`) или файл с
+          байтом NUL (UNSUPPORTED_MEDIA_TYPE, R58).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/unsupported-media-type
+              title: Unsupported media type
+              status: 415
+              code: UNSUPPORTED_MEDIA_TYPE
+              params:
+                allowed: [text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet]
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/dictionaries/products/{id}/image:
+  put:
+    operationId: uploadProductImage
+    summary: Загрузка фото продукта
+    description: >-
+      Загружает или заменяет фото продукта (п. 8.6): JPEG, PNG или WebP не более 5 МБ (≤ 5 242 880 байт), тип по
+      сигнатуре содержимого; хранится как WebP 96 и 480 px, отдаётся публично (`/api/v1/public/files/{id}`); прежний
+      файл помечается удалённым. Продукт не существует или мягко удалён — 404. Ответ — продукт с новым `imageUrl`.
+    tags: [Dictionaries]
+    x-roles: [ADMIN]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            $ref: '../schemas/files.yaml#/ImageUpload'
+          encoding:
+            file:
+              contentType: image/jpeg, image/png, image/webp
+    responses:
+      '200':
+        description: Фото сохранено.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/dictionaries.yaml#/Product'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '413':
+        description: Файл больше 5 МБ (FILE_TOO_LARGE).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/file-too-large
+              title: File too large
+              status: 413
+              code: FILE_TOO_LARGE
+              params:
+                maxBytes: 5242880
+      '415':
+        $ref: '../components/responses.yaml#/UnsupportedMediaType'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="АНО «Ветеринарный испытательный центр Клязьма»">
+  <rect width="96" height="96" rx="20" fill="#F5ECCC"/>
+  <g fill="none" stroke="#A4502F" stroke-width="3" stroke-linecap="round" opacity="0.55">
+    <path d="M10 74 Q48 68 86 74"/>
+    <path d="M10 83 Q48 77 86 83"/>
+  </g>
+  <text x="48" y="56" text-anchor="middle" font-family="Geologica, Onest, 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="700" letter-spacing="-0.5" fill="#33291F">ВК</text>
+</svg>

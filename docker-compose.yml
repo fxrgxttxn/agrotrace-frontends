@@ -1,0 +1,53 @@
+name: agrotrace
+services:
+  tools:
+    build: { context: ., dockerfile: tools/node.Dockerfile }
+    profiles: [tools]
+    working_dir: /repo
+    volumes:
+      - .:/repo
+      - pnpm-store:/pnpm/store
+    networks: [at]
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.48.2-jammy
+    profiles: [tools]
+    working_dir: /repo/tests/ds
+    volumes: [.:/repo]
+    ipc: host
+    environment: { CI: '1' }
+    extra_hosts: ['host.docker.internal:host-gateway']
+    networks: [at]
+  gateway-react:
+    build: { context: ./gateway }
+    profiles: [react]
+    volumes:
+      - ./frontend-react/dist:/srv/react:ro
+      - ./frontend-react/dist-mock:/srv/react-mock:ro
+      - ./packages/design-system:/srv/ds:ro
+    environment: { GATEWAY_PORT: '${REACT_PORT:-8089}' }
+    ports: ['${REACT_PORT:-8089}:80']
+    networks: [at]
+  gateway-angular:
+    build: { context: ./gateway }
+    profiles: [angular]
+    volumes:
+      - ./frontend-angular/dist:/srv/angular:ro
+      - ./frontend-angular/dist-mock:/srv/angular-mock:ro
+      - ./packages/design-system:/srv/ds:ro
+    environment: { GATEWAY_PORT: '${ANGULAR_PORT:-8090}' }
+    ports: ['${ANGULAR_PORT:-8090}:80']
+    networks: [at]
+  gateway-svelte:
+    build: { context: ./gateway }
+    profiles: [svelte]
+    volumes:
+      - ./frontend-svelte/build:/srv/svelte:ro
+      - ./frontend-svelte/build-mock:/srv/svelte-mock:ro
+      - ./packages/design-system:/srv/ds:ro
+    environment: { GATEWAY_PORT: '${SVELTE_PORT:-8091}' }
+    ports: ['${SVELTE_PORT:-8091}:80']
+    networks: [at]
+networks:
+  at: {}
+volumes:
+  pnpm-store: {}

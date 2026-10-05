@@ -1,0 +1,172 @@
+# Модуль Organizations.
+/organizations:
+  get:
+    operationId: listOrganizations
+    summary: Справочник организаций
+    description: |
+      Справочник активных организаций для выбора контрагента (например, получателя накладной), R46. Доступен
+      любому авторизованному пользователю и не зависит от видимости п. 4.2: отдаются все организации в статусе
+      ACTIVE, кроме типа PLATFORM (включая собственную организацию пользователя). Карточка
+      `GET /organizations/{id}` по-прежнему ограничена видимостью. Фильтры (объединяются по И):
+
+      - `type` — один или несколько типов (параметр повторяется); `PLATFORM` в фильтре даёт пустую страницу;
+      - `q` — организация подходит, если её название начинается с `q` без учёта регистра или её ИНН начинается
+        с `q` (префикс, а не подстрока; `%`, `_` и `\` — обычные символы).
+
+      Сортировка — `x-sort`.
+    tags: [Organizations]
+    x-roles: [ANY]
+    x-sort:
+      fields: [name]
+      default: name,asc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: type
+        in: query
+        description: Фильтр по типам организаций (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/common.yaml#/OrganizationType'
+    responses:
+      '200':
+        description: Страница справочника организаций.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/organizations.yaml#/OrganizationDirectoryPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/organizations/{id}:
+  get:
+    operationId: getOrganization
+    summary: Карточка организации
+    description: >-
+      Участник видит свою организацию и организации своих непосредственных поставщиков и получателей —
+      контрагентов по видимым ему накладным (правило — в описании тега Organizations, P14); INSPECTOR и ADMIN — все
+      организации (п. 4.2). Невидимая организация — 404.
+    tags: [Organizations]
+    x-roles: [ANY]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: Карточка организации.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/organizations.yaml#/Organization'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/organizations/{id}/logo:
+  put:
+    operationId: uploadOrganizationLogo
+    summary: Загрузка логотипа организации
+    description: >-
+      Загружает или заменяет логотип (п. 8.6): JPEG, PNG, WebP (→ WebP 96 и 480 px) или SVG (санитизация
+      от скриптов, хранится как есть), не более 2 МБ (≤ 2 097 152 байт включительно); тип определяется по сигнатуре. Руководитель —
+      только для своей организации (для чужой — 403); ADMIN — для любой. Невидимая организация (тег Organizations,
+      P14) — 404, видимая чужая — 403. Ошибки формы и декодирования — «Загрузка файлов (P14)» в описании API. Логотип публичен.
+    tags: [Organizations]
+    x-roles: [FARMER, PROCESSOR, LAB, RETAILER, INSPECTOR, ADMIN]
+    x-org-admin: true
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            $ref: '../schemas/files.yaml#/LogoUpload'
+          encoding:
+            file:
+              contentType: image/jpeg, image/png, image/webp, image/svg+xml
+    responses:
+      '200':
+        description: Логотип сохранён.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/FileRef'
+            example:
+              id: 8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+              url: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+              mime: image/png
+              sizeBytes: 184532
+              originalName: logo-kfh-petrov.png
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '413':
+        $ref: '../components/responses.yaml#/PayloadTooLarge'
+      '415':
+        $ref: '../components/responses.yaml#/UnsupportedMediaType'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  get:
+    operationId: getOrganizationLogo
+    summary: Логотип организации
+    description: >-
+      Логотип (WebP выбранного варианта или исходный SVG). Для страниц без авторизации тот же файл
+      доступен по `GET /public/files/{id}`. Нет организации, она невидима пользователю (тег Organizations, P14) или у неё нет логотипа — 404.
+    tags: [Organizations]
+    x-roles: [ANY]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/ImageVariant'
+      - $ref: '../components/parameters.yaml#/IfNoneMatch'
+    responses:
+      '200':
+        $ref: '../components/responses.yaml#/ImageContent'
+      '304':
+        $ref: '../components/responses.yaml#/NotModified'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

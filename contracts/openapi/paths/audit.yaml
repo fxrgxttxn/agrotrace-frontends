@@ -1,0 +1,75 @@
+# Журнал аудита (FR-ADM-03, п. 8.8).
+/audit-log:
+  get:
+    operationId: listAuditLog
+    summary: Журнал аудита
+    description: |
+      Записи `audit_log` (формат и правила записи — схема `AuditEntry`). ADMIN и INSPECTOR видят все записи (журнал
+      только для чтения, различий в видимости нет). Фильтры (объединяются по И):
+
+      - `actorId` — автор; `entityType`, `entityId` — сущность; `action` — точное значение;
+      - `backend` — реализация, записавшая строку;
+      - `from`/`to` — по дате UTC `createdAt`.
+
+      Сортировка — `x-sort` (при равенстве `createdAt` — по `id`).
+    tags: [Admin]
+    x-roles: [INSPECTOR, ADMIN]
+    x-sort:
+      fields: [createdAt]
+      default: createdAt,desc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - name: actorId
+        in: query
+        description: Автор изменения.
+        schema:
+          type: string
+          format: uuid
+      - name: entityType
+        in: query
+        description: Тип сущности.
+        schema:
+          $ref: '../schemas/admin.yaml#/AuditEntityType'
+      - name: entityId
+        in: query
+        description: Идентификатор сущности.
+        schema:
+          type: string
+          format: uuid
+      - name: action
+        in: query
+        description: Действие (`operationId` или `system.<задача>`).
+        schema:
+          type: string
+          maxLength: 64
+        example: sendWaybill
+      - name: backend
+        in: query
+        description: Реализация, записавшая строку.
+        schema:
+          type: string
+          enum: [express, django, laravel, seed, system]
+      - $ref: '../components/parameters.yaml#/DateFrom'
+      - $ref: '../components/parameters.yaml#/DateTo'
+    responses:
+      '200':
+        description: Страница журнала.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/admin.yaml#/AuditPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

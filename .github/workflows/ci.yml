@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh lint
+      - run: ./at.sh typecheck
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh pnpm --filter @agrotrace/contracts run lint:openapi
+      - run: ./at.sh test
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+
+  ds:
+    name: design-system showcase
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh ds:test
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+
+  e2e:
+    name: e2e (${{ matrix.front }} × mock)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        front: [react, angular, svelte]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh fe:build ${{ matrix.front }}
+      - run: ./at.sh fe:build ${{ matrix.front }} --mock
+      - run: ./at.sh fe:gateway ${{ matrix.front }}
+      - run: ./at.sh e2e ${{ matrix.front }} mock
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-results-${{ matrix.front }}
+          path: tests/e2e/test-results/run
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()

@@ -1,0 +1,80 @@
+{
+  "rule": "BR-11",
+  "fn": "idempotencyDecision",
+  "description": "Idempotency-Key handling: keys must match ^[A-Za-z0-9_-]{8,128}$ or the request is INVALID_KEY. No stored fingerprint -> EXECUTE. Stored fingerprint equal to the current request's fingerprint -> REPLAY (return the stored response). Stored fingerprint different -> CONFLICT (same key reused for a different operation).",
+  "cases": [
+    {
+      "name": "valid key, no stored request - execute",
+      "input": { "key": "abcdEFGH12", "stored": null, "fingerprint": "fp-hash-1" },
+      "expected": { "decision": "EXECUTE" }
+    },
+    {
+      "name": "valid key, stored request with matching fingerprint - replay",
+      "input": { "key": "abcdEFGH12", "stored": { "fingerprint": "fp-hash-1" }, "fingerprint": "fp-hash-1" },
+      "expected": { "decision": "REPLAY" }
+    },
+    {
+      "name": "valid key, stored request with a different fingerprint - conflict",
+      "input": { "key": "abcdEFGH12", "stored": { "fingerprint": "fp-hash-1" }, "fingerprint": "fp-hash-2" },
+      "expected": { "decision": "CONFLICT" }
+    },
+    {
+      "name": "key too short (7 characters) - invalid key",
+      "input": { "key": "abc1234", "stored": null, "fingerprint": "fp" },
+      "expected": { "decision": "INVALID_KEY" }
+    },
+    {
+      "name": "key at the minimum valid length (8 characters) - execute",
+      "input": { "key": "abcd1234", "stored": null, "fingerprint": "fp" },
+      "expected": { "decision": "EXECUTE" }
+    },
+    {
+      "name": "key at the maximum valid length (128 characters) - execute",
+      "input": {
+        "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "stored": null,
+        "fingerprint": "fp"
+      },
+      "expected": { "decision": "EXECUTE" }
+    },
+    {
+      "name": "key exceeds the maximum length (129 characters) - invalid key",
+      "input": {
+        "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "stored": null,
+        "fingerprint": "fp"
+      },
+      "expected": { "decision": "INVALID_KEY" }
+    },
+    {
+      "name": "key contains an invalid character (space) - invalid key",
+      "input": { "key": "abcd 1234", "stored": null, "fingerprint": "fp" },
+      "expected": { "decision": "INVALID_KEY" }
+    },
+    {
+      "name": "key contains an invalid character (asterisk) - invalid key",
+      "input": { "key": "abcd*1234", "stored": null, "fingerprint": "fp" },
+      "expected": { "decision": "INVALID_KEY" }
+    },
+    {
+      "name": "key with underscores and hyphens is valid - execute",
+      "input": { "key": "abcd_1234-XY", "stored": null, "fingerprint": "fp" },
+      "expected": { "decision": "EXECUTE" }
+    },
+    {
+      "name": "invalid key format takes precedence over a stored conflict",
+      "input": { "key": "bad key!", "stored": { "fingerprint": "fp-hash-1" }, "fingerprint": "fp-hash-2" },
+      "expected": { "decision": "INVALID_KEY" }
+    },
+    {
+      "name": "key with a trailing newline - invalid key",
+      "input": { "key": "abcd1234\n", "stored": null, "fingerprint": "fp" },
+      "expected": { "decision": "INVALID_KEY" }
+    },
+    {
+      "name": "key with a leading space - invalid key",
+      "input": { "key": " abcd1234", "stored": null, "fingerprint": "fp" },
+      "expected": { "decision": "INVALID_KEY" }
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+.at-graph {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-l);
+  background: var(--c-surface);
+}
+
+.at-graph__canvas {
+  min-height: 0;
+  height: 100%;
+}
+
+.at-graph__toolbar {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  display: flex;
+  gap: calc(var(--touch) - 32px);
+  padding: var(--sp-1);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-m);
+  background: var(--c-surface);
+}
+
+.at-graph__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--c-line);
+  list-style: none;
+}
+
+.at-graph[data-fullscreen] {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media (max-width: 767px) {
+  .at-graph:not([data-fullscreen]) {
+    min-height: 280px;
+  }
+}

@@ -1,0 +1,209 @@
+# Модуль Profile (текущий пользователь).
+/me:
+  get:
+    operationId: getMe
+    summary: Профиль текущего пользователя
+    tags: [Profile]
+    x-roles: [ANY]
+    responses:
+      '200':
+        description: Профиль.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/users.yaml#/Me'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  patch:
+    operationId: updateMe
+    summary: Изменение профиля
+    description: Изменяет ФИО и телефон (FR-IAM-07). Email и роли здесь не меняются.
+    tags: [Profile]
+    x-roles: [ANY]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/users.yaml#/MeUpdate'
+    responses:
+      '200':
+        description: Обновлённый профиль.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/users.yaml#/Me'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/me/avatar:
+  put:
+    operationId: uploadMyAvatar
+    summary: Загрузка аватарки
+    description: >-
+      Загружает или заменяет аватарку (FR-IAM-07, п. 8.6): JPEG, PNG или WebP не более 2 МБ (≤ 2 097 152 байт включительно),
+      тип определяется по сигнатуре содержимого. Сохраняется как WebP 96 и 480 px (без увеличения, P14); прежний файл помечается удалённым. Ошибки формы и декодирования — «Загрузка файлов (P14)» в описании API.
+      Аватарка доступна любому авторизованному пользователю.
+    tags: [Profile]
+    x-roles: [ANY]
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            $ref: '../schemas/files.yaml#/ImageUpload'
+          encoding:
+            file:
+              contentType: image/jpeg, image/png, image/webp
+    responses:
+      '200':
+        description: Аватарка сохранена.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/FileRef'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '413':
+        $ref: '../components/responses.yaml#/PayloadTooLarge'
+      '415':
+        $ref: '../components/responses.yaml#/UnsupportedMediaType'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  delete:
+    operationId: deleteMyAvatar
+    summary: Удаление аватарки
+    description: Удаляет аватарку (мягкое удаление файла). Идемпотентна — 204 и при отсутствии аватарки.
+    tags: [Profile]
+    x-roles: [ANY]
+    responses:
+      '204':
+        description: Аватарка удалена.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/me/channels:
+  get:
+    operationId: getMyChannels
+    summary: Каналы уведомлений
+    tags: [Profile]
+    x-roles: [ANY]
+    responses:
+      '200':
+        description: Настройки каналов.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/users.yaml#/NotificationChannels'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  put:
+    operationId: updateMyChannels
+    summary: Изменение каналов уведомлений
+    description: >-
+      Включает или отключает email и Telegram (FR-NOTIF-03). Уведомления об отзыве отправляются во все
+      доступные каналы независимо от настроек. `telegram: true` без привязанного Telegram — 400 VALIDATION
+      (`errors.telegram: [validation.telegram.notLinked]`).
+    tags: [Profile]
+    x-roles: [ANY]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/users.yaml#/ChannelsUpdate'
+    responses:
+      '200':
+        description: Обновлённые настройки каналов.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/users.yaml#/NotificationChannels'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/me/telegram-code:
+  post:
+    operationId: createTelegramCode
+    summary: Код привязки Telegram
+    description: >-
+      Выдаёт одноразовый код привязки Telegram (FR-NOTIF-02), действует 10 минут; новый код аннулирует прежний.
+      Пользователь отправляет боту `/start <code>`, после чего `telegramLinked` становится true.
+      Если токен бота не задан — 503 EXTERNAL_UNAVAILABLE (`params.service = telegram`).
+    tags: [Profile]
+    x-roles: [ANY]
+    responses:
+      '201':
+        description: Код выдан.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/users.yaml#/TelegramCode'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+      '503':
+        $ref: '../components/responses.yaml#/ServiceUnavailable'

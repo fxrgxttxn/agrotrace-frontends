@@ -1,0 +1,261 @@
+# Поля и журнал обработок (FR-PROD-01, FR-PROD-02).
+AreaHa:
+  type: string
+  pattern: '^(?!0+\.00$)\d{1,8}\.\d{2}$'
+  description: >-
+    Площадь в гектарах — десятичная строка ровно с двумя знаками после точки, больше нуля
+    (`numeric(10,2)`, `area_ha > 0`).
+  example: '124.50'
+Dose:
+  type: string
+  pattern: '^(?!0+\.000$)\d{1,7}\.\d{3}$'
+  description: Доза препарата — десятичная строка ровно с тремя знаками после точки, больше нуля (`numeric(10,3)`).
+  example: '1.500'
+GeoJsonPolygon:
+  type: object
+  description: >-
+    Контур поля — геометрия GeoJSON (RFC 7946) типа Polygon в WGS 84. `coordinates` — массив колец
+    (первое — внешний контур, остальные — вырезы); кольцо — не менее 4 позиций `[долгота, широта]`,
+    первая позиция равна последней (иначе 400 VALIDATION `errors.geometry: [validation.geometry.ringNotClosed]`).
+    Самопересечения не проверяются. Сервер хранит и возвращает геометрию без изменений.
+  required: [type, coordinates]
+  additionalProperties: false
+  properties:
+    type:
+      type: string
+      const: Polygon
+    coordinates:
+      type: array
+      minItems: 1
+      maxItems: 10
+      items:
+        type: array
+        minItems: 4
+        maxItems: 1000
+        items:
+          type: array
+          minItems: 2
+          maxItems: 2
+          prefixItems:
+            - type: number
+              minimum: -180
+              maximum: 180
+            - type: number
+              minimum: -90
+              maximum: 90
+  example:
+    type: Polygon
+    coordinates:
+      - - [39.0123, 45.0456]
+        - [39.0321, 45.0456]
+        - [39.0321, 45.0312]
+        - [39.0123, 45.0312]
+        - [39.0123, 45.0456]
+NullableGeoJsonPolygon:
+  description: '`GeoJsonPolygon` или null — контур не задан.'
+  oneOf:
+    - $ref: '#/GeoJsonPolygon'
+    - type: 'null'
+Field:
+  type: object
+  required: [id, name, areaHa, region, geometry, lastTreatmentAt, treatmentsCount, organization]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    name:
+      type: string
+    areaHa:
+      $ref: '#/AreaHa'
+    region:
+      $ref: './common.yaml#/Region'
+    geometry:
+      $ref: '#/NullableGeoJsonPolygon'
+    lastTreatmentAt:
+      description: Максимальное `appliedAt` среди неудалённых обработок поля; null — обработок нет.
+      $ref: './common.yaml#/NullableDateTime'
+    treatmentsCount:
+      type: integer
+      minimum: 0
+      description: Число неудалённых обработок поля.
+    organization:
+      description: Хозяйство-владелец поля (нужно INSPECTOR и ADMIN, которые видят поля всех хозяйств).
+      $ref: './common.yaml#/OrganizationRef'
+  example:
+    id: 2e4a6c8e-0b2d-4f6a-8c0e-2b4d6f8a0c2e
+    name: Участок «Восточный-3»
+    areaHa: '124.50'
+    region:
+      code: '23'
+      name: Краснодарский край
+    geometry:
+      type: Polygon
+      coordinates:
+        - - [39.0123, 45.0456]
+          - [39.0321, 45.0456]
+          - [39.0321, 45.0312]
+          - [39.0123, 45.0312]
+          - [39.0123, 45.0456]
+    lastTreatmentAt: '2026-06-02T07:00:00Z'
+    treatmentsCount: 3
+    organization:
+      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+      name: КФХ Петров
+      type: FARM
+      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+FieldInput:
+  type: object
+  description: >-
+    Создание (POST) или полная замена (PUT) поля. Отсутствующий или null `geometry` — контур не задан
+    (при PUT существующий контур удаляется).
+  required: [name, areaHa, regionCode]
+  additionalProperties: false
+  properties:
+    name:
+      type: string
+      minLength: 1
+      maxLength: 160
+      pattern: '\S'
+    areaHa:
+      $ref: '#/AreaHa'
+    regionCode:
+      $ref: './dictionaries-ref.yaml#/RegionCode'
+    geometry:
+      $ref: '#/NullableGeoJsonPolygon'
+  example:
+    name: Участок «Восточный-3»
+    areaHa: '124.50'
+    regionCode: '23'
+    geometry:
+      type: Polygon
+      coordinates:
+        - - [39.0123, 45.0456]
+          - [39.0321, 45.0456]
+          - [39.0321, 45.0312]
+          - [39.0123, 45.0312]
+          - [39.0123, 45.0456]
+FieldPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/Field'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items:
+      - id: 2e4a6c8e-0b2d-4f6a-8c0e-2b4d6f8a0c2e
+        name: Участок «Восточный-3»
+        areaHa: '124.50'
+        region:
+          code: '23'
+          name: Краснодарский край
+        geometry: null
+        lastTreatmentAt: '2026-06-02T07:00:00Z'
+        treatmentsCount: 3
+        organization:
+          id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+          name: КФХ Петров
+          type: FARM
+          logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+    page: 1
+    size: 20
+    total: 1
+Treatment:
+  type: object
+  required: [id, fieldId, substance, dose, doseUnit, appliedAt, createdAt, editableUntil]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    fieldId:
+      $ref: './common.yaml#/Uuid'
+    substance:
+      $ref: './common.yaml#/SubstanceRef'
+    dose:
+      $ref: '#/Dose'
+    doseUnit:
+      $ref: './dictionaries-ref.yaml#/DoseUnit'
+    appliedAt:
+      $ref: './common.yaml#/DateTime'
+    createdAt:
+      $ref: './common.yaml#/DateTime'
+    editableUntil:
+      description: >-
+        `createdAt` + 24 часа (FR-PROD-02). Изменение разрешено, пока текущее время сервера ≤ `editableUntil`
+        (граница включительно, функция `canEditTreatment`); клиент показывает кнопку изменения по этому полю.
+      $ref: './common.yaml#/DateTime'
+  example:
+    id: 5f7b9d1f-3a5c-4e7a-9c1e-3d5f7b9d1f3a
+    fieldId: 2e4a6c8e-0b2d-4f6a-8c0e-2b4d6f8a0c2e
+    substance:
+      id: 9e1f3a5b-7c9d-4e0f-a2b4-c6d8e0f2a4b6
+      name: Хлорпирифос
+      type: PESTICIDE
+      waitingPeriodDays: 30
+    dose: '1.500'
+    doseUnit: л/га
+    appliedAt: '2026-06-02T07:00:00Z'
+    createdAt: '2026-06-02T15:20:00Z'
+    editableUntil: '2026-06-03T15:20:00Z'
+TreatmentInput:
+  type: object
+  description: >-
+    Создание (POST) или полная замена (PUT) обработки. `substanceId` — неудалённый препарат из справочника
+    (иначе 400 `errors.substanceId: [validation.notFound]`); `appliedAt` не позже текущего времени сервера
+    (иначе 400 `errors.appliedAt: [validation.date.future]`).
+  required: [substanceId, dose, doseUnit, appliedAt]
+  additionalProperties: false
+  properties:
+    substanceId:
+      $ref: './common.yaml#/Uuid'
+    dose:
+      $ref: '#/Dose'
+    doseUnit:
+      $ref: './dictionaries-ref.yaml#/DoseUnit'
+    appliedAt:
+      $ref: './common.yaml#/DateTime'
+  example:
+    substanceId: 9e1f3a5b-7c9d-4e0f-a2b4-c6d8e0f2a4b6
+    dose: '1.500'
+    doseUnit: л/га
+    appliedAt: '2026-06-02T07:00:00Z'
+TreatmentPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/Treatment'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items:
+      - id: 5f7b9d1f-3a5c-4e7a-9c1e-3d5f7b9d1f3a
+        fieldId: 2e4a6c8e-0b2d-4f6a-8c0e-2b4d6f8a0c2e
+        substance:
+          id: 9e1f3a5b-7c9d-4e0f-a2b4-c6d8e0f2a4b6
+          name: Хлорпирифос
+          type: PESTICIDE
+          waitingPeriodDays: 30
+        dose: '1.500'
+        doseUnit: л/га
+        appliedAt: '2026-06-02T07:00:00Z'
+        createdAt: '2026-06-02T15:20:00Z'
+        editableUntil: '2026-06-03T15:20:00Z'
+    page: 1
+    size: 20
+    total: 1

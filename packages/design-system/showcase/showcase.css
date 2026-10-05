@@ -1,0 +1,343 @@
+.ds-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3) var(--sp-6);
+  padding: var(--sp-4) var(--gutter);
+  border-bottom: 1px solid var(--c-line);
+}
+
+.ds-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--c-ink);
+  font: 700 var(--fs-18) / var(--lh-18) var(--font-display);
+  letter-spacing: var(--tracking-display);
+  text-decoration: none;
+}
+
+.ds-brand svg {
+  width: 22px;
+  height: 22px;
+  color: var(--c-field);
+}
+
+.ds-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-m);
+  color: var(--c-ink);
+  text-decoration: none;
+}
+
+.ds-nav a:hover {
+  background: var(--c-surface);
+}
+
+.ds-nav a[aria-current='page'] {
+  background: var(--c-surface);
+  box-shadow: inset 0 -2px 0 var(--c-field);
+  font-weight: 600;
+}
+
+.ds-cols {
+  display: grid;
+}
+
+.ds-cols--split {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr));
+}
+
+.ds-col {
+  min-width: 0;
+  padding: var(--sp-8) var(--gutter) var(--sp-12);
+  background: var(--c-ground);
+  color: var(--c-ink);
+}
+
+.ds-col > h1 {
+  margin-bottom: var(--sp-8);
+}
+
+.ds-section + .ds-section {
+  margin-top: var(--sp-12);
+}
+
+.ds-section > h2 {
+  margin-bottom: var(--sp-4);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--c-line);
+}
+
+.ds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: var(--sp-6) var(--sp-6);
+  align-items: start;
+}
+
+.ds-grid--wide {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+}
+
+.ds-stack {
+  display: grid;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+.ds-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.ds-name {
+  margin-bottom: var(--sp-2);
+  color: var(--c-ink-muted);
+  font: 400 var(--fs-12) / var(--lh-12) var(--font-mono);
+}
+
+.ds-states {
+  display: grid;
+  grid-template-columns: repeat(6, max-content);
+  gap: var(--sp-3) var(--sp-4);
+  align-items: center;
+  overflow-x: auto;
+  padding: var(--sp-1);
+}
+
+.ds-states > .ds-name {
+  margin: 0;
+}
+
+.ds-hover.at-button {
+  background: var(--btn-bg-hover);
+  border-color: var(--btn-border-hover);
+}
+
+.ds-hover.at-input,
+.ds-hover.at-select {
+  border-color: var(--c-ink-muted);
+}
+
+.ds-focus {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+.ds-focus.at-input {
+  border-color: var(--c-field);
+}
+
+.ds-active.at-button {
+  translate: 0 1px;
+}
+
+.ds-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: var(--sp-5) var(--sp-6);
+  padding: var(--sp-6);
+  border-radius: var(--r-l);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-1);
+}
+
+.ds-form > .ds-span {
+  grid-column: 1 / -1;
+}
+
+.ds-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  grid-column: 1 / -1;
+  padding-top: var(--sp-2);
+}
+
+.ds-swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  gap: var(--sp-3);
+}
+
+.ds-swatch {
+  display: grid;
+  gap: var(--sp-1);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.ds-swatch::before {
+  content: '';
+  height: 56px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-s);
+  background: var(--swatch);
+}
+
+.ds-swatch code {
+  color: var(--c-ink-muted);
+  font: 400 var(--fs-12) / var(--lh-12) var(--font-mono);
+}
+
+.ds-type {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.ds-type > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--c-line);
+}
+
+.ds-type p {
+  overflow-wrap: anywhere;
+}
+
+.ds-furrow {
+  height: 36px;
+  border-radius: var(--r-s);
+  background: repeating-linear-gradient(100deg, var(--c-furrow-a) 0 6px, var(--c-furrow-b) 6px 14px);
+}
+
+.ds-scale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--sp-4);
+}
+
+.ds-scale span {
+  display: block;
+  background: var(--c-field);
+}
+
+.ds-scale figure {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-1);
+  margin: 0;
+  font-size: var(--fs-12);
+}
+
+.ds-radii {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
+
+.ds-radii figure {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+  font-size: var(--fs-12);
+}
+
+.ds-radii span {
+  width: 64px;
+  height: 48px;
+  border: 1.5px solid var(--c-ink-muted);
+  background: var(--c-surface);
+}
+
+.ds-inline .at-toasts,
+.ds-inline .at-dialog {
+  position: static;
+}
+
+.ds-inline .at-dialog {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+  border-radius: var(--r-l);
+}
+
+.ds-inline .at-combobox {
+  margin-bottom: 236px;
+}
+
+.ds-inline .at-combobox:has(.at-combobox__status) {
+  margin-bottom: 64px;
+}
+
+.ds-frame {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-l);
+}
+
+.ds-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-icon {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-m);
+  background: var(--c-surface);
+  color: var(--c-ink);
+}
+
+.ds-icon__art {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.ds-icon .ds-name,
+.ds-art .ds-name {
+  margin: 0;
+}
+
+.ds-arts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 272px), 1fr));
+  gap: var(--sp-4);
+}
+
+.ds-art {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: var(--sp-5) var(--sp-4) var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-l);
+  background: var(--c-surface);
+}
+
+.ds-art svg {
+  width: 240px;
+  max-width: 100%;
+  height: auto;
+}

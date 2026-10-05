@@ -1,0 +1,495 @@
+# Модуль Auth.
+/auth/login:
+  post:
+    operationId: login
+    summary: Вход по email и паролю
+    description: >-
+      Вход по email и паролю (Argon2id). Порядок проверок строго фиксирован (R31):
+
+      1. Лимит `login-ip` (20 за 60 с на IP) — иначе 429.
+
+      2. Email приводится к нижнему регистру, пользователь ищется по нему. Неизвестный email — выполняется
+      фиктивная проверка Argon2 (выравнивание времени ответа), 401 INVALID_CREDENTIALS; блокировка не применяется.
+
+      3. `locked_until` > now — 401 ACCOUNT_LOCKED с `params.lockedUntil` без проверки пароля; блокировка
+      не продлевается.
+
+      4. Неверный пароль — `failed_logins` + 1; при достижении 5: `locked_until` = now + 15 минут, `failed_logins` = 0,
+      ответ 401 ACCOUNT_LOCKED с `params.lockedUntil`; иначе 401 INVALID_CREDENTIALS (FR-IAM-06).
+
+      5. Верный пароль — `failed_logins` = 0; затем проверка статусов: 403 FORBIDDEN с `params.reason` =
+      `USER_BLOCKED` | `USER_INVITED` | `ORGANIZATION_NOT_ACTIVE` (организация не ACTIVE).
+
+      6. Включена TOTP — `{twoFactorRequired: true, challengeId}` без токенов и без cookie (далее
+      `POST /auth/2fa/verify`); иначе access-токен (15 минут) и refresh-токен в cookie `at_refresh` (14 дней).
+    tags: [Auth]
+    security: []
+    x-roles: [PUBLIC]
+    x-rate-limit: [login-ip]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/auth.yaml#/LoginRequest'
+    responses:
+      '200':
+        description: Вход выполнен либо требуется код TOTP.
+        headers:
+          Set-Cookie:
+            $ref: '../components/headers.yaml#/SetRefreshCookie'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlNoStoreToken'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/auth.yaml#/LoginResponse'
+            examples:
+              success:
+                summary: Вход выполнен
+                value:
+                  twoFactorRequired: false
+                  accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYTJiM2M0ZC01ZTZmLTRhN2ItOGM5ZC0wZTFmMmEzYjRjNWQifQ.3fQy8m2Kc1q5Z0Xn9sVbWtRjLpHdGe7aCuYoIiMk4Nw
+                  expiresIn: 900
+                  user:
+                    id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+                    email: petrov@kfh-petrov.ru
+                    fullName: Петров Иван Сергеевич
+                    phone: '+79181234567'
+                    avatarUrl: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+                    roles: [FARMER]
+                    organization:
+                      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                      name: КФХ Петров
+                      type: FARM
+                      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+                    isOrgAdmin: true
+                    totpEnabled: false
+                    channels:
+                      email: true
+                      telegram: false
+                      telegramLinked: false
+              twoFactor:
+                summary: Требуется код TOTP
+                value:
+                  twoFactorRequired: true
+                  challengeId: c4d5e6f7-a8b9-4c0d-9e1f-2a3b4c5d6e7f
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        description: Неверные учётные данные (INVALID_CREDENTIALS) или учётная запись заблокирована (ACCOUNT_LOCKED).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              invalidCredentials:
+                summary: Неверный email или пароль
+                value:
+                  type: /problems/invalid-credentials
+                  title: Invalid credentials
+                  status: 401
+                  code: INVALID_CREDENTIALS
+              accountLocked:
+                summary: Учётная запись временно заблокирована
+                value:
+                  type: /problems/account-locked
+                  title: Account locked
+                  status: 401
+                  code: ACCOUNT_LOCKED
+                  params:
+                    lockedUntil: '2026-09-24T08:45:00Z'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/auth/refresh:
+  post:
+    operationId: refreshToken
+    summary: Обновление access-токена
+    description: >-
+      Обменивает refresh-токен из cookie `at_refresh` на новый access-токен. Refresh-токен ротируется: старый
+      отзывается (`revoked_at`, `replaced_by`), новый выдаётся в `Set-Cookie`.
+
+
+      Отсутствующий, неизвестный или истёкший токен — 401 TOKEN_EXPIRED и удаление cookie. Гонки (R32):
+      токен, отозванный ротацией не более 10 секунд назад, — 401 TOKEN_EXPIRED без отзыва цепочки и без удаления
+      cookie (её уже заменил ответ параллельного запроса другой вкладки). Токен, отозванный ротацией более
+      10 секунд назад, считается повторным использованием (R40): отзывается только цепочка ротации
+      предъявленного токена (все токены, связанные с ним через `replaced_by`, включая текущий активный
+      потомок), 401 TOKEN_EXPIRED и удаление cookie; другие сессии пользователя не затрагиваются. Токен,
+      отозванный выходом (`POST /auth/logout`), — 401 TOKEN_EXPIRED и удаление cookie без дальнейших отзывов.
+      Клиент (api-client) обязан сериализовать обновление между вкладками через Web Locks
+      (`navigator.locks.request('agrotrace-refresh', …)`) и после получения блокировки перечитать токен.
+
+
+      403 FORBIDDEN (`params.reason` = `USER_BLOCKED` | `ORGANIZATION_NOT_ACTIVE`) — пользователь заблокирован
+      или организация не ACTIVE; токен при этом отзывается и cookie удаляется.
+    tags: [Auth]
+    security: []
+    x-roles: [PUBLIC]
+    parameters:
+      - name: at_refresh
+        in: cookie
+        required: true
+        description: Refresh-токен (HttpOnly cookie, отправляется браузером автоматически).
+        schema:
+          type: string
+    responses:
+      '200':
+        description: Новый access-токен; refresh-токен ротирован.
+        headers:
+          Set-Cookie:
+            $ref: '../components/headers.yaml#/SetRefreshCookie'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlNoStoreToken'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/auth.yaml#/RefreshResponse'
+      '401':
+        description: >-
+          Refresh-токен отсутствует, истёк или отозван (TOKEN_EXPIRED); cookie удаляется, кроме случая гонки
+          (токен отозван ротацией ≤ 10 с назад) — тогда `Set-Cookie` не отправляется.
+        headers:
+          Set-Cookie:
+            description: >-
+              Удаление cookie `at_refresh` (`Max-Age=0`, те же атрибуты). Присутствует во всех случаях, кроме
+              гонки (токен отозван ротацией ≤ 10 с назад), когда заголовок не отправляется.
+            required: false
+            schema:
+              type: string
+            example: at_refresh=; Max-Age=0; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Strict
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/token-expired
+              title: Refresh token expired
+              status: 401
+              code: TOKEN_EXPIRED
+      '403':
+        description: Пользователь заблокирован или организация не ACTIVE (FORBIDDEN, `params.reason`); cookie удаляется.
+        headers:
+          Set-Cookie:
+            $ref: '../components/headers.yaml#/ClearRefreshCookie'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/forbidden
+              title: Forbidden
+              status: 403
+              code: FORBIDDEN
+              params:
+                reason: USER_BLOCKED
+/auth/logout:
+  post:
+    operationId: logout
+    summary: Выход с отзывом refresh-токена
+    description: >-
+      Отзывает refresh-токен из cookie `at_refresh` и удаляет cookie. Идемпотентна: без cookie или с уже
+      отозванным токеном также возвращает 204. Выданные access-токены действуют до истечения срока (≤ 15 минут).
+    tags: [Auth]
+    security: []
+    x-roles: [PUBLIC]
+    parameters:
+      - name: at_refresh
+        in: cookie
+        required: false
+        description: Refresh-токен.
+        schema:
+          type: string
+    responses:
+      '204':
+        description: Выход выполнен, cookie удалена.
+        headers:
+          Set-Cookie:
+            $ref: '../components/headers.yaml#/ClearRefreshCookie'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+/auth/2fa/verify:
+  post:
+    operationId: verifyTwoFactor
+    summary: Подтверждение входа кодом TOTP
+    description: >-
+      Второй шаг входа: проверяет код TOTP для `challengeId`, выданного `POST /auth/login`, и выдаёт токены как
+      успешный вход. Проверка кода (R35): RFC 6238, SHA1, 6 цифр, шаг 30 с, допускается отклонение ±1 шаг;
+      шаг времени, уже принятый для этого пользователя (при входе или настройке), повторно не принимается.
+      Challenge одноразовый (после успешной проверки удаляется), действует 5 минут, допускает не более 5 неверных
+      кодов. Ошибки: 401 INVALID_TWO_FACTOR_CODE с `params.attemptsLeft` (4…0) — неверный или повторно
+      использованный код; при `attemptsLeft` = 0 challenge аннулирован; 401 TOKEN_EXPIRED — `challengeId`
+      неизвестен, истёк, использован или аннулирован (нужно снова вызвать `POST /auth/login`). Неверные коды
+      не влияют на `failed_logins` и блокировку учётной записи.
+    tags: [Auth]
+    security: []
+    x-roles: [PUBLIC]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/auth.yaml#/TwoFactorVerifyRequest'
+    responses:
+      '200':
+        description: Вход выполнен.
+        headers:
+          Set-Cookie:
+            $ref: '../components/headers.yaml#/SetRefreshCookie'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlNoStoreToken'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/auth.yaml#/LoginSuccess'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        description: Неверный код (INVALID_TWO_FACTOR_CODE) или недействительный challenge (TOKEN_EXPIRED).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              invalidCode:
+                summary: Неверный код
+                value:
+                  type: /problems/invalid-two-factor-code
+                  title: Invalid two-factor code
+                  status: 401
+                  code: INVALID_TWO_FACTOR_CODE
+                  params:
+                    attemptsLeft: 3
+              challengeExpired:
+                summary: Challenge истёк или аннулирован
+                value:
+                  type: /problems/token-expired
+                  title: Two-factor challenge expired
+                  status: 401
+                  code: TOKEN_EXPIRED
+/auth/2fa/setup:
+  post:
+    operationId: setupTwoFactor
+    summary: Настройка TOTP
+    description: >-
+      Необязательная TOTP для ролей INSPECTOR и ADMIN (FR-IAM-05). Шаг 1 — тело без `code`: генерирует секрет
+      и возвращает `{totpEnabled: false, secret, otpauthUrl}` (повторный вызов заменяет секрет). Шаг 2 — тело
+      с `code`: проверяет код по сгенерированному секрету и включает TOTP, ответ `{totpEnabled: true}`.
+      Параметры TOTP (R35): RFC 6238, SHA1, 6 цифр, шаг 30 с, отклонение ±1 шаг; принятый шаг запоминается и
+      повторно не принимается (в том числе при последующем входе).
+      Ошибки: 400 INVALID_TWO_FACTOR_CODE — неверный код или шаг 1 не выполнен; 409 INVALID_TRANSITION
+      (`params.from = ENABLED`) — TOTP уже включена.
+    tags: [Auth]
+    x-roles: [INSPECTOR, ADMIN]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/auth.yaml#/TwoFactorSetupRequest'
+          examples:
+            start:
+              summary: Начать настройку
+              value: {}
+            confirm:
+              summary: Подтвердить кодом
+              value:
+                code: '482915'
+    responses:
+      '200':
+        description: Секрет выдан либо TOTP включена.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/auth.yaml#/TwoFactorSetupResponse'
+            examples:
+              pending:
+                summary: Секрет выдан
+                value:
+                  totpEnabled: false
+                  secret: JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP
+                  otpauthUrl: otpauth://totp/AgroTrace:ivanova%40rosselkhoznadzor.ru?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=AgroTrace
+              enabled:
+                summary: TOTP включена
+                value:
+                  totpEnabled: true
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '409':
+        $ref: '../components/responses.yaml#/Conflict'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/auth/password/forgot:
+  post:
+    operationId: forgotPassword
+    summary: Запрос сброса пароля
+    description: >-
+      Отправляет письмо со ссылкой сброса пароля (одноразовый токен, ключ `pwreset:{sha256hex(token)}` — R82, действует
+      1 час). Отвечает 204, кроме
+      невалидного запроса (400) и превышения лимита `forgot` (429), в том числе для неизвестного email (без раскрытия
+      существования учётной записи); лимит считается по email в нижнем регистре независимо от его существования.
+    tags: [Auth]
+    security: []
+    x-roles: [PUBLIC]
+    x-rate-limit: [forgot]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/auth.yaml#/ForgotPasswordRequest'
+    responses:
+      '204':
+        description: Запрос принят.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/auth/password/reset:
+  post:
+    operationId: resetPassword
+    summary: Установка нового пароля
+    description: >-
+      Устанавливает новый пароль по токену из письма, сбрасывает счётчик неудачных попыток и блокировку,
+      отзывает все refresh-токены пользователя. Неизвестный, использованный или истёкший токен —
+      400 TOKEN_EXPIRED. Сначала тело проверяется по схеме (400 VALIDATION, токен при этом не расходуется), и только затем
+      токен читается `GETDEL` (R82).
+    tags: [Auth]
+    security: []
+    x-roles: [PUBLIC]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/auth.yaml#/ResetPasswordRequest'
+    responses:
+      '204':
+        description: Пароль изменён.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+/auth/register-organization:
+  post:
+    operationId: registerOrganization
+    summary: Регистрация организации
+    description: >-
+      Создаёт организацию и её руководителя (FR-IAM-01). ИНН проверяется через DaData, название и адрес
+      заполняются из DaData; организация получает статус PENDING и становится активной только после одобрения
+      администратором. Если DaData недоступна (повторы исчерпаны или ключ не задан), регистрация не блокируется:
+      организация сохраняется со статусом MANUAL_CHECK («Требует ручной проверки»), название берётся из запроса.
+      Вход сотрудников возможен только после перевода организации в ACTIVE.
+    tags: [Auth]
+    security: []
+    x-roles: [PUBLIC]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/auth.yaml#/RegisterOrganizationRequest'
+    responses:
+      '201':
+        description: Заявка на регистрацию создана.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/auth.yaml#/RegisterOrganizationResponse'
+            examples:
+              pending:
+                summary: ИНН подтверждён DaData
+                value:
+                  organizationId: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                  status: PENDING
+              manualCheck:
+                summary: DaData недоступна
+                value:
+                  organizationId: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                  status: MANUAL_CHECK
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+/auth/accept-invite:
+  post:
+    operationId: acceptInvite
+    summary: Принятие приглашения
+    description: >-
+      Активирует приглашённого сотрудника (INVITED → ACTIVE) по токену из письма: задаёт ФИО и пароль.
+      После этого пользователь входит через `POST /auth/login`. Неизвестный, использованный или истёкший
+      токен (7 дней) — 400 TOKEN_EXPIRED. Сначала тело проверяется по схеме (400 VALIDATION, токен при этом не
+      расходуется), и только затем токен читается `GETDEL` (R82).
+    tags: [Auth]
+    security: []
+    x-roles: [PUBLIC]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/auth.yaml#/AcceptInviteRequest'
+    responses:
+      '204':
+        description: Приглашение принято.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'

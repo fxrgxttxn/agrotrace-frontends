@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agrotrace.local/contracts/events/vsd.import.schema.json",
+  "title": "vsd.import",
+  "description": "R81: imports the veterinary accompanying document (ВСД) of a batch from ФГИС «Меркурий» (dev: mercury-mock, MERCURY_URL). Written to `outbox_events` by createBatch in its transaction when the product category is DAIRY or MEAT (together with the `batch_documents` row: kind VSD, import_status PENDING, attempts 0), and by retryBatchVsdImport (row reset to PENDING, attempts 0). The handler first reads the row: import_status other than PENDING — nothing to do (the claim transaction commits empty). Otherwise it builds the query from the batch: productCode = products.mercury_code of the batch product (NULL — NOT_FOUND without calling Mercury), senderInn = organizations.inn of the batch origin organization, dateFrom / dateTo = UTC dates of harvested_at − 3 days and harvested_at + 3 days (inclusive), and calls `GET {MERCURY_URL}/api/v1/vsd?productCode=&senderInn=&dateFrom=&dateTo=` with a 10 s timeout. Response 200: among `items` with status CONFIRMED it picks the latest (greatest issueDate, then greatest number, then greatest uuid) → import_status IMPORTED, external_uuid = uuid, number, issue_date = issueDate, vsd_status = status, payload = the whole document; no CONFIRMED item → NOT_FOUND. Every call counts in `attempts`. A call that fails (network error, timeout, non-200 status, body not matching the Mercury format) is not a handler failure: the handler records attempts + 1 and last_error (≤ 500 characters) in its own short transaction and calls again after 2, 4, 8, 16 and 32 s (5 retries, 6 calls in total); if the last call fails too, import_status = FAILED. The final state (IMPORTED, NOT_FOUND, FAILED) is written in ONE transaction that starts with the processed_events claim (envelope, R56) and locks the row FOR UPDATE, only while it is still PENDING; the same transaction writes the audit row (action `system.vsdImport`, entityType batchDocument); updated_at is set by the touch trigger. The message is then acknowledged — a Mercury outage never dead-letters it. At most one vsd.import handler runs per worker process, on its own consumer channel, so an outage never blocks the other event types (worker concurrency, envelope, R92). The batch itself is never changed or blocked by the import (spec 11: the batch is created without the document, the import is deferred).",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "envelope.schema.json"
+    }
+  ],
+  "properties": {
+    "type": {
+      "const": "vsd.import"
+    },
+    "data": {
+      "type": "object",
+      "required": ["documentId", "batchId", "publicCode"],
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "batch_documents.id of the VSD row."
+        },
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "publicCode": {
+          "type": "string",
+          "pattern": "^AT-\\d{4}-\\d{6,}$"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "id": "6a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d",
+      "type": "vsd.import",
+      "occurredAt": "2026-07-19T07:30:00Z",
+      "backend": "laravel",
+      "requestId": "7b8c9d0e-1f2a-4b3c-9d4e-5f6a7b8c9d0e",
+      "data": {
+        "documentId": "4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e",
+        "batchId": "1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c",
+        "publicCode": "AT-2026-000123"
+      }
+    }
+  ]
+}

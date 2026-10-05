@@ -1,0 +1,236 @@
+# Жалобы покупателей (БП-6, FR-QA-08). Создание — `POST /public/batches/{publicCode}/complaints` (модуль Public).
+ComplaintStatus:
+  type: string
+  description: >-
+    NEW — поступила; IN_REVIEW — инспектор взял в работу (`startComplaintReview`); DECIDED — решение принято
+    (`decideComplaint`). Переходы — `contracts/rules/entity-state-machines.json` (`complaint`).
+  enum: [NEW, IN_REVIEW, DECIDED]
+  example: NEW
+ComplaintDecisionType:
+  type: string
+  description: >-
+    REJECT — отклонить; LAB_TEST — назначить внеплановый анализ (обязателен `labOrgId`); RECALL — сразу запустить
+    отзыв (исходная партия — партия жалобы).
+  enum: [REJECT, LAB_TEST, RECALL]
+  example: LAB_TEST
+ComplaintListItem:
+  type: object
+  required: [id, batch, text, status, decision, createdAt, decidedAt]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    batch:
+      $ref: './batches.yaml#/BatchListItem'
+    text:
+      type: string
+    status:
+      $ref: '#/ComplaintStatus'
+    decision:
+      oneOf:
+        - $ref: '#/ComplaintDecisionType'
+        - type: 'null'
+    createdAt:
+      $ref: './common.yaml#/DateTime'
+    decidedAt:
+      $ref: './common.yaml#/NullableDateTime'
+  example:
+    id: e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b
+    batch:
+      id: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+      publicCode: AT-2026-000457
+      product:
+        id: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+        name: Мука пшеничная высшего сорта
+        category: PROCESSED
+        imageUrl: null
+      massKg: '9500.000'
+      status: OnSale
+      kind: DERIVED
+      holder:
+        id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+        name: ООО «Кубань-Маркет»
+        type: RETAILER
+        logoUrl: null
+      origin:
+        id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+        name: ООО «Кубанский мукомол»
+        type: PROCESSOR
+        logoUrl: null
+      harvestedAt: null
+      producedAt: '2026-08-05T10:00:00Z'
+      updatedAt: '2026-08-21T08:00:00Z'
+      qrGeneratedAt: '2026-08-21T08:00:00Z'
+    text: После употребления муки из этой партии у членов семьи появилась горечь во рту и тошнота.
+    status: NEW
+    decision: null
+    createdAt: '2026-09-24T10:12:45Z'
+    decidedAt: null
+ComplaintPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/ComplaintListItem'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items: []
+    page: 1
+    size: 20
+    total: 0
+Complaint:
+  type: object
+  description: >-
+    Карточка жалобы: поля `ComplaintListItem` и дополнительные. `contact` — контакт покупателя (виден только
+    инспектору); `inspector` — инспектор, взявший жалобу в работу или принявший решение; `labTestId` — анализ,
+    назначенный решением LAB_TEST; `recallId` — отзыв решения RECALL (новый или уже открытый по этой партии).
+  required:
+    - id
+    - batch
+    - text
+    - status
+    - decision
+    - createdAt
+    - decidedAt
+    - contact
+    - decisionComment
+    - inspector
+    - labTestId
+    - recallId
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    batch:
+      $ref: './batches.yaml#/BatchListItem'
+    text:
+      type: string
+    status:
+      $ref: '#/ComplaintStatus'
+    decision:
+      oneOf:
+        - $ref: '#/ComplaintDecisionType'
+        - type: 'null'
+    createdAt:
+      $ref: './common.yaml#/DateTime'
+    decidedAt:
+      $ref: './common.yaml#/NullableDateTime'
+    contact:
+      type: [string, 'null']
+    decisionComment:
+      type: [string, 'null']
+    inspector:
+      oneOf:
+        - $ref: './recalls.yaml#/ActorRef'
+        - type: 'null'
+    labTestId:
+      type: [string, 'null']
+      format: uuid
+    recallId:
+      type: [string, 'null']
+      format: uuid
+  example:
+    id: e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b
+    batch:
+      id: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+      publicCode: AT-2026-000457
+      product:
+        id: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+        name: Мука пшеничная высшего сорта
+        category: PROCESSED
+        imageUrl: null
+      massKg: '9500.000'
+      status: OnSale
+      kind: DERIVED
+      holder:
+        id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+        name: ООО «Кубань-Маркет»
+        type: RETAILER
+        logoUrl: null
+      origin:
+        id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+        name: ООО «Кубанский мукомол»
+        type: PROCESSOR
+        logoUrl: null
+      harvestedAt: null
+      producedAt: '2026-08-05T10:00:00Z'
+      updatedAt: '2026-08-21T08:00:00Z'
+      qrGeneratedAt: '2026-08-21T08:00:00Z'
+    text: После употребления муки из этой партии у членов семьи появилась горечь во рту и тошнота.
+    status: DECIDED
+    decision: LAB_TEST
+    createdAt: '2026-09-24T10:12:45Z'
+    decidedAt: '2026-09-24T12:00:00Z'
+    contact: '+79161234567'
+    decisionComment: Назначен внеплановый анализ на остаточные пестициды
+    inspector:
+      id: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+      fullName: Соколова Анна Викторовна
+      avatarUrl: null
+    labTestId: 9a1c3e5a-7c9e-4b1d-8f3a-5c7e9b1d3f5a
+    recallId: null
+ComplaintReviewRequest:
+  type: object
+  description: Тело не требуется; допускается пустой объект.
+  additionalProperties: false
+  properties: {}
+  example: {}
+ComplaintComment:
+  type: string
+  minLength: 1
+  maxLength: 1000
+  pattern: '\S'
+  description: Комментарий инспектора к решению; при RECALL становится причиной отзыва (`Recall.reason`).
+  example: Назначен внеплановый анализ на остаточные пестициды
+ComplaintDecision:
+  description: >-
+    Решение по жалобе — один из трёх вариантов по `decision`: REJECT `{decision, comment}`; LAB_TEST
+    `{decision, comment, labOrgId}` (`labOrgId` обязателен); RECALL `{decision, comment, blockUpstream?}`
+    (`blockUpstream` по умолчанию false). `labOrgId` без LAB_TEST или `blockUpstream` без RECALL — 400
+    `errors.labOrgId` / `errors.blockUpstream: [validation.notAllowed]`; LAB_TEST без `labOrgId` — 400
+    `errors.labOrgId: [validation.required]`.
+  oneOf:
+    - type: object
+      required: [decision, comment]
+      additionalProperties: false
+      properties:
+        decision:
+          type: string
+          const: REJECT
+        comment:
+          $ref: '#/ComplaintComment'
+    - type: object
+      required: [decision, comment, labOrgId]
+      additionalProperties: false
+      properties:
+        decision:
+          type: string
+          const: LAB_TEST
+        comment:
+          $ref: '#/ComplaintComment'
+        labOrgId:
+          $ref: './common.yaml#/Uuid'
+    - type: object
+      required: [decision, comment]
+      additionalProperties: false
+      properties:
+        decision:
+          type: string
+          const: RECALL
+        comment:
+          $ref: '#/ComplaintComment'
+        blockUpstream:
+          type: boolean
+          default: false
+  example:
+    decision: LAB_TEST
+    comment: Назначен внеплановый анализ на остаточные пестициды
+    labOrgId: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b

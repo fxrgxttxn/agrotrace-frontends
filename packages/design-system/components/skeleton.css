@@ -1,0 +1,31 @@
+.at-skeleton {
+  display: block;
+  width: 100%;
+  height: var(--lh-14);
+  border-radius: var(--r-s);
+  background: var(--c-surface-sunk);
+  animation: at-skeleton 1.6s ease-in-out infinite;
+}
+
+.at-skeleton[data-shape='text'] {
+  height: 10px;
+  margin: 5px 0;
+  border-radius: 2px;
+}
+
+.at-skeleton[data-shape='block'] {
+  height: 96px;
+  border-radius: var(--r-l);
+}
+
+.at-skeleton[data-shape='circle'] {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+@keyframes at-skeleton {
+  50% {
+    opacity: 0.55;
+  }
+}

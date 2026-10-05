@@ -1,0 +1,67 @@
+{
+  "rule": "BATCH-CODE",
+  "fn": "formatBatchCode",
+  "description": "Public batch code format AT-{year}-{seq}, seq zero-padded to at least 6 digits; seq >= 1,000,000 is printed in full with no truncation.",
+  "cases": [
+    {
+      "name": "seq 1 - zero padded to 6 digits",
+      "input": { "year": 2026, "seq": 1 },
+      "expected": { "code": "AT-2026-000001" }
+    },
+    {
+      "name": "seq 123 - zero padded",
+      "input": { "year": 2026, "seq": 123 },
+      "expected": { "code": "AT-2026-000123" }
+    },
+    {
+      "name": "seq 5 - single digit zero padded",
+      "input": { "year": 2026, "seq": 5 },
+      "expected": { "code": "AT-2026-000005" }
+    },
+    {
+      "name": "seq 10 - zero padded",
+      "input": { "year": 2026, "seq": 10 },
+      "expected": { "code": "AT-2026-000010" }
+    },
+    {
+      "name": "seq 999998 - near the 6-digit boundary",
+      "input": { "year": 2026, "seq": 999998 },
+      "expected": { "code": "AT-2026-999998" }
+    },
+    {
+      "name": "seq 999999 - maximum 6-digit value",
+      "input": { "year": 2026, "seq": 999999 },
+      "expected": { "code": "AT-2026-999999" }
+    },
+    {
+      "name": "seq 1000000 - seventh digit, no truncation",
+      "input": { "year": 2026, "seq": 1000000 },
+      "expected": { "code": "AT-2026-1000000" }
+    },
+    {
+      "name": "seq 1000001 - just above the 6-digit boundary",
+      "input": { "year": 2026, "seq": 1000001 },
+      "expected": { "code": "AT-2026-1000001" }
+    },
+    {
+      "name": "seq 1234567 - large value preserved fully",
+      "input": { "year": 2026, "seq": 1234567 },
+      "expected": { "code": "AT-2026-1234567" }
+    },
+    {
+      "name": "seq 9999999 - very large value",
+      "input": { "year": 2026, "seq": 9999999 },
+      "expected": { "code": "AT-2026-9999999" }
+    },
+    {
+      "name": "different year - 2025",
+      "input": { "year": 2025, "seq": 42 },
+      "expected": { "code": "AT-2025-000042" }
+    },
+    {
+      "name": "different year - 2027",
+      "input": { "year": 2027, "seq": 7 },
+      "expected": { "code": "AT-2027-000007" }
+    }
+  ]
+}

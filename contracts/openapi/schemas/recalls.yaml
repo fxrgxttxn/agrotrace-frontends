@@ -1,0 +1,656 @@
+# Отзывы и задачи изъятия (БП-5, FR-QA-05…07, BR-08, BR-10).
+ActorRef:
+  type: object
+  description: Пользователь — автор действия (ФИО и аватарка; email и телефон не отдаются).
+  required: [id, fullName, avatarUrl]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    fullName:
+      type: string
+    avatarUrl:
+      $ref: './common.yaml#/NullableSignedFileUrl'
+  example:
+    id: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+    fullName: Соколова Анна Викторовна
+    avatarUrl: null
+RecallTrigger:
+  type: string
+  description: >-
+    Источник отзыва: LAB — автоматически при заключении FAIL (`submitLabResults`); INSPECTOR — ручной запуск
+    (`createRecall`); COMPLAINT — решение RECALL по жалобе (`decideComplaint`).
+  enum: [LAB, INSPECTOR, COMPLAINT]
+  example: LAB
+RecallStatus:
+  type: string
+  description: OPEN — есть неподтверждённые задачи; CLOSED — все задачи подтверждены (BR-10) или задач нет.
+  enum: [OPEN, CLOSED]
+  example: OPEN
+RecallDirection:
+  type: string
+  description: >-
+    SOURCE — исходная партия (`depth` = 0); DOWN — производная (потомок по `batch_links`, `depth` ≥ 1);
+    UP — источник (предок, `depth` ≥ 1), только при `blockUpstream` = true.
+  enum: [SOURCE, DOWN, UP]
+  example: DOWN
+RecallTaskStatus:
+  type: string
+  description: >-
+    OPEN — ждёт подтверждения; OVERDUE — срок истёк, эскалировано инспекторам (планировщик, BR-08); CONFIRMED —
+    изъятие подтверждено держателем. Переходы — `contracts/rules/entity-state-machines.json` (`recallTask`).
+  enum: [OPEN, CONFIRMED, OVERDUE]
+  example: OPEN
+RecallProgress:
+  type: object
+  description: >-
+    Прогресс «подтверждено N из M»: `total` — число задач отзыва, `confirmed` — в статусе CONFIRMED, `overdue` —
+    не подтверждённых, у которых now > `dueAt` (независимо от того, успел ли планировщик выставить OVERDUE).
+  required: [confirmed, total, overdue]
+  additionalProperties: false
+  properties:
+    confirmed:
+      type: integer
+      minimum: 0
+    total:
+      type: integer
+      minimum: 0
+    overdue:
+      type: integer
+      minimum: 0
+  example:
+    confirmed: 1
+    total: 3
+    overdue: 0
+RecallTask:
+  type: object
+  description: >-
+    Задача изъятия партии у держателя. `holder` — организация, которая должна подтвердить изъятие: текущий держатель
+    партии, а для партии, отозванной в статусе InTransit, — получатель накладной SENT (при отказе от накладной задача
+    переназначается отправителю, R50). `dueAt` = `recallTaskDueAt(openedAt)` = открытие отзыва + 24 ч (BR-08).
+    `overdue` — вычисляется при чтении: статус не CONFIRMED и now > `dueAt`.
+  required:
+    - id
+    - recallId
+    - recallReason
+    - batch
+    - holder
+    - dueAt
+    - status
+    - overdue
+    - escalatedAt
+    - confirmedAt
+    - confirmedBy
+    - createdAt
+    - version
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    recallId:
+      $ref: './common.yaml#/Uuid'
+    recallReason:
+      type: string
+      description: Причина отзыва (`Recall.reason`).
+    batch:
+      $ref: './batches.yaml#/BatchListItem'
+    holder:
+      $ref: './common.yaml#/OrganizationRef'
+    dueAt:
+      $ref: './common.yaml#/DateTime'
+    status:
+      $ref: '#/RecallTaskStatus'
+    overdue:
+      type: boolean
+    escalatedAt:
+      description: Момент эскалации планировщиком (перевод в OVERDUE); null — не эскалировалась.
+      $ref: './common.yaml#/NullableDateTime'
+    confirmedAt:
+      $ref: './common.yaml#/NullableDateTime'
+    confirmedBy:
+      description: Кто подтвердил изъятие; null — не подтверждена.
+      oneOf:
+        - $ref: '#/ActorRef'
+        - type: 'null'
+    createdAt:
+      $ref: './common.yaml#/DateTime'
+    version:
+      type: integer
+      minimum: 1
+      description: >-
+        Версия для `If-Match` операции `confirmRecallTask`. Вставка — 1; +1 при эскалации, переназначении держателя
+        (R50) и подтверждении.
+  example:
+    id: 5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e
+    recallId: 4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d
+    recallReason: Жалобы покупателей на горечь муки, партия зерна связана с нарушением
+    batch:
+      id: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+      publicCode: AT-2026-000457
+      product:
+        id: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+        name: Мука пшеничная высшего сорта
+        category: PROCESSED
+        imageUrl: null
+      massKg: '9500.000'
+      status: Recalled
+      kind: DERIVED
+      holder:
+        id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+        name: ООО «Кубань-Маркет»
+        type: RETAILER
+        logoUrl: null
+      origin:
+        id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+        name: ООО «Кубанский мукомол»
+        type: PROCESSOR
+        logoUrl: null
+      harvestedAt: null
+      producedAt: '2026-08-05T10:00:00Z'
+      updatedAt: '2026-09-24T09:00:00Z'
+      qrGeneratedAt: '2026-08-21T08:00:00Z'
+    holder:
+      id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+      name: ООО «Кубань-Маркет»
+      type: RETAILER
+      logoUrl: null
+    dueAt: '2026-09-25T09:00:00Z'
+    status: OPEN
+    overdue: false
+    escalatedAt: null
+    confirmedAt: null
+    confirmedBy: null
+    createdAt: '2026-09-24T09:00:00Z'
+    version: 1
+RecallTaskPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/RecallTask'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items: []
+    page: 1
+    size: 20
+    total: 0
+RecallTaskConfirm:
+  type: object
+  description: Тело не требуется; допускается пустой объект.
+  additionalProperties: false
+  properties: {}
+  example: {}
+RecallBatch:
+  type: object
+  description: >-
+    Партия, затронутая отзывом (`recall_batches`). `statusBefore` — статус до отзыва; текущий статус — `batch.status`.
+    Партии Processed, Sold, WrittenOff и уже Recalled записываются, но статус не меняют и задачи не получают (п. 5.1).
+  required: [batch, direction, depth, statusBefore]
+  additionalProperties: false
+  properties:
+    batch:
+      $ref: './batches.yaml#/BatchListItem'
+    direction:
+      $ref: '#/RecallDirection'
+    depth:
+      type: integer
+      minimum: 0
+      maximum: 20
+      description: Кратчайшее расстояние от исходной партии по `batch_links` в своём направлении; SOURCE — 0.
+    statusBefore:
+      $ref: './common.yaml#/BatchStatus'
+  example:
+    batch:
+      id: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+      publicCode: AT-2026-000457
+      product:
+        id: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+        name: Мука пшеничная высшего сорта
+        category: PROCESSED
+        imageUrl: null
+      massKg: '9500.000'
+      status: Recalled
+      kind: DERIVED
+      holder:
+        id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+        name: ООО «Кубань-Маркет»
+        type: RETAILER
+        logoUrl: null
+      origin:
+        id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+        name: ООО «Кубанский мукомол»
+        type: PROCESSOR
+        logoUrl: null
+      harvestedAt: null
+      producedAt: '2026-08-05T10:00:00Z'
+      updatedAt: '2026-09-24T09:00:00Z'
+      qrGeneratedAt: '2026-08-21T08:00:00Z'
+    direction: DOWN
+    depth: 1
+    statusBefore: OnSale
+RecallListItem:
+  type: object
+  description: Строка реестра отзывов.
+  required:
+    [id, sourceBatch, trigger, reason, status, blockUpstream, openedAt, closedAt, progress, batchesCount]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    sourceBatch:
+      $ref: './batches.yaml#/BatchListItem'
+    trigger:
+      $ref: '#/RecallTrigger'
+    reason:
+      type: string
+    status:
+      $ref: '#/RecallStatus'
+    blockUpstream:
+      type: boolean
+    openedAt:
+      $ref: './common.yaml#/DateTime'
+    closedAt:
+      $ref: './common.yaml#/NullableDateTime'
+    progress:
+      $ref: '#/RecallProgress'
+    batchesCount:
+      type: integer
+      minimum: 1
+      description: Число строк `recall_batches` (включая исходную партию).
+  example:
+    id: 4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d
+    sourceBatch:
+      id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+      publicCode: AT-2026-000123
+      product:
+        id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+        name: Пшеница озимая
+        category: GRAIN
+        imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+      massKg: '12480.000'
+      status: Processed
+      kind: RAW
+      holder:
+        id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+        name: ООО «Кубанский мукомол»
+        type: PROCESSOR
+        logoUrl: null
+      origin:
+        id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+        name: КФХ Петров
+        type: FARM
+        logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+      harvestedAt: '2026-07-18T06:00:00Z'
+      producedAt: null
+      updatedAt: '2026-08-05T10:00:00Z'
+      qrGeneratedAt: null
+    trigger: INSPECTOR
+    reason: Жалобы покупателей на горечь муки, партия зерна связана с нарушением
+    status: OPEN
+    blockUpstream: false
+    openedAt: '2026-09-24T09:00:00Z'
+    closedAt: null
+    progress:
+      confirmed: 0
+      total: 1
+      overdue: 0
+    batchesCount: 2
+RecallPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/RecallListItem'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items: []
+    page: 1
+    size: 20
+    total: 0
+Recall:
+  type: object
+  description: >-
+    Карточка отзыва: поля `RecallListItem` и дополнительные. `batches` — все строки `recall_batches` в порядке
+    SOURCE, DOWN, UP, затем по `depth`, затем по `publicCode`; `tasks` — все задачи в порядке `dueAt`, затем по
+    `publicCode` партии. Массивы без пагинации (ограничены графом). `openedBy` — пользователь, чей запрос открыл отзыв
+    (для LAB — лаборант, внёсший результаты). `labTestId` — анализ с FAIL (trigger LAB), `complaintId` — жалоба
+    (trigger COMPLAINT), иначе null.
+  required:
+    - id
+    - sourceBatch
+    - trigger
+    - reason
+    - status
+    - blockUpstream
+    - openedAt
+    - closedAt
+    - progress
+    - batchesCount
+    - openedBy
+    - labTestId
+    - complaintId
+    - batches
+    - tasks
+    - version
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    sourceBatch:
+      $ref: './batches.yaml#/BatchListItem'
+    trigger:
+      $ref: '#/RecallTrigger'
+    reason:
+      type: string
+    status:
+      $ref: '#/RecallStatus'
+    blockUpstream:
+      type: boolean
+    openedAt:
+      $ref: './common.yaml#/DateTime'
+    closedAt:
+      $ref: './common.yaml#/NullableDateTime'
+    progress:
+      $ref: '#/RecallProgress'
+    batchesCount:
+      type: integer
+      minimum: 1
+    openedBy:
+      oneOf:
+        - $ref: '#/ActorRef'
+        - type: 'null'
+    labTestId:
+      type: [string, 'null']
+      format: uuid
+    complaintId:
+      type: [string, 'null']
+      format: uuid
+    batches:
+      type: array
+      minItems: 1
+      items:
+        $ref: '#/RecallBatch'
+    tasks:
+      type: array
+      items:
+        $ref: '#/RecallTask'
+    version:
+      type: integer
+      minimum: 1
+      description: Вставка — 1; +1 при закрытии (BR-10).
+  example:
+    id: 4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d
+    sourceBatch:
+      id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+      publicCode: AT-2026-000123
+      product:
+        id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+        name: Пшеница озимая
+        category: GRAIN
+        imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+      massKg: '12480.000'
+      status: Processed
+      kind: RAW
+      holder:
+        id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+        name: ООО «Кубанский мукомол»
+        type: PROCESSOR
+        logoUrl: null
+      origin:
+        id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+        name: КФХ Петров
+        type: FARM
+        logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+      harvestedAt: '2026-07-18T06:00:00Z'
+      producedAt: null
+      updatedAt: '2026-08-05T10:00:00Z'
+      qrGeneratedAt: null
+    trigger: INSPECTOR
+    reason: Жалобы покупателей на горечь муки, партия зерна связана с нарушением
+    status: OPEN
+    blockUpstream: false
+    openedAt: '2026-09-24T09:00:00Z'
+    closedAt: null
+    progress:
+      confirmed: 0
+      total: 1
+      overdue: 0
+    batchesCount: 2
+    openedBy:
+      id: 9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a
+      fullName: Соколова Анна Викторовна
+      avatarUrl: null
+    labTestId: null
+    complaintId: null
+    batches:
+      - batch:
+          id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+          publicCode: AT-2026-000123
+          product:
+            id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+            name: Пшеница озимая
+            category: GRAIN
+            imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+          massKg: '12480.000'
+          status: Processed
+          kind: RAW
+          holder:
+            id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+            name: ООО «Кубанский мукомол»
+            type: PROCESSOR
+            logoUrl: null
+          origin:
+            id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+            name: КФХ Петров
+            type: FARM
+            logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+          harvestedAt: '2026-07-18T06:00:00Z'
+          producedAt: null
+          updatedAt: '2026-08-05T10:00:00Z'
+          qrGeneratedAt: null
+        direction: SOURCE
+        depth: 0
+        statusBefore: Processed
+      - batch:
+          id: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+          publicCode: AT-2026-000457
+          product:
+            id: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+            name: Мука пшеничная высшего сорта
+            category: PROCESSED
+            imageUrl: null
+          massKg: '9500.000'
+          status: Recalled
+          kind: DERIVED
+          holder:
+            id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+            name: ООО «Кубань-Маркет»
+            type: RETAILER
+            logoUrl: null
+          origin:
+            id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+            name: ООО «Кубанский мукомол»
+            type: PROCESSOR
+            logoUrl: null
+          harvestedAt: null
+          producedAt: '2026-08-05T10:00:00Z'
+          updatedAt: '2026-09-24T09:00:00Z'
+          qrGeneratedAt: '2026-08-21T08:00:00Z'
+        direction: DOWN
+        depth: 1
+        statusBefore: OnSale
+    tasks:
+      - id: 5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e
+        recallId: 4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d
+        recallReason: Жалобы покупателей на горечь муки, партия зерна связана с нарушением
+        batch:
+          id: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+          publicCode: AT-2026-000457
+          product:
+            id: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+            name: Мука пшеничная высшего сорта
+            category: PROCESSED
+            imageUrl: null
+          massKg: '9500.000'
+          status: Recalled
+          kind: DERIVED
+          holder:
+            id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+            name: ООО «Кубань-Маркет»
+            type: RETAILER
+            logoUrl: null
+          origin:
+            id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+            name: ООО «Кубанский мукомол»
+            type: PROCESSOR
+            logoUrl: null
+          harvestedAt: null
+          producedAt: '2026-08-05T10:00:00Z'
+          updatedAt: '2026-09-24T09:00:00Z'
+          qrGeneratedAt: '2026-08-21T08:00:00Z'
+        holder:
+          id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+          name: ООО «Кубань-Маркет»
+          type: RETAILER
+          logoUrl: null
+        dueAt: '2026-09-25T09:00:00Z'
+        status: OPEN
+        overdue: false
+        escalatedAt: null
+        confirmedAt: null
+        confirmedBy: null
+        createdAt: '2026-09-24T09:00:00Z'
+        version: 1
+    version: 1
+RecallCreate:
+  type: object
+  description: >-
+    Ручной запуск отзыва инспектором (FR-QA-06). `sourceBatchId` — неудалённая партия в любом статусе (иначе 400
+    `validation.notFound`); `blockUpstream` — отзывать также партии-источники (обход вверх, п. 5.6).
+  required: [sourceBatchId, reason, blockUpstream]
+  additionalProperties: false
+  properties:
+    sourceBatchId:
+      $ref: './common.yaml#/Uuid'
+    reason:
+      type: string
+      minLength: 1
+      maxLength: 1000
+      pattern: '\S'
+    blockUpstream:
+      type: boolean
+  example:
+    sourceBatchId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+    reason: Жалобы покупателей на горечь муки, партия зерна связана с нарушением
+    blockUpstream: false
+RecallGraph:
+  type: object
+  description: >-
+    Граф затронутых партий для карточки отзыва: `nodes` — все строки `recall_batches` (порядок как в `Recall.batches`),
+    `edges` — все связи `batch_links`, у которых оба конца входят в `nodes` (порядок — по `publicCode` родителя, затем
+    ребёнка). `taskStatus` — статус задачи изъятия по партии в этом отзыве, null — задачи нет.
+  required: [recallId, nodes, edges]
+  additionalProperties: false
+  properties:
+    recallId:
+      $ref: './common.yaml#/Uuid'
+    nodes:
+      type: array
+      minItems: 1
+      items:
+        type: object
+        required: [id, publicCode, product, status, statusBefore, holder, direction, depth, taskStatus]
+        additionalProperties: false
+        properties:
+          id:
+            $ref: './common.yaml#/Uuid'
+          publicCode:
+            $ref: './batches.yaml#/PublicCode'
+          product:
+            $ref: './common.yaml#/ProductRef'
+          status:
+            $ref: './common.yaml#/BatchStatus'
+          statusBefore:
+            $ref: './common.yaml#/BatchStatus'
+          holder:
+            $ref: './common.yaml#/OrganizationRef'
+          direction:
+            $ref: '#/RecallDirection'
+          depth:
+            type: integer
+            minimum: 0
+            maximum: 20
+          taskStatus:
+            oneOf:
+              - $ref: '#/RecallTaskStatus'
+              - type: 'null'
+    edges:
+      type: array
+      items:
+        type: object
+        required: [parent, child, massUsedKg]
+        additionalProperties: false
+        properties:
+          parent:
+            $ref: './common.yaml#/Uuid'
+          child:
+            $ref: './common.yaml#/Uuid'
+          massUsedKg:
+            $ref: './common.yaml#/Mass'
+  example:
+    recallId: 4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d
+    nodes:
+      - id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+        publicCode: AT-2026-000123
+        product:
+          id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+          name: Пшеница озимая
+          category: GRAIN
+          imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+        status: Processed
+        statusBefore: Processed
+        holder:
+          id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+          name: ООО «Кубанский мукомол»
+          type: PROCESSOR
+          logoUrl: null
+        direction: SOURCE
+        depth: 0
+        taskStatus: null
+      - id: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+        publicCode: AT-2026-000457
+        product:
+          id: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+          name: Мука пшеничная высшего сорта
+          category: PROCESSED
+          imageUrl: null
+        status: Recalled
+        statusBefore: OnSale
+        holder:
+          id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+          name: ООО «Кубань-Маркет»
+          type: RETAILER
+          logoUrl: null
+        direction: DOWN
+        depth: 1
+        taskStatus: OPEN
+    edges:
+      - parent: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+        child: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+        massUsedKg: '10000.000'

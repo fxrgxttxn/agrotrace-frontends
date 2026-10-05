@@ -1,0 +1,72 @@
+{
+  "description": "Notification matrix (FR-NOTIF-01..04). `types` keys equal the DB CHECK on notifications.type and the NotificationType enum. `producedBy` lists operationIds (or system jobs) that emit the notification after their transaction commits; `recipients` are logical groups resolved to users by the worker of notification.dispatch (ACTIVE, non-deleted users only, deduplicated by user id); `payload` lists the exact keys of Notification.payload. One IN_APP row is always created per recipient; EMAIL/TELEGRAM rows follow the user's channel settings, except for `forcedChannels` types, which go to every available channel (email always, Telegram when linked) regardless of settings (FR-NOTIF-03).",
+  "recipientGroups": {
+    "labOrg": "all users of the lab organization of the test",
+    "labOrgHeads": "users with is_org_admin = true of the lab organization of the test",
+    "batchOrigin": "all users of the batch origin organization",
+    "batchHolder": "all users of the batch holder organization (skipped when equal to batchOrigin)",
+    "waybillReceiver": "all users of the waybill receiver organization",
+    "taskHolder": "all users of the recall task holder organization",
+    "taskHolders": "all users of every organization holding a task of the recall",
+    "sourceOrigin": "all users of the origin organization of the recall source batch",
+    "inspectors": "all users with role INSPECTOR",
+    "inspectorsIfUnplanned": "all users with role INSPECTOR, only when the lab test reason is INSPECTOR or COMPLAINT"
+  },
+  "forcedChannels": ["RECALL", "RECALL_TASK", "OVERDUE"],
+  "types": {
+    "LAB_ASSIGNED": {
+      "producedBy": ["createBatch", "createLabTest", "decideComplaint"],
+      "recipients": ["labOrg", "batchOrigin"],
+      "payload": [
+        "labTestId",
+        "batchId",
+        "publicCode",
+        "productName",
+        "labOrgId",
+        "labName",
+        "reason",
+        "dueAt"
+      ]
+    },
+    "LAB_RESULT": {
+      "producedBy": ["submitLabResults"],
+      "recipients": ["batchOrigin", "batchHolder", "inspectorsIfUnplanned"],
+      "payload": ["labTestId", "batchId", "publicCode", "productName", "conclusion", "recallId"]
+    },
+    "WAYBILL_INCOMING": {
+      "producedBy": ["sendWaybill"],
+      "recipients": ["waybillReceiver"],
+      "payload": ["waybillId", "number", "senderOrgId", "senderName", "itemsCount"]
+    },
+    "RECALL": {
+      "producedBy": [
+        "recall.requested (event OPENED)",
+        "recall engine at creation (event CLOSED, vacuous BR-10 close with no tasks: notification.dispatch in the same transaction, R59)",
+        "confirmRecallTask (event CLOSED)"
+      ],
+      "recipients": ["inspectors", "taskHolders", "sourceOrigin"],
+      "recipientsOnClose": ["inspectors"],
+      "payload": ["recallId", "event", "sourceBatchId", "publicCode", "trigger"]
+    },
+    "RECALL_TASK": {
+      "producedBy": ["recall.requested (event CREATED)", "rejectWaybill (event REASSIGNED)"],
+      "recipients": ["taskHolder"],
+      "payload": ["recallId", "taskId", "batchId", "publicCode", "dueAt", "event"]
+    },
+    "OVERDUE": {
+      "producedBy": ["system:recall-task-overdue"],
+      "recipients": ["taskHolder", "inspectors"],
+      "payload": ["recallId", "taskId", "batchId", "publicCode", "dueAt", "holderOrgId", "holderName"]
+    },
+    "COMPLAINT": {
+      "producedBy": ["createPublicComplaint"],
+      "recipients": ["inspectors"],
+      "payload": ["complaintId", "batchId", "publicCode", "productName"]
+    },
+    "LAB_OVERDUE": {
+      "producedBy": ["lab.escalate"],
+      "recipients": ["labOrgHeads", "inspectors"],
+      "payload": ["labTestId", "batchId", "publicCode", "labOrgId", "labName", "dueAt"]
+    }
+  }
+}

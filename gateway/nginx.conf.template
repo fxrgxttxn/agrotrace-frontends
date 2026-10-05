@@ -1,0 +1,276 @@
+worker_processes auto;
+
+events {
+  worker_connections 1024;
+}
+
+http {
+  gzip on;
+  gzip_vary on;
+  gzip_comp_level 6;
+  gzip_min_length 1024;
+  gzip_types text/css application/javascript text/javascript application/json image/svg+xml;
+
+  include       mime.types;
+  default_type  application/octet-stream;
+
+  sendfile     on;
+  tcp_nopush   on;
+  keepalive_timeout 65;
+
+  log_format main
+    '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
+    '$status $body_bytes_sent "$http_referer" "$http_user_agent" rid=$req_id';
+  access_log /dev/stdout main;
+  error_log  /dev/stderr crit;
+
+  map $http_x_request_id $req_id {
+    default                     $request_id;
+    "~^[A-Za-z0-9._-]{1,64}$"   $http_x_request_id;
+  }
+
+  map $host $front {
+    ~^(?<f>react|angular|svelte)-(express|django|laravel)\.localhost$ $f;
+    default '';
+  }
+  map $host $back {
+    ~^(react|angular|svelte)-(?<b>express|django|laravel)\.localhost$ $b;
+    default '';
+  }
+
+  server {
+    listen 80;
+    server_name ~^(react|angular|svelte)-(express|django|laravel)\.localhost$;
+
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    client_max_body_size 12m;
+
+    root /srv/$front;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy same-origin always;
+    add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+    add_header X-Request-Id $req_id always;
+
+    error_page 413 = @too_large;
+
+    location /api/v1/events/ {
+      proxy_pass http://api-$back:8000;
+      proxy_http_version 1.1;
+      proxy_set_header Connection '';
+      proxy_buffering off;
+      proxy_cache off;
+      proxy_read_timeout 1h;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Host $http_host;
+      proxy_set_header X-Forwarded-Port ${GATEWAY_PORT};
+      proxy_set_header X-Request-Id $req_id;
+      proxy_hide_header X-Request-Id;
+      proxy_hide_header X-Content-Type-Options;
+      proxy_hide_header Referrer-Policy;
+      proxy_hide_header Content-Security-Policy;
+      error_page 502 504 = @backend_down;
+      error_page 413 = @too_large;
+    }
+
+    location /api/ {
+      proxy_pass http://api-$back:8000;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Host $http_host;
+      proxy_set_header X-Forwarded-Port ${GATEWAY_PORT};
+      proxy_set_header X-Request-Id $req_id;
+      proxy_hide_header X-Request-Id;
+      proxy_hide_header X-Content-Type-Options;
+      proxy_hide_header Referrer-Policy;
+      proxy_hide_header Content-Security-Policy;
+      error_page 502 504 = @backend_down;
+      error_page 413 = @too_large;
+    }
+
+    location @backend_down {
+      default_type application/problem+json;
+      return 502 '{"type":"/problems/backend-unavailable","title":"Backend unavailable","status":502,"code":"BACKEND_UNAVAILABLE","params":{"backend":"$back"}}';
+    }
+
+    location @too_large {
+      default_type application/problem+json;
+      return 413 '{"type":"/problems/file-too-large","title":"File too large","status":413,"code":"FILE_TOO_LARGE","params":{"maxBytes":12582912}}';
+    }
+
+    location = /index.html {
+      add_header X-Frontend $front always;
+      add_header Cache-Control 'no-cache' always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files /index.html =404;
+    }
+
+    location /assets/ {
+      add_header X-Frontend $front always;
+      add_header Cache-Control 'public, max-age=31536000, immutable' always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files $uri =404;
+    }
+
+    location / {
+      add_header X-Frontend $front always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files $uri $uri/ /index.html;
+    }
+  }
+
+  map $host $mock_front {
+    ~^(?<mf>react|angular|svelte)-mock\.localhost$ $mf;
+    default '';
+  }
+
+  server {
+    listen 80;
+    server_name ~^(react|angular|svelte)-mock\.localhost$;
+
+    root /srv/$mock_front-mock;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy same-origin always;
+    add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+    add_header X-Request-Id $req_id always;
+
+    location /api/ {
+      default_type application/problem+json;
+      return 503 '{"type":"/problems/backend-unavailable","title":"Mock backend not started","status":503,"code":"BACKEND_UNAVAILABLE"}';
+    }
+
+    location ~ ^/(index\.html|mockServiceWorker\.js)$ {
+      add_header X-Frontend $mock_front always;
+      add_header Cache-Control 'no-cache' always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files $uri =404;
+    }
+
+    location /assets/ {
+      add_header X-Frontend $mock_front always;
+      add_header Cache-Control 'public, max-age=31536000, immutable' always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files $uri =404;
+    }
+
+    location / {
+      add_header X-Frontend $mock_front always;
+      add_header Cache-Control 'no-cache' always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy same-origin always;
+      add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+      add_header X-Request-Id $req_id always;
+      try_files $uri $uri/ /index.html;
+    }
+  }
+
+  server {
+    listen 80 default_server;
+    server_name localhost;
+
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    root /srv/start;
+    index index.html;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy same-origin always;
+    add_header Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+    add_header X-Request-Id $req_id always;
+
+    error_page 413 = @too_large;
+
+    location @too_large {
+      default_type application/problem+json;
+      return 413 '{"type":"/problems/file-too-large","title":"File too large","status":413,"code":"FILE_TOO_LARGE","params":{"maxBytes":12582912}}';
+    }
+
+    location ~ ^/_health/(express|django|laravel)$ {
+      set $b $1;
+      proxy_pass http://api-$b:8000/api/v1/health/live;
+      proxy_set_header Host $host;
+      proxy_hide_header X-Request-Id;
+      proxy_hide_header X-Content-Type-Options;
+      proxy_hide_header Referrer-Policy;
+      proxy_hide_header Content-Security-Policy;
+      error_page 502 504 = @down;
+    }
+
+    location @down {
+      default_type application/json;
+      return 503 '{"status":"fail"}';
+    }
+
+    location = /_ds/ {
+      return 302 /_ds/showcase/index.html;
+    }
+
+    location /_ds/showcase/ {
+      alias /srv/ds/showcase/;
+    }
+
+    location = /_ds/index.css {
+      alias /srv/ds/index.css;
+    }
+
+    location = /_ds/tokens.css {
+      alias /srv/ds/tokens.css;
+    }
+
+    location = /_ds/fonts.css {
+      alias /srv/ds/fonts.css;
+    }
+
+    location = /_ds/base.css {
+      alias /srv/ds/base.css;
+    }
+
+    location /_ds/components/ {
+      alias /srv/ds/components/;
+    }
+
+    location /_ds/fonts/ {
+      alias /srv/ds/fonts/;
+    }
+
+    location = /_ds/sprite.svg {
+      alias /srv/ds/sprite.svg;
+    }
+
+    location /_ds/illustrations/ {
+      alias /srv/ds/illustrations/;
+    }
+
+    location = /_ds/icons/manifest.json {
+      alias /srv/ds/icons/manifest.json;
+    }
+
+    location /_ds/ {
+      return 404;
+    }
+
+    location / {
+      try_files $uri $uri/ /index.html;
+    }
+  }
+}

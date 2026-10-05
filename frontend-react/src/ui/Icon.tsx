@@ -1,0 +1,49 @@
+export type IconName =
+  | 'field'
+  | 'batch'
+  | 'waybill'
+  | 'flask'
+  | 'recall'
+  | 'qr'
+  | 'graph'
+  | 'scale'
+  | 'truck'
+  | 'factory'
+  | 'store'
+  | 'shield'
+  | 'alert'
+  | 'check'
+  | 'close'
+  | 'plus'
+  | 'minus'
+  | 'search'
+  | 'filter'
+  | 'sort'
+  | 'chevron-left'
+  | 'chevron-right'
+  | 'chevron-down'
+  | 'bell'
+  | 'user'
+  | 'users'
+  | 'building'
+  | 'map'
+  | 'calendar'
+  | 'clock'
+  | 'upload'
+  | 'download'
+  | 'file-pdf'
+  | 'image'
+  | 'logout'
+  | 'settings'
+  | 'menu'
+  | 'more'
+  | 'eye'
+  | 'trash';
+
+export function Icon({ name, className }: { name: IconName; className?: string }) {
+  return (
+    <svg className={className} aria-hidden="true">
+      <use href={`#i-${name}`} />
+    </svg>
+  );
+}

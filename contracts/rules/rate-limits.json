@@ -1,0 +1,33 @@
+{
+  "description": "Rate limits: fixed-window counters in shared Redis. On each request: INCR key; if the result is 1, EXPIRE key windowSec. windowStartEpochSec = floor(nowEpochSec / windowSec) * windowSec. Over limit -> 429 Problem RATE_LIMITED, Retry-After = windowStartEpochSec + windowSec - nowEpochSec (>= 1), params {scope, limit, windowSec}. Subject email is lowercased before use. Scope 'user' applies to every request authenticated with a Bearer token; other scopes apply to the operations listing them in the OpenAPI extension x-rate-limit.",
+  "limits": [
+    {
+      "scope": "user",
+      "limit": 100,
+      "windowSec": 60,
+      "subject": "userId",
+      "keyPattern": "rl:user:{userId}:{windowStartEpochSec}"
+    },
+    {
+      "scope": "login-ip",
+      "limit": 20,
+      "windowSec": 60,
+      "subject": "ip",
+      "keyPattern": "rl:login-ip:{ip}:{windowStartEpochSec}"
+    },
+    {
+      "scope": "forgot",
+      "limit": 3,
+      "windowSec": 3600,
+      "subject": "email",
+      "keyPattern": "rl:forgot:{email}:{windowStartEpochSec}"
+    },
+    {
+      "scope": "complaint-ip",
+      "limit": 10,
+      "windowSec": 3600,
+      "subject": "ip",
+      "keyPattern": "rl:complaint-ip:{ip}:{windowStartEpochSec}"
+    }
+  ]
+}

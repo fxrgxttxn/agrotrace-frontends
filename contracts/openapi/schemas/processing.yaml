@@ -1,0 +1,115 @@
+# Переработка (FR-PROD-06, БП-4).
+MassBalance:
+  type: object
+  description: >-
+    Баланс масс BR-04 (функция `checkMassBalance`, расчёт в граммах): `inputKg` — сумма `massUsedKg`,
+    `allowedKg` — сумма по входам `massUsedKg × (1 − lossNormPercent/100)` с отбрасыванием долей грамма
+    отдельно для каждого входа (`lossNormPercent` — норма потерь продукта входной партии), `outputKg` —
+    сумма масс выходов. Условие: `outputKg` ≤ `allowedKg`.
+  required: [inputKg, allowedKg, outputKg]
+  additionalProperties: false
+  properties:
+    inputKg:
+      $ref: './common.yaml#/MassTotal'
+    allowedKg:
+      $ref: './common.yaml#/MassTotal'
+    outputKg:
+      $ref: './common.yaml#/MassTotal'
+  example:
+    inputKg: '10000.000'
+    allowedKg: '7500.000'
+    outputKg: '7200.000'
+ProcessingRequest:
+  type: object
+  description: >-
+    Входные партии (без повторов `batchId`, иначе 400 `validation.duplicate`) и выходные продукты
+    (продукты могут повторяться — будет несколько выходных партий).
+  required: [inputs, outputs]
+  additionalProperties: false
+  properties:
+    inputs:
+      type: array
+      minItems: 1
+      maxItems: 50
+      items:
+        type: object
+        required: [batchId, massUsedKg]
+        additionalProperties: false
+        properties:
+          batchId:
+            $ref: './common.yaml#/Uuid'
+          massUsedKg:
+            description: Используемая масса; не больше текущей массы партии (иначе 400 `validation.mass.exceedsBatch`).
+            $ref: './common.yaml#/PositiveMass'
+    outputs:
+      type: array
+      minItems: 1
+      maxItems: 20
+      items:
+        type: object
+        required: [productId, massKg]
+        additionalProperties: false
+        properties:
+          productId:
+            $ref: './common.yaml#/Uuid'
+          massKg:
+            $ref: './common.yaml#/PositiveMass'
+  example:
+    inputs:
+      - batchId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+        massUsedKg: '10000.000'
+    outputs:
+      - productId: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+        massKg: '7200.000'
+ProcessingResult:
+  type: object
+  required: [outputs, balance]
+  additionalProperties: false
+  properties:
+    outputs:
+      type: array
+      minItems: 1
+      description: Созданные производные партии в порядке `outputs` запроса.
+      items:
+        $ref: './batches.yaml#/Batch'
+    balance:
+      $ref: '#/MassBalance'
+  example:
+    outputs:
+      - id: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+        publicCode: AT-2026-000457
+        product:
+          id: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+          name: Мука пшеничная высшего сорта
+          category: PROCESSED
+          imageUrl: null
+        massKg: '7200.000'
+        status: Approved
+        kind: DERIVED
+        holder:
+          id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+          name: ООО «Кубанский мукомол»
+          type: PROCESSOR
+          logoUrl: null
+        origin:
+          id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+          name: ООО «Кубанский мукомол»
+          type: PROCESSOR
+          logoUrl: null
+        harvestedAt: null
+        producedAt: '2026-08-05T10:00:00Z'
+        updatedAt: '2026-08-05T10:00:00Z'
+        field: null
+        testRequired: false
+        testReason: NONE
+        version: 2
+        actions:
+          - action: ship
+            to: InTransit
+          - action: process
+            to: Processed
+        qrGeneratedAt: null
+    balance:
+      inputKg: '10000.000'
+      allowedKg: '7500.000'
+      outputKg: '7200.000'

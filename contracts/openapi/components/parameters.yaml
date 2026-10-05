@@ -1,0 +1,167 @@
+# Общие параметры операций.
+Page:
+  name: page
+  in: query
+  description: Номер страницы, начиная с 1.
+  schema:
+    type: integer
+    minimum: 1
+    default: 1
+Size:
+  name: size
+  in: query
+  description: Размер страницы, не более 100.
+  schema:
+    type: integer
+    minimum: 1
+    maximum: 100
+    default: 20
+Sort:
+  name: sort
+  in: query
+  description: 'Сортировка `поле,asc|desc`; допустимые поля перечислены в описании операции.'
+  schema:
+    type: string
+    pattern: '^[a-zA-Z]+,(asc|desc)$'
+  example: createdAt,desc
+Q:
+  name: q
+  in: query
+  description: Строка поиска.
+  schema:
+    type: string
+    minLength: 1
+    maxLength: 100
+  example: Петров
+IdPath:
+  name: id
+  in: path
+  required: true
+  description: Идентификатор сущности.
+  schema:
+    type: string
+    format: uuid
+IdempotencyKey:
+  name: Idempotency-Key
+  in: header
+  required: true
+  description: |
+    Ключ идемпотентности (BR-11, функция `idempotencyDecision`). Повтор с тем же ключом и тем же запросом
+    возвращает сохранённый ответ с заголовком `Idempotent-Replayed: true`; с другим запросом — 409
+    IDEMPOTENCY_KEY_REUSED; пока первый запрос ещё выполняется — 409 IDEMPOTENCY_KEY_IN_PROGRESS с `Retry-After: 1`;
+    ключ не по шаблону или отсутствует — 400 INVALID_IDEMPOTENCY_KEY.
+
+    Общий алгоритм для всех реализаций (R48; ключи в общем Redis действуют сквозь backend):
+
+    - проверка выполняется после аутентификации и `x-roles` и до валидации тела, `If-Match` и бизнес-проверок;
+    - ключ Redis `idem:{userId}:{Idempotency-Key}`;
+    - отпечаток запроса — sha256 (hex, нижний регистр) от байтов UTF-8 строки `{METHOD} {path}\n` и следующих за ней
+      сырых байтов тела запроса (`path` — путь без строки запроса, например `/api/v1/waybills/{id}/send`;
+      пустое тело — пустая строка);
+    - запрос атомарно пытается записать `{"fingerprint": "<hex>", "state": "pending"}` командой `SET NX EX 60`.
+      Если ключ уже есть: отпечаток другой — 409 IDEMPOTENCY_KEY_REUSED; отпечаток тот же и `state` = `pending` —
+      409 IDEMPOTENCY_KEY_IN_PROGRESS, заголовок `Retry-After: 1`; отпечаток тот же и `state` = `done` —
+      воспроизведение сохранённого ответа (тот же код и тело, текущие `X-Request-Id`/`X-Backend`,
+      `Idempotent-Replayed: true`);
+    - значение ключа — JSON-объект (UTF-8). Ответ 2xx владелец записи сохраняет как
+      `{"fingerprint": "<hex>", "state": "done", "status": <код>, "body": <тело>}` с TTL 86400 с, где `body` —
+      вложенное JSON-значение тела ответа (объект, не строка с JSON); воспроизведение отдаёт `body`, сериализованное
+      заново (порядок ключей и пробелы могут отличаться от первого ответа), с `Content-Type: application/json` (R53);
+    - оба Lua-скрипта (сохранение и удаление) читают ключ, разбирают его `cjson.decode` и сравнивают `fingerprint`
+      и `state` = `pending` с ожидаемыми; сохранение выполняет `SET … EX 86400` только при совпадении, удаление
+      (compare-and-delete при ответе 4xx/5xx) — `DEL` только при совпадении; чужую, завершённую или отсутствующую
+      запись скрипты не трогают. После удаления повтор выполняется заново;
+    - если запрос длится дольше 60 с, запись `pending` истекает раньше, чем владелец получит ответ: результат такого
+      запроса просто не сохраняется (скрипт сохранения не находит своей записи) и повтор с тем же ключом выполняется
+      заново. Операции с `If-Match` и переходом статуса (`sendWaybill`, `acceptWaybill`, `confirmRecallTask`) при этом
+      остаются защищены блокировками и `If-Match` (повтор получит 409), а `createWaybill` в этом случае может создать
+      второй черновик накладной (R53) — черновик безвреден и удаляется `deleteWaybill`.
+  schema:
+    type: string
+    pattern: '^[A-Za-z0-9_-]{8,128}$'
+  example: 7f3a9c1e-waybill-2026
+IfMatch:
+  name: If-Match
+  in: header
+  required: true
+  description: >-
+    Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110),
+    например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`;
+    нечисловое значение — 400 VALIDATION.
+  schema:
+    type: integer
+    minimum: 1
+  example: 3
+IfNoneMatch:
+  name: If-None-Match
+  in: header
+  description: ETag ранее полученного содержимого; при совпадении — 304 без тела.
+  schema:
+    type: string
+  example: '"4a3b1c9e0f2d8a7b6c5e4d3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b"'
+ImageVariant:
+  name: variant
+  in: query
+  description: >-
+    Вариант изображения (WebP, размер по большей стороне в px). Без параметра — 480.
+    Для SVG и не-изображений (PDF и т.п.) игнорируется — отдаётся исходный файл. Не входит в подпись
+    подписанного URL — клиент может добавить или заменить его в выданном URL.
+  schema:
+    type: integer
+    enum: [96, 480]
+    default: 480
+PublicCode:
+  name: publicCode
+  in: path
+  required: true
+  description: Публичный код партии.
+  schema:
+    type: string
+    pattern: '^AT-\d{4}-\d{6,}$'
+  example: AT-2026-000123
+SignedExp:
+  name: exp
+  in: query
+  description: >-
+    Срок действия подписанного URL (Unix-время в секундах, UTC). Обязателен вместе с `sig`; истёкший
+    (`exp` < текущего времени сервера) — 403 FORBIDDEN.
+  schema:
+    type: integer
+    minimum: 0
+  example: 1790247600
+SignedSig:
+  name: sig
+  in: query
+  description: >-
+    Подпись URL: hex (нижний регистр) HMAC-SHA256 с ключом `fileUrlKey` = HMAC-SHA256(`JWT_SECRET`,
+    `"agrotrace:file-url:v1"`) от строки `{id}:{exp}` (R88 M2, пример — в описании `downloadFile`)
+    (`variant` не подписывается). Обязателен вместе с `exp`.
+  schema:
+    type: string
+    pattern: '^[0-9a-f]{64}$'
+  example: 9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+DateFrom:
+  name: from
+  in: query
+  description: >-
+    Начало периода (дата UTC, включительно). Какое поле фильтруется, указано в описании операции;
+    `from` позже `to` — 400 VALIDATION `errors.from: [validation.range]`.
+  schema:
+    type: string
+    format: date
+  example: '2026-07-01'
+DateTo:
+  name: to
+  in: query
+  description: Конец периода (дата UTC, включительно).
+  schema:
+    type: string
+    format: date
+  example: '2026-09-30'
+DictionaryName:
+  name: name
+  in: path
+  required: true
+  description: Имя справочника.
+  schema:
+    $ref: '../schemas/dictionaries.yaml#/DictionaryName'

@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Партии — AgroTrace</title>
+    <link rel="stylesheet" href="../index.css" />
+    <link rel="stylesheet" href="showcase.css" />
+    <script src="showcase.js" defer></script>
+  </head>
+  <body>
+    <div class="at-shell">
+      <a class="at-shell__skip" href="#main">К содержимому</a>
+
+      <nav class="at-sidebar" aria-label="Основное меню">
+        <a class="at-sidebar__brand" href="index.html" data-ds-keep-theme title="AgroTrace">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path d="M4 20 9 4M10 20l5-16M16 20l4-13" />
+          </svg>
+          <span class="at-sidebar__label">AgroTrace</span>
+        </a>
+        <ul class="at-sidebar__list">
+          <li>
+            <a class="at-sidebar__link" href="#dashboard" title="Панель">
+              <svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-graph" /></svg>
+              <span class="at-sidebar__label">Панель</span>
+            </a>
+          </li>
+          <li>
+            <a class="at-sidebar__link" href="#fields" title="Поля">
+              <svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-field" /></svg>
+              <span class="at-sidebar__label">Поля</span>
+            </a>
+          </li>
+          <li>
+            <a class="at-sidebar__link" href="#batches" aria-current="page" title="Партии">
+              <svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-batch" /></svg>
+              <span class="at-sidebar__label">Партии</span>
+            </a>
+          </li>
+          <li>
+            <a class="at-sidebar__link" href="#waybills" title="Накладные">
+              <svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-waybill" /></svg>
+              <span class="at-sidebar__label">Накладные</span>
+            </a>
+          </li>
+          <li>
+            <a class="at-sidebar__link" href="#recall-tasks" title="Задачи отзыва">
+              <svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-check" /></svg>
+              <span class="at-sidebar__label">Задачи отзыва</span>
+              <span class="at-visually-hidden">, открытых:</span><span class="at-sidebar__count">1</span>
+            </a>
+          </li>
+        </ul>
+      </nav>
+
+      <header class="at-topbar">
+        <div class="at-topbar__org">
+          <span class="at-avatar" data-size="m" data-shape="square"
+            ><img src="assets/wheat.svg" alt=""
+          /></span>
+          <span class="at-topbar__org-name">КФХ Петров</span>
+        </div>
+        <div class="at-topbar__actions">
+          <a class="at-bell" href="#notifications" aria-label="Уведомления, непрочитанных: 3">
+            <svg class="at-bell__icon" aria-hidden="true"><use href="#i-bell" /></svg>
+            <span class="at-bell__count" aria-hidden="true">3</span>
+          </a>
+          <a class="at-topbar__profile" href="#profile" aria-label="Профиль, Иван Петров">
+            <span class="at-avatar" data-size="m" aria-hidden="true">ИП</span>
+          </a>
+        </div>
+      </header>
+
+      <main class="at-shell__main" id="main" tabindex="-1">
+        <div class="at-page">
+          <div class="at-page__header">
+            <h1 class="at-page__title">Партии</h1>
+            <div class="at-page__actions">
+              <button
+                class="at-button"
+                data-variant="secondary"
+                data-icon-only
+                type="button"
+                aria-label="Скачать список"
+              >
+                <svg class="at-button__icon" aria-hidden="true"><use href="#i-download" /></svg>
+              </button>
+              <a class="at-button" data-variant="primary" href="#new">
+                <svg class="at-button__icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                Зарегистрировать партию
+              </a>
+            </div>
+          </div>
+
+          <div class="at-page__toolbar">
+            <div class="at-page__search">
+              <svg aria-hidden="true"><use href="#i-search" /></svg>
+              <input class="at-input" type="search" placeholder="Код, продукт" aria-label="Поиск партий" />
+            </div>
+            <details class="at-page__filters">
+              <summary class="at-page__filters-toggle">
+                Фильтры<span class="at-visually-hidden">, выбрано:</span>
+                <span class="at-page__filters-count">1</span>
+              </summary>
+              <div class="at-page__filters-body">
+                <div class="at-field">
+                  <label class="at-field__label" for="flt-status">Статус</label>
+                  <select class="at-select" id="flt-status">
+                    <option>Все</option>
+                    <option selected>Допущена</option>
+                    <option>На анализе</option>
+                    <option>В пути</option>
+                  </select>
+                </div>
+                <div class="at-field">
+                  <label class="at-field__label" for="flt-field">Поле</label>
+                  <select class="at-select" id="flt-field">
+                    <option>Все</option>
+                    <option>Северное</option>
+                    <option>У балки</option>
+                  </select>
+                </div>
+                <div class="at-field">
+                  <label class="at-field__label" for="flt-from">Убрано с</label>
+                  <div class="at-date">
+                    <input
+                      class="at-input"
+                      id="flt-from"
+                      inputmode="numeric"
+                      placeholder="ДД.ММ.ГГГГ"
+                      maxlength="10"
+                      autocomplete="off"
+                      value="01.07.2026"
+                    />
+                    <button class="at-date__button" type="button" aria-label="Открыть календарь">
+                      <svg aria-hidden="true"><use href="#i-calendar" /></svg>
+                    </button>
+                    <input
+                      class="at-date__native"
+                      type="date"
+                      tabindex="-1"
+                      aria-hidden="true"
+                      value="2026-07-01"
+                    />
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div class="at-table-mobilebar">
+            <label class="at-table-mobilebar__sort">
+              <span class="at-visually-hidden">Сортировка</span>
+              <select class="at-select">
+                <option>Сначала новые</option>
+                <option>Сначала старые</option>
+                <option>Сначала тяжёлые</option>
+                <option>По коду партии</option>
+              </select>
+            </label>
+          </div>
+          <div class="at-table-wrap">
+            <table class="at-table" data-cards>
+              <caption class="at-visually-hidden">
+                Партии КФХ Петров
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col" aria-sort="none">
+                    <button class="at-table__sort" type="button">Партия</button>
+                  </th>
+                  <th scope="col">Статус</th>
+                  <th scope="col" data-numeric aria-sort="none">
+                    <button class="at-table__sort" type="button">Масса, кг</button>
+                  </th>
+                  <th scope="col">Поле</th>
+                  <th scope="col">Держатель</th>
+                  <th scope="col" aria-sort="descending">
+                    <button class="at-table__sort" type="button">Дата уборки</button>
+                  </th>
+                  <th scope="col"><span class="at-visually-hidden">Действия</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#AT-2026-000123">AT-2026-000123</a
+                      ><span class="at-table__sub">Пшеница озимая</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="Approved">Допущена</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>12 480,000</td>
+                  <td data-label="Поле">Северное</td>
+                  <td data-label="Держатель">КФХ Петров</td>
+                  <td data-label="Дата уборки">14.08.2026</td>
+                  <td class="at-table__actions">
+                    <button class="at-button" data-variant="secondary" data-size="s" type="button">
+                      Отгрузить
+                    </button>
+                  </td>
+                </tr>
+                <tr>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#AT-2026-000121">AT-2026-000121</a
+                      ><span class="at-table__sub">Пшеница озимая</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="Approved">Допущена</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>9 760,000</td>
+                  <td data-label="Поле">Северное</td>
+                  <td data-label="Держатель">КФХ Петров</td>
+                  <td data-label="Дата уборки">13.08.2026</td>
+                  <td class="at-table__actions">
+                    <button class="at-button" data-variant="secondary" data-size="s" type="button">
+                      Отгрузить
+                    </button>
+                  </td>
+                </tr>
+                <tr>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#AT-2026-000118">AT-2026-000118</a
+                      ><span class="at-table__sub">Ячмень яровой</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="InTransit">В пути</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>8 050,500</td>
+                  <td data-label="Поле">У балки</td>
+                  <td data-label="Держатель">ООО «Мельница Заречье»</td>
+                  <td data-label="Дата уборки">09.08.2026</td>
+                  <td class="at-table__actions"></td>
+                </tr>
+                <tr>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#AT-2026-000112">AT-2026-000112</a
+                      ><span class="at-table__sub">Подсолнечник</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="OnTest">На анализе</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>5 320,000</td>
+                  <td data-label="Поле">Дальнее</td>
+                  <td data-label="Держатель">КФХ Петров</td>
+                  <td data-label="Дата уборки">02.08.2026</td>
+                  <td class="at-table__actions"></td>
+                </tr>
+                <tr>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#AT-2026-000104">AT-2026-000104</a
+                      ><span class="at-table__sub">Пшеница озимая</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="Accepted">Принята</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>11 200,000</td>
+                  <td data-label="Поле">Северное</td>
+                  <td data-label="Держатель">АО «Хлебозавод №3»</td>
+                  <td data-label="Дата уборки">30.07.2026</td>
+                  <td class="at-table__actions"></td>
+                </tr>
+                <tr>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#AT-2026-000097">AT-2026-000097</a
+                      ><span class="at-table__sub">Пшеница озимая</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="Recalled">Отозвана</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>3 900,000</td>
+                  <td data-label="Поле">У балки</td>
+                  <td data-label="Держатель">АО «Хлебозавод №3»</td>
+                  <td data-label="Дата уборки">28.07.2026</td>
+                  <td class="at-table__actions"></td>
+                </tr>
+                <tr>
+                  <td data-label="Партия" data-primary>
+                    <span class="at-table__primary"
+                      ><a class="at-mono" href="#AT-2026-000090">AT-2026-000090</a
+                      ><span class="at-table__sub">Ячмень яровой</span></span
+                    >
+                  </td>
+                  <td data-label="Статус" data-status-cell>
+                    <span class="at-chip" data-status="WrittenOff">Списана</span>
+                  </td>
+                  <td data-label="Масса, кг" data-numeric>640,250</td>
+                  <td data-label="Поле">У балки</td>
+                  <td data-label="Держатель">КФХ Петров</td>
+                  <td data-label="Дата уборки">21.07.2026</td>
+                  <td class="at-table__actions"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <nav class="at-pagination" aria-label="Страницы" style="margin-top: var(--sp-4)">
+            <p class="at-pagination__summary">1–7 из 7</p>
+            <ul class="at-pagination__pages">
+              <li>
+                <button class="at-pagination__item" type="button" aria-label="Предыдущая страница" disabled>
+                  <svg aria-hidden="true"><use href="#i-chevron-left" /></svg>
+                </button>
+              </li>
+              <li><a class="at-pagination__item" href="#p1" aria-current="page">1</a></li>
+              <li>
+                <button class="at-pagination__item" type="button" aria-label="Следующая страница" disabled>
+                  <svg aria-hidden="true"><use href="#i-chevron-right" /></svg>
+                </button>
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </main>
+
+      <nav class="at-bottom-nav" aria-label="Основное меню">
+        <a class="at-bottom-nav__link" href="#dashboard"
+          ><svg class="at-bottom-nav__icon" aria-hidden="true"><use href="#i-graph" /></svg>Панель</a
+        >
+        <a class="at-bottom-nav__link" aria-disabled="true"
+          ><svg class="at-bottom-nav__icon" aria-hidden="true"><use href="#i-field" /></svg>Поля</a
+        >
+        <a class="at-bottom-nav__link" href="#batches" aria-current="page"
+          ><svg class="at-bottom-nav__icon" aria-hidden="true"><use href="#i-batch" /></svg>Партии</a
+        >
+        <a class="at-bottom-nav__link" href="#waybills"
+          ><svg class="at-bottom-nav__icon" aria-hidden="true"><use href="#i-waybill" /></svg>Накладные</a
+        >
+        <button
+          class="at-bottom-nav__link"
+          type="button"
+          aria-expanded="false"
+          aria-controls="more-menu"
+          data-ds-open-dialog="more-menu"
+        >
+          <svg class="at-bottom-nav__icon" aria-hidden="true"><use href="#i-more" /></svg>Ещё
+        </button>
+      </nav>
+
+      <dialog class="at-dialog" id="more-menu" aria-labelledby="more-title" data-ds-light-dismiss>
+        <div class="at-dialog__header">
+          <h2 class="at-dialog__title" id="more-title" tabindex="-1">Ещё</h2>
+          <button
+            class="at-button"
+            data-variant="ghost"
+            data-icon-only
+            type="button"
+            aria-label="Закрыть"
+            data-ds-close
+          >
+            <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+          </button>
+        </div>
+        <div class="at-dialog__body">
+          <nav aria-label="Остальные разделы">
+            <ul class="at-sidebar__list">
+              <li>
+                <a class="at-sidebar__link" href="#recall-tasks"
+                  ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-check" /></svg
+                  ><span class="at-sidebar__label">Задачи отзыва</span></a
+                >
+              </li>
+              <li>
+                <a class="at-sidebar__link" href="#notifications"
+                  ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-bell" /></svg
+                  ><span class="at-sidebar__label">Уведомления</span></a
+                >
+              </li>
+              <li>
+                <a class="at-sidebar__link" href="#profile"
+                  ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-user" /></svg
+                  ><span class="at-sidebar__label">Профиль</span></a
+                >
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </dialog>
+    </div>
+  </body>
+</html>

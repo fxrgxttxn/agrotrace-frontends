@@ -1,0 +1,109 @@
+[
+  {
+    "key": "wheat",
+    "name": "Пшеница мягкая",
+    "category": "GRAIN",
+    "lossNormPercent": "1.50",
+    "image": "wheat.jpg"
+  },
+  {
+    "key": "barley",
+    "name": "Ячмень пивоваренный",
+    "category": "GRAIN",
+    "lossNormPercent": "1.50",
+    "image": "barley.jpg"
+  },
+  {
+    "key": "rapeseed",
+    "name": "Рапс",
+    "category": "OILSEED",
+    "lossNormPercent": "2.00",
+    "image": "rapeseed.jpg"
+  },
+  {
+    "key": "potato",
+    "name": "Картофель продовольственный",
+    "category": "VEGETABLE",
+    "lossNormPercent": "4.00",
+    "image": "potato.jpg"
+  },
+  {
+    "key": "carrot",
+    "name": "Морковь столовая",
+    "category": "VEGETABLE",
+    "lossNormPercent": "5.00",
+    "image": "carrot.jpg"
+  },
+  {
+    "key": "cabbage",
+    "name": "Капуста белокочанная",
+    "category": "VEGETABLE",
+    "lossNormPercent": "6.00",
+    "image": "cabbage.jpg"
+  },
+  {
+    "key": "apples",
+    "name": "Яблоки",
+    "category": "FRUIT",
+    "lossNormPercent": "3.00",
+    "image": "apples.jpg"
+  },
+  {
+    "key": "rawmilk",
+    "name": "Молоко сырое коровье",
+    "category": "DAIRY",
+    "lossNormPercent": "1.00",
+    "mercuryCode": "10.51.11",
+    "image": "raw-milk.jpg"
+  },
+  {
+    "key": "beef",
+    "name": "Говядина охлаждённая",
+    "category": "MEAT",
+    "lossNormPercent": "2.50",
+    "mercuryCode": "10.11.11",
+    "image": "beef.jpg"
+  },
+  {
+    "key": "milk",
+    "name": "Молоко пастеризованное 3,2%",
+    "category": "PROCESSED",
+    "lossNormPercent": "1.00",
+    "image": "pasteurized-milk.jpg"
+  },
+  {
+    "key": "cream",
+    "name": "Сливки 20%",
+    "category": "PROCESSED",
+    "lossNormPercent": "1.00",
+    "image": "cream.jpg"
+  },
+  {
+    "key": "butter",
+    "name": "Масло сливочное 82,5%",
+    "category": "PROCESSED",
+    "lossNormPercent": "1.50",
+    "image": "butter.jpg"
+  },
+  {
+    "key": "tvorog",
+    "name": "Творог 9%",
+    "category": "PROCESSED",
+    "lossNormPercent": "2.00",
+    "image": "tvorog.jpg"
+  },
+  {
+    "key": "flour",
+    "name": "Мука пшеничная высшего сорта",
+    "category": "PROCESSED",
+    "lossNormPercent": "1.00",
+    "image": "flour.jpg"
+  },
+  {
+    "key": "ghee",
+    "name": "Масло топлёное 99%",
+    "category": "PROCESSED",
+    "lossNormPercent": "1.00",
+    "image": "ghee.jpg"
+  }
+]

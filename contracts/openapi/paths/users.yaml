@@ -1,0 +1,182 @@
+# Модуль Users (сотрудники организации).
+/users:
+  get:
+    operationId: listUsers
+    summary: Список сотрудников
+    description: >-
+      Руководитель организации видит сотрудников своей организации; ADMIN — всех пользователей
+      (фильтр `organizationId`). Поиск `q` — по ФИО и email. Сортировка: `fullName`, `email`, `createdAt`
+      (по умолчанию `fullName,asc`).
+    tags: [Users]
+    x-roles: [FARMER, PROCESSOR, LAB, RETAILER, INSPECTOR, ADMIN]
+    x-org-admin: true
+    x-sort:
+      fields: [fullName, email, createdAt]
+      default: fullName,asc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: organizationId
+        in: query
+        description: >-
+          Фильтр по организации — только для ADMIN (руководитель всегда видит свою организацию; с этим параметром —
+          400 `errors.organizationId: [validation.organizationId.notAllowed]`, R51).
+        schema:
+          type: string
+          format: uuid
+      - name: status
+        in: query
+        description: Фильтр по статусу.
+        schema:
+          $ref: '../schemas/users.yaml#/UserStatus'
+      - name: role
+        in: query
+        description: Фильтр по роли.
+        schema:
+          $ref: '../schemas/common.yaml#/RoleCode'
+    responses:
+      '200':
+        description: Страница сотрудников.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/users.yaml#/UserPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  post:
+    operationId: inviteUser
+    summary: Приглашение сотрудника
+    description: >-
+      Создаёт пользователя со статусом INVITED и отправляет письмо-приглашение со ссылкой (токен действует 7 дней,
+      FR-IAM-02). Руководитель приглашает только в свою организацию; ADMIN указывает `organizationId`.
+      Роль ADMIN может назначить только ADMIN.
+    tags: [Users]
+    x-roles: [FARMER, PROCESSOR, LAB, RETAILER, INSPECTOR, ADMIN]
+    x-org-admin: true
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/users.yaml#/UserInvite'
+    responses:
+      '201':
+        description: Сотрудник приглашён.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/users.yaml#/User'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/users/{id}:
+  patch:
+    operationId: updateUser
+    summary: Изменение сотрудника
+    description: >-
+      Изменяет роли, признак руководителя и статус сотрудника (ACTIVE ↔ BLOCKED; блокировка отзывает его
+      refresh-токены). Изменение статуса пользователя INVITED — 409 INVALID_TRANSITION. Руководитель — только
+      для сотрудников своей организации (иначе 404); ADMIN — для любых.
+    tags: [Users]
+    x-roles: [FARMER, PROCESSOR, LAB, RETAILER, INSPECTOR, ADMIN]
+    x-org-admin: true
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/users.yaml#/UserPatch'
+    responses:
+      '200':
+        description: Обновлённый сотрудник.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/users.yaml#/User'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Изменение статуса пользователя INVITED (INVALID_TRANSITION, `params.from`/`params.to`).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/invalid-transition
+              title: Invalid status transition
+              status: 409
+              code: INVALID_TRANSITION
+              params:
+                from: INVITED
+                to: BLOCKED
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/users/{id}/avatar:
+  get:
+    operationId: getUserAvatar
+    summary: Аватарка пользователя
+    description: >-
+      Аватарка доступна любому авторизованному пользователю (п. 4.2). WebP выбранного варианта;
+      `Cache-Control: private, max-age=0, must-revalidate`. Нет пользователя или аватарки — 404.
+    tags: [Users]
+    x-roles: [ANY]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/ImageVariant'
+      - $ref: '../components/parameters.yaml#/IfNoneMatch'
+    responses:
+      '200':
+        $ref: '../components/responses.yaml#/ImageContent'
+      '304':
+        $ref: '../components/responses.yaml#/NotModified'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

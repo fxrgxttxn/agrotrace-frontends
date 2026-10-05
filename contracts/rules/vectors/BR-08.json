@@ -1,0 +1,62 @@
+{
+  "rule": "BR-08",
+  "fn": "recallTaskDueAt",
+  "description": "A recall (withdrawal) task's deadline is exactly 24 hours after it was opened. dueAt = openedAt + 24h, with the time of day and milliseconds preserved.",
+  "cases": [
+    {
+      "name": "openedAt at midnight UTC - due 24h later",
+      "input": { "openedAt": "2026-09-10T00:00:00.000Z" },
+      "expected": { "dueAt": "2026-09-11T00:00:00.000Z" }
+    },
+    {
+      "name": "openedAt with milliseconds - preserved in the due date",
+      "input": { "openedAt": "2026-09-10T14:23:45.123Z" },
+      "expected": { "dueAt": "2026-09-11T14:23:45.123Z" }
+    },
+    {
+      "name": "openedAt near midnight - crosses to the next day correctly",
+      "input": { "openedAt": "2026-09-10T23:59:59.999Z" },
+      "expected": { "dueAt": "2026-09-11T23:59:59.999Z" }
+    },
+    {
+      "name": "openedAt crossing a month boundary",
+      "input": { "openedAt": "2026-09-30T12:00:00.000Z" },
+      "expected": { "dueAt": "2026-10-01T12:00:00.000Z" }
+    },
+    {
+      "name": "openedAt crossing a year boundary",
+      "input": { "openedAt": "2026-12-31T18:00:00.000Z" },
+      "expected": { "dueAt": "2027-01-01T18:00:00.000Z" }
+    },
+    {
+      "name": "openedAt on a leap day (2028-02-29)",
+      "input": { "openedAt": "2028-02-29T09:00:00.000Z" },
+      "expected": { "dueAt": "2028-03-01T09:00:00.000Z" }
+    },
+    {
+      "name": "openedAt on the last day of February in a non-leap year",
+      "input": { "openedAt": "2026-02-28T10:00:00.000Z" },
+      "expected": { "dueAt": "2026-03-01T10:00:00.000Z" }
+    },
+    {
+      "name": "openedAt on a weekend - deadline is still exactly 24h, no business-day skip",
+      "input": { "openedAt": "2026-09-12T08:00:00.000Z" },
+      "expected": { "dueAt": "2026-09-13T08:00:00.000Z" }
+    },
+    {
+      "name": "openedAt at the start of the year",
+      "input": { "openedAt": "2026-01-01T00:00:00.000Z" },
+      "expected": { "dueAt": "2026-01-02T00:00:00.000Z" }
+    },
+    {
+      "name": "openedAt mid-year at an arbitrary time",
+      "input": { "openedAt": "2026-06-15T06:07:08.000Z" },
+      "expected": { "dueAt": "2026-06-16T06:07:08.000Z" }
+    },
+    {
+      "name": "openedAt on the last day of a 31-day month",
+      "input": { "openedAt": "2026-07-31T20:15:00.000Z" },
+      "expected": { "dueAt": "2026-08-01T20:15:00.000Z" }
+    }
+  ]
+}

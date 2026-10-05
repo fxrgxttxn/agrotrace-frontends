@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Формы — «Поле»</title>
+    <link rel="stylesheet" href="../index.css" />
+    <link rel="stylesheet" href="showcase.css" />
+    <script src="showcase.js" defer></script>
+  </head>
+  <body data-ds-split>
+    <header class="ds-header">
+      <a class="ds-brand" href="index.html" data-ds-keep-theme>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <path d="M4 20 9 4M10 20l5-16M16 20l4-13" />
+        </svg>
+        Поле
+      </a>
+      <nav aria-label="Разделы витрины">
+        <ul class="ds-nav">
+          <li><a href="index.html" data-ds-keep-theme>Основа</a></li>
+          <li><a href="forms.html" aria-current="page" data-ds-keep-theme>Формы</a></li>
+          <li><a href="data.html" data-ds-keep-theme>Данные</a></li>
+          <li><a href="shell.html" data-ds-keep-theme>Каркас</a></li>
+          <li><a href="icons.html" data-ds-keep-theme>Графика</a></li>
+        </ul>
+      </nav>
+    </header>
+
+    <main class="ds-cols">
+      <div class="ds-col" data-theme="light">
+        <h1>Формы</h1>
+
+        <section class="ds-section" aria-labelledby="s-button">
+          <h2 id="s-button">Кнопки</h2>
+          <div class="ds-states">
+            <span></span>
+            <span class="ds-name">default</span>
+            <span class="ds-name">hover</span>
+            <span class="ds-name">focus-visible</span>
+            <span class="ds-name">disabled</span>
+            <span class="ds-name">aria-busy</span>
+
+            <span class="ds-name">primary</span>
+            <button class="at-button" data-variant="primary" type="button">Отгрузить</button>
+            <button class="at-button ds-hover" data-variant="primary" type="button">Отгрузить</button>
+            <button class="at-button ds-focus" data-variant="primary" type="button">Отгрузить</button>
+            <button class="at-button" data-variant="primary" type="button" disabled>Отгрузить</button>
+            <button class="at-button" data-variant="primary" type="button" aria-busy="true">Отгрузить</button>
+
+            <span class="ds-name">secondary</span>
+            <button class="at-button" data-variant="secondary" type="button">Скачать</button>
+            <button class="at-button ds-hover" data-variant="secondary" type="button">Скачать</button>
+            <button class="at-button ds-focus" data-variant="secondary" type="button">Скачать</button>
+            <button class="at-button" data-variant="secondary" type="button" disabled>Скачать</button>
+            <button class="at-button" data-variant="secondary" type="button" aria-busy="true">Скачать</button>
+
+            <span class="ds-name">ghost</span>
+            <button class="at-button" data-variant="ghost" type="button">Отмена</button>
+            <button class="at-button ds-hover" data-variant="ghost" type="button">Отмена</button>
+            <button class="at-button ds-focus" data-variant="ghost" type="button">Отмена</button>
+            <button class="at-button" data-variant="ghost" type="button" disabled>Отмена</button>
+            <button class="at-button" data-variant="ghost" type="button" aria-busy="true">Отмена</button>
+
+            <span class="ds-name">danger</span>
+            <button class="at-button" data-variant="danger" type="button">Запустить отзыв</button>
+            <button class="at-button ds-hover" data-variant="danger" type="button">Запустить отзыв</button>
+            <button class="at-button ds-focus" data-variant="danger" type="button">Запустить отзыв</button>
+            <button class="at-button" data-variant="danger" type="button" disabled>Запустить отзыв</button>
+            <button class="at-button" data-variant="danger" type="button" aria-busy="true">
+              Запустить отзыв
+            </button>
+          </div>
+
+          <div class="ds-grid" style="margin-top: var(--sp-6)">
+            <div>
+              <p class="ds-name">data-size="m", data-size="s"</p>
+              <div class="ds-row">
+                <button class="at-button" data-variant="primary" type="button">
+                  <svg class="at-button__icon" aria-hidden="true"><use href="#i-plus" /></svg>
+                  Зарегистрировать партию
+                </button>
+                <button class="at-button" data-variant="secondary" data-size="s" type="button">
+                  <svg class="at-button__icon" aria-hidden="true"><use href="#i-download" /></svg>
+                  Скачать
+                </button>
+              </div>
+            </div>
+            <div>
+              <p class="ds-name">data-icon-only</p>
+              <div class="ds-row">
+                <button
+                  class="at-button"
+                  data-variant="secondary"
+                  data-icon-only
+                  type="button"
+                  aria-label="Фильтры"
+                >
+                  <svg class="at-button__icon" aria-hidden="true"><use href="#i-filter" /></svg>
+                </button>
+                <button class="at-button" data-variant="ghost" data-icon-only type="button" aria-label="Ещё">
+                  <svg class="at-button__icon" aria-hidden="true"><use href="#i-more" /></svg>
+                </button>
+                <button
+                  class="at-button"
+                  data-variant="ghost"
+                  data-size="s"
+                  data-icon-only
+                  type="button"
+                  aria-label="Удалить"
+                >
+                  <svg class="at-button__icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-input">
+          <h2 id="s-input">Поля ввода</h2>
+          <div class="ds-grid">
+            <div class="at-field">
+              <label class="at-field__label" for="f-code">Код партии</label>
+              <input class="at-input at-mono" id="f-code" value="AT-2026-000123" />
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="f-name">Название</label>
+              <input class="at-input" id="f-name" placeholder="Пшеница озимая" />
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="f-hover">ИНН</label>
+              <input class="at-input at-mono ds-hover" id="f-hover" value="7707083893" />
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="f-focus">Получатель</label>
+              <input class="at-input ds-focus" id="f-focus" value="ООО «Мельница Заречье»" />
+            </div>
+            <div class="at-field" data-invalid>
+              <label class="at-field__label" for="f-err">Email</label>
+              <input
+                class="at-input"
+                id="f-err"
+                value="petrov@farm"
+                aria-invalid="true"
+                aria-describedby="f-err-msg"
+              />
+              <p class="at-field__error" id="f-err-msg" role="alert">Некорректный email</p>
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="f-dis">Организация</label>
+              <input class="at-input" id="f-dis" value="КФХ Петров" disabled />
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="f-ro">Остаток, кг</label>
+              <input class="at-input" id="f-ro" value="3 120,500" readonly />
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="f-date">Дата уборки</label>
+              <div class="at-date">
+                <input
+                  class="at-input"
+                  id="f-date"
+                  inputmode="numeric"
+                  placeholder="ДД.ММ.ГГГГ"
+                  maxlength="10"
+                  autocomplete="off"
+                  value="14.08.2026"
+                />
+                <button class="at-date__button" type="button" aria-label="Открыть календарь">
+                  <svg aria-hidden="true"><use href="#i-calendar" /></svg>
+                </button>
+                <input
+                  class="at-date__native"
+                  type="date"
+                  tabindex="-1"
+                  aria-hidden="true"
+                  value="2026-08-14"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="ds-grid" style="margin-top: var(--sp-6)">
+            <div class="at-field">
+              <label class="at-field__label" for="f-mass">Масса</label>
+              <div class="at-input-group">
+                <input class="at-input" id="f-mass" inputmode="decimal" value="12 480,000" />
+                <span class="at-input-group__suffix">кг</span>
+              </div>
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="f-area">Площадь</label>
+              <div class="at-input-group">
+                <input class="at-input" id="f-area" inputmode="decimal" value="24,50" />
+                <span class="at-input-group__suffix">га</span>
+              </div>
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="f-mass-off">Масса, недоступно</label>
+              <div class="at-input-group">
+                <input class="at-input" id="f-mass-off" inputmode="decimal" value="3 200,000" disabled />
+                <span class="at-input-group__suffix">кг</span>
+              </div>
+            </div>
+            <div class="at-field" data-invalid>
+              <label class="at-field__label" for="f-lim">Кадмий</label>
+              <div class="at-input-group">
+                <input
+                  class="at-input"
+                  id="f-lim"
+                  inputmode="decimal"
+                  value="0,140"
+                  aria-invalid="true"
+                  aria-describedby="f-lim-msg"
+                />
+                <span class="at-input-group__suffix">мг/кг</span>
+              </div>
+              <p class="at-field__error" id="f-lim-msg" role="alert">
+                Превышено максимальное значение 0,100 мг/кг
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-select">
+          <h2 id="s-select">Выбор</h2>
+          <div class="ds-grid">
+            <div class="at-field">
+              <label class="at-field__label" for="f-cat">Категория</label>
+              <select class="at-select" id="f-cat">
+                <option>Зерно</option>
+                <option>Овощи</option>
+                <option>Масличные культуры</option>
+              </select>
+            </div>
+            <div class="at-field" data-invalid>
+              <label class="at-field__label" for="f-lab">Лаборатория</label>
+              <select class="at-select" id="f-lab" aria-invalid="true" aria-describedby="f-lab-msg">
+                <option value="">—</option>
+                <option>ФГБУ «Липецкая МВЛ»</option>
+              </select>
+              <p class="at-field__error" id="f-lab-msg" role="alert">Обязательное поле</p>
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="f-unit">Единица дозы</label>
+              <select class="at-select" id="f-unit" disabled>
+                <option>л/га</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="ds-grid ds-inline" style="margin-top: var(--sp-6)">
+            <div class="at-field">
+              <label class="at-field__label" for="f-product">Продукт</label>
+              <div class="at-combobox" data-ds-live>
+                <input
+                  class="at-input"
+                  id="f-product"
+                  role="combobox"
+                  aria-expanded="true"
+                  aria-controls="f-product-list"
+                  aria-autocomplete="list"
+                  aria-activedescendant="f-product-2"
+                  autocomplete="off"
+                  value="пше"
+                />
+                <ul class="at-combobox__list" role="listbox" id="f-product-list" aria-label="Продукт">
+                  <li role="option" id="f-product-1" aria-selected="true" data-value="Пшеница озимая">
+                    <span><mark>Пше</mark>ница озимая</span><span class="at-combobox__meta">Зерно</span>
+                  </li>
+                  <li
+                    role="option"
+                    id="f-product-2"
+                    aria-selected="false"
+                    data-active
+                    data-value="Пшеница яровая"
+                  >
+                    <span><mark>Пше</mark>ница яровая</span><span class="at-combobox__meta">Зерно</span>
+                  </li>
+                  <li role="option" id="f-product-3" aria-selected="false" data-value="Пшено">
+                    <span><mark>Пше</mark>но</span
+                    ><span class="at-combobox__meta">Переработанная продукция</span>
+                  </li>
+                  <li
+                    role="option"
+                    id="f-product-4"
+                    aria-selected="false"
+                    aria-disabled="true"
+                    data-value="Мука пшеничная"
+                  >
+                    <span>Мука <mark>пше</mark>ничная</span
+                    ><span class="at-combobox__meta">Снята с учёта</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="f-org">Получатель</label>
+              <div class="at-combobox">
+                <input
+                  class="at-input"
+                  id="f-org"
+                  role="combobox"
+                  aria-expanded="true"
+                  aria-controls="f-org-list"
+                  aria-autocomplete="list"
+                  aria-busy="true"
+                  autocomplete="off"
+                  value="Мельн"
+                />
+                <div class="at-combobox__list" id="f-org-list" role="status">
+                  <p class="at-combobox__status"><span class="at-spinner" aria-hidden="true"></span>Поиск</p>
+                </div>
+              </div>
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="f-org2">Держатель</label>
+              <div class="at-combobox">
+                <input
+                  class="at-input"
+                  id="f-org2"
+                  role="combobox"
+                  aria-expanded="true"
+                  aria-controls="f-org2-list"
+                  aria-autocomplete="list"
+                  autocomplete="off"
+                  value="Агрохолдинг Юг"
+                />
+                <div class="at-combobox__list" id="f-org2-list" role="status">
+                  <p class="at-combobox__status">Ничего не найдено.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-check">
+          <h2 id="s-check">Флажки, переключатели</h2>
+          <div class="ds-grid">
+            <fieldset class="at-field">
+              <legend class="at-field__label">Каналы уведомлений</legend>
+              <div class="at-field__options" data-direction="column">
+                <label class="at-check"
+                  ><input type="checkbox" data-indeterminate /><span>Все каналы</span></label
+                >
+                <label class="at-check"><input type="checkbox" checked /><span>Email</span></label>
+                <label class="at-check"><input type="checkbox" /><span>Telegram</span></label>
+                <label class="at-check"><input type="checkbox" disabled /><span>СМС</span></label>
+                <label class="at-check"
+                  ><input type="checkbox" checked disabled /><span>В системе</span></label
+                >
+              </div>
+            </fieldset>
+            <fieldset class="at-field">
+              <legend class="at-field__label">Решение</legend>
+              <div class="at-field__options" data-direction="column">
+                <label class="at-radio"
+                  ><input type="radio" name="decision" checked /><span>Допустить</span></label
+                >
+                <label class="at-radio"
+                  ><input type="radio" name="decision" /><span>Заблокировать</span></label
+                >
+                <label class="at-radio"
+                  ><input type="radio" name="decision" disabled /><span
+                    >Направить на повторный анализ</span
+                  ></label
+                >
+              </div>
+            </fieldset>
+            <div class="ds-stack">
+              <p class="ds-name">button.at-switch[role=switch]</p>
+              <button class="at-switch" type="button" role="switch" aria-checked="true">
+                Уведомления в Telegram
+              </button>
+              <button class="at-switch" type="button" role="switch" aria-checked="false">
+                Отзывать партии-источники
+              </button>
+              <button class="at-switch" type="button" role="switch" aria-checked="false" disabled>
+                Двухфакторная аутентификация
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-file">
+          <h2 id="s-file">Файлы</h2>
+          <div class="ds-grid ds-grid--wide">
+            <div class="at-field">
+              <span class="at-field__label" id="f-proto-label">Протокол анализа</span>
+              <div class="at-file">
+                <label class="at-file__drop">
+                  <input
+                    type="file"
+                    accept="application/pdf,image/*"
+                    aria-labelledby="f-proto-label"
+                    multiple
+                  />
+                  <svg class="at-file__icon" aria-hidden="true"><use href="#i-upload" /></svg>
+                  <span class="at-file__action">Выбрать файл</span>
+                  <span class="at-file__hint">PDF, JPG или PNG до 10 МБ</span>
+                </label>
+                <ul class="at-file__list">
+                  <li class="at-file__item">
+                    <span class="at-file__preview" aria-hidden="true">PDF</span>
+                    <span class="at-file__body">
+                      <span class="at-file__name">protokol-AT-2026-000123.pdf</span>
+                      <span class="at-file__size">1,2 МБ</span>
+                      <progress
+                        class="at-file__progress"
+                        max="100"
+                        value="64"
+                        aria-label="Загрузка protokol-AT-2026-000123.pdf"
+                      ></progress>
+                    </span>
+                    <button
+                      class="at-button"
+                      data-variant="ghost"
+                      data-size="s"
+                      data-icon-only
+                      type="button"
+                      aria-label="Удалить protokol-AT-2026-000123.pdf"
+                    >
+                      <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+                    </button>
+                  </li>
+                  <li class="at-file__item">
+                    <span class="at-file__preview"><img src="assets/wheat.svg" alt="" /></span>
+                    <span class="at-file__body">
+                      <span class="at-file__name">pole-severnoe.jpg</span>
+                      <span class="at-file__size">840 КБ</span>
+                    </span>
+                    <button
+                      class="at-button"
+                      data-variant="ghost"
+                      data-size="s"
+                      data-icon-only
+                      type="button"
+                      aria-label="Удалить pole-severnoe.jpg"
+                    >
+                      <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+                    </button>
+                  </li>
+                  <li class="at-file__item" data-error>
+                    <span class="at-file__preview" aria-hidden="true">HEIC</span>
+                    <span class="at-file__body">
+                      <span class="at-file__name">IMG_2041.heic</span>
+                      <span class="at-file__size">Неподдерживаемый тип файла</span>
+                    </span>
+                    <button
+                      class="at-button"
+                      data-variant="ghost"
+                      data-size="s"
+                      data-icon-only
+                      type="button"
+                      aria-label="Удалить IMG_2041.heic"
+                    >
+                      <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+                    </button>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div class="at-field">
+              <span class="at-field__label" id="f-photo-label">Фото продукта</span>
+              <div class="at-file" data-dragover>
+                <label class="at-file__drop">
+                  <input type="file" accept="image/*" aria-labelledby="f-photo-label" />
+                  <svg class="at-file__icon" aria-hidden="true"><use href="#i-upload" /></svg>
+                  <span class="at-file__action">Выбрать файл</span>
+                  <span class="at-file__hint">JPG или PNG до 5 МБ</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-form">
+          <h2 id="s-form">Регистрация партии</h2>
+          <form class="ds-form" onsubmit="return false;">
+            <div class="at-field">
+              <label class="at-field__label" for="b-field">Поле</label>
+              <select class="at-select" id="b-field">
+                <option>Северное, 24,50 га</option>
+                <option>У балки, 11,20 га</option>
+              </select>
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="b-product">Продукт</label>
+              <input class="at-input" id="b-product" value="Пшеница озимая" />
+            </div>
+            <div class="at-field">
+              <label class="at-field__label" for="b-date">Дата уборки</label>
+              <div class="at-date">
+                <input
+                  class="at-input"
+                  id="b-date"
+                  inputmode="numeric"
+                  placeholder="ДД.ММ.ГГГГ"
+                  maxlength="10"
+                  autocomplete="off"
+                  value="14.08.2026"
+                />
+                <button class="at-date__button" type="button" aria-label="Открыть календарь">
+                  <svg aria-hidden="true"><use href="#i-calendar" /></svg>
+                </button>
+                <input
+                  class="at-date__native"
+                  type="date"
+                  tabindex="-1"
+                  aria-hidden="true"
+                  value="2026-08-14"
+                />
+              </div>
+            </div>
+            <div class="at-field" data-invalid>
+              <label class="at-field__label" for="b-mass">Масса</label>
+              <div class="at-input-group">
+                <input
+                  class="at-input"
+                  id="b-mass"
+                  inputmode="decimal"
+                  value="12 480,0005"
+                  aria-invalid="true"
+                  aria-describedby="b-mass-msg"
+                />
+                <span class="at-input-group__suffix">кг</span>
+              </div>
+              <p class="at-field__error" id="b-mass-msg" role="alert">
+                Масса — число, не более 3 знаков в дробной части
+              </p>
+            </div>
+            <div class="ds-form__actions">
+              <button class="at-button" data-variant="primary" type="submit">Зарегистрировать партию</button>
+              <button class="at-button" data-variant="ghost" type="button">Отмена</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

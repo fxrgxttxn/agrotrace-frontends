@@ -1,0 +1,598 @@
+# Модуль Lab (БП-2, FR-QA-02…05). Видимость анализов — в описании тега Lab (openapi.yaml).
+/lab-tests:
+  get:
+    operationId: listLabTests
+    summary: Очередь проб
+    description: |
+      Анализы, видимые пользователю (описание тега Lab). Фильтры (объединяются по И):
+
+      - `status`, `reason` — одно или несколько значений (параметр повторяется);
+      - `conclusion` — PASS или FAIL (анализы без заключения не подходят);
+      - `overdue` — `true`: только просроченные (`LabTestListItem.overdue`), `false`: только непросроченные;
+      - `batchId` — анализы одной партии (вкладка «Анализы» карточки партии, T9 note a): участник получает анализы
+        видимой ему партии; для невидимой или несуществующей партии — пустая страница;
+      - `labOrgId` — только для INSPECTOR и ADMIN (другие роли — 400 `errors.labOrgId: [validation.labOrgId.notAllowed]`,
+        R51);
+      - `from`/`to` — по дате UTC `createdAt`;
+      - `q` — подстрока `publicCode` партии без учёта регистра.
+
+      Сортировка — `x-sort`.
+    tags: [Lab]
+    x-roles: [ANY]
+    x-sort:
+      fields: [dueAt, createdAt, completedAt]
+      default: dueAt,asc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: status
+        in: query
+        description: Фильтр по статусам (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/lab.yaml#/LabTestStatus'
+      - name: reason
+        in: query
+        description: Фильтр по основаниям анализа (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/lab.yaml#/LabTestReason'
+      - name: conclusion
+        in: query
+        description: Фильтр по заключению.
+        schema:
+          $ref: '../schemas/lab.yaml#/LabConclusion'
+      - name: overdue
+        in: query
+        description: Только просроченные (`true`) или только непросроченные (`false`).
+        schema:
+          type: boolean
+      - name: batchId
+        in: query
+        description: Анализы одной партии.
+        schema:
+          type: string
+          format: uuid
+      - name: labOrgId
+        in: query
+        description: Фильтр по лаборатории (только INSPECTOR и ADMIN, R51).
+        schema:
+          type: string
+          format: uuid
+      - $ref: '../components/parameters.yaml#/DateFrom'
+      - $ref: '../components/parameters.yaml#/DateTo'
+    responses:
+      '200':
+        description: Страница анализов.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/lab.yaml#/LabTestPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  post:
+    operationId: createLabTest
+    summary: Назначение внепланового анализа
+    description: |
+      Инспектор назначает внеплановый анализ (п. 4.3, БП-6) в выбранную лабораторию. Порядок проверок:
+
+      1. Тело по схеме — 400.
+
+      2. Ссылки (все ошибки шага — одним ответом 400): партия не существует или удалена — `errors.batchId:
+      [validation.notFound]`; организация не существует или не ACTIVE — `errors.labOrgId: [validation.notFound]`;
+      тип организации не LAB — `errors.labOrgId: [validation.labOrg.type]`.
+
+      Результат: анализ `reason` = INSPECTOR, статус QUEUED, `dueAt` = `addWorkingDays(createdAt, 5)`, `version` = 1,
+      автор — пользователь. Статус партии не меняется (партия в любом статусе; переходы labPass/labFail выполняются,
+      только если партия в статусе OnTest — см. `submitLabResults`). После коммита — уведомление LAB_ASSIGNED
+      (лаборатория и создатель партии). Блокировки не нужны: существующие строки не изменяются.
+    tags: [Lab]
+    x-roles: [INSPECTOR]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/lab.yaml#/LabTestCreate'
+    responses:
+      '201':
+        description: Анализ назначен.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/lab.yaml#/LabTest'
+            example:
+              id: 9a1c3e5a-7c9e-4b1d-8f3a-5c7e9b1d3f5a
+              batch:
+                id: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+                publicCode: AT-2026-000457
+                product:
+                  id: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+                  name: Мука пшеничная высшего сорта
+                  category: PROCESSED
+                  imageUrl: null
+                massKg: '9500.000'
+                status: OnSale
+                kind: DERIVED
+                holder:
+                  id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+                  name: ООО «Кубань-Маркет»
+                  type: RETAILER
+                  logoUrl: null
+                origin:
+                  id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+                  name: ООО «Кубанский мукомол»
+                  type: PROCESSOR
+                  logoUrl: null
+                harvestedAt: null
+                producedAt: '2026-08-05T10:00:00Z'
+                updatedAt: '2026-08-21T08:00:00Z'
+                qrGeneratedAt: '2026-08-21T08:00:00Z'
+              lab:
+                id: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+                name: ИЛ «Кубаньтест»
+                type: LAB
+                logoUrl: null
+              reason: INSPECTOR
+              status: QUEUED
+              conclusion: null
+              dueAt: '2026-10-01T12:00:00Z'
+              overdue: false
+              createdAt: '2026-09-24T12:00:00Z'
+              sampledAt: null
+              completedAt: null
+              hasProtocol: false
+              escalatedAt: null
+              results: []
+              protocol: null
+              norms:
+                - indicatorId: 4d6f8a0c-2e4a-4c6d-8f0a-2c4e6a8c0e2a
+                  name: Хлорпирифос (остаточное количество)
+                  unit: мг/кг
+                  maxValue: '0.010000'
+              recallId: null
+              version: 1
+              actions: []
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/lab-tests/{id}:
+  get:
+    operationId: getLabTest
+    summary: Карточка анализа
+    description: >-
+      Анализ с результатами, нормативами и протоколом. Не существует, удалён или не виден пользователю (описание
+      тега Lab) — 404.
+    tags: [Lab]
+    x-roles: [ANY]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: Карточка анализа.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/lab.yaml#/LabTest'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/lab-tests/{id}/sample:
+  post:
+    operationId: registerLabSample
+    summary: Регистрация пробы
+    description: |
+      Лаборант регистрирует отбор пробы (БП-2). Порядок проверок:
+
+      1. Тело по схеме — 400.
+
+      Блокировки (R47): анализ `FOR UPDATE`; шаги 2–4 — над заблокированной строкой, `If-Match` — compare-and-set.
+
+      2. Анализ не виден (чужая лаборатория, удалён) — 404.
+
+      3. `If-Match` ≠ `version` — 409 VERSION_CONFLICT `{currentVersion}`.
+
+      4. Статус не QUEUED — 409 INVALID_TRANSITION `{from: <статус>, to: SAMPLED}` (просроченный анализ в статусе
+      ESCALATED пробу не регистрирует — результаты вносятся сразу).
+
+      Результат: статус SAMPLED, `sampledAt` = текущее время, `version` + 1.
+    tags: [Lab]
+    x-roles: [LAB]
+    x-locks: [labTest]
+    x-transition: { entity: labTest, action: sample, to: SAMPLED }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/IfMatch'
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/lab.yaml#/LabSampleRequest'
+    responses:
+      '200':
+        description: Проба зарегистрирована.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/lab.yaml#/LabTest'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Устаревшая версия (VERSION_CONFLICT) или статус не QUEUED (INVALID_TRANSITION).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              versionConflict:
+                summary: Устаревшая версия
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+                  params:
+                    currentVersion: 2
+              invalidTransition:
+                summary: Проба уже зарегистрирована
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: SAMPLED
+                    to: SAMPLED
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/lab-tests/{id}/results:
+  post:
+    operationId: submitLabResults
+    summary: Ввод результатов анализа
+    description: |
+      Лаборант вносит значения всех показателей одним запросом (FR-QA-03); заключение выставляется автоматически
+      (BR-02), при FAIL автоматически запускается отзыв (FR-QA-05). Транзакция уровня REPEATABLE READ (как у движка
+      отзыва, п. 8.2.3). Первая сработавшая проверка возвращается:
+
+      1. Тело по схеме — 400.
+
+      Блокировки (R47): анализ `FOR UPDATE`; после шагов 2–5 — партии одним запросом `FOR UPDATE ORDER BY id`: при
+      PASS — партия анализа, при FAIL — партия анализа и все партии, найденные обходом движка отзыва (описание тега
+      Recalls, шаг 2); шаги 2–5 — над заблокированным анализом, `If-Match` — compare-and-set.
+
+      2. Анализ не виден (чужая лаборатория, удалён) — 404.
+
+      3. `If-Match` ≠ `version` — 409 VERSION_CONFLICT `{currentVersion}`.
+
+      4. Статус не QUEUED, SAMPLED или ESCALATED — 409 INVALID_TRANSITION `{from: <статус>, to: DONE}`.
+
+      5. Показатели (все ошибки шага — одним ответом 400): повтор `indicatorId` — `errors["results[i].indicatorId"]:
+      [validation.duplicate]`; множество `indicatorId` не совпадает с `LabTest.norms` (лишний или пропущенный
+      показатель, в том числе у продукта нет нормативов) — `errors.results: [validation.results.mismatch]`.
+
+      Результат (всё в одной транзакции):
+
+      - строки `lab_results`: `value`, `norm_value_snapshot` = текущий `max_value` норматива, `is_exceeded` = `value` >
+        `max_value`; заключение `concludeLabTest` (BR-02): FAIL при любом превышении, иначе PASS;
+      - анализ: DONE, `conclusion`, `completedAt` = текущее время, `sampledAt` = `sampledAt` или текущее время,
+        `version` + 1;
+      - если партия в статусе OnTest: PASS → Approved (`labPass`, `reason` LAB_PASS), FAIL → Blocked (`labFail`,
+        `reason` LAB_FAIL); автор — пользователь, `version` + 1, сброс кэша публичной страницы. В других статусах
+        (внеплановый анализ, партия отозвана другим отзывом) статус партии не меняется;
+      - при FAIL — движок отзыва (описание тега Recalls): исходная партия — партия анализа, `trigger` LAB,
+        `labTestId` — этот анализ, `reason` = «Превышение нормативов по результатам лабораторного анализа»,
+        `blockUpstream` = false, автор — пользователь; партия Blocked переходит в Recalled. Если открытый отзыв по этой
+        партии уже есть, новый не создаётся. В обоих случаях id отзыва (нового или существующего) сохраняется в
+        `lab_tests.recall_id` (R57) и возвращается как `recallId` — и в этом ответе, и в `getLabTest`.
+
+      Ответ — анализ с `conclusion`, `results` и `recallId` (не null только при FAIL). После коммита: уведомление
+      LAB_RESULT; `rating.recalculate` (cause LAB_PASS/LAB_FAIL), если создатель партии — FARM; при новом отзыве —
+      `recall.requested`.
+    tags: [Lab]
+    x-roles: [LAB]
+    x-locks: [labTest, batches]
+    x-transition: { entity: labTest, action: submitResults, to: DONE }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/IfMatch'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/lab.yaml#/LabResultsInput'
+    responses:
+      '200':
+        description: Результаты внесены, заключение выставлено.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/lab.yaml#/LabTest'
+      '400':
+        description: >-
+          Ошибка валидации тела или показателей (VALIDATION): повтор показателя, лишний или пропущенный показатель.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              mismatch:
+                summary: Показатели не совпадают с нормативами продукта
+                value:
+                  type: /problems/validation
+                  title: Validation failed
+                  status: 400
+                  code: VALIDATION
+                  errors:
+                    results: [validation.results.mismatch]
+              duplicate:
+                summary: Показатель указан дважды
+                value:
+                  type: /problems/validation
+                  title: Validation failed
+                  status: 400
+                  code: VALIDATION
+                  errors:
+                    results[1].indicatorId: [validation.duplicate]
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: >-
+          Устаревшая версия (VERSION_CONFLICT; также при повторной взаимоблокировке, R47) или результаты уже внесены
+          (INVALID_TRANSITION).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              versionConflict:
+                summary: Устаревшая версия
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+                  params:
+                    currentVersion: 3
+              invalidTransition:
+                summary: Результаты уже внесены
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: DONE
+                    to: DONE
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/lab-tests/{id}/protocol:
+  put:
+    operationId: uploadLabProtocol
+    summary: Загрузка протокола испытаний
+    description: |
+      Загружает или заменяет PDF-протокол (FR-QA-04, п. 8.6): только PDF по сигнатуре содержимого, не более 10 МБ
+      (≤ 10 485 760 байт включительно). Допускается в любом статусе анализа; прежний файл помечается удалённым (его
+      подписанные URL начинают отвечать 404). `version` анализа не меняется.
+
+      Блокировки (R47): анализ `FOR UPDATE`. Анализ не виден (чужая лаборатория, удалён) — 404.
+
+      Доступ к протоколу — у всех, кто видит анализ (п. 4.2): `GET /lab-tests/{id}/protocol` или подписанный
+      `LabTest.protocol.url`.
+    tags: [Lab]
+    x-roles: [LAB]
+    x-locks: [labTest]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            $ref: '../schemas/files.yaml#/ProtocolUpload'
+          encoding:
+            file:
+              contentType: application/pdf
+    responses:
+      '200':
+        description: Протокол сохранён.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/FileRef'
+            example:
+              id: 4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e
+              url: /api/v1/files/4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e?exp=1790247600&sig=5b7d9f1b3d5f7b9d1f3b5d7f9b1d3f5b7d9f1b3d5f7b9d1f3b5d7f9b1d3f5b7d
+              mime: application/pdf
+              sizeBytes: 482113
+              originalName: protokol-123.pdf
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Повторная взаимоблокировка (VERSION_CONFLICT без `params`, R47).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/version-conflict
+              title: Version conflict
+              status: 409
+              code: VERSION_CONFLICT
+      '413':
+        description: Файл больше 10 МБ (FILE_TOO_LARGE).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/file-too-large
+              title: File too large
+              status: 413
+              code: FILE_TOO_LARGE
+              params:
+                maxBytes: 10485760
+      '415':
+        description: Файл не PDF (UNSUPPORTED_MEDIA_TYPE).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/unsupported-media-type
+              title: Unsupported media type
+              status: 415
+              code: UNSUPPORTED_MEDIA_TYPE
+              params:
+                allowed: [application/pdf]
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  get:
+    operationId: downloadLabProtocol
+    summary: Скачивание протокола испытаний
+    description: >-
+      Отдаёт PDF-протокол потоком через backend (FR-QA-04, FR-FILE-03): `Content-Disposition` inline с именем
+      `originalName`, `ETag`, при совпадении `If-None-Match` — 304. Анализ не виден пользователю или протокол не
+      загружен — 404.
+    tags: [Lab]
+    x-roles: [ANY]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/IfNoneMatch'
+    responses:
+      '200':
+        description: PDF-протокол.
+        headers:
+          ETag:
+            $ref: '../components/headers.yaml#/ETag'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlPrivate'
+          Content-Length:
+            $ref: '../components/headers.yaml#/ContentLength'
+          Content-Disposition:
+            $ref: '../components/headers.yaml#/ContentDisposition'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/pdf:
+            schema:
+              $ref: '../schemas/files.yaml#/FileBinary'
+      '304':
+        $ref: '../components/responses.yaml#/NotModified'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

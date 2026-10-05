@@ -1,0 +1,60 @@
+# Загрузка файлов.
+ImageUpload:
+  type: object
+  description: >-
+    Изображение в поле `file`. MIME проверяется по сигнатуре содержимого, а не по расширению или заголовку
+    части; имя файла сохраняется только как `originalName`. Хранится как WebP 96 и 480 px по большей стороне
+    без увеличения меньших изображений (P14).
+  required: [file]
+  additionalProperties: false
+  properties:
+    file:
+      type: string
+      format: binary
+      contentMediaType: application/octet-stream
+LogoUpload:
+  type: object
+  description: >-
+    Логотип в поле `file`: JPEG, PNG, WebP (конвертируются в WebP 96 и 480 px) или SVG (санитизируется
+    от скриптов и хранится как есть). MIME проверяется по сигнатуре содержимого; растровые варианты — без увеличения,
+    SVG — корректный XML в UTF-8 с корнем `svg` без префикса в пространстве имён SVG, только из разрешённых элементов,
+    без `<!DOCTYPE>` и иных объявлений, в пределах сложности (не глубже 64 уровней, не больше 5 000 элементов и
+    20 000 атрибутов), обработанный за 3 с с учётом очереди, иначе 415 (P14, P15, P17, P18; подробно — «Загрузка
+    файлов» в описании API).
+  required: [file]
+  additionalProperties: false
+  properties:
+    file:
+      type: string
+      format: binary
+      contentMediaType: application/octet-stream
+FileBinary:
+  type: string
+  format: binary
+  description: Содержимое файла.
+ProtocolUpload:
+  type: object
+  description: >-
+    PDF-протокол испытаний в поле `file`: только PDF (сигнатура `%PDF-`), хранится как есть. MIME проверяется
+    по сигнатуре содержимого.
+  required: [file]
+  additionalProperties: false
+  properties:
+    file:
+      type: string
+      format: binary
+      contentMediaType: application/octet-stream
+ImportUpload:
+  type: object
+  description: >-
+    Файл импорта справочника в поле `file`: CSV (UTF-8) или XLSX; формат — в описании `importDictionary`.
+    Тип определяется по содержимому (R58): ZIP-контейнер (сигнатура `50 4B 03 04`) с `xl/workbook.xml` — XLSX; ZIP без
+    него (не OOXML-книга) — 415; содержимое с байтом NUL (0x00) — 415 (двоичный файл); всё остальное считается CSV,
+    и некорректный UTF-8 в нём — 400 `errors.file: [validation.import.format]`, а не 415.
+  required: [file]
+  additionalProperties: false
+  properties:
+    file:
+      type: string
+      format: binary
+      contentMediaType: application/octet-stream

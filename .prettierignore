@@ -1,0 +1,7 @@
+packages/api-client/src/schema.d.ts
+packages/design-system/fonts.css
+db/seed/ATTRIBUTION.md
+docs/demo-accounts.md
+frontend-angular/src/app/ui/illustrations.generated.ts
+frontend-angular/src/index.html
+frontend-angular/src/boot-texts.generated.ts

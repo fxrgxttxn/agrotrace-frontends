@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": [] },
+  "files": ["src/main.ts"],
+  "include": ["src/**/*.d.ts", "src/**/*.ts", "../packages/*/src/**/*.ts"],
+  "exclude": [
+    "src/**/*.spec.ts",
+    "../packages/*/src/**/*.test.ts",
+    "src/mock.mock.ts",
+    "../packages/mock-api/**"
+  ]
+}

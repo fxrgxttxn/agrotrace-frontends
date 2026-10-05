@@ -1,0 +1,89 @@
+.at-check,
+.at-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--touch);
+  color: var(--c-ink);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.at-check > input,
+.at-radio > input {
+  display: grid;
+  flex: none;
+  place-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 1.5px solid var(--c-ink-muted);
+  background: var(--c-surface);
+  appearance: none;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+
+.at-check > input {
+  border-radius: var(--r-s);
+}
+
+.at-check > input::before {
+  content: '';
+  width: 10px;
+  height: 5px;
+  border-bottom: 2px solid var(--c-field-ink);
+  border-left: 2px solid var(--c-field-ink);
+  translate: 0 -1px;
+  rotate: -45deg;
+  scale: 0;
+  transition: scale var(--dur-fast) var(--ease);
+}
+
+.at-check > input:indeterminate::before {
+  height: 0;
+  border-left: 0;
+  translate: 0 0;
+  rotate: 0deg;
+  scale: 1;
+}
+
+.at-check:hover > input,
+.at-radio:hover > input {
+  border-color: var(--c-ink);
+}
+
+.at-check > input:checked,
+.at-check > input:indeterminate,
+.at-radio > input:checked {
+  border-color: var(--c-field);
+  background: var(--c-field);
+}
+
+.at-check > input:checked::before {
+  scale: 1;
+}
+
+.at-check > input[aria-invalid='true'],
+.at-radio > input[aria-invalid='true'] {
+  border-color: var(--c-clay);
+}
+
+.at-check:has(input:disabled),
+.at-radio:has(input:disabled) {
+  color: var(--c-ink-muted);
+  cursor: not-allowed;
+}
+
+.at-check > input:disabled,
+.at-radio > input:disabled {
+  border-color: var(--c-line-strong);
+  background: var(--c-surface-sunk);
+  cursor: not-allowed;
+}
+
+.at-check > input:disabled::before {
+  border-color: var(--c-ink-muted);
+}

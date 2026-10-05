@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160">
+  <path d="M0 132L20 127.1L40 123.1L60 120L80 117.8L100 116.4L120 116L140 116.4L160 117.8L180 120L200 123.1L220 127.1L240 132L240 160L0 160Z" style="fill: var(--c-furrow-a)" />
+  <path d="M0 138.3L28.4 125.4L40 123.1L48.4 121.8L0 147.3ZM63.8 119.6L76.9 118.1L24 160L0 160ZM72 160L48 160L88.5 117.2L99.5 116.5ZM109.8 116.2L120 116L120 160L96 160ZM144 160L130.2 116.2L140 116.4L140.5 116.5L168 160ZM216 160L192 160L151.5 117.2L160 117.8L163.1 118.1ZM191.6 121.8L240 147.3L240 160L176.2 119.6L180 120ZM220 127.1L240 132L240 138.3L211.6 125.4Z" style="fill: var(--c-furrow-b)" />
+  <rect x="80" y="86" width="72" height="42" rx="4" style="fill: var(--c-straw)" />
+  <path d="M80 100h72" style="fill: none; stroke: var(--c-surface)" stroke-width="3" stroke-linecap="butt" stroke-linejoin="round" />
+  <rect x="106" y="108" width="20" height="6" rx="3" style="fill: var(--c-surface)" />
+  <path d="M152 104h14a18 18 0 0 0 18-18v-10a26 26 0 0 0-26-26h-24a18 18 0 0 0-18 18v6" style="fill: none; stroke: var(--c-clay)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M102 72l14 16 14-16z" style="fill: var(--c-clay)" />
+</svg>

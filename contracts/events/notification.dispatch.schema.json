@@ -1,0 +1,390 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agrotrace.local/contracts/events/notification.dispatch.schema.json",
+  "title": "notification.dispatch",
+  "description": "Creates and delivers one notification to a set of recipients (matrix: contracts/rules/notifications.json). The publisher resolves logical recipient groups to ids; the handler expands them to users: `userIds` as is, all users of `orgIds`, users with is_org_admin = true of `orgHeadIds`, all users having a role from `roles`; only users with status ACTIVE and deleted_at IS NULL; union deduplicated by user id. In ONE transaction that starts with the processed_events claim (envelope, R56) the handler inserts per user an IN_APP row (delivery_status DELIVERED; the trigger emits pg_notify for SSE) and per external channel a row with delivery_status PENDING: EMAIL when channels.email is true or the type is forced (RECALL, RECALL_TASK, OVERDUE); TELEGRAM when Telegram is linked and (channels.telegram is true or the type is forced). Payload of every row = `payload`. After commit each PENDING row is sent with 3 attempts (delays 1 s, 2 s, 4 s): success → DELIVERED, all attempts failed → FAILED; channel not configured on the server (no SMTP host or bot token) → NOT_CONFIGURED without attempts; `attempts` counts send attempts.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "envelope.schema.json"
+    }
+  ],
+  "properties": {
+    "type": {
+      "const": "notification.dispatch"
+    },
+    "data": {
+      "type": "object",
+      "required": ["notificationType", "recipients", "payload"],
+      "additionalProperties": false,
+      "properties": {
+        "notificationType": {
+          "type": "string",
+          "enum": [
+            "LAB_ASSIGNED",
+            "LAB_RESULT",
+            "WAYBILL_INCOMING",
+            "RECALL",
+            "RECALL_TASK",
+            "OVERDUE",
+            "COMPLAINT",
+            "LAB_OVERDUE"
+          ]
+        },
+        "recipients": {
+          "type": "object",
+          "required": ["userIds", "orgIds", "orgHeadIds", "roles"],
+          "additionalProperties": false,
+          "properties": {
+            "userIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "orgIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "orgHeadIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "roles": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": ["FARMER", "PROCESSOR", "LAB", "RETAILER", "INSPECTOR", "ADMIN"]
+              }
+            }
+          },
+          "anyOf": [
+            {
+              "properties": {
+                "userIds": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            },
+            {
+              "properties": {
+                "orgIds": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            },
+            {
+              "properties": {
+                "orgHeadIds": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            },
+            {
+              "properties": {
+                "roles": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            }
+          ]
+        },
+        "payload": {
+          "type": "object",
+          "description": "Exactly the keys listed for `notificationType` in contracts/rules/notifications.json (`types.<TYPE>.payload`), enforced by `allOf` below."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "LAB_ASSIGNED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "labTestId",
+                  "batchId",
+                  "publicCode",
+                  "productName",
+                  "labOrgId",
+                  "labName",
+                  "reason",
+                  "dueAt"
+                ],
+                "properties": {
+                  "labTestId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "productName": {},
+                  "labOrgId": {},
+                  "labName": {},
+                  "reason": {},
+                  "dueAt": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "LAB_RESULT"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["labTestId", "batchId", "publicCode", "productName", "conclusion", "recallId"],
+                "properties": {
+                  "labTestId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "productName": {},
+                  "conclusion": {},
+                  "recallId": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "WAYBILL_INCOMING"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["waybillId", "number", "senderOrgId", "senderName", "itemsCount"],
+                "properties": {
+                  "waybillId": {},
+                  "number": {},
+                  "senderOrgId": {},
+                  "senderName": {},
+                  "itemsCount": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "RECALL"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["recallId", "event", "sourceBatchId", "publicCode", "trigger"],
+                "properties": {
+                  "recallId": {},
+                  "event": {},
+                  "sourceBatchId": {},
+                  "publicCode": {},
+                  "trigger": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "RECALL_TASK"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["recallId", "taskId", "batchId", "publicCode", "dueAt", "event"],
+                "properties": {
+                  "recallId": {},
+                  "taskId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "dueAt": {},
+                  "event": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "OVERDUE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "recallId",
+                  "taskId",
+                  "batchId",
+                  "publicCode",
+                  "dueAt",
+                  "holderOrgId",
+                  "holderName"
+                ],
+                "properties": {
+                  "recallId": {},
+                  "taskId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "dueAt": {},
+                  "holderOrgId": {},
+                  "holderName": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "COMPLAINT"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["complaintId", "batchId", "publicCode", "productName"],
+                "properties": {
+                  "complaintId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "productName": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "notificationType": {
+                "const": "LAB_OVERDUE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["labTestId", "batchId", "publicCode", "labOrgId", "labName", "dueAt"],
+                "properties": {
+                  "labTestId": {},
+                  "batchId": {},
+                  "publicCode": {},
+                  "labOrgId": {},
+                  "labName": {},
+                  "dueAt": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "id": "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+      "type": "notification.dispatch",
+      "occurredAt": "2026-08-01T08:15:00Z",
+      "backend": "express",
+      "requestId": "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
+      "data": {
+        "notificationType": "WAYBILL_INCOMING",
+        "recipients": {
+          "userIds": [],
+          "orgIds": ["4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d"],
+          "orgHeadIds": [],
+          "roles": []
+        },
+        "payload": {
+          "waybillId": "7e9a1c3e-5b7d-4f9b-a1c3-5e7a9c1e3b5d",
+          "number": "WB-2026-000017",
+          "senderOrgId": "0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10",
+          "senderName": "КФХ Петров",
+          "itemsCount": 1
+        }
+      }
+    },
+    {
+      "id": "2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
+      "type": "notification.dispatch",
+      "occurredAt": "2026-09-25T09:05:00Z",
+      "backend": "laravel",
+      "requestId": null,
+      "data": {
+        "notificationType": "OVERDUE",
+        "recipients": {
+          "userIds": [],
+          "orgIds": ["6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f"],
+          "orgHeadIds": [],
+          "roles": ["INSPECTOR"]
+        },
+        "payload": {
+          "recallId": "4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d",
+          "taskId": "5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e",
+          "batchId": "3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d",
+          "publicCode": "AT-2026-000457",
+          "dueAt": "2026-09-25T09:00:00Z",
+          "holderOrgId": "6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f",
+          "holderName": "ООО «Кубань-Маркет»"
+        }
+      }
+    }
+  ]
+}

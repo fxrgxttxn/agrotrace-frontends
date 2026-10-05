@@ -1,0 +1,137 @@
+{
+  "rule": "BR-04",
+  "fn": "checkMassBalance",
+  "description": "Mass balance: total output mass must not exceed total input mass minus normative product loss. Computed in grams: allowed = sum(floor(g_i * (10000 - bp_i) / 10000)) where bp_i = lossNormPercent_i * 100 (basis points). lossNormPercent matches ^\\d{1,3}(\\.\\d{1,2})?$ - both integer (\"5\") and one- or two-decimal (\"5.5\", \"5.50\") forms are valid (R23). All kg amounts in inputs/outputs/expected are 3-decimal strings. inputs checked before outputs, so both empty reports NO_INPUTS (R23).",
+  "cases": [
+    {
+      "name": "single input single output, no loss, exact match - ok",
+      "input": {
+        "inputs": [{ "massUsedKg": "100.000", "lossNormPercent": "0.00" }],
+        "outputs": [{ "massKg": "100.000" }]
+      },
+      "expected": { "ok": true, "inputKg": "100.000", "allowedKg": "100.000", "outputKg": "100.000" }
+    },
+    {
+      "name": "single input with loss norm, output exactly at allowed - ok",
+      "input": {
+        "inputs": [{ "massUsedKg": "100.000", "lossNormPercent": "5.00" }],
+        "outputs": [{ "massKg": "95.000" }]
+      },
+      "expected": { "ok": true, "inputKg": "100.000", "allowedKg": "95.000", "outputKg": "95.000" }
+    },
+    {
+      "name": "output exceeds allowed by 1 gram - not ok",
+      "input": {
+        "inputs": [{ "massUsedKg": "100.000", "lossNormPercent": "5.00" }],
+        "outputs": [{ "massKg": "95.001" }]
+      },
+      "expected": { "ok": false, "inputKg": "100.000", "allowedKg": "95.000", "outputKg": "95.001" }
+    },
+    {
+      "name": "minimal input mass (1 gram), zero loss - allowed equals input, ok",
+      "input": {
+        "inputs": [{ "massUsedKg": "0.001", "lossNormPercent": "0.00" }],
+        "outputs": [{ "massKg": "0.001" }]
+      },
+      "expected": { "ok": true, "inputKg": "0.001", "allowedKg": "0.001", "outputKg": "0.001" }
+    },
+    {
+      "name": "loss norm 100% - allowed is zero, zero output ok",
+      "input": {
+        "inputs": [{ "massUsedKg": "50.000", "lossNormPercent": "100.00" }],
+        "outputs": [{ "massKg": "0.000" }]
+      },
+      "expected": { "ok": true, "inputKg": "50.000", "allowedKg": "0.000", "outputKg": "0.000" }
+    },
+    {
+      "name": "loss norm 100% - any positive output fails",
+      "input": {
+        "inputs": [{ "massUsedKg": "50.000", "lossNormPercent": "100.00" }],
+        "outputs": [{ "massKg": "0.001" }]
+      },
+      "expected": { "ok": false, "inputKg": "50.000", "allowedKg": "0.000", "outputKg": "0.001" }
+    },
+    {
+      "name": "large input mass near string precision limit - ok",
+      "input": {
+        "inputs": [{ "massUsedKg": "999999999.999", "lossNormPercent": "0.00" }],
+        "outputs": [{ "massKg": "999999999.999" }]
+      },
+      "expected": {
+        "ok": true,
+        "inputKg": "999999999.999",
+        "allowedKg": "999999999.999",
+        "outputKg": "999999999.999"
+      }
+    },
+    {
+      "name": "multiple inputs with different loss norms summed",
+      "input": {
+        "inputs": [
+          { "massUsedKg": "100.000", "lossNormPercent": "10.00" },
+          { "massUsedKg": "50.000", "lossNormPercent": "20.00" }
+        ],
+        "outputs": [{ "massKg": "130.000" }]
+      },
+      "expected": { "ok": true, "inputKg": "150.000", "allowedKg": "130.000", "outputKg": "130.000" }
+    },
+    {
+      "name": "multiple outputs summed against allowed",
+      "input": {
+        "inputs": [
+          { "massUsedKg": "100.000", "lossNormPercent": "10.00" },
+          { "massUsedKg": "50.000", "lossNormPercent": "20.00" }
+        ],
+        "outputs": [{ "massKg": "70.000" }, { "massKg": "60.000" }]
+      },
+      "expected": { "ok": true, "inputKg": "150.000", "allowedKg": "130.000", "outputKg": "130.000" }
+    },
+    {
+      "name": "fractional loss norm percent causes floor rounding down",
+      "input": {
+        "inputs": [{ "massUsedKg": "1.000", "lossNormPercent": "33.33" }],
+        "outputs": [{ "massKg": "0.666" }]
+      },
+      "expected": { "ok": true, "inputKg": "1.000", "allowedKg": "0.666", "outputKg": "0.666" }
+    },
+    {
+      "name": "fractional rounding - one gram above the floored allowance fails",
+      "input": {
+        "inputs": [{ "massUsedKg": "1.000", "lossNormPercent": "33.33" }],
+        "outputs": [{ "massKg": "0.667" }]
+      },
+      "expected": { "ok": false, "inputKg": "1.000", "allowedKg": "0.666", "outputKg": "0.667" }
+    },
+    {
+      "name": "empty inputs - NO_INPUTS error",
+      "input": { "inputs": [], "outputs": [{ "massKg": "10.000" }] },
+      "expected": { "error": "NO_INPUTS" }
+    },
+    {
+      "name": "empty outputs - NO_OUTPUTS error",
+      "input": { "inputs": [{ "massUsedKg": "10.000", "lossNormPercent": "0.00" }], "outputs": [] },
+      "expected": { "error": "NO_OUTPUTS" }
+    },
+    {
+      "name": "both inputs and outputs empty - NO_INPUTS reported first (R23)",
+      "input": { "inputs": [], "outputs": [] },
+      "expected": { "error": "NO_INPUTS" }
+    },
+    {
+      "name": "lossNormPercent as a bare integer string (\"5\") is valid - allowed computed at 5% loss (R23)",
+      "input": {
+        "inputs": [{ "massUsedKg": "200.000", "lossNormPercent": "5" }],
+        "outputs": [{ "massKg": "190.000" }]
+      },
+      "expected": { "ok": true, "inputKg": "200.000", "allowedKg": "190.000", "outputKg": "190.000" }
+    },
+    {
+      "name": "lossNormPercent with a single decimal place (\"5.5\") is valid - allowed computed at 5.5% loss (R23)",
+      "input": {
+        "inputs": [{ "massUsedKg": "200.000", "lossNormPercent": "5.5" }],
+        "outputs": [{ "massKg": "189.000" }]
+      },
+      "expected": { "ok": true, "inputKg": "200.000", "allowedKg": "189.000", "outputKg": "189.000" }
+    }
+  ]
+}

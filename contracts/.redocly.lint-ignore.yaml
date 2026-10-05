@@ -1,0 +1,18 @@
+# This file instructs Redocly's linter to ignore the rules contained for specific parts of your API.
+# See https://redocly.com/docs/cli/ for more information.
+# Health checks (spec 8.9) are unauthenticated probes for Docker/gateway and have no 4xx outcome:
+# /health/live answers 200 and /health/ready answers 200 or 503.
+openapi/paths/health.yaml:
+  operation-4xx-response:
+    - '#/~1health~1live/get/responses'
+    - '#/~1health~1ready/get/responses'
+# Public operations without a rate-limit scope (the rate-limit scopes are user, login-ip, forgot, complaint-ip)
+# and without any 4xx outcome: logout is idempotent (always 204), captcha always returns a new challenge,
+# the regions list (registration form) has no parameters and always returns the whole dictionary.
+openapi/paths/auth.yaml:
+  operation-4xx-response:
+    - '#/~1auth~1logout/post/responses'
+openapi/paths/public.yaml:
+  operation-4xx-response:
+    - '#/~1public~1captcha/get/responses'
+    - '#/~1public~1regions/get/responses'

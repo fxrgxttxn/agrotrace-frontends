@@ -1,0 +1,983 @@
+openapi: 3.1.0
+info:
+  title: AgroTrace API
+  version: 1.0.0
+  description: >-
+    REST API системы прослеживаемости сельхозпродукции «от поля до прилавка». Контракт единый для трёх
+    реализаций backend (Express, Django, Laravel): токен, файл или уведомление, созданные одной из них,
+    принимаются любой другой. Расширения операций: `x-roles` — допустимые роли (`PUBLIC` — без авторизации,
+    `ANY` — любой авторизованный), `x-org-admin` — для ролей кроме ADMIN требуется руководитель своей
+    организации, `x-idempotent` — обязателен `Idempotency-Key`, `x-access: signed` — вместо Bearer допускается
+    подписанный URL, `x-rate-limit` — скоупы лимитов из `contracts/rules/rate-limits.json` (скоуп `user`
+    действует для всех запросов с Bearer), `x-locks` — протокол блокировок (ниже), `x-transition` — переход статуса
+    из `contracts/rules/*state-machine*.json`, `x-sort` — сортировка списков, `x-report-access` — доступ к типам
+    отчётов. Фильтр списка, недоступный роли пользователя или неприменимый к запросу, никогда не игнорируется
+    молча: 400 `errors.<параметр>: [validation.<параметр>.notAllowed]` (R51). Строки: сервер никогда не обрезает пробелы и не превращает пустые
+    строки в null; пароли сравниваются побайтно; поля имён и названий не могут состоять только из пробельных
+    символов (`pattern: '\S'`); email приводится к нижнему регистру перед проверкой уникальности и поиском;
+    длины строк (`minLength`/`maxLength`) считаются в кодовых точках Unicode. Ключи ошибок (P19): пустая строка в
+    обязательном строковом поле — `validation.required` (`validation.minLength` сообщается только для непустой
+    строки короче минимума); массив короче `minItems` (в том числе пустой) — `validation.minItems`; поле может
+    нести несколько ключей, их порядок не определён.
+
+
+    Доступ и видимость. Сущность вне области видимости пользователя (п. 4.2; правила — в описаниях тегов)
+    неотличима от несуществующей: 404 NOT_FOUND, никогда не 403. 403 FORBIDDEN — роль не входит в `x-roles`
+    (без `params`) либо сущность видна, но операцию выполняет другая сторона или она запрещена её состоянием
+    (`params.reason`: NOT_HOLDER, NOT_SENDER, NOT_RECEIVER, EDIT_WINDOW_CLOSED, BATCH_STATUS; для входа —
+    USER_BLOCKED, USER_INVITED, ORGANIZATION_NOT_ACTIVE). Ссылка в теле запроса на несуществующую или невидимую
+    сущность — 400 VALIDATION `validation.notFound` (не 404). Пути полей в `errors` — через точку с индексами
+    массивов: `items[0].batchId`; повтор элемента массива — у поля повторившегося элемента (каждого, кроме первого
+    вхождения). Ключ `_root` — ошибки тела целиком (P7): тело, которое не разбирается как JSON (синтаксис,
+    неподдерживаемая кодировка `charset`, оборванная передача), — 400 VALIDATION `errors._root: [validation.invalid]`;
+    JSON не того типа (например, массив вместо объекта) — `errors._root: [validation.type]`; объект без единого поля
+    там, где схема тела требует `minProperties: 1`, — `errors._root: [validation.minProperties]` (P16).
+
+
+    Порядок проверок, если операция не уточняет его: 401 → 403 по роли → `Idempotency-Key` → 400 по схеме
+    параметров и тела → 404 → 403 по стороне операции → 409 VERSION_CONFLICT (`If-Match`) → 409 INVALID_TRANSITION
+    (статус сущности из пути) → 400 по ссылкам тела → поэлементные проверки. Возвращается первая сработавшая ошибка.
+    Вне операций: путь, которого нет в контракте, — 404 NOT_FOUND; путь контракта с необъявленным для него методом —
+    405 METHOD_NOT_ALLOWED с заголовком `Allow` (ответ `components.responses.MethodNotAllowed`, P3); тело JSON
+    больше 12 МиБ (12 582 912 байт, как у шлюза) — 413 FILE_TOO_LARGE; все — `application/problem+json`.
+
+
+    Протокол блокировок (R47, R52) для операций с `x-locks` (перечислены блокируемые строки в порядке блокировки):
+    транзакция READ COMMITTED (операции, запускающие движок отзыва, — REPEATABLE READ, описание тега Recalls). Единый
+    порядок для всех операций (R52): `waybill` → `recall` → `labTest` → `complaint` → `organization` → `batches` (все затрагиваемые
+    партии одним запросом `SELECT … FOR UPDATE … ORDER BY id`) → `recallTasks` (`ORDER BY id`) → прочие строки
+    (например, `batchDocument` — строка `batch_documents`, R81);
+    элемент, не нужный операции, пропускается, но порядок остальных не меняется (операции над задачей отзыва
+    блокируют её партию раньше самой задачи). Все проверки из порядка
+    проверок, начиная с 404, выполняются над заблокированными строками; `If-Match` сравнивается с `version`
+    заблокированной строки (compare-and-set), при расхождении — 409 VERSION_CONFLICT. Взаимоблокировка (SQLSTATE
+    40P01) или ошибка сериализации (40001) — транзакция повторяется целиком один раз; повторный сбой — 409
+    VERSION_CONFLICT (`params.currentVersion` — версия сущности из пути у операций с `If-Match`, у остальных —
+    без `params`). Порядок позиций, указанный в операциях (например, по `publicCode`), определяет только, какая
+    ошибка возвращается первой, и не влияет на порядок блокировок.
+    Refresh-токены (P12): транзакция, которая ротирует или отзывает refresh-токены пользователя (`refreshToken`,
+    `resetPassword`), первым делом берёт рекомендательную блокировку пользователя
+    `pg_advisory_xact_lock(hashtext('refresh:' || user_id))` (`user_id` у `refreshToken` находится по хешу токена
+    без блокировки строки) и только затем блокирует строки `refresh_tokens` (`FOR UPDATE` предъявленного токена);
+    поэтому параллельные обновления одного пользователя — в том числе повторное использование нескольких старых
+    токенов одной цепочки — выполняются по очереди, без взаимоблокировок: каждое получает 401, никогда 409.
+    Справочники (P23): каждая изменяющая транзакция справочника (`createDictionaryEntry`, `updateDictionaryEntry`,
+    `deleteDictionaryEntry`, `importDictionary`) первым делом берёт рекомендательную блокировку справочника
+    `pg_advisory_xact_lock(hashtext('dictionary:' || <имя справочника>))` — изменения одного справочника выполняются
+    по очереди; затем строки справочника блокируются `FOR NO KEY UPDATE` (физическое удаление — `FOR UPDATE`).
+    Ссылки на строки справочников при записи других сущностей проверяются под блокировкой: регион —
+    `FOR KEY SHARE` (параллельное удаление региона ждёт и затем видит ссылку — 409 REFERENCE_IN_USE, а ссылка на
+    уже удалённый регион — 400 `validation.notFound`), продукт, показатель и препарат — `FOR SHARE` (параллельное
+    мягкое удаление ждёт).
+
+
+    Списки: `sort` принимает только поля из `x-sort.fields` операции (иначе 400 `errors.sort: [validation.sort]`),
+    по умолчанию — `x-sort.default`; сортировка выполняется в БД, при равенстве — по `id` по возрастанию, значения
+    null всегда в конце. Все строковые сравнения порядка — и сортировка по строковым полям `x-sort` (например,
+    `fullName`, `email`, `name`), и правила равенства (tie-break, `id` как текст), и фиксированные порядки контракта
+    (`publicCode`, название препарата и т. п.) — сравниваются по кодовым точкам Unicode (побайтово в UTF-8), без учёта
+    локали БД и процесса (P14): в PostgreSQL — `COLLATE "C"`, в коде — побайтовое сравнение UTF-8, не `localeCompare`.
+    `q` — подстрока без учёта регистра, `%`, `_` и `\` в ней — обычные символы.
+
+
+    События очереди (`contracts/events`, R55): «после коммита публикуется событие / отправляется уведомление» в
+    описаниях операций всегда означает транзакционный outbox — строка `outbox_events` вставляется в той же
+    транзакции, что и изменение состояния (откат операции отменяет и событие), публикует её relay после коммита,
+    неопубликованные строки повторяет sweeper каждые 5 с; события не теряются, потребители дедуплицируют по id
+    события. Уведомления асинхронны: в ответах операций их нет.
+
+
+    Общие ключи Redis (R82). Все три реализации работают с одним Redis (`REDIS_URL`), поэтому ключи, их значения и
+    TTL едины: запись, сделанная одной реализацией, читается любой другой. Значения — JSON (UTF-8) или строка, как в
+    таблице; `exp` — момент истечения в секундах Unix (целое), `sha256hex` — sha256 в hex нижним регистром.
+
+      | Ключ | Значение | TTL, с | Запись и удаление |
+      |---|---|---|---|
+      | `pub:batch:{publicCode}` | точный JSON `PublicBatch` (тело ответа `getPublicBatch`) | 300 | `getPublicBatch` при промахе кэша: `SET … EX 300`; при попадании сохранённые байты отдаются как есть, без разбора и повторной сериализации; удаляется (`DEL`) в том же запросе после коммита каждой операцией, меняющей данные страницы: статус, держателя, `labSummary` или `path` партии (каскад отзыва удаляет ключи всех затронутых партий); название или фото продукта (`updateDictionaryEntry`, `importDictionary`, `uploadProductImage` — ключи всех партий продукта); название, логотип или регион организации (`updateAdminOrganization`, `uploadOrganizationLogo` — ключи всех партий, у которых организация — происхождение или этап `path`) |
+      | `pwreset:{sha256hex(token)}` | `{"userId": "<uuid>", "exp": <unix>}` | 3600 | `forgotPassword`; `resetPassword` читает `GETDEL` (одноразовый) только после проверки тела по схеме |
+      | `invite:{sha256hex(token)}` | `{"userId": "<uuid>", "exp": <unix>}` | 604800 | `inviteUser`; `acceptInvite` читает `GETDEL` (одноразовый) только после проверки тела по схеме |
+      | `tgcode:{code}` | `{"userId": "<uuid>"}` | 600 | `createTelegramCode`; привязку выполняет поллер Telegram (`GETDEL`) |
+      | `tgcode-user:{userId}` | код (строка) | 600 | `createTelegramCode`: прежний код пользователя удаляется (`DEL tgcode:{прежний}`) — новый код аннулирует прежний |
+      | `totp-used:{userId}:{step}` | `"1"` | 90 | принятый код TOTP шага `step` (R35): `SET NX EX 90`; ключ уже есть — повтор кода, 401 INVALID_TWO_FACTOR_CODE |
+      | `2fa:{challengeId}` | `{"userId": "<uuid>", "exp": <unix>}` | 300 | `login` при включённой TOTP (R35); `verifyTwoFactor`: успех — `GETDEL` |
+      | `2fa-fail:{challengeId}` | счётчик неверных кодов | 300 | `verifyTwoFactor`: `INCR`, при 1 — `EXPIRE 300`; при 5 — `DEL` обоих ключей challenge |
+      | `idem:{userId}:{Idempotency-Key}` | см. параметр `Idempotency-Key` (R48, R53) | 60 / 86400 | операции с `x-idempotent` |
+      | `rl:{scope}:{subject}:{windowStartEpochSec}` | счётчик (R30) | окно скоупа | `contracts/rules/rate-limits.json` |
+      | `tg:poller` | идентификатор процесса-поллера | 30 | `SET NX EX 30`, продление каждые 10 с только владельцем — атомарно скриптом Lua (compare-and-PEXPIRE: `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], 30000) end return 0`); 0 — владение потеряно, опрос прекращается |
+
+    Токены ссылок из писем — 32 случайных байта в base64url без `=` (43 символа); в Redis хранится только sha256
+    токена. Ссылки: `${PUBLIC_BASE_URL}/password/reset/{token}` и `${PUBLIC_BASE_URL}/invite/{token}`. Telegram
+    `getUpdates` опрашивает только worker, удерживающий `tg:poller` (остальные не опрашивают); смещение
+    (`offset` = последний `update_id` + 1) подтверждается на стороне Telegram, поэтому новый владелец продолжает с
+    места предыдущего, а повторно полученное сообщение безвредно (`GETDEL` кода).
+
+    JSON-значения ключей (P9): читатель разбирает значение как JSON и не сравнивает байты — пробелы и порядок полей
+    в записи любой реализации допустимы (таблица показывает форму значения). Исключение — `pub:batch:{publicCode}`:
+    сохранённые байты отдаются клиенту как есть, без разбора.
+
+
+    IP клиента (P9) — для лимитов `login-ip`/`complaint-ip` (R30) и `audit_log.ip`: доверяется ровно один прокси-хоп —
+    шлюз, который дописывает адрес своего соединения в конец `X-Forwarded-For`; backend берёт последний элемент
+    `X-Forwarded-For`, а значения, присланные клиентом левее, игнорирует. Запрос без `X-Forwarded-For` (прямой вызов
+    внутри сети) — адрес сокетного соединения. IPv4, отображённый в IPv6 (`::ffff:a.b.c.d`), приводится к IPv4.
+
+
+    Ответы с токенами (`login`, `refreshToken`, `verifyTwoFactor`) несут `Cache-Control: no-store` (P9).
+
+
+    Конфигурация развёртывания (P10): переменная окружения `RATE_LIMIT_OVERRIDES` — JSON-объект
+    `{"<scope>": <limit>}` (целые ≥ 1, только скоупы из `contracts/rules/rate-limits.json`), заменяющий `limit`
+    указанных скоупов; окна и ключи не меняются. По умолчанию не задана — действуют значения из файла; неверное
+    значение останавливает процесс при старте. Используется только тестовым стендом (`api-test`), чтобы наборы
+    тестов, не проверяющие лимиты, не упирались в них; в эксплуатации не задаётся.
+
+
+    Загрузка файлов (P14), `multipart/form-data` с единственной частью `file`: не multipart-тело, нет части `file`
+    или она пуста — 400 `errors.file: [validation.required]`; вторая часть `file` — `errors.file:
+    [validation.duplicate]`; любая другая часть — `errors.<имя>: [validation.unknownField]`; тело, которое не
+    разбирается как multipart, — 400 `errors._root: [validation.invalid]`. Имя файла сохраняется (`originalName`) как
+    базовое имя: все сегменты пути до последнего `/` или `\` отбрасываются (P17); базовое имя длиннее 255 кодовых
+    точек — `errors.file: [validation.maxLength]` (длина проверяется после отбрасывания пути, P20). Затем — 413
+    FILE_TOO_LARGE (лимит включительный), затем проверки сущности (404/403), затем 415. Тип определяется только по
+    сигнатуре содержимого; содержимое, которое не декодируется как тип, указанный сигнатурой (поддельная сигнатура,
+    повреждённое изображение, изображение больше 40 мегапикселей), — 415 UNSUPPORTED_MEDIA_TYPE `{allowed}`, не 400.
+
+    SVG (P15, P17, P18) принимается, только если: он в кодировке UTF-8; не содержит `<!DOCTYPE>` и иных объявлений
+    `<!…>` (сущностей); содержит только элементы из списка (с учётом регистра, без префиксов): svg, g, defs, desc,
+    title, metadata, symbol, switch, a, circle, ellipse, line, path, polygon, polyline, rect, text, tspan, textPath,
+    image, clipPath, mask, pattern, marker, linearGradient, radialGradient, stop, filter, feBlend, feColorMatrix,
+    feComponentTransfer, feComposite, feConvolveMatrix, feDiffuseLighting, feDisplacementMap, feDistantLight,
+    feDropShadow, feFlood, feFuncA, feFuncB, feFuncG, feFuncR, feGaussianBlur, feMerge, feMergeNode, feMorphology,
+    feOffset, fePointLight, feSpecularLighting, feSpotLight, feTile, feTurbulence (любой другой элемент — например,
+    script, style, foreignObject, use, анимация — 415 `{allowed}`); это корректный XML, корень которого — элемент
+    `svg` без префикса в пространстве имён `http://www.w3.org/2000/svg` (корень с префиксом, например `s:svg`, не
+    принимается). Пределы сложности (проверяются потоковым предварительным разбором до построения DOM): вложенность
+    элементов не больше 64 уровней, элементов не больше 5 000, атрибутов не больше 100 у элемента и 20 000 всего,
+    объявлений пространств имён (`xmlns`, `xmlns:*`) не больше 32, значение атрибута не длиннее 64 КиБ. Санитизация
+    выполняется вне обработки запросов, в двух очередях — документы до 64 КиБ и более крупные — по одной выполняемой
+    и не более 8 ожидающих задач на процесс (предел действует и пока обработчик перезапускается); срок задачи — 3 с
+    с момента постановки в очередь (ожидание входит, запуск обработчика, на котором выполняется сама задача, — нет,
+    P21); ожидающая задача клиента, закрывшего соединение, снимается, а выполняемая доводится до конца, и результат
+    отбрасывается — уход клиента не прерывает обработку для других. Превышение пределов сложности, переполненная очередь или
+    истёкший срок — 415 UNSUPPORTED_MEDIA_TYPE с `params` = `{allowed, reason: "svg-too-complex"}`. При санитизации
+    атрибут `style` сохраняет только свойства fill, stroke, stroke-width, opacity, fill-opacity, stroke-opacity,
+    font-*, text-anchor, display, visibility со значениями без `url(`, `\`, `image-set`, `@` и `expression(`;
+    атрибуты fill, stroke, filter, mask, clip-path, marker-* удаляются, если их значение (после раскрытия ссылок на
+    символы) содержит `\` или любую ссылку `url(…)`, кроме ссылки на элемент документа вида `url(#id)` (P20).
+
+    Варианты изображений WebP 96 и 480 px — вписывание по большей стороне без увеличения: изображение меньше варианта
+    сохраняет свой размер. SVG хранится после санитизации: `sizeBytes`, `sha256`/`ETag` и `Content-Length` относятся к
+    очищенному документу; лимит проверяется по размеру загруженного файла.
+
+
+    Конфигурация развёртывания (P14): `TELEGRAM_BOT_TOKEN` — токен бота (не задан — `createTelegramCode` отвечает 503
+    EXTERNAL_UNAVAILABLE), `TELEGRAM_BOT_USERNAME` — имя бота без `@`, отдаётся в `TelegramCode.botUsername`
+    (по умолчанию `agrotrace_bot`).
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: /api/v1
+security:
+  - bearer: []
+tags:
+  - name: Auth
+    description: Вход, токены, TOTP, регистрация организации, сброс пароля, приглашения.
+  - name: Profile
+    description: Профиль текущего пользователя, аватарка, каналы уведомлений.
+  - name: Users
+    description: Сотрудники организации и их роли.
+  - name: Organizations
+    description: >-
+      Карточка и логотип организации. Видимость карточки (п. 4.2, P14): участник видит свою организацию и
+      контрагентов по накладным, которые он видит (описание тега Waybills): получателей накладных, где его
+      организация — отправитель (любой статус), и отправителей накладных, где она — получатель (кроме DRAFT);
+      удалённые накладные не учитываются. Связи через партии (например, хозяйства партий, которые лаборатория
+      исследует) видимость не дают. INSPECTOR и ADMIN видят все организации в любом статусе. Удалённая организация
+      не видна никому. Невидимая организация неотличима от несуществующей (404) — и для карточки, и для
+      `GET`/`PUT /organizations/{id}/logo`; справочник `GET /organizations` видимостью не ограничен.
+  - name: Fields
+    description: >-
+      Поля и обработки. Видимость: FARMER — неудалённые поля своего хозяйства (изменение — только их);
+      INSPECTOR и ADMIN — все неудалённые поля, только чтение. Обработка видна вместе со своим полем.
+  - name: Batches
+    description: |
+      Партии, граф, история, QR. Видимость (п. 4.2), удалённые партии не видны никому; при нескольких ролях —
+      объединение:
+
+      - INSPECTOR и ADMIN — все партии (только чтение);
+      - LAB — партии, по которым есть неудалённый анализ (`lab_tests`) его лаборатории;
+      - FARMER, PROCESSOR, RETAILER — множество S ∪ N, где S — партии, для которых организация пользователя —
+        создатель (`origin`), текущий держатель (`holder`) либо отправитель или получатель накладной в статусе
+        SENT, ACCEPTED или REJECTED, содержащей партию; N — непосредственные родители и дети партий из S
+        в графе `batch_links` (глубина 1).
+
+      Изменяющие операции проверяют сторону: действия держателя — организация пользователя = `holder`
+      (иначе 403 NOT_HOLDER). Масса — строки `Mass` (три знака после точки).
+  - name: Processing
+    description: Переработка сырья в производные партии (только PROCESSOR, входные партии — у своей организации).
+  - name: Waybills
+    description: |
+      Накладные и приёмка (R4: DRAFT → send → SENT → accept | reject; DRAFT можно удалить). Видимость
+      (удалённые не видны):
+
+      - FARMER, PROCESSOR, RETAILER — накладные, где организация пользователя отправитель (любой статус) или
+        получатель (кроме DRAFT);
+      - INSPECTOR и ADMIN — все накладные, кроме DRAFT (только чтение); LAB — нет доступа.
+  - name: Lab
+    description: |
+      Лабораторные анализы и протоколы (БП-2). Видимость (удалённые анализы не видны никому; при нескольких ролях —
+      объединение):
+
+      - LAB — анализы своей лаборатории (`lab_org_id` = организация пользователя), в любом статусе;
+      - INSPECTOR и ADMIN — все анализы (INSPECTOR назначает внеплановые, ADMIN — только чтение);
+      - FARMER, PROCESSOR, RETAILER — анализы партий, видимых пользователю (описание тега Batches), только чтение.
+
+      Анализ создаётся: риск-моделью при регистрации партии (`createBatch`, reason RISK/PLANNED, партия → OnTest),
+      инспектором (`createLabTest`, INSPECTOR) и решением по жалобе (`decideComplaint`, COMPLAINT); срок `dueAt` =
+      `addWorkingDays(createdAt, 5)`. Эскалация (БП-2): планировщик `lab-escalation` каждые 5 минут переводит анализы
+      QUEUED/SAMPLED с now > `dueAt` в ESCALATED и публикует `lab.escalate` (уведомление LAB_OVERDUE руководителям
+      лаборатории и инспекторам) — `contracts/events/lab.escalate.schema.json`. Анализы партии, отозванной до внесения
+      результатов, не отменяются: результат вносится, но переход партии (labPass/labFail) не выполняется, так как она
+      не в статусе OnTest.
+  - name: Recalls
+    description: |
+      Отзывы и задачи изъятия (БП-5, FR-QA-07). Отзывы видят INSPECTOR и ADMIN (запускает только INSPECTOR); задачи —
+      их держатели и INSPECTOR.
+
+      Движок отзыва выполняется синхронно, внутри транзакции операции, которая его запускает (`createRecall`,
+      `submitLabResults` при заключении FAIL, `decideComplaint` с решением RECALL), на уровне REPEATABLE READ (п. 8.2.3);
+      ответ операции уже содержит применённый результат. Шаги:
+
+      1. Если по исходной партии есть отзыв в статусе OPEN — новый не создаётся, операция использует существующий
+         (шаги 2–7 не выполняются). Одновременное создание: нарушение уникального индекса `ux_recalls_open_source`
+         (SQLSTATE 23505) — транзакция повторяется целиком один раз и находит существующий отзыв.
+      2. Обход графа `batch_links` (п. 7.6, сырой рекурсивный SQL): DOWN — все потомки исходной партии, глубина 1…20;
+         UP — только при `blockUpstream` = true: все предки, глубина 1…20 (их другие потомки не включаются). Каждая
+         партия учитывается один раз с наименьшей глубиной. Мягко удалённые партии (R59): обход проходит через них дальше
+         (их потомки и предки учитываются), но сами они не записываются в `recall_batches`, не блокируются, статус
+         не меняют и задач не получают.
+      3. Блокировки (R47, R52): исходная и все найденные партии одним запросом `FOR UPDATE ORDER BY id`. Изменение
+         любой из них после начала транзакции даёт ошибку сериализации 40001 — повтор по протоколу R47, поэтому
+         связь, добавленная параллельной переработкой, не будет пропущена.
+      4. Строка `recalls`: OPEN, `opened_at` = now(), `trigger`, `reason`, `block_upstream`, `lab_test_id` /
+         `complaint_id`, `created_by` = автор запроса, `version` = 1.
+      5. Для исходной (SOURCE, глубина 0) и каждой найденной партии — строка `recall_batches` (`direction`, `depth`,
+         `status_before` = статус до отзыва). Партии в статусах Created, OnTest, Approved, InTransit, Accepted, OnSale,
+         Blocked переходят в Recalled (действие `recall`, `reason` RECALLED, автор — пользователь запроса, `version` + 1,
+         сброс кэша публичной страницы). Партии Processed, Sold, WrittenOff и уже Recalled (другим отзывом) статус не
+         меняют и задач не получают (п. 5.1).
+      6. Задача изъятия — для каждой партии, перешедшей в Recalled: держатель задачи — держатель партии, а для партии
+         со `status_before` = InTransit — получатель накладной SENT с этой партией (T9 note c; при отказе получателя от
+         накладной задача переназначается отправителю — `rejectWaybill`, R50); `due_at` = `recallTaskDueAt(opened_at)`
+         (+24 ч, BR-08); статус OPEN; `version` = 1.
+      7. BR-10: если не создано ни одной задачи (`shouldCloseRecall([])` = true), отзыв сразу CLOSED, `closed_at` =
+         `opened_at`, `version` = 2. В той же транзакции в outbox пишется и `notification.dispatch`
+         RECALL `{event: CLOSED}` инспекторам (R59) — так же, как при закрытии последним `confirmRecallTask`.
+
+      Асинхронно, через очередь своей реализации: событие `recall.requested` (строка `outbox_events` в той же
+      транзакции, публикация после коммита — транзакционный outbox, R55) — уведомления RECALL
+      (инспекторам, держателям задач, создателю исходной партии) и RECALL_TASK (держателю каждой задачи), затем
+      `rating.recalculate` для хозяйства — создателя исходной партии (BR-09, полный пересчёт). В теле ответа операции
+      этих результатов нет.
+
+      Просрочка (BR-08): планировщик `recall-task-overdue` каждые 5 минут (`pg_try_advisory_lock(hashtext(
+      'agrotrace.scheduler.recall-task-overdue'))`) в одной транзакции выбирает задачи OPEN с now > `due_at`
+      `FOR UPDATE SKIP LOCKED`, переводит их в OVERDUE (`escalated_at` = now(), `version` + 1, аудит
+      `system.recallTaskOverdue`) и в той же транзакции пишет в outbox `notification.dispatch` OVERDUE (держатель +
+      инспекторы).
+      Подтверждение задачи (`confirmRecallTask`) переводит партию в WrittenOff и закрывает отзыв, когда все задачи
+      CONFIRMED (BR-10).
+  - name: Complaints
+    description: >-
+      Рассмотрение жалоб покупателей (БП-6), только INSPECTOR. Жалоба создаётся с публичной страницы (NEW,
+      уведомление COMPLAINT инспекторам), берётся в работу (IN_REVIEW) и получает окончательное решение (DECIDED):
+      REJECT, LAB_TEST или RECALL. Переходы — `contracts/rules/entity-state-machines.json` (`complaint`).
+  - name: Notifications
+    description: >-
+      Центр уведомлений (FR-NOTIF-01…04). Какие операции создают уведомления, кому и с какими ключами `payload` —
+      `contracts/rules/notifications.json`; доставка — событие `notification.dispatch` (contracts/events), SSE —
+      `GET /events/stream`. Уведомления RECALL, RECALL_TASK и OVERDUE отправляются во все доступные каналы независимо
+      от настроек пользователя (FR-NOTIF-03).
+  - name: Analytics
+    description: Дашборды по ролям и выгрузка отчётов XLSX/PDF (FR-ANL-01…05).
+  - name: Admin
+    description: Организации и заявки на регистрацию (ADMIN), журнал аудита (ADMIN, INSPECTOR — чтение).
+  - name: Dictionaries
+    description: >-
+      Справочники п. 7.2 (products, substances, indicators, norms, regions): чтение — все авторизованные, изменение,
+      импорт CSV/XLSX и фото продуктов — ADMIN. Удаление: products, substances, indicators — мягкое (`deleted_at`);
+      norms и regions — физическое (в таблицах нет `deleted_at`).
+  - name: Files
+    description: Скачивание файлов с проверкой прав.
+  - name: Public
+    description: Публичная страница партии и жалобы без авторизации.
+  - name: Health
+    description: Проверки живости и готовности.
+  - name: Events
+    description: Доставка уведомлений через Server-Sent Events.
+paths:
+  /auth/login:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1login'
+  /auth/refresh:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1refresh'
+  /auth/logout:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1logout'
+  /auth/2fa/verify:
+    $ref: './openapi/paths/auth.yaml#/~1auth~12fa~1verify'
+  /auth/2fa/setup:
+    $ref: './openapi/paths/auth.yaml#/~1auth~12fa~1setup'
+  /auth/password/forgot:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1password~1forgot'
+  /auth/password/reset:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1password~1reset'
+  /auth/register-organization:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1register-organization'
+  /auth/accept-invite:
+    $ref: './openapi/paths/auth.yaml#/~1auth~1accept-invite'
+  /me:
+    $ref: './openapi/paths/me.yaml#/~1me'
+  /me/avatar:
+    $ref: './openapi/paths/me.yaml#/~1me~1avatar'
+  /me/channels:
+    $ref: './openapi/paths/me.yaml#/~1me~1channels'
+  /me/telegram-code:
+    $ref: './openapi/paths/me.yaml#/~1me~1telegram-code'
+  /users:
+    $ref: './openapi/paths/users.yaml#/~1users'
+  /users/{id}:
+    $ref: './openapi/paths/users.yaml#/~1users~1{id}'
+  /users/{id}/avatar:
+    $ref: './openapi/paths/users.yaml#/~1users~1{id}~1avatar'
+  /organizations:
+    $ref: './openapi/paths/organizations.yaml#/~1organizations'
+  /organizations/{id}:
+    $ref: './openapi/paths/organizations.yaml#/~1organizations~1{id}'
+  /organizations/{id}/logo:
+    $ref: './openapi/paths/organizations.yaml#/~1organizations~1{id}~1logo'
+  /fields:
+    $ref: './openapi/paths/fields.yaml#/~1fields'
+  /fields/{id}:
+    $ref: './openapi/paths/fields.yaml#/~1fields~1{id}'
+  /fields/{id}/treatments:
+    $ref: './openapi/paths/treatments.yaml#/~1fields~1{id}~1treatments'
+  /treatments/{id}:
+    $ref: './openapi/paths/treatments.yaml#/~1treatments~1{id}'
+  /batches:
+    $ref: './openapi/paths/batches.yaml#/~1batches'
+  /batches/{id}:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}'
+  /batches/{id}/graph:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1graph'
+  /batches/{id}/history:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1history'
+  /batches/{id}/path:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1path'
+  /batches/{id}/qr:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1qr'
+  /batches/{id}/documents:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1documents'
+  /batches/{id}/documents/vsd/retry:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1documents~1vsd~1retry'
+  /batches/{id}/on-sale:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1on-sale'
+  /batches/{id}/sold:
+    $ref: './openapi/paths/batches.yaml#/~1batches~1{id}~1sold'
+  /processing:
+    $ref: './openapi/paths/processing.yaml#/~1processing'
+  /waybills:
+    $ref: './openapi/paths/waybills.yaml#/~1waybills'
+  /waybills/{id}:
+    $ref: './openapi/paths/waybills.yaml#/~1waybills~1{id}'
+  /waybills/{id}/send:
+    $ref: './openapi/paths/waybills.yaml#/~1waybills~1{id}~1send'
+  /waybills/{id}/accept:
+    $ref: './openapi/paths/waybills.yaml#/~1waybills~1{id}~1accept'
+  /waybills/{id}/reject:
+    $ref: './openapi/paths/waybills.yaml#/~1waybills~1{id}~1reject'
+  /files/{id}:
+    $ref: './openapi/paths/files.yaml#/~1files~1{id}'
+  /public/batches/{publicCode}:
+    $ref: './openapi/paths/public.yaml#/~1public~1batches~1{publicCode}'
+  /public/batches/{publicCode}/complaints:
+    $ref: './openapi/paths/public.yaml#/~1public~1batches~1{publicCode}~1complaints'
+  /public/captcha:
+    $ref: './openapi/paths/public.yaml#/~1public~1captcha'
+  /public/files/{id}:
+    $ref: './openapi/paths/public.yaml#/~1public~1files~1{id}'
+  /public/regions:
+    $ref: './openapi/paths/public.yaml#/~1public~1regions'
+  /lab-tests:
+    $ref: './openapi/paths/lab.yaml#/~1lab-tests'
+  /lab-tests/{id}:
+    $ref: './openapi/paths/lab.yaml#/~1lab-tests~1{id}'
+  /lab-tests/{id}/sample:
+    $ref: './openapi/paths/lab.yaml#/~1lab-tests~1{id}~1sample'
+  /lab-tests/{id}/results:
+    $ref: './openapi/paths/lab.yaml#/~1lab-tests~1{id}~1results'
+  /lab-tests/{id}/protocol:
+    $ref: './openapi/paths/lab.yaml#/~1lab-tests~1{id}~1protocol'
+  /recalls:
+    $ref: './openapi/paths/recalls.yaml#/~1recalls'
+  /recalls/{id}:
+    $ref: './openapi/paths/recalls.yaml#/~1recalls~1{id}'
+  /recalls/{id}/graph:
+    $ref: './openapi/paths/recalls.yaml#/~1recalls~1{id}~1graph'
+  /recall-tasks:
+    $ref: './openapi/paths/recall-tasks.yaml#/~1recall-tasks'
+  /recall-tasks/{id}/confirm:
+    $ref: './openapi/paths/recall-tasks.yaml#/~1recall-tasks~1{id}~1confirm'
+  /complaints:
+    $ref: './openapi/paths/complaints.yaml#/~1complaints'
+  /complaints/{id}:
+    $ref: './openapi/paths/complaints.yaml#/~1complaints~1{id}'
+  /complaints/{id}/review:
+    $ref: './openapi/paths/complaints.yaml#/~1complaints~1{id}~1review'
+  /complaints/{id}/decision:
+    $ref: './openapi/paths/complaints.yaml#/~1complaints~1{id}~1decision'
+  /notifications:
+    $ref: './openapi/paths/notifications.yaml#/~1notifications'
+  /notifications/read:
+    $ref: './openapi/paths/notifications.yaml#/~1notifications~1read'
+  /analytics/dashboard:
+    $ref: './openapi/paths/analytics.yaml#/~1analytics~1dashboard'
+  /reports/{type}:
+    $ref: './openapi/paths/reports.yaml#/~1reports~1{type}'
+  /admin/organizations:
+    $ref: './openapi/paths/admin.yaml#/~1admin~1organizations'
+  /admin/organizations/{id}:
+    $ref: './openapi/paths/admin.yaml#/~1admin~1organizations~1{id}'
+  /admin/organizations/{id}/approve:
+    $ref: './openapi/paths/admin.yaml#/~1admin~1organizations~1{id}~1approve'
+  /dictionaries/{name}:
+    $ref: './openapi/paths/dictionaries.yaml#/~1dictionaries~1{name}'
+  /dictionaries/{name}/{id}:
+    $ref: './openapi/paths/dictionaries.yaml#/~1dictionaries~1{name}~1{id}'
+  /dictionaries/{name}/import:
+    $ref: './openapi/paths/dictionaries.yaml#/~1dictionaries~1{name}~1import'
+  /dictionaries/products/{id}/image:
+    $ref: './openapi/paths/dictionaries.yaml#/~1dictionaries~1products~1{id}~1image'
+  /audit-log:
+    $ref: './openapi/paths/audit.yaml#/~1audit-log'
+  /health/live:
+    $ref: './openapi/paths/health.yaml#/~1health~1live'
+  /health/ready:
+    $ref: './openapi/paths/health.yaml#/~1health~1ready'
+  /events/stream:
+    $ref: './openapi/paths/events.yaml#/~1events~1stream'
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Access-токен JWT HS256 (15 минут) в заголовке `Authorization: Bearer <JWT>`.'
+    accessTokenQuery:
+      type: apiKey
+      in: query
+      name: access_token
+      description: Access-токен в параметре запроса — только для `GET /events/stream` (EventSource не передаёт заголовки).
+  parameters:
+    Page:
+      $ref: './openapi/components/parameters.yaml#/Page'
+    Size:
+      $ref: './openapi/components/parameters.yaml#/Size'
+    Sort:
+      $ref: './openapi/components/parameters.yaml#/Sort'
+    Q:
+      $ref: './openapi/components/parameters.yaml#/Q'
+    IdPath:
+      $ref: './openapi/components/parameters.yaml#/IdPath'
+    IdempotencyKey:
+      $ref: './openapi/components/parameters.yaml#/IdempotencyKey'
+    IfMatch:
+      $ref: './openapi/components/parameters.yaml#/IfMatch'
+    IfNoneMatch:
+      $ref: './openapi/components/parameters.yaml#/IfNoneMatch'
+    ImageVariant:
+      $ref: './openapi/components/parameters.yaml#/ImageVariant'
+    PublicCode:
+      $ref: './openapi/components/parameters.yaml#/PublicCode'
+    SignedExp:
+      $ref: './openapi/components/parameters.yaml#/SignedExp'
+    SignedSig:
+      $ref: './openapi/components/parameters.yaml#/SignedSig'
+    DateFrom:
+      $ref: './openapi/components/parameters.yaml#/DateFrom'
+    DateTo:
+      $ref: './openapi/components/parameters.yaml#/DateTo'
+    DictionaryName:
+      $ref: './openapi/components/parameters.yaml#/DictionaryName'
+  responses:
+    BadRequest:
+      $ref: './openapi/components/responses.yaml#/BadRequest'
+    Unauthorized:
+      $ref: './openapi/components/responses.yaml#/Unauthorized'
+    Forbidden:
+      $ref: './openapi/components/responses.yaml#/Forbidden'
+    NotFound:
+      $ref: './openapi/components/responses.yaml#/NotFound'
+    Conflict:
+      $ref: './openapi/components/responses.yaml#/Conflict'
+    PayloadTooLarge:
+      $ref: './openapi/components/responses.yaml#/PayloadTooLarge'
+    UnsupportedMediaType:
+      $ref: './openapi/components/responses.yaml#/UnsupportedMediaType'
+    BusinessRule:
+      $ref: './openapi/components/responses.yaml#/BusinessRule'
+    TooManyRequests:
+      $ref: './openapi/components/responses.yaml#/TooManyRequests'
+    ServiceUnavailable:
+      $ref: './openapi/components/responses.yaml#/ServiceUnavailable'
+    MethodNotAllowed:
+      $ref: './openapi/components/responses.yaml#/MethodNotAllowed'
+    NotModified:
+      $ref: './openapi/components/responses.yaml#/NotModified'
+    ImageContent:
+      $ref: './openapi/components/responses.yaml#/ImageContent'
+    FileContent:
+      $ref: './openapi/components/responses.yaml#/FileContent'
+    PublicImageContent:
+      $ref: './openapi/components/responses.yaml#/PublicImageContent'
+    BatchForbidden:
+      $ref: './openapi/components/responses.yaml#/BatchForbidden'
+    QrForbidden:
+      $ref: './openapi/components/responses.yaml#/QrForbidden'
+    WaybillNotSender:
+      $ref: './openapi/components/responses.yaml#/WaybillNotSender'
+    WaybillNotReceiver:
+      $ref: './openapi/components/responses.yaml#/WaybillNotReceiver'
+    IdempotencyConflict:
+      $ref: './openapi/components/responses.yaml#/IdempotencyConflict'
+  headers:
+    Allow:
+      $ref: './openapi/components/headers.yaml#/Allow'
+    XRequestId:
+      $ref: './openapi/components/headers.yaml#/XRequestId'
+    XBackend:
+      $ref: './openapi/components/headers.yaml#/XBackend'
+    IdempotentReplayed:
+      $ref: './openapi/components/headers.yaml#/IdempotentReplayed'
+    ETag:
+      $ref: './openapi/components/headers.yaml#/ETag'
+    CacheControlPrivate:
+      $ref: './openapi/components/headers.yaml#/CacheControlPrivate'
+    CacheControlPublic:
+      $ref: './openapi/components/headers.yaml#/CacheControlPublic'
+    CacheControl:
+      $ref: './openapi/components/headers.yaml#/CacheControl'
+    ContentDisposition:
+      $ref: './openapi/components/headers.yaml#/ContentDisposition'
+    ContentLength:
+      $ref: './openapi/components/headers.yaml#/ContentLength'
+    RetryAfter:
+      $ref: './openapi/components/headers.yaml#/RetryAfter'
+    RetryAfterInProgress:
+      $ref: './openapi/components/headers.yaml#/RetryAfterInProgress'
+    SetRefreshCookie:
+      $ref: './openapi/components/headers.yaml#/SetRefreshCookie'
+    ClearRefreshCookie:
+      $ref: './openapi/components/headers.yaml#/ClearRefreshCookie'
+    ReportContentDisposition:
+      $ref: './openapi/components/headers.yaml#/ReportContentDisposition'
+    CacheControlNoStoreToken:
+      $ref: './openapi/components/headers.yaml#/CacheControlNoStoreToken'
+    CacheControlNoStore:
+      $ref: './openapi/components/headers.yaml#/CacheControlNoStore'
+  schemas:
+    Uuid:
+      $ref: './openapi/schemas/common.yaml#/Uuid'
+    DateTime:
+      $ref: './openapi/schemas/common.yaml#/DateTime'
+    NullableDateTime:
+      $ref: './openapi/schemas/common.yaml#/NullableDateTime'
+    Date:
+      $ref: './openapi/schemas/common.yaml#/Date'
+    Mass:
+      $ref: './openapi/schemas/common.yaml#/Mass'
+    MassTotal:
+      $ref: './openapi/schemas/common.yaml#/MassTotal'
+    PositiveMass:
+      $ref: './openapi/schemas/common.yaml#/PositiveMass'
+    Percent:
+      $ref: './openapi/schemas/common.yaml#/Percent'
+    Decimal:
+      $ref: './openapi/schemas/common.yaml#/Decimal'
+    Email:
+      $ref: './openapi/schemas/common.yaml#/Email'
+    NameString:
+      $ref: './openapi/schemas/common.yaml#/NameString'
+    SignedFileUrl:
+      $ref: './openapi/schemas/common.yaml#/SignedFileUrl'
+    NullableSignedFileUrl:
+      $ref: './openapi/schemas/common.yaml#/NullableSignedFileUrl'
+    PublicFileUrl:
+      $ref: './openapi/schemas/common.yaml#/PublicFileUrl'
+    NullablePublicFileUrl:
+      $ref: './openapi/schemas/common.yaml#/NullablePublicFileUrl'
+    Phone:
+      $ref: './openapi/schemas/common.yaml#/Phone'
+    Password:
+      $ref: './openapi/schemas/common.yaml#/Password'
+    PageNumber:
+      $ref: './openapi/schemas/common.yaml#/PageNumber'
+    PageSize:
+      $ref: './openapi/schemas/common.yaml#/PageSize'
+    TotalCount:
+      $ref: './openapi/schemas/common.yaml#/TotalCount'
+    ProblemCode:
+      $ref: './openapi/schemas/common.yaml#/ProblemCode'
+    Problem:
+      $ref: './openapi/schemas/common.yaml#/Problem'
+    RoleCode:
+      $ref: './openapi/schemas/common.yaml#/RoleCode'
+    BatchStatus:
+      $ref: './openapi/schemas/common.yaml#/BatchStatus'
+    OrganizationType:
+      $ref: './openapi/schemas/common.yaml#/OrganizationType'
+    ProductCategory:
+      $ref: './openapi/schemas/common.yaml#/ProductCategory'
+    SubstanceType:
+      $ref: './openapi/schemas/common.yaml#/SubstanceType'
+    Region:
+      $ref: './openapi/schemas/common.yaml#/Region'
+    OrganizationRef:
+      $ref: './openapi/schemas/common.yaml#/OrganizationRef'
+    FileRef:
+      $ref: './openapi/schemas/common.yaml#/FileRef'
+    ProductRef:
+      $ref: './openapi/schemas/common.yaml#/ProductRef'
+    SubstanceRef:
+      $ref: './openapi/schemas/common.yaml#/SubstanceRef'
+    HealthCheckStatus:
+      $ref: './openapi/schemas/common.yaml#/HealthCheckStatus'
+    HealthLive:
+      $ref: './openapi/schemas/common.yaml#/HealthLive'
+    Health:
+      $ref: './openapi/schemas/common.yaml#/Health'
+    AccessToken:
+      $ref: './openapi/schemas/auth.yaml#/AccessToken'
+    LoginRequest:
+      $ref: './openapi/schemas/auth.yaml#/LoginRequest'
+    LoginSuccess:
+      $ref: './openapi/schemas/auth.yaml#/LoginSuccess'
+    TwoFactorChallenge:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorChallenge'
+    LoginResponse:
+      $ref: './openapi/schemas/auth.yaml#/LoginResponse'
+    RefreshResponse:
+      $ref: './openapi/schemas/auth.yaml#/RefreshResponse'
+    TotpCode:
+      $ref: './openapi/schemas/auth.yaml#/TotpCode'
+    TwoFactorVerifyRequest:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorVerifyRequest'
+    TwoFactorSetupRequest:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorSetupRequest'
+    TwoFactorSetupPending:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorSetupPending'
+    TwoFactorEnabled:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorEnabled'
+    TwoFactorSetupResponse:
+      $ref: './openapi/schemas/auth.yaml#/TwoFactorSetupResponse'
+    RegistrableOrganizationType:
+      $ref: './openapi/schemas/auth.yaml#/RegistrableOrganizationType'
+    RegisterOrganizationRequest:
+      $ref: './openapi/schemas/auth.yaml#/RegisterOrganizationRequest'
+    RegisterOrganizationResponse:
+      $ref: './openapi/schemas/auth.yaml#/RegisterOrganizationResponse'
+    ForgotPasswordRequest:
+      $ref: './openapi/schemas/auth.yaml#/ForgotPasswordRequest'
+    ResetPasswordRequest:
+      $ref: './openapi/schemas/auth.yaml#/ResetPasswordRequest'
+    AcceptInviteRequest:
+      $ref: './openapi/schemas/auth.yaml#/AcceptInviteRequest'
+    UserStatus:
+      $ref: './openapi/schemas/users.yaml#/UserStatus'
+    NotificationChannels:
+      $ref: './openapi/schemas/users.yaml#/NotificationChannels'
+    ChannelsUpdate:
+      $ref: './openapi/schemas/users.yaml#/ChannelsUpdate'
+    TelegramCode:
+      $ref: './openapi/schemas/users.yaml#/TelegramCode'
+    Me:
+      $ref: './openapi/schemas/users.yaml#/Me'
+    MeUpdate:
+      $ref: './openapi/schemas/users.yaml#/MeUpdate'
+    User:
+      $ref: './openapi/schemas/users.yaml#/User'
+    UserPage:
+      $ref: './openapi/schemas/users.yaml#/UserPage'
+    UserInvite:
+      $ref: './openapi/schemas/users.yaml#/UserInvite'
+    UserPatch:
+      $ref: './openapi/schemas/users.yaml#/UserPatch'
+    OrganizationStatus:
+      $ref: './openapi/schemas/organizations.yaml#/OrganizationStatus'
+    Organization:
+      $ref: './openapi/schemas/organizations.yaml#/Organization'
+    OrganizationDirectoryItem:
+      $ref: './openapi/schemas/organizations.yaml#/OrganizationDirectoryItem'
+    OrganizationDirectoryPage:
+      $ref: './openapi/schemas/organizations.yaml#/OrganizationDirectoryPage'
+    ImageUpload:
+      $ref: './openapi/schemas/files.yaml#/ImageUpload'
+    LogoUpload:
+      $ref: './openapi/schemas/files.yaml#/LogoUpload'
+    FileBinary:
+      $ref: './openapi/schemas/files.yaml#/FileBinary'
+    SafetyStatus:
+      $ref: './openapi/schemas/public.yaml#/SafetyStatus'
+    PublicBatch:
+      $ref: './openapi/schemas/public.yaml#/PublicBatch'
+    PublicComplaintRequest:
+      $ref: './openapi/schemas/public.yaml#/PublicComplaintRequest'
+    PublicComplaintCreated:
+      $ref: './openapi/schemas/public.yaml#/PublicComplaintCreated'
+    AltchaChallenge:
+      $ref: './openapi/schemas/public.yaml#/AltchaChallenge'
+    NotificationType:
+      $ref: './openapi/schemas/notifications.yaml#/NotificationType'
+    Notification:
+      $ref: './openapi/schemas/notifications.yaml#/Notification'
+    UnreadCount:
+      $ref: './openapi/schemas/notifications.yaml#/UnreadCount'
+    RegionCode:
+      $ref: './openapi/schemas/dictionaries-ref.yaml#/RegionCode'
+    DoseUnit:
+      $ref: './openapi/schemas/dictionaries-ref.yaml#/DoseUnit'
+    AreaHa:
+      $ref: './openapi/schemas/fields.yaml#/AreaHa'
+    Dose:
+      $ref: './openapi/schemas/fields.yaml#/Dose'
+    GeoJsonPolygon:
+      $ref: './openapi/schemas/fields.yaml#/GeoJsonPolygon'
+    NullableGeoJsonPolygon:
+      $ref: './openapi/schemas/fields.yaml#/NullableGeoJsonPolygon'
+    Field:
+      $ref: './openapi/schemas/fields.yaml#/Field'
+    FieldInput:
+      $ref: './openapi/schemas/fields.yaml#/FieldInput'
+    FieldPage:
+      $ref: './openapi/schemas/fields.yaml#/FieldPage'
+    Treatment:
+      $ref: './openapi/schemas/fields.yaml#/Treatment'
+    TreatmentInput:
+      $ref: './openapi/schemas/fields.yaml#/TreatmentInput'
+    TreatmentPage:
+      $ref: './openapi/schemas/fields.yaml#/TreatmentPage'
+    PublicCode:
+      $ref: './openapi/schemas/batches.yaml#/PublicCode'
+    BatchKind:
+      $ref: './openapi/schemas/batches.yaml#/BatchKind'
+    TestReason:
+      $ref: './openapi/schemas/batches.yaml#/TestReason'
+    BatchActionName:
+      $ref: './openapi/schemas/batches.yaml#/BatchActionName'
+    BatchAction:
+      $ref: './openapi/schemas/batches.yaml#/BatchAction'
+    BatchStatusReason:
+      $ref: './openapi/schemas/batches.yaml#/BatchStatusReason'
+    BatchListItem:
+      $ref: './openapi/schemas/batches.yaml#/BatchListItem'
+    BatchPage:
+      $ref: './openapi/schemas/batches.yaml#/BatchPage'
+    Batch:
+      $ref: './openapi/schemas/batches.yaml#/Batch'
+    BatchCreate:
+      $ref: './openapi/schemas/batches.yaml#/BatchCreate'
+    BatchGraph:
+      $ref: './openapi/schemas/batches.yaml#/BatchGraph'
+    StatusHistoryItem:
+      $ref: './openapi/schemas/batches.yaml#/StatusHistoryItem'
+    PathStep:
+      $ref: './openapi/schemas/batches.yaml#/PathStep'
+    QrRequest:
+      $ref: './openapi/schemas/batches.yaml#/QrRequest'
+    QrLinks:
+      $ref: './openapi/schemas/batches.yaml#/QrLinks'
+    VsdStatus:
+      $ref: './openapi/schemas/batches.yaml#/VsdStatus'
+    VsdImportStatus:
+      $ref: './openapi/schemas/batches.yaml#/VsdImportStatus'
+    VsdParty:
+      $ref: './openapi/schemas/batches.yaml#/VsdParty'
+    VsdDocument:
+      $ref: './openapi/schemas/batches.yaml#/VsdDocument'
+    BatchVsd:
+      $ref: './openapi/schemas/batches.yaml#/BatchVsd'
+    LabProtocolDocument:
+      $ref: './openapi/schemas/batches.yaml#/LabProtocolDocument'
+    BatchDocuments:
+      $ref: './openapi/schemas/batches.yaml#/BatchDocuments'
+    MassBalance:
+      $ref: './openapi/schemas/processing.yaml#/MassBalance'
+    ProcessingRequest:
+      $ref: './openapi/schemas/processing.yaml#/ProcessingRequest'
+    ProcessingResult:
+      $ref: './openapi/schemas/processing.yaml#/ProcessingResult'
+    WaybillNumber:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillNumber'
+    WaybillStatus:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillStatus'
+    WaybillActionName:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillActionName'
+    DiscrepancyPercent:
+      $ref: './openapi/schemas/waybills.yaml#/DiscrepancyPercent'
+    WaybillItem:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillItem'
+    Waybill:
+      $ref: './openapi/schemas/waybills.yaml#/Waybill'
+    WaybillPage:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillPage'
+    WaybillCreate:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillCreate'
+    WaybillAccept:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillAccept'
+    WaybillReject:
+      $ref: './openapi/schemas/waybills.yaml#/WaybillReject'
+    ProtocolUpload:
+      $ref: './openapi/schemas/files.yaml#/ProtocolUpload'
+    ImportUpload:
+      $ref: './openapi/schemas/files.yaml#/ImportUpload'
+    NotificationPage:
+      $ref: './openapi/schemas/notifications.yaml#/NotificationPage'
+    MarkReadRequest:
+      $ref: './openapi/schemas/notifications.yaml#/MarkReadRequest'
+    LabTestStatus:
+      $ref: './openapi/schemas/lab.yaml#/LabTestStatus'
+    LabTestReason:
+      $ref: './openapi/schemas/lab.yaml#/LabTestReason'
+    LabConclusion:
+      $ref: './openapi/schemas/lab.yaml#/LabConclusion'
+    IndicatorValue:
+      $ref: './openapi/schemas/lab.yaml#/IndicatorValue'
+    LabNorm:
+      $ref: './openapi/schemas/lab.yaml#/LabNorm'
+    LabResult:
+      $ref: './openapi/schemas/lab.yaml#/LabResult'
+    LabTestActionName:
+      $ref: './openapi/schemas/lab.yaml#/LabTestActionName'
+    LabTestListItem:
+      $ref: './openapi/schemas/lab.yaml#/LabTestListItem'
+    LabTestPage:
+      $ref: './openapi/schemas/lab.yaml#/LabTestPage'
+    LabTest:
+      $ref: './openapi/schemas/lab.yaml#/LabTest'
+    LabTestCreate:
+      $ref: './openapi/schemas/lab.yaml#/LabTestCreate'
+    LabSampleRequest:
+      $ref: './openapi/schemas/lab.yaml#/LabSampleRequest'
+    LabResultsInput:
+      $ref: './openapi/schemas/lab.yaml#/LabResultsInput'
+    ActorRef:
+      $ref: './openapi/schemas/recalls.yaml#/ActorRef'
+    RecallTrigger:
+      $ref: './openapi/schemas/recalls.yaml#/RecallTrigger'
+    RecallStatus:
+      $ref: './openapi/schemas/recalls.yaml#/RecallStatus'
+    RecallDirection:
+      $ref: './openapi/schemas/recalls.yaml#/RecallDirection'
+    RecallTaskStatus:
+      $ref: './openapi/schemas/recalls.yaml#/RecallTaskStatus'
+    RecallProgress:
+      $ref: './openapi/schemas/recalls.yaml#/RecallProgress'
+    RecallTask:
+      $ref: './openapi/schemas/recalls.yaml#/RecallTask'
+    RecallTaskPage:
+      $ref: './openapi/schemas/recalls.yaml#/RecallTaskPage'
+    RecallTaskConfirm:
+      $ref: './openapi/schemas/recalls.yaml#/RecallTaskConfirm'
+    RecallBatch:
+      $ref: './openapi/schemas/recalls.yaml#/RecallBatch'
+    RecallListItem:
+      $ref: './openapi/schemas/recalls.yaml#/RecallListItem'
+    RecallPage:
+      $ref: './openapi/schemas/recalls.yaml#/RecallPage'
+    Recall:
+      $ref: './openapi/schemas/recalls.yaml#/Recall'
+    RecallCreate:
+      $ref: './openapi/schemas/recalls.yaml#/RecallCreate'
+    RecallGraph:
+      $ref: './openapi/schemas/recalls.yaml#/RecallGraph'
+    ComplaintStatus:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintStatus'
+    ComplaintDecisionType:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintDecisionType'
+    ComplaintListItem:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintListItem'
+    ComplaintPage:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintPage'
+    Complaint:
+      $ref: './openapi/schemas/complaints.yaml#/Complaint'
+    ComplaintReviewRequest:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintReviewRequest'
+    ComplaintComment:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintComment'
+    ComplaintDecision:
+      $ref: './openapi/schemas/complaints.yaml#/ComplaintDecision'
+    DashboardScope:
+      $ref: './openapi/schemas/analytics.yaml#/DashboardScope'
+    Hours:
+      $ref: './openapi/schemas/analytics.yaml#/Hours'
+    DashboardPeriod:
+      $ref: './openapi/schemas/analytics.yaml#/DashboardPeriod'
+    RejectedShareItem:
+      $ref: './openapi/schemas/analytics.yaml#/RejectedShareItem'
+    InspectorDashboard:
+      $ref: './openapi/schemas/analytics.yaml#/InspectorDashboard'
+    OrgDashboard:
+      $ref: './openapi/schemas/analytics.yaml#/OrgDashboard'
+    LabDashboard:
+      $ref: './openapi/schemas/analytics.yaml#/LabDashboard'
+    Dashboard:
+      $ref: './openapi/schemas/analytics.yaml#/Dashboard'
+    ReportType:
+      $ref: './openapi/schemas/analytics.yaml#/ReportType'
+    ReportFormat:
+      $ref: './openapi/schemas/analytics.yaml#/ReportFormat'
+    OrganizationAdmin:
+      $ref: './openapi/schemas/admin.yaml#/OrganizationAdmin'
+    OrganizationAdminPage:
+      $ref: './openapi/schemas/admin.yaml#/OrganizationAdminPage'
+    OrganizationAdminPatch:
+      $ref: './openapi/schemas/admin.yaml#/OrganizationAdminPatch'
+    AuditEntityType:
+      $ref: './openapi/schemas/admin.yaml#/AuditEntityType'
+    AuditEntry:
+      $ref: './openapi/schemas/admin.yaml#/AuditEntry'
+    AuditPage:
+      $ref: './openapi/schemas/admin.yaml#/AuditPage'
+    DictionaryName:
+      $ref: './openapi/schemas/dictionaries.yaml#/DictionaryName'
+    LossNormPercent:
+      $ref: './openapi/schemas/dictionaries.yaml#/LossNormPercent'
+    Product:
+      $ref: './openapi/schemas/dictionaries.yaml#/Product'
+    ProductInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/ProductInput'
+    NullableMercuryCode:
+      $ref: './openapi/schemas/dictionaries.yaml#/NullableMercuryCode'
+    Substance:
+      $ref: './openapi/schemas/dictionaries.yaml#/Substance'
+    SubstanceInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/SubstanceInput'
+    Indicator:
+      $ref: './openapi/schemas/dictionaries.yaml#/Indicator'
+    IndicatorInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/IndicatorInput'
+    Norm:
+      $ref: './openapi/schemas/dictionaries.yaml#/Norm'
+    NormInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/NormInput'
+    RegionEntry:
+      $ref: './openapi/schemas/dictionaries.yaml#/RegionEntry'
+    RegionInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/RegionInput'
+    DictionaryEntry:
+      $ref: './openapi/schemas/dictionaries.yaml#/DictionaryEntry'
+    DictionaryInput:
+      $ref: './openapi/schemas/dictionaries.yaml#/DictionaryInput'
+    DictionaryPage:
+      $ref: './openapi/schemas/dictionaries.yaml#/DictionaryPage'
+    ImportReport:
+      $ref: './openapi/schemas/dictionaries.yaml#/ImportReport'

@@ -1,0 +1,17 @@
+node_modules/
+.pnpm-store/
+dist/
+dist-mock/
+dist-public/
+.svelte-kit/
+.svelte-kit-mock/
+.angular/
+coverage/
+test-results/
+playwright-report/
+*.log
+.env
+public-entry.build.ts
+frontend-svelte/build/
+frontend-svelte/build-mock/
+frontend-svelte/.templates/

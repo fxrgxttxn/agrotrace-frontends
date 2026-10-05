@@ -1,0 +1,21 @@
+.at-radio > input {
+  border-radius: 50%;
+}
+
+.at-radio > input::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-field-ink);
+  scale: 0;
+  transition: scale var(--dur-fast) var(--ease);
+}
+
+.at-radio > input:checked::before {
+  scale: 1;
+}
+
+.at-radio > input:disabled::before {
+  background: var(--c-ink-muted);
+}

@@ -1,0 +1,72 @@
+.at-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--touch);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-ink);
+  font: 400 var(--fs-14) / var(--lh-14) var(--font-body);
+  text-align: start;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.at-switch::before {
+  content: '';
+  flex: none;
+  width: 36px;
+  height: 20px;
+  border: 1.5px solid var(--c-ink-muted);
+  border-radius: var(--r-pill);
+  background: var(--c-surface);
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+
+.at-switch::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--c-ink-muted);
+  translate: 0 -50%;
+  transition:
+    translate var(--dur) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+.at-switch:hover::before {
+  border-color: var(--c-ink);
+}
+
+.at-switch[aria-checked='true']::before {
+  border-color: var(--c-field);
+  background: var(--c-field);
+}
+
+.at-switch[aria-checked='true']::after {
+  background: var(--c-field-ink);
+  translate: 16px -50%;
+}
+
+.at-switch:disabled {
+  color: var(--c-ink-muted);
+  cursor: not-allowed;
+}
+
+.at-switch:disabled::before {
+  border-color: var(--c-line-strong);
+  background: var(--c-surface-sunk);
+}
+
+.at-switch:disabled::after {
+  background: var(--c-line-strong);
+}

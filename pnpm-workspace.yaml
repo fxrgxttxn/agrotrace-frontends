@@ -1,0 +1,8 @@
+packages:
+  - packages/*
+  - contracts
+  - db/seed
+  - tests/*
+  - frontend-react
+  - frontend-angular
+  - frontend-svelte

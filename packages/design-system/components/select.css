@@ -1,0 +1,17 @@
+.at-select {
+  padding-right: 40px;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--c-ink-muted) 50%),
+    linear-gradient(135deg, var(--c-ink-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 21px) 55%,
+    calc(100% - 16px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.at-select:disabled {
+  background-image: none;
+}

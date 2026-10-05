@@ -1,0 +1,130 @@
+# Отчёты и экспорт (FR-ANL-04, FR-ANL-05).
+/reports/{type}:
+  get:
+    operationId: downloadReport
+    summary: Выгрузка отчёта
+    description: |
+      Формирует отчёт по запросу и отдаёт его файлом (не сохраняется). Доступ по типам — `x-report-access`: `roles` —
+      роли с доступом ко всей системе; `headRoles` — роли, которым отчёт доступен только руководителю организации
+      (`is_org_admin`) и только по своей организации. Роль пользователя не даёт доступа к типу — 403 FORBIDDEN без
+      `params`.
+
+      Параметры (проверяются после доступа; нарушения — 400, R51):
+
+      - `format` — обязателен;
+      - `from`/`to` — окно (даты UTC, включительно), по умолчанию последние 30 дней как у дашборда; `from` > `to` —
+        `validation.range`; длиннее 366 дней — `validation.range.tooLong`. Для `recall` запрещены
+        (`validation.from.notAllowed` / `validation.to.notAllowed`);
+      - `id` — для `recall` обязателен (id отзыва); для `org` — id организации: обязателен для INSPECTOR/ADMIN,
+        руководитель может не передавать его или передать id своей организации (иной — `validation.id.notAllowed`);
+        для остальных типов запрещён (`validation.id.notAllowed`). Отзыв или организация не существует (удалены) — 404;
+      - в любом листе больше 50 000 строк данных — `errors.type: [validation.report.tooManyRows]`.
+
+      Области данных: `batches` — INSPECTOR/ADMIN все неудалённые партии, руководитель — партии, у которых его
+      организация создатель или держатель; окно — по дате производства (`harvestedAt`/`producedAt`, как `listBatches`).
+      `lab-tests` — INSPECTOR/ADMIN все, руководитель лаборатории — анализы своей лаборатории; окно — по `createdAt`.
+      `recalls` — окно по `openedAt`; `complaints` — окно по `createdAt`; `org` — см. лист «Анализы» и «Задачи отзыва».
+
+      Файл. Имя (в `Content-Disposition`, только ASCII): `agrotrace-{type}_{from}_{to}.{format}` для batches, recalls,
+      lab-tests, complaints; `agrotrace-recall_{id}.{format}`; `agrotrace-org_{inn}_{from}_{to}.{format}` (даты —
+      `YYYY-MM-DD`). XLSX — листы в указанном порядке и с указанными именами; строка 1 — заголовки колонок (полужирные),
+      данные со строки 2; ячейки: тексты — строковые; количества — числа (формат `0`); масса — число (формат `0.000`);
+      проценты и часы — число (формат `0.00`); моменты времени — текст `YYYY-MM-DD HH:MM` в UTC (секунды и доли усекаются до минут, не
+      округляются, R59); даты — текст
+      `YYYY-MM-DD`; логические — текст `да`/`нет`; коды перечислений — как в API (`Approved`, `FAIL`, `RAW`); null —
+      пустая ячейка. PDF — A4 альбомная, шрифт с кириллицей, заголовок `AgroTrace — <название отчёта>`, строки
+      `Период: <from> — <to> (UTC)` (для `recall` — `Отзыв: <id>`) и `Сформирован: <YYYY-MM-DD HH:MM> UTC`, далее по
+      разделу на каждый лист (подзаголовок = имя листа) с той же таблицей; при переносе на новую страницу строка
+      заголовков повторяется. Байты файлов у реализаций различаются (разные библиотеки); совпадают листы, колонки и
+      значения ячеек.
+
+      Отчёты (название; листы: колонки; порядок строк):
+
+      - `batches` («Реестр партий»). «Партии»: Код партии | Продукт | Категория | Вид | Масса, кг | Статус | Создатель |
+        Держатель | Дата производства (UTC) | Анализ требуется | Основание анализа | Изменена (UTC); по `publicCode`.
+      - `recalls` («Реестр отзывов»). «Отзывы»: ID отзыва | Исходная партия | Продукт | Источник | Причина | Статус |
+        Открыт (UTC) | Закрыт (UTC) | Длительность, ч | Партий | Задач | Подтверждено | Просрочено; по `openedAt`, затем
+        id. «Длительность, ч» — `Hours` от `openedAt` до `closedAt` (пусто у открытых); последние четыре — как
+        `batchesCount` и `progress`.
+      - `recall` («Отчёт по отзыву», FR-ANL-04). «Отзыв»: Поле | Значение — строки ID, Исходная партия, Продукт,
+        Источник, Причина, Статус, Блокировка источников, Открыт (UTC), Закрыт (UTC), Инициатор, Партий, Задач,
+        Подтверждено. «Партии»: Код партии | Продукт | Направление | Глубина | Статус до отзыва | Статус сейчас |
+        Держатель; порядок `Recall.batches`. «Задачи»: Код партии | Держатель | Срок (UTC) | Статус | Эскалирована (UTC)
+        | Подтверждена (UTC) | Подтвердил | Время подтверждения, ч; порядок `Recall.tasks`; «Время подтверждения» —
+        `Hours` от `openedAt` отзыва до `confirmedAt`. «Хронология»: Время (UTC) | Событие | Партия | Организация;
+        события RECALL_OPENED (партия — исходная), TASK_CREATED (по задаче, время — `openedAt`), TASK_OVERDUE
+        (`escalatedAt`), TASK_CONFIRMED (`confirmedAt`), RECALL_CLOSED; по времени, затем в этом порядке событий,
+        затем по коду партии.
+      - `lab-tests` («Лабораторные анализы»). «Анализы»: Код партии | Продукт | Лаборатория | Основание | Статус |
+        Заключение | Создан (UTC) | Срок (UTC) | Проба (UTC) | Завершён (UTC) | Просрочен | Превышенные показатели; по
+        `createdAt`, затем id. «Превышенные показатели» — названия показателей с `isExceeded` через `, ` по названию.
+      - `complaints` («Жалобы»). «Жалобы»: Поступила (UTC) | Код партии | Продукт | Текст | Статус |
+        Решение | Комментарий | Инспектор | Решение принято (UTC); по `createdAt`, затем id. Контакт покупателя в
+        отчёт не входит — он виден только в карточке жалобы у инспектора (R59).
+      - `org` («Сводка по организации»). «Организация»: Поле | Значение — строки Название, ИНН, Тип, Регион, Статус,
+        Рейтинг доверия (пусто не для FARM), Период. «Партии по статусам»: Статус | Количество — как
+        `OrgDashboard.byStatus`. «Анализы»: Код партии | Продукт | Лаборатория | Заключение | Завершён (UTC) —
+        анализы, завершённые в окне, по партиям, созданным организацией, а для LAB — выполненные ею; по `completedAt`.
+        «Задачи отзыва»: Код партии | ID отзыва | Срок (UTC) | Статус | Подтверждена (UTC) — задачи организации,
+        созданные в окне; по `dueAt`.
+    tags: [Analytics]
+    x-roles: [FARMER, PROCESSOR, LAB, RETAILER, INSPECTOR, ADMIN]
+    x-report-access:
+      batches: { roles: [INSPECTOR, ADMIN], headRoles: [FARMER, PROCESSOR, RETAILER] }
+      recalls: { roles: [INSPECTOR, ADMIN], headRoles: [] }
+      recall: { roles: [INSPECTOR, ADMIN], headRoles: [] }
+      lab-tests: { roles: [INSPECTOR, ADMIN], headRoles: [LAB] }
+      complaints: { roles: [INSPECTOR, ADMIN], headRoles: [] }
+      org: { roles: [INSPECTOR, ADMIN], headRoles: [FARMER, PROCESSOR, LAB, RETAILER] }
+    parameters:
+      - name: type
+        in: path
+        required: true
+        description: Тип отчёта.
+        schema:
+          $ref: '../schemas/analytics.yaml#/ReportType'
+      - name: format
+        in: query
+        required: true
+        description: Формат файла.
+        schema:
+          $ref: '../schemas/analytics.yaml#/ReportFormat'
+      - $ref: '../components/parameters.yaml#/DateFrom'
+      - $ref: '../components/parameters.yaml#/DateTo'
+      - name: id
+        in: query
+        description: Id отзыва (`recall`) или организации (`org`).
+        schema:
+          type: string
+          format: uuid
+    responses:
+      '200':
+        description: Файл отчёта.
+        headers:
+          Content-Disposition:
+            $ref: '../components/headers.yaml#/ReportContentDisposition'
+          Content-Length:
+            $ref: '../components/headers.yaml#/ContentLength'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlNoStore'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+            schema:
+              $ref: '../schemas/files.yaml#/FileBinary'
+          application/pdf:
+            schema:
+              $ref: '../schemas/files.yaml#/FileBinary'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

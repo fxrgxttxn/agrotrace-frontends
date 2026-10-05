@@ -1,0 +1,210 @@
+# Модуль Recalls (БП-5, FR-QA-06, FR-QA-07). Движок отзыва — в описании тега Recalls (openapi.yaml).
+/recalls:
+  get:
+    operationId: listRecalls
+    summary: Реестр отзывов
+    description: |
+      Все отзывы (INSPECTOR, ADMIN; удалённые не видны). Фильтры (объединяются по И):
+
+      - `status` — OPEN или CLOSED;
+      - `trigger` — один или несколько источников (параметр повторяется);
+      - `batchId` — отзывы, затронувшие партию (строка `recall_batches` с этой партией в любом направлении);
+      - `from`/`to` — по дате UTC `openedAt`;
+      - `q` — подстрока `publicCode` исходной партии без учёта регистра.
+
+      Сортировка — `x-sort`.
+    tags: [Recalls]
+    x-roles: [INSPECTOR, ADMIN]
+    x-sort:
+      fields: [openedAt, closedAt]
+      default: openedAt,desc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: status
+        in: query
+        description: Фильтр по статусу отзыва.
+        schema:
+          $ref: '../schemas/recalls.yaml#/RecallStatus'
+      - name: trigger
+        in: query
+        description: Фильтр по источникам (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/recalls.yaml#/RecallTrigger'
+      - name: batchId
+        in: query
+        description: Отзывы, затронувшие партию.
+        schema:
+          type: string
+          format: uuid
+      - $ref: '../components/parameters.yaml#/DateFrom'
+      - $ref: '../components/parameters.yaml#/DateTo'
+    responses:
+      '200':
+        description: Страница отзывов.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/recalls.yaml#/RecallPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  post:
+    operationId: createRecall
+    summary: Ручной запуск отзыва
+    description: |
+      Инспектор запускает отзыв с указанием причины (FR-QA-06). Порядок проверок:
+
+      1. Тело по схеме — 400.
+
+      2. Партия `sourceBatchId` не существует или удалена — 400 `errors.sourceBatchId: [validation.notFound]`.
+      Статус исходной партии не ограничен.
+
+      Блокировки (R47): исходная и все найденные обходом партии одним запросом `FOR UPDATE ORDER BY id` (движок,
+      шаг 3); транзакция REPEATABLE READ.
+
+      Результат — движок отзыва (описание тега Recalls) с `trigger` INSPECTOR, `reason` и `blockUpstream` из тела,
+      автор — пользователь:
+
+      - 201 — создан новый отзыв; тело содержит результат всей транзакции: статусы партий (`batches[].batch.status`),
+        `statusBefore`, задачи, `progress`. Статус — OPEN, либо CLOSED, если не создано ни одной задачи (BR-10). После
+        коммита публикуется `recall.requested` (уведомления и пересчёт рейтинга — асинхронно, в теле ответа их нет);
+      - 200 — по этой партии уже есть отзыв в статусе OPEN (п. 8.2.3): возвращается он без изменений, `reason` и
+        `blockUpstream` запроса не применяются, событие не публикуется.
+    tags: [Recalls]
+    x-roles: [INSPECTOR]
+    x-locks: [batches]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/recalls.yaml#/RecallCreate'
+    responses:
+      '200':
+        description: По исходной партии уже есть открытый отзыв — возвращается он.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/recalls.yaml#/Recall'
+      '201':
+        description: Отзыв создан, статусы партий изменены, задачи созданы.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/recalls.yaml#/Recall'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '409':
+        description: Повторный конфликт блокировок или сериализации (VERSION_CONFLICT без `params`, R47).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/version-conflict
+              title: Version conflict
+              status: 409
+              code: VERSION_CONFLICT
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/recalls/{id}:
+  get:
+    operationId: getRecall
+    summary: Карточка отзыва
+    description: >-
+      Отзыв с затронутыми партиями, задачами и прогрессом (п. 9.6). Не существует или удалён — 404.
+    tags: [Recalls]
+    x-roles: [INSPECTOR, ADMIN]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: Карточка отзыва.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/recalls.yaml#/Recall'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/recalls/{id}/graph:
+  get:
+    operationId: getRecallGraph
+    summary: Граф затронутых партий
+    description: >-
+      Партии отзыва и связи между ними для Cytoscape (`RecallGraph`). Не существует или удалён — 404.
+    tags: [Recalls]
+    x-roles: [INSPECTOR, ADMIN]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: Граф отзыва.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/recalls.yaml#/RecallGraph'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

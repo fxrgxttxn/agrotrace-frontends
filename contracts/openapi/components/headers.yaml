@@ -1,0 +1,119 @@
+# Общие заголовки ответов.
+XRequestId:
+  description: >-
+    Идентификатор запроса (correlation id): значение заголовка `X-Request-Id` из запроса или
+    сгенерированное сервером; пишется в журналы.
+  schema:
+    type: string
+    maxLength: 64
+  example: 4f1c2a7e-9b3d-4e5f-8a6b-0c1d2e3f4a5b
+XBackend:
+  description: Реализация backend, обработавшая запрос.
+  schema:
+    type: string
+    enum: [express, django, laravel]
+  example: express
+IdempotentReplayed:
+  description: '`true`, если ответ воспроизведён из сохранённого по `Idempotency-Key` (BR-11).'
+  schema:
+    type: string
+    enum: ['true', 'false']
+  example: 'true'
+ETag:
+  description: >-
+    Сильный ETag: `"` + sha256 (hex, нижний регистр) отдаваемых байтов + `"`. Для вариантов изображений
+    используется sha256 самого варианта (хранится в `files.variants`), поэтому ETag одинаков во всех реализациях.
+  schema:
+    type: string
+    pattern: '^"[0-9a-f]{64}"$'
+  example: '"4a3b1c9e0f2d8a7b6c5e4d3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b"'
+CacheControlPrivate:
+  description: Защищённые файлы (по Bearer или подписанному URL) — всегда перепроверка через ETag.
+  schema:
+    type: string
+    enum: ['private, max-age=0, must-revalidate']
+  example: private, max-age=0, must-revalidate
+CacheControlPublic:
+  description: Публичные изображения `/public/files/{id}`.
+  schema:
+    type: string
+    enum: ['public, max-age=86400']
+  example: public, max-age=86400
+CacheControl:
+  description: >-
+    Политика кэширования: `private, max-age=0, must-revalidate` для защищённых файлов,
+    `public, max-age=86400` для `/public/files/{id}`, `no-store` для динамических ответов, где указано.
+  schema:
+    type: string
+    enum: ['private, max-age=0, must-revalidate', 'public, max-age=86400', 'no-store', 'no-cache']
+  example: private, max-age=0, must-revalidate
+ContentDisposition:
+  description: >-
+    Всегда `inline; filename="<ascii>"; filename*=UTF-8''<pct>`, где имя = `originalName` без последнего
+    расширения (часть от последней точки, если точка не первый символ, P14; сам `originalName` — уже базовое имя без сегментов пути, P17) + `.` + расширение отдаваемого MIME (image/webp → webp, image/svg+xml → svg, image/png → png,
+    application/pdf → pdf, xlsx → xlsx). `<ascii>` — то же имя, в котором символы вне печатного ASCII,
+    `"` и `\` заменены на `_`; `<pct>` — имя в UTF-8, закодированное по RFC 5987.
+  schema:
+    type: string
+  example: 'inline; filename="______.webp"; filename*=UTF-8''''%D0%BF%D0%B5%D1%82%D1%80%D0%BE%D0%B2.webp'
+ContentLength:
+  description: Размер тела ответа в байтах.
+  schema:
+    type: integer
+    minimum: 0
+  example: 48213
+RetryAfter:
+  description: Число секунд до конца текущего окна счётчика лимита (R30), не меньше 1.
+  required: true
+  schema:
+    type: integer
+    minimum: 1
+  example: 60
+SetRefreshCookie:
+  description: >-
+    Refresh-токен (14 дней, ротация при каждом обновлении) в cookie
+    `at_refresh=<токен>; Max-Age=1209600; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Strict`.
+  schema:
+    type: string
+  example: at_refresh=q3Zt9YkR2vXw8LmN4pQs7uVa1BcD6eFg; Max-Age=1209600; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Strict
+ClearRefreshCookie:
+  description: Удаление cookie `at_refresh` (`Max-Age=0` с теми же атрибутами).
+  schema:
+    type: string
+  example: at_refresh=; Max-Age=0; Path=/api/v1/auth; HttpOnly; Secure; SameSite=Strict
+RetryAfterInProgress:
+  description: >-
+    Только для 409 IDEMPOTENCY_KEY_IN_PROGRESS (R48): всегда `1` — повторить запрос через 1 с.
+    У других кодов 409 заголовок не отправляется.
+  schema:
+    type: integer
+    const: 1
+  example: 1
+ReportContentDisposition:
+  description: >-
+    Отчёт отдаётся как вложение: `attachment; filename="<имя>"; filename*=UTF-8''<имя>`. Имя только из символов
+    ASCII `[a-z0-9._-]` по правилам операции `downloadReport`, поэтому обе формы совпадают.
+  schema:
+    type: string
+    pattern: '^attachment; filename="agrotrace-[a-z0-9._-]+\.(xlsx|pdf)"; filename\*=UTF-8''''agrotrace-[a-z0-9._-]+\.(xlsx|pdf)$'
+  example: attachment; filename="agrotrace-recalls_2026-08-26_2026-09-24.xlsx"; filename*=UTF-8''agrotrace-recalls_2026-08-26_2026-09-24.xlsx
+CacheControlNoStore:
+  description: Динамически сформированный ответ не кэшируется.
+  schema:
+    type: string
+    enum: [no-store]
+  example: no-store
+Allow:
+  description: Методы, объявленные контрактом для этого пути (RFC 9110), через запятую — только в ответе 405.
+  required: true
+  schema:
+    type: string
+    pattern: '^[A-Z]+(, [A-Z]+)*$'
+  example: GET, POST
+CacheControlNoStoreToken:
+  description: Ответ с токенами (access-токен, challenge TOTP) никогда не кэшируется (P9).
+  required: true
+  schema:
+    type: string
+    enum: [no-store]
+  example: no-store

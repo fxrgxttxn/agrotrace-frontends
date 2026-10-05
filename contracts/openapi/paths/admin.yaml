@@ -1,0 +1,228 @@
+# Модуль Admin: организации и заявки на регистрацию (FR-ADM-01, FR-IAM-01).
+/admin/organizations:
+  get:
+    operationId: listAdminOrganizations
+    summary: Организации и заявки
+    description: |
+      Все неудалённые организации любых статусов и типов (только ADMIN). Фильтры (объединяются по И):
+
+      - `status`, `type` — одно или несколько значений (параметр повторяется); заявки — `status=PENDING&status=MANUAL_CHECK`;
+      - `regionCode` — регион организации;
+      - `q` — подстрока названия без учёта регистра или префикс ИНН.
+
+      Сортировка — `x-sort`.
+    tags: [Admin]
+    x-roles: [ADMIN]
+    x-sort:
+      fields: [createdAt, name]
+      default: createdAt,desc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: status
+        in: query
+        description: Фильтр по статусам (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/organizations.yaml#/OrganizationStatus'
+      - name: type
+        in: query
+        description: Фильтр по типам (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/common.yaml#/OrganizationType'
+      - name: regionCode
+        in: query
+        description: Фильтр по коду региона.
+        schema:
+          $ref: '../schemas/dictionaries-ref.yaml#/RegionCode'
+    responses:
+      '200':
+        description: Страница организаций.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/admin.yaml#/OrganizationAdminPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/admin/organizations/{id}:
+  patch:
+    operationId: updateAdminOrganization
+    summary: Изменение организации
+    description: |
+      Администратор меняет название, адрес, регион или статус организации (`OrganizationAdminPatch`). Порядок проверок:
+
+      1. Тело по схеме — 400.
+
+      Блокировки (R47, R59): организация `FOR UPDATE`; шаги 2–4 — над заблокированной строкой.
+
+      2. Организация не существует или удалена — 404.
+
+      3. `status` отличается от текущего и переход не разрешён для этой операции (`entity-state-machines.json`,
+      `organization`, `by` = `updateAdminOrganization`), либо организация типа PLATFORM (её статус не меняется) —
+      409 INVALID_TRANSITION `{from: <статус>, to: <status из тела>}`.
+
+      4. `regionCode` не найден — 400 `errors.regionCode: [validation.notFound]`.
+
+      Результат: изменённые поля сохраняются одной транзакцией с записью аудита. SUSPENDED или REJECTED: вход и
+      обновление токенов пользователей организации отклоняются (403 `ORGANIZATION_NOT_ACTIVE`, операции Auth);
+      выданные access-токены действуют до истечения (≤ 15 минут); организация исчезает из `listOrganizations` и не
+      может быть получателем новых накладных. Уведомления не отправляются.
+    tags: [Admin]
+    x-roles: [ADMIN]
+    x-locks: [organization]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/admin.yaml#/OrganizationAdminPatch'
+    responses:
+      '200':
+        description: Организация изменена.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/admin.yaml#/OrganizationAdmin'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: >-
+          Недопустимая смена статуса (INVALID_TRANSITION) либо повторная взаимоблокировка (VERSION_CONFLICT без
+          `params`, R47).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              invalidTransition:
+                summary: Недопустимая смена статуса
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: PENDING
+                    to: SUSPENDED
+              lockRetryFailed:
+                summary: Повторная взаимоблокировка
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/admin/organizations/{id}/approve:
+  post:
+    operationId: approveOrganization
+    summary: Одобрение заявки организации
+    description: |
+      Одобряет заявку на регистрацию (FR-IAM-01): PENDING или MANUAL_CHECK → ACTIVE. У операции нет ответа 400:
+      `id`, не являющийся uuid, не называет никакой организации — 404 NOT_FOUND (P23). Порядок проверок:
+
+      Блокировки (R47, R59): организация `FOR UPDATE`; шаги 1–2 — над заблокированной строкой.
+
+      1. Организация не существует или удалена — 404.
+
+      2. Статус не PENDING и не MANUAL_CHECK — 409 INVALID_TRANSITION `{from: <статус>, to: ACTIVE}`.
+
+      Результат: статус ACTIVE (с записью аудита); с этого момента сотрудники организации могут входить. Пользователи
+      организации не меняются. Уведомления не отправляются (тип не предусмотрен `NotificationType`).
+    tags: [Admin]
+    x-roles: [ADMIN]
+    x-locks: [organization]
+    x-transition: { entity: organization, action: approve, to: ACTIVE }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: Организация активирована.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/admin.yaml#/OrganizationAdmin'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: >-
+          Организация не ожидает одобрения (INVALID_TRANSITION) либо повторная взаимоблокировка (VERSION_CONFLICT без
+          `params`, R47).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              invalidTransition:
+                summary: Организация уже активна
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: ACTIVE
+                    to: ACTIVE
+              lockRetryFailed:
+                summary: Повторная взаимоблокировка
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

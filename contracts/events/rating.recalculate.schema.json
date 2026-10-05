@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agrotrace.local/contracts/events/rating.recalculate.schema.json",
+  "title": "rating.recalculate",
+  "description": "BR-09: recompute the trust rating of a FARM organization. Written to `outbox_events` by submitLabResults in its transaction (cause LAB_PASS / LAB_FAIL, sourceId = lab test id) when the tested batch origin organization is of type FARM, and by the recall.requested handler (cause RECALL_SOURCE, sourceId = recall id) when the source batch origin organization is of type FARM. The handler does NOT apply a delta: in one transaction that starts with the processed_events claim (envelope, R56) it locks the organization row FOR UPDATE and recomputes the rating from scratch as a left fold of nextTrustRating (@agrotrace/domain, contracts/rules/trust-rating.json) starting from `initial` over all events of the organization ordered by time asc, then lab events before recall events, then id asc: every non-deleted lab test with status DONE on a non-deleted batch whose origin_org_id is the organization — LAB_PASS or LAB_FAIL at completed_at; every non-deleted recall whose source batch origin_org_id is the organization — RECALL_SOURCE at opened_at. If the result differs from trust_rating it is stored (audit action `system.ratingRecalculate`, entityType organization). `cause` and `sourceId` are informational only. Idempotent and order-independent: any number of deliveries yields the same rating. Organizations of other types are ignored.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "envelope.schema.json"
+    }
+  ],
+  "properties": {
+    "type": {
+      "const": "rating.recalculate"
+    },
+    "data": {
+      "type": "object",
+      "required": ["organizationId", "cause", "sourceId"],
+      "additionalProperties": false,
+      "properties": {
+        "organizationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "cause": {
+          "type": "string",
+          "enum": ["LAB_PASS", "LAB_FAIL", "RECALL_SOURCE"]
+        },
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "id": "4f5a6b7c-8d9e-4f0a-9b1c-3d4e5f6a7b8c",
+      "type": "rating.recalculate",
+      "occurredAt": "2026-07-25T14:10:00Z",
+      "backend": "django",
+      "requestId": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
+      "data": {
+        "organizationId": "0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10",
+        "cause": "LAB_FAIL",
+        "sourceId": "8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e"
+      }
+    }
+  ]
+}

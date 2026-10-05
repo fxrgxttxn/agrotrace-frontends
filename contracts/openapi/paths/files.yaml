@@ -1,0 +1,76 @@
+# Модуль Files.
+/files/{id}:
+  get:
+    operationId: downloadFile
+    summary: Скачивание файла
+    description: |
+      Поток файла через backend (FR-FILE-03). Два способа доступа (R28, R34):
+
+      1. **Bearer-токен** (без `exp`/`sig`) — с проверкой прав: файл наследует права сущности, к которой привязан
+      (протокол анализа — тем, кто видит анализ; аватарка — любому авторизованному; логотип и фото продукта — всем).
+      Нет файла или нет права его видеть — 404.
+
+      2. **Подписанный URL** (без заголовка Authorization) — такие URL сервер отдаёт в полях `avatarUrl`,
+      `FileRef.url` и т.п. для аватарок, протоколов, QR и отчётов. Ключ подписи выводится из `JWT_SECRET`
+      (R88 M2), чтобы сам секрет токенов не использовался напрямую для другой цели:
+      `fileUrlKey = HMAC-SHA256(key = JWT_SECRET, message = "agrotrace:file-url:v1")` (32 байта, сырые), затем
+      `sig = hex(HMAC-SHA256(key = fileUrlKey, message = "{id}:{exp}"))` в нижнем регистре, где `id` —
+      UUID файла в нижнем регистре, `exp` — Unix-время истечения в секундах (десятичное, без ведущих нулей) =
+      момент выдачи + 3600. Пример сообщения: `3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f:1790247600`; при
+      `JWT_SECRET` = `dev_only_change_me_32_bytes_minimum_xx` (значение из `.env.example`) `fileUrlKey` =
+      `ecedca06a78414e48b66ba0a401a61401c7f8af078b2fc35c8dfe5017e7a4a70` (hex), подпись —
+      `9de1ced479cc0f1c78c9d8deff00f42955b37d6a7cb19f9635a07a6300c29ee0`. Параметр
+      `variant` не подписывается: клиент свободно добавляет или заменяет `variant=96|480` в выданном URL.
+      Сравнение подписи — за постоянное время. Неверная подпись, `exp` в прошлом или только один из `exp`/`sig` — 403 FORBIDDEN (в том числе `exp`, не являющийся
+      десятичным целым без ведущих нулей (`^[1-9]\d{0,11}$`, P17), и `sig` не по шаблону — 403, не 400; параметры `id` и `variant` проверяются после подписи, P14);
+      права пользователя при этом не проверяются. Если переданы `exp`/`sig`, проверяется только подпись
+      (заголовок Authorization игнорируется).
+
+      Нет ни Bearer, ни подписи — 401. Заголовки ответа: `Content-Type` (MIME отдаваемого варианта),
+      `Content-Length`, `Content-Disposition`, `ETag` (sha256 отдаваемых байтов), `Cache-Control: private,
+      max-age=0, must-revalidate`; `If-None-Match` → 304. Файл, загруженный через любую реализацию, отдаётся
+      любой другой без различий (FR-FILE-05). Лимит `user` применяется к каждому запросу с действительным
+      Bearer-токеном — в том числе если одновременно передана действительная подпись (доступ тогда определяется
+      подписью, но запрос учитывается в лимите пользователя из токена); запросы только с подписью лимитом `user`
+      не ограничиваются.
+    tags: [Files]
+    security:
+      - bearer: []
+      - {}
+    x-roles: [ANY]
+    x-access: signed
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/ImageVariant'
+      - $ref: '../components/parameters.yaml#/SignedExp'
+      - $ref: '../components/parameters.yaml#/SignedSig'
+      - $ref: '../components/parameters.yaml#/IfNoneMatch'
+    responses:
+      '200':
+        $ref: '../components/responses.yaml#/FileContent'
+      '304':
+        $ref: '../components/responses.yaml#/NotModified'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        description: Подпись неверна или истекла (FORBIDDEN).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/forbidden
+              title: Invalid or expired signature
+              status: 403
+              code: FORBIDDEN
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

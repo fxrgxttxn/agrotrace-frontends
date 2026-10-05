@@ -1,0 +1,713 @@
+# Партии: список, карточка, граф, история, путь, QR (FR-PROD-03, FR-PROD-07, FR-PROD-08).
+PublicCode:
+  type: string
+  pattern: '^AT-\d{4}-\d{6,}$'
+  description: Публичный код партии `AT-{год}-{номер}` из последовательности `batch_code_seq`.
+  example: AT-2026-000123
+BatchKind:
+  type: string
+  description: RAW — сырьевая партия хозяйства (есть `field`, `harvestedAt`); DERIVED — производная партия переработчика (`producedAt`).
+  enum: [RAW, DERIVED]
+  example: RAW
+TestReason:
+  type: string
+  description: >-
+    Решение риск-модели BR-03 (функция `requiresLabTest`, проверки по порядку): NEW_FARM — у хозяйства меньше 5
+    сырьевых партий, LOW_RATING — рейтинг доверия ниже 70, RECENT_PESTICIDE — обработки поля пестицидами за
+    последние 30 дней, SAMPLED — детерминированная выборка 20% по хешу кода, NONE — анализ не нужен.
+    Для производных партий всегда NONE.
+  enum: [NEW_FARM, LOW_RATING, RECENT_PESTICIDE, SAMPLED, NONE]
+  example: NEW_FARM
+BatchActionName:
+  type: string
+  description: Имя действия из `contracts/rules/state-machine.json` (`transitions[].action`).
+  enum:
+    [
+      sendToLab,
+      approveWithoutTest,
+      labPass,
+      labFail,
+      ship,
+      accept,
+      reject,
+      process,
+      putOnSale,
+      sell,
+      recall,
+      writeOff,
+    ]
+  example: ship
+BatchAction:
+  type: object
+  description: Доступное текущему пользователю действие над партией (см. `Batch.actions`).
+  required: [action, to]
+  additionalProperties: false
+  properties:
+    action:
+      $ref: '#/BatchActionName'
+    to:
+      $ref: './common.yaml#/BatchStatus'
+  example:
+    action: ship
+    to: InTransit
+BatchStatusReason:
+  type: string
+  description: >-
+    Код причины перехода в истории статусов (пишется сервером, текст формирует frontend):
+    CREATED — регистрация партии (null → Created); TEST_REQUIRED — риск-модель назначила анализ (Created → OnTest);
+    TEST_NOT_REQUIRED — анализ не нужен или партия производная (Created → Approved); LAB_PASS / LAB_FAIL — итог
+    анализа; WAYBILL_SENT — отправка накладной (→ InTransit); WAYBILL_ACCEPTED — приёмка (→ Accepted);
+    WAYBILL_REJECTED — отказ получателя (→ Approved); PROCESSED — использована в переработке (→ Processed);
+    ON_SALE — выставлена в продажу; SOLD — реализована; RECALLED — отзыв; WRITTEN_OFF — изъятие подтверждено.
+  enum:
+    - CREATED
+    - TEST_REQUIRED
+    - TEST_NOT_REQUIRED
+    - LAB_PASS
+    - LAB_FAIL
+    - WAYBILL_SENT
+    - WAYBILL_ACCEPTED
+    - WAYBILL_REJECTED
+    - PROCESSED
+    - ON_SALE
+    - SOLD
+    - RECALLED
+    - WRITTEN_OFF
+  example: WAYBILL_SENT
+BatchListItem:
+  type: object
+  required:
+    [
+      id,
+      publicCode,
+      product,
+      massKg,
+      status,
+      kind,
+      holder,
+      origin,
+      harvestedAt,
+      producedAt,
+      updatedAt,
+      qrGeneratedAt,
+    ]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    publicCode:
+      $ref: '#/PublicCode'
+    product:
+      $ref: './common.yaml#/ProductRef'
+    massKg:
+      description: Текущая масса партии; при приёмке заменяется фактической массой из накладной.
+      $ref: './common.yaml#/Mass'
+    status:
+      $ref: './common.yaml#/BatchStatus'
+    kind:
+      $ref: '#/BatchKind'
+    holder:
+      description: >-
+        Текущий держатель. Меняется только при приёмке накладной (в статусе InTransit держатель — отправитель);
+        у партий Sold и WrittenOff — последний держатель.
+      $ref: './common.yaml#/OrganizationRef'
+    origin:
+      description: Организация-создатель партии (хозяйство для RAW, переработчик для DERIVED).
+      $ref: './common.yaml#/OrganizationRef'
+    harvestedAt:
+      description: Дата уборки (RAW), для DERIVED — null.
+      $ref: './common.yaml#/NullableDateTime'
+    producedAt:
+      description: Момент выпуска (DERIVED), для RAW — null.
+      $ref: './common.yaml#/NullableDateTime'
+    updatedAt:
+      $ref: './common.yaml#/DateTime'
+    qrGeneratedAt:
+      description: Момент последней генерации QR (`POST /batches/{id}/qr`); null — не генерировался.
+      $ref: './common.yaml#/NullableDateTime'
+  example:
+    id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+    publicCode: AT-2026-000123
+    product:
+      id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+      name: Пшеница озимая
+      category: GRAIN
+      imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+    massKg: '12480.000'
+    status: Approved
+    kind: RAW
+    holder:
+      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+      name: КФХ Петров
+      type: FARM
+      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+    origin:
+      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+      name: КФХ Петров
+      type: FARM
+      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+    harvestedAt: '2026-07-18T06:00:00Z'
+    producedAt: null
+    updatedAt: '2026-07-25T14:10:00Z'
+    qrGeneratedAt: null
+BatchPage:
+  type: object
+  required: [items, page, size, total]
+  additionalProperties: false
+  properties:
+    items:
+      type: array
+      items:
+        $ref: '#/BatchListItem'
+    page:
+      $ref: './common.yaml#/PageNumber'
+    size:
+      $ref: './common.yaml#/PageSize'
+    total:
+      $ref: './common.yaml#/TotalCount'
+  example:
+    items:
+      - id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+        publicCode: AT-2026-000123
+        product:
+          id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+          name: Пшеница озимая
+          category: GRAIN
+          imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+        massKg: '12480.000'
+        status: Approved
+        kind: RAW
+        holder:
+          id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+          name: КФХ Петров
+          type: FARM
+          logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+        origin:
+          id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+          name: КФХ Петров
+          type: FARM
+          logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+        harvestedAt: '2026-07-18T06:00:00Z'
+        producedAt: null
+        updatedAt: '2026-07-25T14:10:00Z'
+        qrGeneratedAt: null
+    page: 1
+    size: 20
+    total: 1
+Batch:
+  type: object
+  description: >-
+    Карточка партии: поля `BatchListItem` и дополнительные. `actions` вычисляется для текущего пользователя:
+    берутся переходы из `contracts/rules/state-machine.json` с `from` = текущему статусу (функция
+    `availableActions`, в порядке файла) и оставляются только те, для которых выполнено условие:
+
+    - `ship` — у пользователя роль FARMER или PROCESSOR и его организация — держатель;
+
+    - `accept`, `reject` — роль PROCESSOR или RETAILER и организация — получатель накладной в статусе SENT с этой партией;
+
+    - `process` — роль PROCESSOR и организация — держатель;
+
+    - `putOnSale`, `sell` — роль RETAILER и организация — держатель;
+
+    - `recall` — роль INSPECTOR;
+
+    - `writeOff` — организация пользователя — держатель задачи отзыва по этой партии в статусе OPEN или OVERDUE
+    (роли FARMER, PROCESSOR, RETAILER);
+
+    - `sendToLab`, `approveWithoutTest`, `labPass`, `labFail` — никогда (выполняются сервером автоматически).
+
+    Бизнес-правила (BR-01, BR-06 и т.п.) при вычислении `actions` не проверяются — только статус и права.
+  required:
+    - id
+    - publicCode
+    - product
+    - massKg
+    - status
+    - kind
+    - holder
+    - origin
+    - harvestedAt
+    - producedAt
+    - updatedAt
+    - field
+    - testRequired
+    - testReason
+    - version
+    - actions
+    - qrGeneratedAt
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    publicCode:
+      $ref: '#/PublicCode'
+    product:
+      $ref: './common.yaml#/ProductRef'
+    massKg:
+      $ref: './common.yaml#/Mass'
+    status:
+      $ref: './common.yaml#/BatchStatus'
+    kind:
+      $ref: '#/BatchKind'
+    holder:
+      $ref: './common.yaml#/OrganizationRef'
+    origin:
+      $ref: './common.yaml#/OrganizationRef'
+    harvestedAt:
+      $ref: './common.yaml#/NullableDateTime'
+    producedAt:
+      $ref: './common.yaml#/NullableDateTime'
+    updatedAt:
+      $ref: './common.yaml#/DateTime'
+    field:
+      type: [object, 'null']
+      description: Поле сырьевой партии (в том числе мягко удалённое); для DERIVED — null.
+      required: [id, name]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: './common.yaml#/Uuid'
+        name:
+          type: string
+    testRequired:
+      type: boolean
+      description: Решение риск-модели BR-03 при создании; для DERIVED — false.
+    testReason:
+      $ref: '#/TestReason'
+    version:
+      type: integer
+      minimum: 1
+      description: >-
+        Версия для оптимистичной блокировки (передаётся в `If-Match` операций изменения партии). Вставка — 1;
+        каждый переход статуса (в том числе автоматический) увеличивает на 1; приёмка (смена держателя и массы)
+        входит в тот же переход. Генерация QR версию не меняет.
+    actions:
+      type: array
+      items:
+        $ref: '#/BatchAction'
+    qrGeneratedAt:
+      description: Момент последней генерации QR (`POST /batches/{id}/qr`); null — не генерировался.
+      $ref: './common.yaml#/NullableDateTime'
+  example:
+    id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+    publicCode: AT-2026-000123
+    product:
+      id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+      name: Пшеница озимая
+      category: GRAIN
+      imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+    massKg: '12480.000'
+    status: Approved
+    kind: RAW
+    holder:
+      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+      name: КФХ Петров
+      type: FARM
+      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+    origin:
+      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+      name: КФХ Петров
+      type: FARM
+      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+    harvestedAt: '2026-07-18T06:00:00Z'
+    producedAt: null
+    updatedAt: '2026-07-25T14:10:00Z'
+    field:
+      id: 2e4a6c8e-0b2d-4f6a-8c0e-2b4d6f8a0c2e
+      name: Участок «Восточный-3»
+    testRequired: true
+    testReason: NEW_FARM
+    version: 3
+    actions:
+      - action: ship
+        to: InTransit
+    qrGeneratedAt: null
+BatchCreate:
+  type: object
+  description: >-
+    Регистрация сырьевой партии (FR-PROD-03). `fieldId` — неудалённое поле своего хозяйства, `productId` —
+    неудалённый продукт категории, отличной от PROCESSED (иначе 400 `validation.notFound` /
+    `validation.product.category`); `harvestedAt` не позже текущего времени сервера (`validation.date.future`).
+  required: [fieldId, productId, massKg, harvestedAt]
+  additionalProperties: false
+  properties:
+    fieldId:
+      $ref: './common.yaml#/Uuid'
+    productId:
+      $ref: './common.yaml#/Uuid'
+    massKg:
+      $ref: './common.yaml#/PositiveMass'
+    harvestedAt:
+      $ref: './common.yaml#/DateTime'
+  example:
+    fieldId: 2e4a6c8e-0b2d-4f6a-8c0e-2b4d6f8a0c2e
+    productId: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+    massKg: '12480.000'
+    harvestedAt: '2026-07-18T06:00:00Z'
+BatchGraph:
+  type: object
+  description: >-
+    Связанные партии (FR-PROD-07): обход `batch_links` от корня вверх (родители, `depth` < 0) и вниз (дети,
+    `depth` > 0) не дальше `|depth|` ≤ запрошенной глубины; корень — `depth` = 0. Узел попадает в граф один раз
+    с наименьшим по модулю расстоянием; «братья» (другие дети родителя) не включаются. `edges` — все связи
+    `batch_links`, у которых оба конца входят в `nodes`. Узлы, не видимые пользователю (п. 4.2), включаются
+    с `accessible: false` (их карточка отдаёт 404), данные узла — те же, что на публичной странице.
+    Порядок: `nodes` — по `depth`, затем по `publicCode`; `edges` — по `publicCode` родителя, затем ребёнка.
+  required: [rootId, depth, nodes, edges]
+  additionalProperties: false
+  properties:
+    rootId:
+      $ref: './common.yaml#/Uuid'
+    depth:
+      type: integer
+      minimum: 1
+      maximum: 5
+      description: Применённая глубина обхода.
+    nodes:
+      type: array
+      minItems: 1
+      items:
+        type: object
+        required: [id, publicCode, product, status, holder, depth, accessible]
+        additionalProperties: false
+        properties:
+          id:
+            $ref: './common.yaml#/Uuid'
+          publicCode:
+            $ref: '#/PublicCode'
+          product:
+            $ref: './common.yaml#/ProductRef'
+          status:
+            $ref: './common.yaml#/BatchStatus'
+          holder:
+            $ref: './common.yaml#/OrganizationRef'
+          depth:
+            type: integer
+            minimum: -5
+            maximum: 5
+          accessible:
+            type: boolean
+            description: '`GET /batches/{id}` для узла вернёт 200 (узел в области видимости пользователя).'
+    edges:
+      type: array
+      items:
+        type: object
+        required: [parent, child, massUsedKg]
+        additionalProperties: false
+        properties:
+          parent:
+            $ref: './common.yaml#/Uuid'
+          child:
+            $ref: './common.yaml#/Uuid'
+          massUsedKg:
+            $ref: './common.yaml#/Mass'
+  example:
+    rootId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+    depth: 2
+    nodes:
+      - id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+        publicCode: AT-2026-000123
+        product:
+          id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+          name: Пшеница озимая
+          category: GRAIN
+          imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+        status: Processed
+        holder:
+          id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+          name: ООО «Кубанский мукомол»
+          type: PROCESSOR
+          logoUrl: null
+        depth: 0
+        accessible: true
+      - id: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+        publicCode: AT-2026-000457
+        product:
+          id: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+          name: Мука пшеничная высшего сорта
+          category: PROCESSED
+          imageUrl: null
+        status: OnSale
+        holder:
+          id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+          name: ООО «Кубань-Маркет»
+          type: RETAILER
+          logoUrl: null
+        depth: 1
+        accessible: false
+    edges:
+      - parent: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+        child: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+        massUsedKg: '10000.000'
+StatusHistoryItem:
+  type: object
+  required: [from, to, changedAt, reason, changedBy]
+  additionalProperties: false
+  properties:
+    from:
+      description: Предыдущий статус; null — первая запись (регистрация партии).
+      oneOf:
+        - $ref: './common.yaml#/BatchStatus'
+        - type: 'null'
+    to:
+      $ref: './common.yaml#/BatchStatus'
+    changedAt:
+      $ref: './common.yaml#/DateTime'
+    reason:
+      $ref: '#/BatchStatusReason'
+    changedBy:
+      type: [object, 'null']
+      description: Автор перехода; null — переход выполнен сервером автоматически (риск-модель, анализ, отзыв).
+      required: [fullName, avatarUrl]
+      additionalProperties: false
+      properties:
+        fullName:
+          type: string
+        avatarUrl:
+          $ref: './common.yaml#/NullableSignedFileUrl'
+  example:
+    from: Approved
+    to: InTransit
+    changedAt: '2026-08-01T08:15:00Z'
+    reason: WAYBILL_SENT
+    changedBy:
+      fullName: Петров Иван Сергеевич
+      avatarUrl: null
+PathStep:
+  type: object
+  description: >-
+    Этап владения партией (R45). Первый этап — организация-создатель с `from` = `harvestedAt` (RAW) или `producedAt` (DERIVED);
+    каждая принятая (ACCEPTED) накладная с партией закрывает предыдущий этап (`to` = `acceptedAt`) и открывает
+    этап получателя (`from` = `acceptedAt`, `waybillNumber` = номер накладной). Отправка (InTransit) и отказ
+    этапов не создают. У текущего держателя `to` = null.
+  required: [org, from, to, waybillNumber]
+  additionalProperties: false
+  properties:
+    org:
+      $ref: './common.yaml#/OrganizationRef'
+    from:
+      $ref: './common.yaml#/DateTime'
+    to:
+      $ref: './common.yaml#/NullableDateTime'
+    waybillNumber:
+      type: [string, 'null']
+      pattern: '^WB-\d{4}-\d{6,}$'
+      description: Номер накладной, по которой организация получила партию; null — для организации-создателя.
+  example:
+    org:
+      id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+      name: ООО «Кубанский мукомол»
+      type: PROCESSOR
+      logoUrl: null
+    from: '2026-08-02T09:30:00Z'
+    to: null
+    waybillNumber: WB-2026-000017
+QrRequest:
+  type: object
+  description: Тело не требуется; допускается пустой объект.
+  additionalProperties: false
+  properties: {}
+  example: {}
+QrLinks:
+  type: object
+  required: [publicUrl, pngUrl, pdfUrl]
+  additionalProperties: false
+  properties:
+    publicUrl:
+      type: string
+      format: uri
+      pattern: '^https?://[^/?#]+(/[^?#]*)?/p/AT-\d{4}-\d{6,}$'
+      description: >-
+        Абсолютный URL публичной страницы `{PUBLIC_BASE_URL}/p/{publicCode}` — именно он закодирован в QR.
+        `PUBLIC_BASE_URL` может содержать путь (например, `https://agrotrace.example/app`) и указывается без
+        завершающего `/` (R50).
+    pngUrl:
+      description: Подписанный URL PNG с QR-кодом (R28, действует 3600 с).
+      $ref: './common.yaml#/SignedFileUrl'
+    pdfUrl:
+      description: Подписанный URL PDF-этикетки для печати (R28, действует 3600 с).
+      $ref: './common.yaml#/SignedFileUrl'
+  example:
+    publicUrl: http://react-express.localhost/p/AT-2026-000123
+    pngUrl: /api/v1/files/6a8c0e2a-4c6e-4a8c-9e0a-2c4e6a8c0e2a?exp=1790247600&sig=1d3f5b7d9f1b3d5f7b9d1f3b5d7f9b1d3f5b7d9f1b3d5f7b9d1f3b5d7f9b1d3f
+    pdfUrl: /api/v1/files/7b9d1f3b-5d7f-4b9d-8f1b-3d5f7b9d1f3b?exp=1790247600&sig=2e4a6c8e0a2c4e6a8c0e2a4c6e8a0c2e4a6c8e0a2c4e6a8c0e2a4c6e8a0c2e4a
+# ── Сопроводительные документы партии (R81): ВСД из ФГИС «Меркурий», протоколы анализов, QR ──
+VsdStatus:
+  type: string
+  description: >-
+    Статус ветеринарного сопроводительного документа в ФГИС «Меркурий» (`batch_documents.vsd_status`): CONFIRMED —
+    оформлен, WITHDRAWN — аннулирован, UTILIZED — погашен. Импортируется только CONFIRMED.
+  enum: [CONFIRMED, WITHDRAWN, UTILIZED]
+  example: CONFIRMED
+VsdImportStatus:
+  type: string
+  description: >-
+    Состояние импорта ВСД (`batch_documents.import_status`, R81): PENDING — ожидает обработки воркером `vsd.import`;
+    IMPORTED — документ найден и сохранён; NOT_FOUND — подходящего оформленного документа нет (или у продукта нет
+    кода Меркурия); FAILED — Меркурий недоступен после всех повторов. Переходы —
+    `contracts/rules/entity-state-machines.json` (`vsdImport`); повторный импорт — `retryBatchVsdImport`.
+  enum: [PENDING, IMPORTED, NOT_FOUND, FAILED]
+  example: IMPORTED
+VsdDocument:
+  type: object
+  description: >-
+    Импортированный ВСД (колонки `external_uuid`, `number`, `issue_date`, `vsd_status` и поля документа Меркурия из
+    `payload`).
+  required: [externalUuid, number, issueDate, status, productName, volume, consignor, consignee]
+  additionalProperties: false
+  properties:
+    externalUuid:
+      $ref: './common.yaml#/Uuid'
+    number:
+      type: string
+    issueDate:
+      $ref: './common.yaml#/Date'
+    status:
+      $ref: '#/VsdStatus'
+    productName:
+      type: string
+    volume:
+      type: object
+      required: [value, unit]
+      additionalProperties: false
+      properties:
+        value:
+          type: number
+          minimum: 0
+        unit:
+          type: string
+    consignor:
+      $ref: '#/VsdParty'
+    consignee:
+      $ref: '#/VsdParty'
+  example:
+    externalUuid: 8b6f2c1e-4d3a-4f5b-9c7e-1a2b3c4d5e6f
+    number: VSD-2026-000012
+    issueDate: '2026-07-19'
+    status: CONFIRMED
+    productName: Молоко сырое коровье
+    volume: { value: 5230, unit: л }
+    consignor: { inn: '7806540043', name: ООО «Молочная ферма Луговая» }
+    consignee: { inn: '7705120028', name: ООО «Молкомбинат Ставропольский» }
+VsdParty:
+  type: object
+  description: Отправитель или получатель по ВСД (как в Меркурии).
+  required: [inn, name]
+  additionalProperties: false
+  properties:
+    inn:
+      type: string
+      pattern: '^\d{10}(\d{2})?$'
+    name:
+      type: string
+BatchVsd:
+  type: object
+  description: >-
+    ВСД партии (строка `batch_documents` вида VSD). Создаётся в состоянии PENDING транзакцией `createBatch` для сырьевой
+    партии продукта категории DAIRY или MEAT; у других партий ВСД нет (`BatchDocuments.vsd` = null). Состояние импорта
+    на статус партии не влияет — партия никогда не блокируется из-за ВСД.
+  required: [id, importStatus, document, attempts, requestedAt, updatedAt]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    importStatus:
+      $ref: '#/VsdImportStatus'
+    document:
+      description: Импортированный документ; не null только при `importStatus` = IMPORTED.
+      oneOf:
+        - $ref: '#/VsdDocument'
+        - type: 'null'
+    attempts:
+      type: integer
+      minimum: 0
+      description: Число обращений к Меркурию в текущем цикле импорта (сбрасывается повторным импортом).
+    requestedAt:
+      $ref: './common.yaml#/DateTime'
+    updatedAt:
+      $ref: './common.yaml#/DateTime'
+  example:
+    id: 4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e
+    importStatus: IMPORTED
+    document:
+      externalUuid: 8b6f2c1e-4d3a-4f5b-9c7e-1a2b3c4d5e6f
+      number: VSD-2026-000012
+      issueDate: '2026-07-19'
+      status: CONFIRMED
+      productName: Молоко сырое коровье
+      volume: { value: 5230, unit: л }
+      consignor: { inn: '7806540043', name: ООО «Молочная ферма Луговая» }
+      consignee: { inn: '7705120028', name: ООО «Молкомбинат Ставропольский» }
+    attempts: 1
+    requestedAt: '2026-07-19T07:30:00Z'
+    updatedAt: '2026-07-19T07:30:04Z'
+LabProtocolDocument:
+  type: object
+  description: Протокол испытаний анализа партии (неудалённый анализ с загруженным протоколом).
+  required: [labTestId, lab, reason, conclusion, completedAt, file]
+  additionalProperties: false
+  properties:
+    labTestId:
+      $ref: './common.yaml#/Uuid'
+    lab:
+      $ref: './common.yaml#/OrganizationRef'
+    reason:
+      $ref: './lab.yaml#/LabTestReason'
+    conclusion:
+      oneOf:
+        - $ref: './lab.yaml#/LabConclusion'
+        - type: 'null'
+    completedAt:
+      $ref: './common.yaml#/NullableDateTime'
+    file:
+      description: PDF-протокол (`url` подписан, R28, 3600 с).
+      $ref: './common.yaml#/FileRef'
+BatchDocuments:
+  type: object
+  description: >-
+    Документы партии (R81): ВСД из Меркурия, протоколы анализов (по `createdAt` анализа, затем `id`) и QR-файлы (null —
+    QR не генерировался). Видимость — как у партии (`getBatch`); `labProtocols` — только видимые пользователю
+    анализы, `qr` — только если пользователь может скачать QR, иначе null (R91, описание `getBatchDocuments`).
+  required: [batchId, vsd, labProtocols, qr]
+  additionalProperties: false
+  properties:
+    batchId:
+      $ref: './common.yaml#/Uuid'
+    vsd:
+      oneOf:
+        - $ref: '#/BatchVsd'
+        - type: 'null'
+    labProtocols:
+      type: array
+      items:
+        $ref: '#/LabProtocolDocument'
+    qr:
+      oneOf:
+        - $ref: '#/QrLinks'
+        - type: 'null'
+  example:
+    batchId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+    vsd:
+      id: 4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e
+      importStatus: NOT_FOUND
+      document: null
+      attempts: 1
+      requestedAt: '2026-07-19T07:30:00Z'
+      updatedAt: '2026-07-19T07:30:03Z'
+    labProtocols:
+      - labTestId: 8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e
+        lab:
+          id: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+          name: АНО «Ветеринарный испытательный центр Клязьма»
+          type: LAB
+          logoUrl: null
+        reason: RISK
+        conclusion: PASS
+        completedAt: '2026-07-20T09:00:00Z'
+        file:
+          id: 3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f
+          url: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+          mime: application/pdf
+          sizeBytes: 48211
+          originalName: protocol-AT-2026-000123.pdf
+    qr: null

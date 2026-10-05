@@ -1,0 +1,102 @@
+# Модуль Events (SSE).
+/events/stream:
+  get:
+    operationId: streamEvents
+    summary: Поток событий SSE
+    description: |
+      Поток Server-Sent Events (`text/event-stream`) с уведомлениями текущего пользователя (п. 8.4, FR-NOTIF-01).
+      EventSource не передаёт заголовки, поэтому access-токен передаётся параметром `access_token`
+      (заголовок `Authorization` не используется). Недействительный токен при подключении — 401
+      `application/problem+json` до начала потока. Уведомление, созданное любой реализацией, доставляется
+      клиенту, подключённому к любой другой (PostgreSQL LISTEN `notifications`): полезная нагрузка с `id` —
+      новое уведомление (событие `notification`, затем `unread`); без `id`, с `"unread": true` — изменился только
+      счётчик (`markNotificationsRead`), отправляется одно событие `unread`.
+
+      Сразу после подключения сервер отправляет пропущенные уведомления (если передан `Last-Event-ID`)
+      и событие `unread`. Поле `id:` есть только у событий `notification` и равно `seq` уведомления.
+
+      События (поле `data:` — одна строка JSON):
+
+      `notification` — новое уведомление, `data` — объект `Notification`:
+      ```
+      id: 1042
+      event: notification
+      data: {"id":"b7c8d9e0-f1a2-4b3c-8d4e-5f6a7b8c9d0e","seq":1042,"type":"RECALL_TASK","payload":{"recallId":"4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d","taskId":"5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e","batchId":"6c7d8e9f-0a1b-4c2d-9e3f-4a5b6c7d8e9f","publicCode":"AT-2026-000123","dueAt":"2026-09-25T15:00:00Z","event":"CREATED"},"isRead":false,"createdAt":"2026-09-24T09:00:12Z"}
+      ```
+
+      `unread` — счётчик непрочитанных (при подключении и после каждого изменения), `data` — `UnreadCount`:
+      ```
+      event: unread
+      data: {"count":3}
+      ```
+
+      `ping` — каждые 25 секунд для поддержания соединения:
+      ```
+      event: ping
+      data: {"ts":"2026-09-24T09:00:37Z"}
+      ```
+
+      `reauth` — срок access-токена истёк; сервер отправляет событие и закрывает поток. Клиент ОБЯЗАН закрыть
+      EventSource (иначе браузер переподключится со старым токеном), обновить токен (`POST /auth/refresh`) и открыть
+      новый поток с новым `access_token` и `lastEventId` = `id` последнего полученного события `notification`:
+      ```
+      event: reauth
+      data: {"reason":"TOKEN_EXPIRED"}
+      ```
+    tags: [Events]
+    security:
+      - accessTokenQuery: []
+    x-roles: [ANY]
+    parameters:
+      - name: access_token
+        in: query
+        required: true
+        description: Access-токен JWT (срок ≤ 15 минут).
+        schema:
+          type: string
+      - name: Last-Event-ID
+        in: header
+        description: >-
+          `seq` последнего полученного уведомления; при переподключении сервер досылает пропущенные
+          уведомления из таблицы `notifications`.
+        schema:
+          type: string
+          pattern: '^\d+$'
+        example: '1041'
+      - name: lastEventId
+        in: query
+        description: >-
+          То же, что `Last-Event-ID`, для явного переподключения клиентом (EventSource не позволяет задать
+          заголовок). Если переданы оба, используется заголовок `Last-Event-ID`.
+        schema:
+          type: string
+          pattern: '^\d+$'
+        example: '1041'
+    responses:
+      '200':
+        description: Поток событий `notification`, `unread`, `ping`, `reauth`.
+        headers:
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControl'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          text/event-stream:
+            schema:
+              type: string
+              description: Поток событий SSE (формат описан в описании операции).
+            example: |+
+              event: unread
+              data: {"count":3}
+
+              event: ping
+              data: {"ts":"2026-09-24T09:00:37Z"}
+
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

@@ -1,0 +1,35 @@
+{
+  "name": "@agrotrace/seed",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Demo world of AgroTrace: dictionaries, organizations, users, fields, batch graph, waybills, lab tests, recalls, complaints and notifications, replayed by the in-browser mock backend.",
+  "scripts": {
+    "docs": "tsx src/docs.ts",
+    "gen:images": "tsx src/gen-images.ts",
+    "test": "vitest run --config vitest.unit.config.ts",
+    "fetch:photos": "node scripts/fetch-photos.mjs",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@agrotrace/domain": "workspace:*",
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "@fontsource/onest": "5.3.1",
+    "@noble/hashes": "^1.5.0",
+    "argon2": "^0.41.1",
+    "pdfkit": "^0.15.1",
+    "pg": "^8.13.1",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pdfkit": "^0.13.5",
+    "@types/pg": "^8.11.10",
+    "@types/qrcode": "^1.5.5",
+    "tsx": "^4.19.2",
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

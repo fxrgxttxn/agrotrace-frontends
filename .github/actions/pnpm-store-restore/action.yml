@@ -1,0 +1,17 @@
+name: Restore pnpm store cache
+description: pnpm store cache of the tools container
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/pnpm-store.tar
+        key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+    - shell: bash
+      run: |
+        set -euo pipefail
+        docker volume create agrotrace_pnpm-store >/dev/null
+        if [ -f "${{ runner.temp }}/pnpm-store.tar" ]; then
+          docker run --rm -v agrotrace_pnpm-store:/data -v "${{ runner.temp }}":/backup alpine \
+            sh -c "cd /data && tar xf /backup/pnpm-store.tar"
+        fi

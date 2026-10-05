@@ -1,0 +1,193 @@
+# Публичная часть (без авторизации). Персональные данные сотрудников не отдаются (п. 4.2, 8.8).
+SafetyStatus:
+  type: string
+  description: >-
+    Статус безопасности по статусу партии: Recalled, WrittenOff → RECALLED; Blocked → BLOCKED;
+    Created, OnTest → UNKNOWN; остальные (Approved, InTransit, Accepted, Processed, OnSale, Sold) → SAFE.
+  enum: [SAFE, RECALLED, BLOCKED, UNKNOWN]
+  example: SAFE
+PublicBatch:
+  type: object
+  description: >-
+    Публичное подмножество данных партии (FR-PUB-01). Содержит только названия организаций, регион, даты,
+    итог анализов и статус; ФИО, email и телефоны сотрудников не отдаются. Кэшируется на 5 минут.
+  required: [publicCode, product, origin, harvestedAt, producedAt, status, safety, path, labSummary]
+  additionalProperties: false
+  properties:
+    publicCode:
+      type: string
+      pattern: '^AT-\d{4}-\d{6,}$'
+    product:
+      type: object
+      required: [name, category, imageUrl]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        category:
+          $ref: './common.yaml#/ProductCategory'
+        imageUrl:
+          $ref: './common.yaml#/NullablePublicFileUrl'
+    origin:
+      type: object
+      description: Хозяйство-производитель исходного сырья (для производной партии — организация-производитель).
+      required: [farmName, logoUrl, region]
+      additionalProperties: false
+      properties:
+        farmName:
+          type: string
+        logoUrl:
+          $ref: './common.yaml#/NullablePublicFileUrl'
+        region:
+          $ref: './common.yaml#/Region'
+    harvestedAt:
+      description: Дата уборки (сырьевая партия), иначе null.
+      $ref: './common.yaml#/NullableDateTime'
+    producedAt:
+      description: Дата производства (производная партия), иначе null.
+      $ref: './common.yaml#/NullableDateTime'
+    status:
+      $ref: './common.yaml#/BatchStatus'
+    safety:
+      $ref: '#/SafetyStatus'
+    path:
+      type: array
+      description: >-
+        Этапы пути по держателям в хронологическом порядке — по тому же правилу, что `PathStep` в
+        `GET /batches/{id}/path` (R45): первый этап — организация-создатель с `from` = `harvestedAt` (RAW) или
+        `producedAt` (DERIVED); каждая принятая накладная закрывает этап и открывает этап получателя с `from` =
+        моменту приёмки; у текущего держателя `to` = null.
+      items:
+        type: object
+        required: [orgName, orgType, logoUrl, from, to]
+        additionalProperties: false
+        properties:
+          orgName:
+            type: string
+          orgType:
+            $ref: './common.yaml#/OrganizationType'
+          logoUrl:
+            $ref: './common.yaml#/NullablePublicFileUrl'
+          from:
+            $ref: './common.yaml#/DateTime'
+          to:
+            description: Конец владения; null — текущий держатель.
+            $ref: './common.yaml#/NullableDateTime'
+    labSummary:
+      type: object
+      description: Итог завершённых анализов партии.
+      required: [total, passed, lastConclusion, lastDate]
+      additionalProperties: false
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        passed:
+          type: integer
+          minimum: 0
+        lastConclusion:
+          type: [string, 'null']
+          enum: [PASS, FAIL, null]
+        lastDate:
+          description: Дата последнего завершённого анализа.
+          $ref: './common.yaml#/NullableDateTime'
+  example:
+    publicCode: AT-2026-000123
+    product:
+      name: Пшеница озимая
+      category: GRAIN
+      imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+    origin:
+      farmName: КФХ Петров
+      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+      region:
+        code: '23'
+        name: Краснодарский край
+    harvestedAt: '2026-07-18T06:00:00Z'
+    producedAt: null
+    status: OnSale
+    safety: SAFE
+    path:
+      - orgName: КФХ Петров
+        orgType: FARM
+        logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+        from: '2026-07-18T06:00:00Z'
+        to: '2026-08-02T09:30:00Z'
+      - orgName: ООО «Кубанский мукомол»
+        orgType: PROCESSOR
+        logoUrl: null
+        from: '2026-08-02T09:30:00Z'
+        to: '2026-08-20T12:00:00Z'
+      - orgName: ООО «Кубань-Маркет»
+        orgType: RETAILER
+        logoUrl: null
+        from: '2026-08-20T12:00:00Z'
+        to: null
+    labSummary:
+      total: 2
+      passed: 2
+      lastConclusion: PASS
+      lastDate: '2026-07-25T14:10:00Z'
+PublicComplaintRequest:
+  type: object
+  required: [text, altcha]
+  additionalProperties: false
+  properties:
+    text:
+      type: string
+      minLength: 10
+      maxLength: 2000
+      pattern: '\S'
+    contact:
+      type: string
+      minLength: 1
+      maxLength: 255
+      pattern: '\S'
+      description: Необязательный контакт покупателя (email или телефон); виден только инспектору.
+    altcha:
+      type: string
+      minLength: 1
+      maxLength: 4096
+      description: Решение задачи ALTCHA (base64-JSON `payload` виджета).
+  example:
+    text: После употребления муки из этой партии у членов семьи появилась горечь во рту и тошнота.
+    contact: '+79161234567'
+    altcha: eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiNGI1ZSIsIm51bWJlciI6MTIzNDUsInNhbHQiOiJhYmMiLCJzaWduYXR1cmUiOiJkZWYifQ==
+PublicComplaintCreated:
+  type: object
+  required: [id, createdAt]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: './common.yaml#/Uuid'
+    createdAt:
+      $ref: './common.yaml#/DateTime'
+  example:
+    id: e1f2a3b4-c5d6-4e7f-8a9b-0c1d2e3f4a5b
+    createdAt: '2026-09-24T10:12:45Z'
+AltchaChallenge:
+  type: object
+  description: Задача ALTCHA (формат библиотек altcha-lib / altcha / altcha-org/altcha), действует 10 минут.
+  required: [algorithm, challenge, salt, signature, maxnumber]
+  additionalProperties: false
+  properties:
+    algorithm:
+      type: string
+      enum: [SHA-256]
+    challenge:
+      type: string
+      pattern: '^[0-9a-f]{64}$'
+    salt:
+      type: string
+    signature:
+      type: string
+      pattern: '^[0-9a-f]{64}$'
+    maxnumber:
+      type: integer
+      minimum: 1
+  example:
+    algorithm: SHA-256
+    challenge: 7d2f1c9b4e8a3f6d0c5b9e2a7f4d1c8b3e6a9f2d5c8b1e4a7d0c3f6b9e2a5d8c
+    salt: 3f9a1c7e5b2d8f4a?expires=1790244000
+    signature: a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90
+    maxnumber: 100000

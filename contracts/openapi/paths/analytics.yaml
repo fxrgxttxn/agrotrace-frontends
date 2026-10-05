@@ -1,0 +1,92 @@
+# Модуль Analytics: дашборды (FR-ANL-01…03).
+/analytics/dashboard:
+  get:
+    operationId: getDashboard
+    summary: Дашборд
+    description: |
+      Показатели выбранной области (п. 4.3 «Аналитика»). Допустимые `scope` по ролям пользователя (при нескольких
+      ролях — объединение): `inspector` — INSPECTOR, ADMIN; `org` — FARMER, PROCESSOR, RETAILER (организация
+      пользователя); `lab` — LAB (лаборатория пользователя). Недопустимая область — 400
+      `errors.scope: [validation.scope.notAllowed]` (R51).
+
+      Окно `from`/`to` (даты UTC, включительно) — по умолчанию последние 30 дней (`to` = сегодня UTC, `from` = `to` − 29
+      дней; если задан только один конец — второй вычисляется так же от него); `from` > `to` — 400 `validation.range`;
+      окно длиннее 366 дней — 400 `errors.from: [validation.range.tooLong]`. Какие показатели зависят от окна —
+      в описаниях схем `InspectorDashboard`, `OrgDashboard`, `LabDashboard`. Все числа считаются в БД одним снимком
+      (одна транзакция READ ONLY REPEATABLE READ), доли — `ratioPercent2`, часы — `Hours`.
+    tags: [Analytics]
+    x-roles: [ANY]
+    parameters:
+      - name: scope
+        in: query
+        required: true
+        description: Область дашборда.
+        schema:
+          $ref: '../schemas/analytics.yaml#/DashboardScope'
+      - $ref: '../components/parameters.yaml#/DateFrom'
+      - $ref: '../components/parameters.yaml#/DateTo'
+    responses:
+      '200':
+        description: Дашборд; форма ответа определяется `scope`.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/analytics.yaml#/Dashboard'
+            examples:
+              inspector:
+                summary: Дашборд инспектора
+                value:
+                  scope: inspector
+                  period:
+                    from: '2026-08-26'
+                    to: '2026-09-24'
+                  batchesTotal: 40
+                  rejectedShare:
+                    byProduct:
+                      - key: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+                        name: Пшеница озимая
+                        tested: 8
+                        failed: 1
+                        share: '12.50'
+                    byFarm:
+                      - key: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                        name: КФХ Петров
+                        tested: 8
+                        failed: 1
+                        share: '12.50'
+                  activeRecalls: 1
+                  avgRecallHours: '18.25'
+                  violationsByRegion:
+                    - code: '23'
+                      name: Краснодарский край
+                      count: 1
+              lab:
+                summary: Дашборд лаборатории
+                value:
+                  scope: lab
+                  period:
+                    from: '2026-08-26'
+                    to: '2026-09-24'
+                  organization:
+                    id: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+                    name: ИЛ «Кубаньтест»
+                    type: LAB
+                    logoUrl: null
+                  queue: 4
+                  overdue: 1
+                  completed: 12
+                  failed: 1
+                  avgHours: '52.40'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

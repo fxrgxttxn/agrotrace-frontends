@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["rule", "fn", "cases"],
+  "additionalProperties": false,
+  "properties": {
+    "rule": { "type": "string" },
+    "fn": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]+$" },
+    "description": { "type": "string" },
+    "cases": {
+      "type": "array",
+      "minItems": 10,
+      "items": {
+        "type": "object",
+        "required": ["name", "input", "expected"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "input": { "type": "object" },
+          "expected": { "type": "object" }
+        }
+      }
+    }
+  }
+}

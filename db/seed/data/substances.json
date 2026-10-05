@@ -1,0 +1,37 @@
+[
+  { "key": "roundup", "name": "Раундап, ВР (глифосат)", "type": "PESTICIDE", "waitingPeriodDays": 14 },
+  { "key": "decis", "name": "Децис Профи, ВДГ (дельтаметрин)", "type": "PESTICIDE", "waitingPeriodDays": 30 },
+  {
+    "key": "karate",
+    "name": "Каратэ Зеон, МКС (лямбда-цигалотрин)",
+    "type": "PESTICIDE",
+    "waitingPeriodDays": 20
+  },
+  { "key": "fastak", "name": "Фастак, КЭ (альфа-циперметрин)", "type": "PESTICIDE", "waitingPeriodDays": 20 },
+  { "key": "aktara", "name": "Актара, ВДГ (тиаметоксам)", "type": "PESTICIDE", "waitingPeriodDays": 20 },
+  {
+    "key": "ridomil",
+    "name": "Ридомил Голд МЦ, ВДГ (манкоцеб + мефеноксам)",
+    "type": "PESTICIDE",
+    "waitingPeriodDays": 20
+  },
+  {
+    "key": "falcon",
+    "name": "Фалькон, КЭ (спироксамин + тебуконазол + триадименол)",
+    "type": "PESTICIDE",
+    "waitingPeriodDays": 30
+  },
+  { "key": "tilt", "name": "Тилт, КЭ (пропиконазол)", "type": "PESTICIDE", "waitingPeriodDays": 30 },
+  { "key": "horus", "name": "Хорус, ВДГ (ципродинил)", "type": "PESTICIDE", "waitingPeriodDays": 28 },
+  { "key": "skor", "name": "Скор, КЭ (дифеноконазол)", "type": "PESTICIDE", "waitingPeriodDays": 20 },
+  { "key": "lontrel", "name": "Лонтрел-300, ВР (клопиралид)", "type": "PESTICIDE", "waitingPeriodDays": 30 },
+  { "key": "banvel", "name": "Банвел, ВР (дикамба)", "type": "PESTICIDE", "waitingPeriodDays": 45 },
+  { "key": "zenkor", "name": "Зенкор Ультра, КС (метрибузин)", "type": "PESTICIDE", "waitingPeriodDays": 60 },
+  { "key": "titus", "name": "Титус, СТС (римсульфурон)", "type": "PESTICIDE", "waitingPeriodDays": 60 },
+  { "key": "saltpeter", "name": "Аммиачная селитра", "type": "FERTILIZER", "waitingPeriodDays": 0 },
+  { "key": "urea", "name": "Карбамид (мочевина)", "type": "FERTILIZER", "waitingPeriodDays": 0 },
+  { "key": "npk", "name": "Нитроаммофоска 16:16:16", "type": "FERTILIZER", "waitingPeriodDays": 0 },
+  { "key": "superphosphate", "name": "Суперфосфат двойной", "type": "FERTILIZER", "waitingPeriodDays": 0 },
+  { "key": "potash", "name": "Калий хлористый", "type": "FERTILIZER", "waitingPeriodDays": 0 },
+  { "key": "ammsulf", "name": "Сульфат аммония", "type": "FERTILIZER", "waitingPeriodDays": 0 }
+]

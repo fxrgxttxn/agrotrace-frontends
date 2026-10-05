@@ -1,0 +1,27 @@
+{
+  "name": "@agrotrace/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Framework-agnostic, browser-first typed fetch client for the AgroTrace API, shared by the React, Angular and Svelte frontends.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./public": "./src/public.ts"
+  },
+  "scripts": {
+    "gen": "pnpm --filter @agrotrace/contracts run bundle && openapi-typescript ../../contracts/dist/openapi.json -o src/schema.d.ts && node scripts/gen-aliases.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.13.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "openapi-typescript": "^7.4.3",
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

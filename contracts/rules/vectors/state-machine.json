@@ -1,0 +1,1216 @@
+{
+  "rule": "state-machine",
+  "fn": "canTransition",
+  "cases": [
+    {
+      "name": "Created -> Created is not allowed",
+      "input": {
+        "from": "Created",
+        "to": "Created"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Created -> OnTest is allowed",
+      "input": {
+        "from": "Created",
+        "to": "OnTest"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "Created -> Approved is allowed",
+      "input": {
+        "from": "Created",
+        "to": "Approved"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "Created -> InTransit is not allowed",
+      "input": {
+        "from": "Created",
+        "to": "InTransit"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Created -> Accepted is not allowed",
+      "input": {
+        "from": "Created",
+        "to": "Accepted"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Created -> Processed is not allowed",
+      "input": {
+        "from": "Created",
+        "to": "Processed"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Created -> OnSale is not allowed",
+      "input": {
+        "from": "Created",
+        "to": "OnSale"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Created -> Sold is not allowed",
+      "input": {
+        "from": "Created",
+        "to": "Sold"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Created -> Blocked is not allowed",
+      "input": {
+        "from": "Created",
+        "to": "Blocked"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Created -> Recalled is allowed",
+      "input": {
+        "from": "Created",
+        "to": "Recalled"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "Created -> WrittenOff is not allowed",
+      "input": {
+        "from": "Created",
+        "to": "WrittenOff"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnTest -> Created is not allowed",
+      "input": {
+        "from": "OnTest",
+        "to": "Created"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnTest -> OnTest is not allowed",
+      "input": {
+        "from": "OnTest",
+        "to": "OnTest"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnTest -> Approved is allowed",
+      "input": {
+        "from": "OnTest",
+        "to": "Approved"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "OnTest -> InTransit is not allowed",
+      "input": {
+        "from": "OnTest",
+        "to": "InTransit"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnTest -> Accepted is not allowed",
+      "input": {
+        "from": "OnTest",
+        "to": "Accepted"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnTest -> Processed is not allowed",
+      "input": {
+        "from": "OnTest",
+        "to": "Processed"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnTest -> OnSale is not allowed",
+      "input": {
+        "from": "OnTest",
+        "to": "OnSale"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnTest -> Sold is not allowed",
+      "input": {
+        "from": "OnTest",
+        "to": "Sold"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnTest -> Blocked is allowed",
+      "input": {
+        "from": "OnTest",
+        "to": "Blocked"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "OnTest -> Recalled is allowed",
+      "input": {
+        "from": "OnTest",
+        "to": "Recalled"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "OnTest -> WrittenOff is not allowed",
+      "input": {
+        "from": "OnTest",
+        "to": "WrittenOff"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Approved -> Created is not allowed",
+      "input": {
+        "from": "Approved",
+        "to": "Created"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Approved -> OnTest is not allowed",
+      "input": {
+        "from": "Approved",
+        "to": "OnTest"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Approved -> Approved is not allowed",
+      "input": {
+        "from": "Approved",
+        "to": "Approved"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Approved -> InTransit is allowed",
+      "input": {
+        "from": "Approved",
+        "to": "InTransit"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "Approved -> Accepted is not allowed",
+      "input": {
+        "from": "Approved",
+        "to": "Accepted"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Approved -> Processed is allowed",
+      "input": {
+        "from": "Approved",
+        "to": "Processed"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "Approved -> OnSale is not allowed",
+      "input": {
+        "from": "Approved",
+        "to": "OnSale"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Approved -> Sold is not allowed",
+      "input": {
+        "from": "Approved",
+        "to": "Sold"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Approved -> Blocked is not allowed",
+      "input": {
+        "from": "Approved",
+        "to": "Blocked"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Approved -> Recalled is allowed",
+      "input": {
+        "from": "Approved",
+        "to": "Recalled"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "Approved -> WrittenOff is not allowed",
+      "input": {
+        "from": "Approved",
+        "to": "WrittenOff"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "InTransit -> Created is not allowed",
+      "input": {
+        "from": "InTransit",
+        "to": "Created"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "InTransit -> OnTest is not allowed",
+      "input": {
+        "from": "InTransit",
+        "to": "OnTest"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "InTransit -> Approved is allowed",
+      "input": {
+        "from": "InTransit",
+        "to": "Approved"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "InTransit -> InTransit is not allowed",
+      "input": {
+        "from": "InTransit",
+        "to": "InTransit"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "InTransit -> Accepted is allowed",
+      "input": {
+        "from": "InTransit",
+        "to": "Accepted"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "InTransit -> Processed is not allowed",
+      "input": {
+        "from": "InTransit",
+        "to": "Processed"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "InTransit -> OnSale is not allowed",
+      "input": {
+        "from": "InTransit",
+        "to": "OnSale"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "InTransit -> Sold is not allowed",
+      "input": {
+        "from": "InTransit",
+        "to": "Sold"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "InTransit -> Blocked is not allowed",
+      "input": {
+        "from": "InTransit",
+        "to": "Blocked"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "InTransit -> Recalled is allowed",
+      "input": {
+        "from": "InTransit",
+        "to": "Recalled"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "InTransit -> WrittenOff is not allowed",
+      "input": {
+        "from": "InTransit",
+        "to": "WrittenOff"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Accepted -> Created is not allowed",
+      "input": {
+        "from": "Accepted",
+        "to": "Created"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Accepted -> OnTest is not allowed",
+      "input": {
+        "from": "Accepted",
+        "to": "OnTest"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Accepted -> Approved is not allowed",
+      "input": {
+        "from": "Accepted",
+        "to": "Approved"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Accepted -> InTransit is allowed",
+      "input": {
+        "from": "Accepted",
+        "to": "InTransit"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "Accepted -> Accepted is not allowed",
+      "input": {
+        "from": "Accepted",
+        "to": "Accepted"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Accepted -> Processed is allowed",
+      "input": {
+        "from": "Accepted",
+        "to": "Processed"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "Accepted -> OnSale is allowed",
+      "input": {
+        "from": "Accepted",
+        "to": "OnSale"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "Accepted -> Sold is not allowed",
+      "input": {
+        "from": "Accepted",
+        "to": "Sold"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Accepted -> Blocked is not allowed",
+      "input": {
+        "from": "Accepted",
+        "to": "Blocked"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Accepted -> Recalled is allowed",
+      "input": {
+        "from": "Accepted",
+        "to": "Recalled"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "Accepted -> WrittenOff is not allowed",
+      "input": {
+        "from": "Accepted",
+        "to": "WrittenOff"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Processed -> Created is not allowed",
+      "input": {
+        "from": "Processed",
+        "to": "Created"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Processed -> OnTest is not allowed",
+      "input": {
+        "from": "Processed",
+        "to": "OnTest"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Processed -> Approved is not allowed",
+      "input": {
+        "from": "Processed",
+        "to": "Approved"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Processed -> InTransit is not allowed",
+      "input": {
+        "from": "Processed",
+        "to": "InTransit"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Processed -> Accepted is not allowed",
+      "input": {
+        "from": "Processed",
+        "to": "Accepted"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Processed -> Processed is not allowed",
+      "input": {
+        "from": "Processed",
+        "to": "Processed"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Processed -> OnSale is not allowed",
+      "input": {
+        "from": "Processed",
+        "to": "OnSale"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Processed -> Sold is not allowed",
+      "input": {
+        "from": "Processed",
+        "to": "Sold"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Processed -> Blocked is not allowed",
+      "input": {
+        "from": "Processed",
+        "to": "Blocked"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Processed -> Recalled is not allowed",
+      "input": {
+        "from": "Processed",
+        "to": "Recalled"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Processed -> WrittenOff is not allowed",
+      "input": {
+        "from": "Processed",
+        "to": "WrittenOff"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnSale -> Created is not allowed",
+      "input": {
+        "from": "OnSale",
+        "to": "Created"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnSale -> OnTest is not allowed",
+      "input": {
+        "from": "OnSale",
+        "to": "OnTest"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnSale -> Approved is not allowed",
+      "input": {
+        "from": "OnSale",
+        "to": "Approved"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnSale -> InTransit is not allowed",
+      "input": {
+        "from": "OnSale",
+        "to": "InTransit"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnSale -> Accepted is not allowed",
+      "input": {
+        "from": "OnSale",
+        "to": "Accepted"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnSale -> Processed is not allowed",
+      "input": {
+        "from": "OnSale",
+        "to": "Processed"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnSale -> OnSale is not allowed",
+      "input": {
+        "from": "OnSale",
+        "to": "OnSale"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnSale -> Sold is allowed",
+      "input": {
+        "from": "OnSale",
+        "to": "Sold"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "OnSale -> Blocked is not allowed",
+      "input": {
+        "from": "OnSale",
+        "to": "Blocked"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "OnSale -> Recalled is allowed",
+      "input": {
+        "from": "OnSale",
+        "to": "Recalled"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "OnSale -> WrittenOff is not allowed",
+      "input": {
+        "from": "OnSale",
+        "to": "WrittenOff"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Sold -> Created is not allowed",
+      "input": {
+        "from": "Sold",
+        "to": "Created"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Sold -> OnTest is not allowed",
+      "input": {
+        "from": "Sold",
+        "to": "OnTest"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Sold -> Approved is not allowed",
+      "input": {
+        "from": "Sold",
+        "to": "Approved"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Sold -> InTransit is not allowed",
+      "input": {
+        "from": "Sold",
+        "to": "InTransit"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Sold -> Accepted is not allowed",
+      "input": {
+        "from": "Sold",
+        "to": "Accepted"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Sold -> Processed is not allowed",
+      "input": {
+        "from": "Sold",
+        "to": "Processed"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Sold -> OnSale is not allowed",
+      "input": {
+        "from": "Sold",
+        "to": "OnSale"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Sold -> Sold is not allowed",
+      "input": {
+        "from": "Sold",
+        "to": "Sold"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Sold -> Blocked is not allowed",
+      "input": {
+        "from": "Sold",
+        "to": "Blocked"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Sold -> Recalled is not allowed",
+      "input": {
+        "from": "Sold",
+        "to": "Recalled"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Sold -> WrittenOff is not allowed",
+      "input": {
+        "from": "Sold",
+        "to": "WrittenOff"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Blocked -> Created is not allowed",
+      "input": {
+        "from": "Blocked",
+        "to": "Created"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Blocked -> OnTest is not allowed",
+      "input": {
+        "from": "Blocked",
+        "to": "OnTest"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Blocked -> Approved is not allowed",
+      "input": {
+        "from": "Blocked",
+        "to": "Approved"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Blocked -> InTransit is not allowed",
+      "input": {
+        "from": "Blocked",
+        "to": "InTransit"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Blocked -> Accepted is not allowed",
+      "input": {
+        "from": "Blocked",
+        "to": "Accepted"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Blocked -> Processed is not allowed",
+      "input": {
+        "from": "Blocked",
+        "to": "Processed"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Blocked -> OnSale is not allowed",
+      "input": {
+        "from": "Blocked",
+        "to": "OnSale"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Blocked -> Sold is not allowed",
+      "input": {
+        "from": "Blocked",
+        "to": "Sold"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Blocked -> Blocked is not allowed",
+      "input": {
+        "from": "Blocked",
+        "to": "Blocked"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Blocked -> Recalled is allowed",
+      "input": {
+        "from": "Blocked",
+        "to": "Recalled"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "Blocked -> WrittenOff is not allowed",
+      "input": {
+        "from": "Blocked",
+        "to": "WrittenOff"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Recalled -> Created is not allowed",
+      "input": {
+        "from": "Recalled",
+        "to": "Created"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Recalled -> OnTest is not allowed",
+      "input": {
+        "from": "Recalled",
+        "to": "OnTest"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Recalled -> Approved is not allowed",
+      "input": {
+        "from": "Recalled",
+        "to": "Approved"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Recalled -> InTransit is not allowed",
+      "input": {
+        "from": "Recalled",
+        "to": "InTransit"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Recalled -> Accepted is not allowed",
+      "input": {
+        "from": "Recalled",
+        "to": "Accepted"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Recalled -> Processed is not allowed",
+      "input": {
+        "from": "Recalled",
+        "to": "Processed"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Recalled -> OnSale is not allowed",
+      "input": {
+        "from": "Recalled",
+        "to": "OnSale"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Recalled -> Sold is not allowed",
+      "input": {
+        "from": "Recalled",
+        "to": "Sold"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Recalled -> Blocked is not allowed",
+      "input": {
+        "from": "Recalled",
+        "to": "Blocked"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Recalled -> Recalled is not allowed",
+      "input": {
+        "from": "Recalled",
+        "to": "Recalled"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "Recalled -> WrittenOff is allowed",
+      "input": {
+        "from": "Recalled",
+        "to": "WrittenOff"
+      },
+      "expected": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "WrittenOff -> Created is not allowed",
+      "input": {
+        "from": "WrittenOff",
+        "to": "Created"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "WrittenOff -> OnTest is not allowed",
+      "input": {
+        "from": "WrittenOff",
+        "to": "OnTest"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "WrittenOff -> Approved is not allowed",
+      "input": {
+        "from": "WrittenOff",
+        "to": "Approved"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "WrittenOff -> InTransit is not allowed",
+      "input": {
+        "from": "WrittenOff",
+        "to": "InTransit"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "WrittenOff -> Accepted is not allowed",
+      "input": {
+        "from": "WrittenOff",
+        "to": "Accepted"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "WrittenOff -> Processed is not allowed",
+      "input": {
+        "from": "WrittenOff",
+        "to": "Processed"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "WrittenOff -> OnSale is not allowed",
+      "input": {
+        "from": "WrittenOff",
+        "to": "OnSale"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "WrittenOff -> Sold is not allowed",
+      "input": {
+        "from": "WrittenOff",
+        "to": "Sold"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "WrittenOff -> Blocked is not allowed",
+      "input": {
+        "from": "WrittenOff",
+        "to": "Blocked"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "WrittenOff -> Recalled is not allowed",
+      "input": {
+        "from": "WrittenOff",
+        "to": "Recalled"
+      },
+      "expected": {
+        "allowed": false
+      }
+    },
+    {
+      "name": "WrittenOff -> WrittenOff is not allowed",
+      "input": {
+        "from": "WrittenOff",
+        "to": "WrittenOff"
+      },
+      "expected": {
+        "allowed": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,360 @@
+# Общие схемы, используемые всеми модулями контракта.
+Uuid:
+  type: string
+  format: uuid
+  example: 5b1e2a4c-3f6d-4e8a-9b7c-1d2e3f4a5b6c
+DateTime:
+  type: string
+  format: date-time
+  description: Момент времени ISO 8601 в UTC с суффиксом Z.
+  example: '2026-09-24T08:30:00Z'
+NullableDateTime:
+  type: [string, 'null']
+  format: date-time
+  description: Момент времени ISO 8601 в UTC с суффиксом Z или null.
+  example: '2026-09-24T08:30:00Z'
+Date:
+  type: string
+  format: date
+  example: '2026-09-24'
+Mass:
+  type: string
+  pattern: '^\d{1,9}\.\d{3}$'
+  description: Масса в килограммах, десятичная строка ровно с тремя знаками после точки.
+  example: '12480.000'
+MassTotal:
+  type: string
+  pattern: '^\d{1,15}\.\d{3}$'
+  description: >-
+    Сумма масс в килограммах (баланс BR-04 и другие итоги по нескольким партиям) — как `Mass`, но до 15 цифр
+    целой части, чтобы сумма нескольких максимальных масс не выходила за формат (R50).
+  example: '10000.000'
+PositiveMass:
+  type: string
+  pattern: '^(?!0+\.000$)\d{1,9}\.\d{3}$'
+  description: >-
+    Масса во входных данных: как `Mass`, но строго больше нуля (`0.000` → 400 VALIDATION
+    `validation.positive`). Ровно три знака после точки; сервер не нормализует другие записи.
+  example: '12480.000'
+Percent:
+  type: string
+  pattern: '^\d{1,3}\.\d{2}$'
+  description: Процент, десятичная строка ровно с двумя знаками после точки.
+  example: '2.50'
+Decimal:
+  type: string
+  pattern: '^\d{1,8}(\.\d{1,6})?$'
+  description: Неотрицательное десятичное число строкой (значения показателей, дозы, площадь).
+  example: '0.015'
+Email:
+  type: string
+  format: email
+  maxLength: 254
+  description: >-
+    Email. Сервер приводит email к нижнему регистру перед проверкой уникальности, поиском и сохранением;
+    в ответах email всегда в нижнем регистре.
+  example: petrov@kfh-petrov.ru
+NameString:
+  type: string
+  minLength: 1
+  maxLength: 255
+  pattern: '\S'
+  description: Имя/название; не может состоять только из пробельных символов (сервер не обрезает пробелы).
+  example: Петров Иван Сергеевич
+SignedFileUrl:
+  type: string
+  pattern: '^/api/v1/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?exp=\d{10}&sig=[0-9a-f]{64}$'
+  description: >-
+    Подписанный относительный URL защищённого файла (аватарки, протоколы, QR, отчёты):
+    `/api/v1/files/{id}?exp={unix}&sig={hex}`, действует 3600 с; работает в `<img src>` и ссылках без
+    заголовка Authorization. Алгоритм подписи — в `GET /files/{id}`. Подписываются только `id` и `exp`:
+    клиент может добавить или заменить неподписанный параметр `variant=96|480` (без него — 480), так что
+    один URL обслуживает оба размера.
+  example: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+NullableSignedFileUrl:
+  type: [string, 'null']
+  pattern: '^/api/v1/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?exp=\d{10}&sig=[0-9a-f]{64}$'
+  description: '`SignedFileUrl` или null, если файла нет.'
+  example: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+PublicFileUrl:
+  type: string
+  pattern: '^/api/v1/public/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  description: >-
+    Неподписанный относительный URL публичного изображения (логотип организации, фото продукта)
+    `/api/v1/public/files/{id}`; клиент может добавить `?variant=96|480`.
+  example: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+NullablePublicFileUrl:
+  type: [string, 'null']
+  pattern: '^/api/v1/public/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  description: '`PublicFileUrl` или null, если изображения нет.'
+  example: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+Phone:
+  type: string
+  pattern: '^\+[1-9]\d{6,14}$'
+  description: Телефон в формате E.164.
+  example: '+79181234567'
+Password:
+  type: string
+  minLength: 10
+  maxLength: 128
+  description: >-
+    Пароль, не короче 10 символов Unicode (п. 8.8); сравнивается побайтно, пробелы не обрезаются и значимы.
+  example: Ozimaya-2026!
+PageNumber:
+  type: integer
+  minimum: 1
+  description: Номер страницы, начиная с 1.
+  example: 1
+PageSize:
+  type: integer
+  minimum: 1
+  maximum: 100
+  description: Размер страницы (не более 100).
+  example: 20
+TotalCount:
+  type: integer
+  minimum: 0
+  description: Общее число элементов по фильтру.
+  example: 42
+ProblemCode:
+  type: string
+  description: >-
+    Машиночитаемый код ошибки. Текст ошибки формирует frontend по `code`/`rule` и `params`
+    из общего словаря i18n.
+  enum:
+    - VALIDATION
+    - UNAUTHORIZED
+    - FORBIDDEN
+    - NOT_FOUND
+    - INVALID_TRANSITION
+    - VERSION_CONFLICT
+    - BUSINESS_RULE
+    - FILE_TOO_LARGE
+    - UNSUPPORTED_MEDIA_TYPE
+    - RATE_LIMITED
+    - ACCOUNT_LOCKED
+    - INVALID_CREDENTIALS
+    - TWO_FACTOR_REQUIRED
+    - INVALID_TWO_FACTOR_CODE
+    - TOKEN_EXPIRED
+    - IDEMPOTENCY_KEY_REUSED
+    - INVALID_IDEMPOTENCY_KEY
+    - CAPTCHA_FAILED
+    - GRAPH_CYCLE
+    - BACKEND_UNAVAILABLE
+    - EXTERNAL_UNAVAILABLE
+    - INTERNAL
+    - NO_LAB_AVAILABLE
+    - IDEMPOTENCY_KEY_IN_PROGRESS
+    - REFERENCE_IN_USE
+    - METHOD_NOT_ALLOWED
+  example: VALIDATION
+Problem:
+  type: object
+  description: >-
+    RFC 7807 Problem Details (`application/problem+json`). `type` детерминирован:
+    `/problems/` + код в нижнем регистре через дефис (VERSION_CONFLICT → `/problems/version-conflict`).
+    `title` — краткое описание для журналов, может различаться между реализациями; клиенты на него не опираются.
+  required: [type, title, status, code]
+  additionalProperties: false
+  properties:
+    type:
+      type: string
+      pattern: '^/problems/[a-z]+(-[a-z]+)*$'
+    title:
+      type: string
+    status:
+      type: integer
+      minimum: 400
+      maximum: 599
+    detail:
+      type: string
+    code:
+      $ref: '#/ProblemCode'
+    rule:
+      type: string
+      pattern: '^BR-\d{2}$'
+      description: Нарушенное бизнес-правило (только для 422 BUSINESS_RULE).
+    params:
+      type: object
+      additionalProperties: true
+      description: Данные для текста ошибки (например `until`, `substance`, `lockedUntil`, `from`, `to`, `currentVersion`).
+    errors:
+      type: object
+      description: 'Для 400 VALIDATION: путь поля → список ключей i18n.'
+      additionalProperties:
+        type: array
+        minItems: 1
+        items:
+          type: string
+  example:
+    type: /problems/validation
+    title: Validation failed
+    status: 400
+    code: VALIDATION
+    errors:
+      email: [validation.email]
+      password: [validation.minLength]
+RoleCode:
+  type: string
+  enum: [FARMER, PROCESSOR, LAB, RETAILER, INSPECTOR, ADMIN]
+  example: FARMER
+BatchStatus:
+  type: string
+  enum:
+    [Created, OnTest, Approved, InTransit, Accepted, Processed, OnSale, Sold, Blocked, Recalled, WrittenOff]
+  example: Approved
+OrganizationType:
+  type: string
+  enum: [FARM, PROCESSOR, LAB, RETAILER, AUTHORITY, PLATFORM]
+  example: FARM
+ProductCategory:
+  type: string
+  enum: [GRAIN, VEGETABLE, FRUIT, DAIRY, MEAT, OILSEED, PROCESSED]
+  example: GRAIN
+SubstanceType:
+  type: string
+  enum: [PESTICIDE, FERTILIZER]
+  example: PESTICIDE
+Region:
+  type: object
+  required: [code, name]
+  additionalProperties: false
+  properties:
+    code:
+      type: string
+      maxLength: 8
+    name:
+      type: string
+  example:
+    code: '23'
+    name: Краснодарский край
+OrganizationRef:
+  type: object
+  required: [id, name, type, logoUrl]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: '#/Uuid'
+    name:
+      type: string
+    type:
+      $ref: '#/OrganizationType'
+    logoUrl:
+      $ref: '#/NullablePublicFileUrl'
+  example:
+    id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+    name: КФХ Петров
+    type: FARM
+    logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+FileRef:
+  type: object
+  required: [id, url, mime, sizeBytes, originalName]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: '#/Uuid'
+    url:
+      type: string
+      pattern: '^/api/v1/(public/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?exp=\d{10}&sig=[0-9a-f]{64})$'
+      description: >-
+        Для логотипов и фото продуктов — `PublicFileUrl` (`/api/v1/public/files/{id}`, без подписи);
+        для аватарок, протоколов, QR и отчётов — `SignedFileUrl` (`/api/v1/files/{id}?exp=…&sig=…`, 3600 с).
+    mime:
+      type: string
+      description: MIME-тип исходного загруженного файла (определённый по сигнатуре), а не отдаваемого варианта.
+    sizeBytes:
+      type: integer
+      minimum: 0
+      description: Размер исходного загруженного файла в байтах.
+    originalName:
+      type: string
+      description: >-
+        Базовое имя файла из запроса — без сегментов пути до последнего `/` или `\` (P17); только для отображения и
+        Content-Disposition, не используется в ключе хранилища.
+  example:
+    id: 3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f
+    url: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+    mime: image/jpeg
+    sizeBytes: 812344
+    originalName: petrov.jpg
+ProductRef:
+  type: object
+  required: [id, name, category, imageUrl]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: '#/Uuid'
+    name:
+      type: string
+    category:
+      $ref: '#/ProductCategory'
+    imageUrl:
+      $ref: '#/NullablePublicFileUrl'
+  example:
+    id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+    name: Пшеница озимая
+    category: GRAIN
+    imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+SubstanceRef:
+  type: object
+  required: [id, name, type, waitingPeriodDays]
+  additionalProperties: false
+  properties:
+    id:
+      $ref: '#/Uuid'
+    name:
+      type: string
+    type:
+      $ref: '#/SubstanceType'
+    waitingPeriodDays:
+      type: integer
+      minimum: 0
+  example:
+    id: 9e1f3a5b-7c9d-4e0f-a2b4-c6d8e0f2a4b6
+    name: Хлорпирифос
+    type: PESTICIDE
+    waitingPeriodDays: 30
+HealthCheckStatus:
+  type: string
+  enum: [ok, fail]
+  example: ok
+HealthLive:
+  type: object
+  description: Ответ `/health/live` — зависимости не проверяются.
+  required: [status]
+  additionalProperties: false
+  properties:
+    status:
+      type: string
+      const: ok
+  example:
+    status: ok
+Health:
+  type: object
+  description: Ответ `/health/ready`; `status` = ok, только если все `checks` = ok.
+  required: [status, checks]
+  additionalProperties: false
+  properties:
+    status:
+      $ref: '#/HealthCheckStatus'
+    checks:
+      type: object
+      required: [db, redis, rabbitmq, s3]
+      additionalProperties: false
+      properties:
+        db:
+          $ref: '#/HealthCheckStatus'
+        redis:
+          $ref: '#/HealthCheckStatus'
+        rabbitmq:
+          $ref: '#/HealthCheckStatus'
+        s3:
+          $ref: '#/HealthCheckStatus'
+  example:
+    status: ok
+    checks:
+      db: ok
+      redis: ok
+      rabbitmq: ok
+      s3: ok

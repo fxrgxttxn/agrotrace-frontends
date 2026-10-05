@@ -1,0 +1,62 @@
+{
+  "rule": "BR-05",
+  "fn": "canUseAsInput",
+  "description": "canUseAsInput governs eligibility as processing input: only batches with status Approved (Допущена) or Accepted (Принята) may be used. Sale eligibility is governed separately by the state machine (putOnSale is only reachable from Accepted, since a batch always enters the shop via a waybill) - see state-machine.json (R20 clarifies BR-05's wording accordingly).",
+  "cases": [
+    {
+      "name": "Approved status is allowed as processing input",
+      "input": { "status": "Approved" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "Accepted status is allowed as processing input",
+      "input": { "status": "Accepted" },
+      "expected": { "allowed": true }
+    },
+    {
+      "name": "Created status is not allowed",
+      "input": { "status": "Created" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "OnTest status is not allowed",
+      "input": { "status": "OnTest" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "InTransit status is not allowed",
+      "input": { "status": "InTransit" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "Processed status is not allowed",
+      "input": { "status": "Processed" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "OnSale status is not allowed",
+      "input": { "status": "OnSale" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "Sold status is not allowed",
+      "input": { "status": "Sold" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "Blocked status is not allowed",
+      "input": { "status": "Blocked" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "Recalled status is not allowed",
+      "input": { "status": "Recalled" },
+      "expected": { "allowed": false }
+    },
+    {
+      "name": "WrittenOff status is not allowed",
+      "input": { "status": "WrittenOff" },
+      "expected": { "allowed": false }
+    }
+  ]
+}

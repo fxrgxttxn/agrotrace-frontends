@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160">
+  <path d="M0 112L20 108.3L40 105.3L60 103L80 101.3L100 100.3L120 100L140 100.3L160 101.3L180 103L200 105.3L220 108.3L240 112L240 160L0 160Z" style="fill: var(--c-furrow-a)" />
+  <path d="M0 113L6.8 110.7L20 108.3L29.2 107L0 117.3ZM59.7 103L0 128.9L0 122.5L45.8 104.7ZM82.6 101.2L0 146.8L0 136.7L71.5 102L80 101.3ZM92.7 100.7L100 100.3L102.4 100.3L24 160L0 160ZM72 160L48 160L111.6 100.1L120 100L120.7 100ZM138.7 100.3L120 160L96 160L129.7 100.2ZM147.7 100.7L157 101.2L168 160L144 160ZM192 160L166.6 101.9L176.6 102.7L216 160ZM240 139.8L240 160L187.4 103.9L198.9 105.2ZM212 107.1L220 108.3L227 109.6L240 117.3L240 126.6Z" style="fill: var(--c-furrow-b)" />
+  <path d="M80 104V70l24-20 24 20V104z" style="fill: var(--c-clay)" />
+  <path d="M96 104V82h16V104M96 82l16 22M112 82l-16 22" style="fill: none; stroke: var(--c-surface)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M134 104V60a11 11 0 0 1 22 0V104z" style="fill: var(--c-straw)" />
+  <path d="M134 72h22M134 86h22" style="fill: none; stroke: var(--c-surface)" stroke-width="2.5" stroke-linecap="butt" stroke-linejoin="round" />
+</svg>

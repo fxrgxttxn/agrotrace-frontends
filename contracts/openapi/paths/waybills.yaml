@@ -1,0 +1,778 @@
+# Модуль Waybills (FR-PROD-05, БП-3). Видимость накладных — в описании тега Waybills (openapi.yaml).
+/waybills:
+  get:
+    operationId: listWaybills
+    summary: Список накладных
+    description: |
+      Накладные, видимые пользователю (описание тега Waybills). Фильтры (объединяются по И):
+
+      - `direction` — `outgoing`: отправитель — организация пользователя; `incoming`: получатель — организация
+        пользователя; без параметра — обе. Только для FARMER, PROCESSOR, RETAILER (INSPECTOR и ADMIN — 400
+        `errors.direction: [validation.direction.notAllowed]`, R51);
+      - `status` — один или несколько статусов (параметр повторяется);
+      - `counterpartyOrgId` — вторая сторона накладной (для INSPECTOR и ADMIN — отправитель или получатель);
+      - `from`/`to` — по дате UTC `createdAt`;
+      - `q` — подстрока номера накладной или `publicCode` любой её партии без учёта регистра.
+
+      Сортировка — `x-sort`.
+    tags: [Waybills]
+    x-roles: [FARMER, PROCESSOR, RETAILER, INSPECTOR, ADMIN]
+    x-sort:
+      fields: [createdAt, sentAt, acceptedAt, number]
+      default: createdAt,desc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: direction
+        in: query
+        description: Направление относительно организации пользователя.
+        schema:
+          type: string
+          enum: [incoming, outgoing]
+      - name: status
+        in: query
+        description: Фильтр по статусам (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/waybills.yaml#/WaybillStatus'
+      - name: counterpartyOrgId
+        in: query
+        description: Фильтр по второй стороне накладной.
+        schema:
+          type: string
+          format: uuid
+      - $ref: '../components/parameters.yaml#/DateFrom'
+      - $ref: '../components/parameters.yaml#/DateTo'
+    responses:
+      '200':
+        description: Страница накладных.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/waybills.yaml#/WaybillPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  post:
+    operationId: createWaybill
+    summary: Создание черновика накладной
+    description: |
+      Создаёт накладную в статусе DRAFT (R4): `number` = `next_waybill_number()`, отправитель — организация
+      пользователя, `version` = 1. Партии не меняют статус. Порядок проверок:
+
+      1. Формат `Idempotency-Key` и повтор по нему (описание параметра); затем тело по схеме — 400.
+
+      Блокировки (R47): существующие партии позиций `FOR UPDATE ORDER BY id`; шаги 2–3 — над заблокированными
+      строками.
+
+      2. Ссылки (все ошибки шага — одним ответом 400): `receiverOrgId` не существует или организация не ACTIVE —
+      `errors.receiverOrgId: [validation.notFound]`; тип не PROCESSOR и не RETAILER — `[validation.receiver.type]`;
+      своя организация — `[validation.receiver.self]`; повтор партии — `errors["items[i].batchId"]:
+      [validation.duplicate]`; партия не существует или не видна — `[validation.notFound]`; `massDeclaredKg` больше
+      текущей массы партии — `errors["items[i].massDeclaredKg"]: [validation.mass.exceedsBatch]`.
+
+      3. По позициям в порядке запроса (определяет только, какая ошибка возвращается первой): держатель партии —
+      другая организация — 403 `{reason: NOT_HOLDER, publicCode}`.
+
+      Статусы партий, BR-01 и BR-06 проверяются при отправке (`sendWaybill`). Масса партии сверх
+      `massDeclaredKg` не учитывается отдельно: при отправке и приёмке партия перемещается целиком, после приёмки
+      её масса = `massActualKg` (D11, R50).
+    tags: [Waybills]
+    x-roles: [FARMER, PROCESSOR]
+    x-idempotent: true
+    x-locks: [batches]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/waybills.yaml#/WaybillCreate'
+    responses:
+      '201':
+        description: Черновик накладной создан.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+          Idempotent-Replayed:
+            $ref: '../components/headers.yaml#/IdempotentReplayed'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/waybills.yaml#/Waybill'
+            example:
+              id: 7e9a1c3e-5b7d-4f9b-a1c3-5e7a9c1e3b5d
+              number: WB-2026-000017
+              status: DRAFT
+              sender:
+                id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                name: КФХ Петров
+                type: FARM
+                logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+              receiver:
+                id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+                name: ООО «Кубанский мукомол»
+                type: PROCESSOR
+                logoUrl: null
+              items:
+                - batch:
+                    id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+                    publicCode: AT-2026-000123
+                    product:
+                      id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+                      name: Пшеница озимая
+                      category: GRAIN
+                      imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+                    massKg: '12480.000'
+                    status: Approved
+                    kind: RAW
+                    holder:
+                      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                      name: КФХ Петров
+                      type: FARM
+                      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+                    origin:
+                      id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                      name: КФХ Петров
+                      type: FARM
+                      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+                    harvestedAt: '2026-07-18T06:00:00Z'
+                    producedAt: null
+                    updatedAt: '2026-07-25T14:10:00Z'
+                    qrGeneratedAt: null
+                  massDeclaredKg: '12480.000'
+                  massActualKg: null
+                  discrepancyPercent: null
+                  discrepancyAct: null
+              createdAt: '2026-08-01T07:50:00Z'
+              sentAt: null
+              acceptedAt: null
+              rejectReason: null
+              version: 1
+              actions: [send, delete]
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        description: >-
+          Роль не FARMER/PROCESSOR (FORBIDDEN без `params`) или партия у другой организации
+          (`params.reason` = NOT_HOLDER, `params.publicCode`).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/forbidden
+              title: Not the batch holder
+              status: 403
+              code: FORBIDDEN
+              params:
+                reason: NOT_HOLDER
+                publicCode: AT-2026-000131
+      '409':
+        description: >-
+          IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_KEY_IN_PROGRESS (`Retry-After: 1`) или VERSION_CONFLICT без `params`
+          (повторная взаимоблокировка, R47).
+        headers:
+          Retry-After:
+            $ref: '../components/headers.yaml#/RetryAfterInProgress'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              idempotencyKeyReused:
+                summary: Ключ уже использован для другого запроса
+                value:
+                  type: /problems/idempotency-key-reused
+                  title: Idempotency key reused
+                  status: 409
+                  code: IDEMPOTENCY_KEY_REUSED
+              idempotencyKeyInProgress:
+                summary: Первый запрос с этим ключом ещё выполняется
+                value:
+                  type: /problems/idempotency-key-in-progress
+                  title: Idempotency key in progress
+                  status: 409
+                  code: IDEMPOTENCY_KEY_IN_PROGRESS
+              lockRetryFailed:
+                summary: Повторная взаимоблокировка
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/waybills/{id}:
+  get:
+    operationId: getWaybill
+    summary: Карточка накладной
+    description: Накладная не существует, удалена или не видна пользователю (описание тега Waybills) — 404.
+    tags: [Waybills]
+    x-roles: [FARMER, PROCESSOR, RETAILER, INSPECTOR, ADMIN]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: Карточка накладной.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/waybills.yaml#/Waybill'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  delete:
+    operationId: deleteWaybill
+    summary: Удаление черновика накладной
+    description: |
+      Мягкое удаление черновика с записью в журнал аудита. Блокировки (R47): накладная `FOR UPDATE`; проверки —
+      над заблокированной строкой. Порядок проверок:
+
+      1. Накладная не видна — 404 (черновик видит только отправитель).
+
+      2. Организация пользователя не отправитель — 403 `{reason: NOT_SENDER}`.
+
+      3. `If-Match` ≠ `version` — 409 VERSION_CONFLICT `{currentVersion}`.
+
+      4. Статус не DRAFT — 409 INVALID_TRANSITION `{from: <статус>, to: DELETED}`.
+    tags: [Waybills]
+    x-roles: [FARMER, PROCESSOR]
+    x-locks: [waybill]
+    x-transition: { entity: waybill, action: delete, to: DELETED }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/IfMatch'
+    responses:
+      '204':
+        description: Черновик удалён.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/WaybillNotSender'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Устаревшая версия (VERSION_CONFLICT) или накладная уже отправлена (INVALID_TRANSITION).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              versionConflict:
+                summary: Устаревшая версия
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+                  params:
+                    currentVersion: 2
+              invalidTransition:
+                summary: Накладная не черновик
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: SENT
+                    to: DELETED
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/waybills/{id}/send:
+  post:
+    operationId: sendWaybill
+    summary: Отправка накладной
+    description: |
+      Переводит черновик в SENT, партии — в InTransit (R4, FR-PROD-04). Первая сработавшая проверка возвращается:
+
+      1. Формат `Idempotency-Key` и повтор по нему (описание параметра).
+
+      Блокировки (R47): накладная `FOR UPDATE`, затем партии её позиций `FOR UPDATE ORDER BY id`; шаги 2–6 —
+      над заблокированными строками, `If-Match` — compare-and-set по заблокированной накладной.
+
+      2. Накладная не видна — 404.
+
+      3. Организация пользователя не отправитель — 403 `{reason: NOT_SENDER}`.
+
+      4. `If-Match` ≠ `version` — 409 VERSION_CONFLICT `{currentVersion}`.
+
+      5. Статус не DRAFT — 409 INVALID_TRANSITION `{from: <статус>, to: SENT}`.
+
+      6. По позициям в порядке `items` (по `publicCode` партии; этот порядок определяет только, какая ошибка
+      возвращается первой, блокировки — по `id`), для каждой все проверки до перехода к следующей:
+      держатель партии — другая организация — 403 `{reason: NOT_HOLDER, publicCode}`; статус Blocked или Recalled —
+      422 BR-06 `{publicCode, status}`; статус не Approved и не Accepted — 409 INVALID_TRANSITION
+      `{from: <статус>, to: InTransit, publicCode}`; для RAW-партии — BR-01 (`checkWaitingPeriod` по всем
+      неудалённым обработкам поля партии, включая удалённое поле; `shipDate` — дата UTC момента отправки):
+      срок ожидания не истёк — 422 BR-01 `{publicCode, until, substance}`, где `until` — первая дата, с которой
+      отгрузка разрешена, `substance` — название препарата (при нескольких — с наибольшим `until`, при равенстве —
+      наименьшее по кодовым точкам Unicode, R21). Для DERIVED-партий BR-01 не проверяется.
+
+      Результат: накладная SENT, `sentAt` = текущее время, `version` + 1; каждая партия → InTransit (`reason`
+      WAYBILL_SENT, автор — пользователь, `version` + 1, сброс кэша публичной страницы). Держатель не меняется
+      до приёмки.
+    tags: [Waybills]
+    x-roles: [FARMER, PROCESSOR]
+    x-idempotent: true
+    x-locks: [waybill, batches]
+    x-transition: { entity: waybill, action: send, to: SENT }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/IfMatch'
+      - $ref: '../components/parameters.yaml#/IdempotencyKey'
+    responses:
+      '200':
+        description: Накладная отправлена.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+          Idempotent-Replayed:
+            $ref: '../components/headers.yaml#/IdempotentReplayed'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/waybills.yaml#/Waybill'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        description: >-
+          Роль не FARMER/PROCESSOR (FORBIDDEN без `params`), организация не отправитель (`params.reason` = NOT_SENDER)
+          или партия у другой организации (`params.reason` = NOT_HOLDER, `params.publicCode`).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              notSender:
+                summary: Пользователь не на стороне отправителя
+                value:
+                  type: /problems/forbidden
+                  title: Not the waybill sender
+                  status: 403
+                  code: FORBIDDEN
+                  params:
+                    reason: NOT_SENDER
+              notHolder:
+                summary: Партия у другой организации
+                value:
+                  type: /problems/forbidden
+                  title: Not the batch holder
+                  status: 403
+                  code: FORBIDDEN
+                  params:
+                    reason: NOT_HOLDER
+                    publicCode: AT-2026-000123
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: >-
+          VERSION_CONFLICT, INVALID_TRANSITION накладной (`{from, to}`) или партии (`{from, to, publicCode}`),
+          IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_KEY_IN_PROGRESS (`Retry-After: 1`).
+        headers:
+          Retry-After:
+            $ref: '../components/headers.yaml#/RetryAfterInProgress'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              versionConflict:
+                summary: Устаревшая версия
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+                  params:
+                    currentVersion: 2
+              waybillTransition:
+                summary: Накладная уже отправлена
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: SENT
+                    to: SENT
+              batchTransition:
+                summary: Партия ещё на анализе
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: OnTest
+                    to: InTransit
+                    publicCode: AT-2026-000124
+              idempotencyKeyReused:
+                summary: Ключ уже использован для другого запроса
+                value:
+                  type: /problems/idempotency-key-reused
+                  title: Idempotency key reused
+                  status: 409
+                  code: IDEMPOTENCY_KEY_REUSED
+              idempotencyKeyInProgress:
+                summary: Первый запрос с этим ключом ещё выполняется
+                value:
+                  type: /problems/idempotency-key-in-progress
+                  title: Idempotency key in progress
+                  status: 409
+                  code: IDEMPOTENCY_KEY_IN_PROGRESS
+      '422':
+        description: Нарушено бизнес-правило BR-01 или BR-06 (BUSINESS_RULE).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              waitingPeriod:
+                summary: BR-01 — не истёк срок ожидания после обработки
+                value:
+                  type: /problems/business-rule
+                  title: Business rule violated
+                  status: 422
+                  code: BUSINESS_RULE
+                  rule: BR-01
+                  params:
+                    publicCode: AT-2026-000123
+                    until: '2026-09-25'
+                    substance: Хлорпирифос
+              blocked:
+                summary: BR-06 — партия отозвана
+                value:
+                  type: /problems/business-rule
+                  title: Business rule violated
+                  status: 422
+                  code: BUSINESS_RULE
+                  rule: BR-06
+                  params:
+                    publicCode: AT-2026-000125
+                    status: Recalled
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/waybills/{id}/accept:
+  post:
+    operationId: acceptWaybill
+    summary: Приёмка накладной
+    description: |
+      Получатель принимает партии с фактической массой (FR-PROD-05). Первая сработавшая проверка возвращается:
+
+      1. Формат `Idempotency-Key` и повтор по нему (описание параметра); затем тело по схеме — 400.
+
+      Блокировки (R47): накладная `FOR UPDATE`, затем партии её позиций `FOR UPDATE ORDER BY id`; шаги 2–7 —
+      над заблокированными строками, `If-Match` — compare-and-set по заблокированной накладной.
+
+      2. Накладная не видна — 404.
+
+      3. Организация пользователя не получатель — 403 `{reason: NOT_RECEIVER}`.
+
+      4. `If-Match` ≠ `version` — 409 VERSION_CONFLICT `{currentVersion}`.
+
+      5. Статус не SENT — 409 INVALID_TRANSITION `{from: <статус>, to: ACCEPTED}`.
+
+      6. Позиции тела не совпадают с партиями накладной (не хватает, лишняя или повтор) — 400
+      `errors.items: [validation.items.mismatch]`.
+
+      7. По позициям в порядке `items` накладной (по `publicCode`; определяет только, какая ошибка возвращается
+      первой): статус партии Blocked или Recalled — 422 BR-06
+      `{publicCode, status}`; статус не InTransit — 409 INVALID_TRANSITION `{from: <статус>, to: Accepted, publicCode}`;
+      расхождение `checkDiscrepancy(massDeclaredKg, massActualKg)` требует акта (> 2%), а `discrepancyAct` не
+      передан — 422 BR-07 `{publicCode, percent}` (`percent` — `DiscrepancyPercent`).
+
+      Результат: накладная ACCEPTED, `acceptedAt` = текущее время, `version` + 1; в позициях сохраняются
+      `massActualKg` и `discrepancyAct` (`discrepancyPercent` вычисляется при чтении); каждая партия → Accepted
+      (`reason` WAYBILL_ACCEPTED, автор — пользователь), держатель — получатель, `massKg` = `massActualKg`,
+      `version` + 1, сброс кэша публичной страницы.
+    tags: [Waybills]
+    x-roles: [PROCESSOR, RETAILER]
+    x-idempotent: true
+    x-locks: [waybill, batches]
+    x-transition: { entity: waybill, action: accept, to: ACCEPTED }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/IfMatch'
+      - $ref: '../components/parameters.yaml#/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/waybills.yaml#/WaybillAccept'
+    responses:
+      '200':
+        description: Накладная принята.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+          Idempotent-Replayed:
+            $ref: '../components/headers.yaml#/IdempotentReplayed'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/waybills.yaml#/Waybill'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/WaybillNotReceiver'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: >-
+          VERSION_CONFLICT, INVALID_TRANSITION накладной (`{from, to}`) или партии (`{from, to, publicCode}`),
+          IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_KEY_IN_PROGRESS (`Retry-After: 1`).
+        headers:
+          Retry-After:
+            $ref: '../components/headers.yaml#/RetryAfterInProgress'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              versionConflict:
+                summary: Устаревшая версия
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+                  params:
+                    currentVersion: 3
+              waybillTransition:
+                summary: Накладная уже принята
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: ACCEPTED
+                    to: ACCEPTED
+              idempotencyKeyReused:
+                summary: Ключ уже использован для другого запроса
+                value:
+                  type: /problems/idempotency-key-reused
+                  title: Idempotency key reused
+                  status: 409
+                  code: IDEMPOTENCY_KEY_REUSED
+              idempotencyKeyInProgress:
+                summary: Первый запрос с этим ключом ещё выполняется
+                value:
+                  type: /problems/idempotency-key-in-progress
+                  title: Idempotency key in progress
+                  status: 409
+                  code: IDEMPOTENCY_KEY_IN_PROGRESS
+      '422':
+        description: Нарушено бизнес-правило BR-06 или BR-07 (BUSINESS_RULE).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              discrepancyAct:
+                summary: BR-07 — расхождение больше 2% без акта
+                value:
+                  type: /problems/business-rule
+                  title: Business rule violated
+                  status: 422
+                  code: BUSINESS_RULE
+                  rule: BR-07
+                  params:
+                    publicCode: AT-2026-000123
+                    percent: '3.21'
+              recalled:
+                summary: BR-06 — партия отозвана в пути
+                value:
+                  type: /problems/business-rule
+                  title: Business rule violated
+                  status: 422
+                  code: BUSINESS_RULE
+                  rule: BR-06
+                  params:
+                    publicCode: AT-2026-000123
+                    status: Recalled
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/waybills/{id}/reject:
+  post:
+    operationId: rejectWaybill
+    summary: Отказ от накладной
+    description: |
+      Получатель отказывается от накладной; партии возвращаются отправителю (БП-3). Порядок проверок:
+
+      1. Тело по схеме — 400.
+
+      Блокировки (R47): накладная `FOR UPDATE`, затем партии её позиций `FOR UPDATE ORDER BY id`; шаги 2–5 —
+      над заблокированными строками, `If-Match` — compare-and-set по заблокированной накладной.
+
+      2. Накладная не видна — 404.
+
+      3. Организация пользователя не получатель — 403 `{reason: NOT_RECEIVER}`.
+
+      4. `If-Match` ≠ `version` — 409 VERSION_CONFLICT `{currentVersion}`.
+
+      5. Статус не SENT — 409 INVALID_TRANSITION `{from: <статус>, to: REJECTED}`.
+
+      Результат: накладная REJECTED, `rejectReason` = `reason`, `version` + 1; каждая партия в статусе InTransit →
+      Approved (действие `reject`, `reason` WAYBILL_REJECTED, автор — пользователь, `version` + 1, сброс кэша);
+      партии в других статусах (например, отозванные в пути) не меняются. Держатель остаётся прежним. Отказ
+      возможен всегда, в том числе когда приёмку блокирует BR-06.
+
+      Партия, отозванная в пути (Recalled): открытая задача отзыва по ней (статус OPEN или OVERDUE), назначенная
+      получателю, переназначается отправителю — `recall_tasks.holder_org_id` = отправитель, срок `dueAt` не
+      меняется, `version` задачи + 1; отправителю отправляется уведомление о задаче (R50).
+      Такие задачи блокируются `FOR UPDATE ORDER BY id` после партий.
+    tags: [Waybills]
+    x-roles: [PROCESSOR, RETAILER]
+    x-locks: [waybill, batches, recallTasks]
+    x-transition: { entity: waybill, action: reject, to: REJECTED }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/IfMatch'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/waybills.yaml#/WaybillReject'
+    responses:
+      '200':
+        description: Накладная отклонена.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/waybills.yaml#/Waybill'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/WaybillNotReceiver'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Устаревшая версия (VERSION_CONFLICT) или накладная не в статусе SENT (INVALID_TRANSITION).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              versionConflict:
+                summary: Устаревшая версия
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+                  params:
+                    currentVersion: 3
+              invalidTransition:
+                summary: Накладная уже принята
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: ACCEPTED
+                    to: REJECTED
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

@@ -1,0 +1,117 @@
+.at-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: at-step;
+}
+
+.at-stepper__step {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  color: var(--c-ink-muted);
+}
+
+.at-stepper__step:last-child {
+  flex: 0 0 auto;
+}
+
+.at-stepper__step:not(:last-child)::after {
+  content: '';
+  flex: 1 1 24px;
+  min-width: 16px;
+  height: 5px;
+  border-top: 1.5px solid var(--c-line-strong);
+  border-bottom: 1.5px solid var(--c-line-strong);
+}
+
+.at-stepper__step[data-done]:not(:last-child)::after {
+  border-color: var(--c-field);
+}
+
+.at-stepper__marker {
+  display: grid;
+  position: relative;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid var(--c-line-strong);
+  border-radius: 50%;
+  background: var(--c-surface);
+  color: var(--c-ink-muted);
+  font: 600 var(--fs-13) / 1 var(--font-display);
+}
+
+.at-stepper__label {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.at-stepper__step[aria-current='step'] {
+  color: var(--c-ink);
+}
+
+.at-stepper__step[aria-current='step'] .at-stepper__label {
+  font-weight: 600;
+}
+
+.at-stepper__step[aria-current='step'] .at-stepper__marker {
+  border-color: var(--c-field);
+  background: var(--c-field);
+  color: var(--c-field-ink);
+}
+
+.at-stepper__step[data-done] {
+  color: var(--c-ink);
+}
+
+.at-stepper__step[data-done] .at-stepper__marker {
+  border-color: var(--c-field);
+  color: transparent;
+  font-size: 0;
+}
+
+.at-stepper__step[data-done] .at-stepper__marker::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 5px;
+  border-bottom: 2px solid var(--c-field);
+  border-left: 2px solid var(--c-field);
+  translate: -50% -75%;
+  rotate: -45deg;
+}
+
+@media (max-width: 767px) {
+  .at-stepper__step:not([aria-current='step']) .at-stepper__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .at-stepper__step,
+  .at-stepper__step[aria-current='step'] {
+    flex: 0 1 auto;
+  }
+
+  .at-stepper__step:not(:last-child)::after {
+    flex-basis: 16px;
+  }
+
+  .at-stepper__step[aria-current='step']:not(:last-child) {
+    flex: 1 1 auto;
+  }
+}

@@ -1,0 +1,10 @@
+name: Save pnpm store cache
+description: pnpm store cache of the tools container
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        docker run --rm -v agrotrace_pnpm-store:/data -v "${{ runner.temp }}":/backup alpine \
+          sh -c "cd /data && tar cf /backup/pnpm-store.tar ."

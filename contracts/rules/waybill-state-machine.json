@@ -1,0 +1,11 @@
+{
+  "description": "Waybill lifecycle. DELETED is a pseudo-status: soft delete of a DRAFT (deleted_at), never stored in waybills.status.",
+  "statuses": ["DRAFT", "SENT", "ACCEPTED", "REJECTED"],
+  "pseudoStatuses": ["DELETED"],
+  "transitions": [
+    { "from": "DRAFT", "to": "SENT", "action": "send" },
+    { "from": "DRAFT", "to": "DELETED", "action": "delete" },
+    { "from": "SENT", "to": "ACCEPTED", "action": "accept" },
+    { "from": "SENT", "to": "REJECTED", "action": "reject" }
+  ]
+}

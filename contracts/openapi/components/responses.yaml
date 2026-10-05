@@ -1,0 +1,441 @@
+# Общие ответы с ошибками (application/problem+json).
+BadRequest:
+  description: >-
+    Ошибка валидации запроса (VALIDATION с `errors` по полям) либо иная ошибка запроса с кодом,
+    указанным в описании операции.
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/validation
+        title: Validation failed
+        status: 400
+        code: VALIDATION
+        errors:
+          fullName: [validation.required]
+          phone: [validation.pattern]
+Unauthorized:
+  description: Не аутентифицирован, токен недействителен или истёк (UNAUTHORIZED, если в операции не указано иное).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/unauthorized
+        title: Unauthorized
+        status: 401
+        code: UNAUTHORIZED
+Forbidden:
+  description: Недостаточно прав для операции (FORBIDDEN).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/forbidden
+        title: Forbidden
+        status: 403
+        code: FORBIDDEN
+NotFound:
+  description: Сущность не найдена или не видна текущему пользователю (NOT_FOUND).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/not-found
+        title: Not found
+        status: 404
+        code: NOT_FOUND
+Conflict:
+  description: >-
+    Конфликт: недопустимый переход статуса (INVALID_TRANSITION, `params.from`/`params.to`),
+    устаревшая версия (VERSION_CONFLICT, `params.currentVersion`) или повтор ключа идемпотентности
+    с другим телом (IDEMPOTENCY_KEY_REUSED).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/version-conflict
+        title: Version conflict
+        status: 409
+        code: VERSION_CONFLICT
+        params:
+          currentVersion: 4
+PayloadTooLarge:
+  description: >-
+    Файл превышает лимит размера для своего типа (FILE_TOO_LARGE, `params.maxBytes`; п. 8.6). Лимит включительный:
+    файл размером ровно `maxBytes` принимается. Ответ шлюза при превышении его лимита тела запроса тоже
+    `application/problem+json` с кодом FILE_TOO_LARGE.
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/file-too-large
+        title: File too large
+        status: 413
+        code: FILE_TOO_LARGE
+        params:
+          maxBytes: 2097152
+UnsupportedMediaType:
+  description: >-
+    Тип файла, определённый по сигнатуре содержимого, не допускается
+    (UNSUPPORTED_MEDIA_TYPE, `params.allowed`; п. 8.6), либо содержимое не декодируется как тип, указанный
+    сигнатурой (P14); SVG, превышающий пределы сложности, или не принятый в очередь санитизации либо не
+    обработанный за срок, — с `params.reason` = `svg-too-complex` (P18).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/unsupported-media-type
+        title: Unsupported media type
+        status: 415
+        code: UNSUPPORTED_MEDIA_TYPE
+        params:
+          allowed: [image/jpeg, image/png, image/webp]
+BusinessRule:
+  description: Нарушение бизнес-правила (BUSINESS_RULE, `rule` = BR-xx, данные в `params`).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/business-rule
+        title: Business rule violated
+        status: 422
+        code: BUSINESS_RULE
+        rule: BR-01
+        params:
+          publicCode: AT-2026-000123
+          until: '2026-09-25'
+          substance: Хлорпирифос
+TooManyRequests:
+  description: >-
+    Превышен лимит частоты запросов (RATE_LIMITED; п. 8.8). Лимиты — `contracts/rules/rate-limits.json`:
+    счётчики с фиксированным окном в общем Redis (INCR, при первом попадании EXPIRE на длину окна),
+    ключ `rl:{scope}:{subject}:{windowStartEpochSec}`, где windowStartEpochSec = floor(now / windowSec) × windowSec.
+    Скоуп `user` (100 за 60 с по userId) действует для всех запросов с Bearer-токеном; скоупы `login-ip`,
+    `forgot`, `complaint-ip` — для операций, где они перечислены в `x-rate-limit`. Запрос, превысивший
+    лимит, не выполняется. `Retry-After` — секунды до конца окна; `params` = `{scope, limit, windowSec}`.
+  headers:
+    Retry-After:
+      $ref: './headers.yaml#/RetryAfter'
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/rate-limited
+        title: Too many requests
+        status: 429
+        code: RATE_LIMITED
+        params:
+          scope: user
+          limit: 100
+          windowSec: 60
+ServiceUnavailable:
+  description: >-
+    Зависимость недоступна: EXTERNAL_UNAVAILABLE — внешний сервис (DaData, Telegram, SMTP),
+    BACKEND_UNAVAILABLE — инфраструктура (БД, Redis, RabbitMQ, MinIO).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/external-unavailable
+        title: External service unavailable
+        status: 503
+        code: EXTERNAL_UNAVAILABLE
+        params:
+          service: telegram
+MethodNotAllowed:
+  description: >-
+    Путь есть в контракте, но метод запроса для него не объявлен (METHOD_NOT_ALLOWED, P3): 405 с заголовком `Allow`
+    — методы, объявленные для пути. Операции его не перечисляют: так отвечает любой путь контракта на
+    необъявленный метод. Путь, которого нет в контракте, — 404 NOT_FOUND.
+  headers:
+    Allow:
+      $ref: './headers.yaml#/Allow'
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/method-not-allowed
+        title: Method not allowed
+        status: 405
+        code: METHOD_NOT_ALLOWED
+NotModified:
+  description: Содержимое не изменилось (`If-None-Match` совпал с ETag); тело пустое.
+  headers:
+    ETag:
+      $ref: './headers.yaml#/ETag'
+    Cache-Control:
+      $ref: './headers.yaml#/CacheControl'
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+ImageContent:
+  description: >-
+    Изображение: WebP выбранного варианта (96 или 480 px) либо исходный SVG (для логотипа).
+    Отдаётся потоком через backend с `ETag`; при совпадении `If-None-Match` — 304.
+  headers:
+    ETag:
+      $ref: './headers.yaml#/ETag'
+    Cache-Control:
+      $ref: './headers.yaml#/CacheControlPrivate'
+    Content-Length:
+      $ref: './headers.yaml#/ContentLength'
+    Content-Disposition:
+      $ref: './headers.yaml#/ContentDisposition'
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    image/webp:
+      schema:
+        $ref: '../schemas/files.yaml#/FileBinary'
+    image/svg+xml:
+      schema:
+        $ref: '../schemas/files.yaml#/FileBinary'
+FileContent:
+  description: >-
+    Содержимое файла: для изображений — WebP выбранного варианта (SVG — исходный после санитизации),
+    для прочих — исходный файл с его MIME. Отдаётся потоком через backend с `ETag`; при совпадении
+    `If-None-Match` — 304.
+  headers:
+    ETag:
+      $ref: './headers.yaml#/ETag'
+    Cache-Control:
+      $ref: './headers.yaml#/CacheControlPrivate'
+    Content-Length:
+      $ref: './headers.yaml#/ContentLength'
+    Content-Disposition:
+      $ref: './headers.yaml#/ContentDisposition'
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    image/webp:
+      schema:
+        $ref: '../schemas/files.yaml#/FileBinary'
+    image/svg+xml:
+      schema:
+        $ref: '../schemas/files.yaml#/FileBinary'
+    image/png:
+      schema:
+        $ref: '../schemas/files.yaml#/FileBinary'
+    application/pdf:
+      schema:
+        $ref: '../schemas/files.yaml#/FileBinary'
+    application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+      schema:
+        $ref: '../schemas/files.yaml#/FileBinary'
+PublicImageContent:
+  description: >-
+    Публичное изображение (логотип организации, фото продукта): WebP выбранного варианта либо исходный SVG.
+    `Cache-Control: public, max-age=86400`; `ETag`; при совпадении `If-None-Match` — 304.
+  headers:
+    ETag:
+      $ref: './headers.yaml#/ETag'
+    Cache-Control:
+      $ref: './headers.yaml#/CacheControlPublic'
+    Content-Length:
+      $ref: './headers.yaml#/ContentLength'
+    Content-Disposition:
+      $ref: './headers.yaml#/ContentDisposition'
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    image/webp:
+      schema:
+        $ref: '../schemas/files.yaml#/FileBinary'
+    image/svg+xml:
+      schema:
+        $ref: '../schemas/files.yaml#/FileBinary'
+BatchForbidden:
+  description: >-
+    Роль пользователя не входит в `x-roles` операции (FORBIDDEN без `params`) либо партия видна, но её держатель —
+    другая организация (`params.reason` = NOT_HOLDER).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/forbidden
+        title: Not the batch holder
+        status: 403
+        code: FORBIDDEN
+        params:
+          reason: NOT_HOLDER
+QrForbidden:
+  description: >-
+    Роль не PROCESSOR/RETAILER (FORBIDDEN без `params`), организация не держатель (`params.reason` = NOT_HOLDER)
+    или статус не допускает QR — не Accepted/OnSale и не Approved у собственной производной партии переработчика
+    (`params.reason` = BATCH_STATUS, `params.status`).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      examples:
+        notHolder:
+          summary: Партия у другой организации
+          value:
+            type: /problems/forbidden
+            title: Not the batch holder
+            status: 403
+            code: FORBIDDEN
+            params:
+              reason: NOT_HOLDER
+        batchStatus:
+          summary: Статус не допускает QR
+          value:
+            type: /problems/forbidden
+            title: Batch status does not allow QR
+            status: 403
+            code: FORBIDDEN
+            params:
+              reason: BATCH_STATUS
+              status: InTransit
+WaybillNotSender:
+  description: >-
+    Роль не входит в `x-roles` операции (FORBIDDEN без `params`) либо накладная видна, но организация пользователя —
+    не отправитель (`params.reason` = NOT_SENDER).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/forbidden
+        title: Not the waybill sender
+        status: 403
+        code: FORBIDDEN
+        params:
+          reason: NOT_SENDER
+WaybillNotReceiver:
+  description: >-
+    Роль не входит в `x-roles` операции (FORBIDDEN без `params`) либо накладная видна, но организация пользователя —
+    не получатель (`params.reason` = NOT_RECEIVER).
+  headers:
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      example:
+        type: /problems/forbidden
+        title: Not the waybill receiver
+        status: 403
+        code: FORBIDDEN
+        params:
+          reason: NOT_RECEIVER
+IdempotencyConflict:
+  description: >-
+    `Idempotency-Key` уже использован этим пользователем для другого запроса (IDEMPOTENCY_KEY_REUSED) либо первый
+    запрос с этим ключом ещё выполняется (IDEMPOTENCY_KEY_IN_PROGRESS, `Retry-After: 1`), R48.
+  headers:
+    Retry-After:
+      $ref: './headers.yaml#/RetryAfterInProgress'
+    X-Request-Id:
+      $ref: './headers.yaml#/XRequestId'
+    X-Backend:
+      $ref: './headers.yaml#/XBackend'
+  content:
+    application/problem+json:
+      schema:
+        $ref: '../schemas/common.yaml#/Problem'
+      examples:
+        idempotencyKeyReused:
+          summary: Ключ уже использован для другого запроса
+          value:
+            type: /problems/idempotency-key-reused
+            title: Idempotency key reused
+            status: 409
+            code: IDEMPOTENCY_KEY_REUSED
+        idempotencyKeyInProgress:
+          summary: Первый запрос с этим ключом ещё выполняется
+          value:
+            type: /problems/idempotency-key-in-progress
+            title: Idempotency key in progress
+            status: 409
+            code: IDEMPOTENCY_KEY_IN_PROGRESS

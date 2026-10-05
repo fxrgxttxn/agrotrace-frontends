@@ -1,0 +1,6 @@
+{
+  "type": "/problems/backend-unavailable",
+  "title": "Backend unavailable",
+  "status": 502,
+  "code": "BACKEND_UNAVAILABLE"
+}

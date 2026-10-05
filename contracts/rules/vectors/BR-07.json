@@ -1,0 +1,67 @@
+{
+  "rule": "BR-07",
+  "fn": "checkDiscrepancy",
+  "description": "percent = round_half_up(|actual - declared| / declared * 100, 2), displayed as \"N.NN\". actRequired = |actual - declared| * 100 > 2 * declared, computed exactly in grams (integers) so the exact-grams check does not depend on the rounded display percent. declaredKg \"0.000\" is rejected as { error: \"DECLARED_ZERO\" } instead of dividing by zero (R22).",
+  "cases": [
+    {
+      "name": "exactly at 2% threshold - not required (equality does not exceed)",
+      "input": { "declaredKg": "100.000", "actualKg": "102.000" },
+      "expected": { "percent": "2.00", "actRequired": false }
+    },
+    {
+      "name": "just above 2% threshold by 1 gram - required, display percent still rounds to 2.00",
+      "input": { "declaredKg": "100.000", "actualKg": "102.001" },
+      "expected": { "percent": "2.00", "actRequired": true }
+    },
+    {
+      "name": "actual mass zero (total loss) - percent 100%, required",
+      "input": { "declaredKg": "100.000", "actualKg": "0.000" },
+      "expected": { "percent": "100.00", "actRequired": true }
+    },
+    {
+      "name": "actual equals declared - zero discrepancy, not required",
+      "input": { "declaredKg": "250.000", "actualKg": "250.000" },
+      "expected": { "percent": "0.00", "actRequired": false }
+    },
+    {
+      "name": "actual greater than declared (surplus) exceeds threshold",
+      "input": { "declaredKg": "100.000", "actualKg": "105.000" },
+      "expected": { "percent": "5.00", "actRequired": true }
+    },
+    {
+      "name": "actual less than declared (shortage) within threshold",
+      "input": { "declaredKg": "100.000", "actualKg": "99.000" },
+      "expected": { "percent": "1.00", "actRequired": false }
+    },
+    {
+      "name": "actual less than declared, shortage exceeds threshold",
+      "input": { "declaredKg": "100.000", "actualKg": "97.500" },
+      "expected": { "percent": "2.50", "actRequired": true }
+    },
+    {
+      "name": "small mass values - fraction rounds up at the third decimal (0.1666... -> 0.17)",
+      "input": { "declaredKg": "3.000", "actualKg": "3.005" },
+      "expected": { "percent": "0.17", "actRequired": false }
+    },
+    {
+      "name": "rounding half-up at an exact .xx5 boundary (0.125 -> 0.13)",
+      "input": { "declaredKg": "8.000", "actualKg": "7.990" },
+      "expected": { "percent": "0.13", "actRequired": false }
+    },
+    {
+      "name": "discrepancy just under the exact-grams threshold rounds the display percent up to 2.00 but does not require an act",
+      "input": { "declaredKg": "100.000", "actualKg": "101.999" },
+      "expected": { "percent": "2.00", "actRequired": false }
+    },
+    {
+      "name": "minimal declared mass (1 gram) doubled - percent 100%, required",
+      "input": { "declaredKg": "0.001", "actualKg": "0.002" },
+      "expected": { "percent": "100.00", "actRequired": true }
+    },
+    {
+      "name": "declared mass is zero - DECLARED_ZERO error, no division by zero (R22)",
+      "input": { "declaredKg": "0.000", "actualKg": "5.000" },
+      "expected": { "error": "DECLARED_ZERO" }
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "description": "Lifecycles of quality, recall, complaint and organization entities and of the VSD import. Statuses equal the DB CHECK lists. `by` names the operationId that performs the transition, or `system` for scheduler/engine transitions. Operations with `x-transition` in the OpenAPI contract must match a transition here.",
+  "labTest": {
+    "description": "lab_tests.status. CANCELLED is reserved: no API v1 operation sets it (a batch recalled while on test keeps its open test; see Lab tag).",
+    "statuses": ["QUEUED", "SAMPLED", "DONE", "ESCALATED", "CANCELLED"],
+    "transitions": [
+      { "from": "QUEUED", "to": "SAMPLED", "action": "sample", "by": "registerLabSample" },
+      { "from": "QUEUED", "to": "DONE", "action": "submitResults", "by": "submitLabResults" },
+      { "from": "SAMPLED", "to": "DONE", "action": "submitResults", "by": "submitLabResults" },
+      { "from": "ESCALATED", "to": "DONE", "action": "submitResults", "by": "submitLabResults" },
+      { "from": "QUEUED", "to": "ESCALATED", "action": "escalate", "by": "system" },
+      { "from": "SAMPLED", "to": "ESCALATED", "action": "escalate", "by": "system" }
+    ]
+  },
+  "recall": {
+    "description": "recalls.status. Closed only by the engine (BR-10) — on the last task confirmation or at creation when no task was created.",
+    "statuses": ["OPEN", "CLOSED"],
+    "transitions": [{ "from": "OPEN", "to": "CLOSED", "action": "close", "by": "system" }]
+  },
+  "recallTask": {
+    "description": "recall_tasks.status. Reassignment of the holder on waybill rejection (R50) is not a status transition.",
+    "statuses": ["OPEN", "CONFIRMED", "OVERDUE"],
+    "transitions": [
+      { "from": "OPEN", "to": "CONFIRMED", "action": "confirm", "by": "confirmRecallTask" },
+      { "from": "OVERDUE", "to": "CONFIRMED", "action": "confirm", "by": "confirmRecallTask" },
+      { "from": "OPEN", "to": "OVERDUE", "action": "escalate", "by": "system" }
+    ]
+  },
+  "complaint": {
+    "description": "complaints.status.",
+    "statuses": ["NEW", "IN_REVIEW", "DECIDED"],
+    "transitions": [
+      { "from": "NEW", "to": "IN_REVIEW", "action": "review", "by": "startComplaintReview" },
+      { "from": "NEW", "to": "DECIDED", "action": "decide", "by": "decideComplaint" },
+      { "from": "IN_REVIEW", "to": "DECIDED", "action": "decide", "by": "decideComplaint" }
+    ]
+  },
+  "organization": {
+    "description": "organizations.status. PENDING/MANUAL_CHECK are set by registerOrganization.",
+    "statuses": ["PENDING", "MANUAL_CHECK", "ACTIVE", "REJECTED", "SUSPENDED"],
+    "transitions": [
+      { "from": "PENDING", "to": "ACTIVE", "action": "approve", "by": "approveOrganization" },
+      { "from": "MANUAL_CHECK", "to": "ACTIVE", "action": "approve", "by": "approveOrganization" },
+      { "from": "PENDING", "to": "REJECTED", "action": "reject", "by": "updateAdminOrganization" },
+      { "from": "MANUAL_CHECK", "to": "REJECTED", "action": "reject", "by": "updateAdminOrganization" },
+      { "from": "ACTIVE", "to": "SUSPENDED", "action": "suspend", "by": "updateAdminOrganization" },
+      { "from": "SUSPENDED", "to": "ACTIVE", "action": "resume", "by": "updateAdminOrganization" }
+    ]
+  },
+  "vsdImport": {
+    "description": "batch_documents.import_status of a VSD row (R81). Created PENDING by createBatch (DAIRY/MEAT product); the vsd.import worker ends every PENDING cycle in IMPORTED, NOT_FOUND or FAILED; retryBatchVsdImport restarts a NOT_FOUND or FAILED import.",
+    "statuses": ["PENDING", "IMPORTED", "NOT_FOUND", "FAILED"],
+    "transitions": [
+      { "from": "PENDING", "to": "IMPORTED", "action": "import", "by": "system" },
+      { "from": "PENDING", "to": "NOT_FOUND", "action": "notFound", "by": "system" },
+      { "from": "PENDING", "to": "FAILED", "action": "fail", "by": "system" },
+      { "from": "NOT_FOUND", "to": "PENDING", "action": "retry", "by": "retryBatchVsdImport" },
+      { "from": "FAILED", "to": "PENDING", "action": "retry", "by": "retryBatchVsdImport" }
+    ]
+  }
+}

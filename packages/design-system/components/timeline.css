@@ -1,0 +1,86 @@
+.at-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.at-timeline__item {
+  --tl-mark: var(--c-line-strong);
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 0 0 var(--sp-5) 28px;
+}
+
+.at-timeline__item::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  bottom: -2px;
+  left: 6px;
+  width: 1.5px;
+  background: var(--c-line);
+}
+
+.at-timeline__item:last-child {
+  padding-bottom: 0;
+}
+
+.at-timeline__item:last-child::before {
+  content: none;
+}
+
+.at-timeline__item::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 0;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--tl-mark);
+  border-radius: 50%;
+  background: var(--c-surface);
+}
+
+.at-timeline__item[data-current]::after {
+  background: var(--tl-mark);
+}
+
+.at-timeline__item[data-tone='ok'] {
+  --tl-mark: var(--status-ok-fg);
+}
+
+.at-timeline__item[data-tone='attention'] {
+  --tl-mark: var(--status-attention-fg);
+}
+
+.at-timeline__item[data-tone='move'] {
+  --tl-mark: var(--status-move-fg);
+}
+
+.at-timeline__item[data-tone='danger'],
+.at-timeline__item[data-tone='danger-solid'] {
+  --tl-mark: var(--c-clay);
+}
+
+.at-timeline__time {
+  color: var(--c-ink-muted);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.at-timeline__title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.at-timeline__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 2px 0 0;
+  color: var(--c-ink-muted);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}

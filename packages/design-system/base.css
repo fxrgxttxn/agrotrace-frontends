@@ -1,0 +1,134 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--c-ground);
+  color: var(--c-ink);
+  font: 400 var(--fs-14)/var(--lh-14) var(--font-body);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: var(--fs-28);
+  line-height: var(--lh-28);
+  letter-spacing: var(--tracking-display);
+}
+h2 {
+  font-size: var(--fs-22);
+  line-height: var(--lh-22);
+  letter-spacing: var(--tracking-display);
+}
+h3 {
+  font-size: var(--fs-18);
+  line-height: var(--lh-18);
+}
+h4 {
+  font-size: var(--fs-16);
+  line-height: var(--lh-16);
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--c-field);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--c-field-hover);
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--c-straw);
+  color: var(--c-straw-ink);
+}
+
+.at-mono {
+  font-family: var(--font-mono) !important;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'zero' 0;
+  letter-spacing: 0 !important;
+}
+
+.at-visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .at-boot {
+    animation: at-boot-reveal 0s linear 10s forwards !important;
+  }
+}
+
+.at-boot {
+  visibility: hidden;
+  animation: at-boot-reveal 0s linear 10s forwards;
+}
+
+.at-page.at-boot {
+  max-width: 30rem;
+}
+
+@keyframes at-boot-reveal {
+  to {
+    visibility: visible;
+  }
+}

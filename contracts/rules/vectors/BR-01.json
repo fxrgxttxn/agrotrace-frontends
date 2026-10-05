@@ -1,0 +1,169 @@
+{
+  "rule": "BR-01",
+  "fn": "checkWaitingPeriod",
+  "description": "A batch cannot be shipped until the waiting period of the last pesticide treatment on the field has elapsed. until = UTC-date(appliedAt) + waitingPeriodDays; shipment allowed iff shipDate >= until for every treatment; if several treatments still block, the one with the latest until is reported, independent of array order; if two or more share the latest until (a tie), the substance with the smallest name in Unicode code-point order is reported (R21).",
+  "cases": [
+    {
+      "name": "shipDate equals until - allowed (spec boundary)",
+      "input": {
+        "shipDate": "2026-09-24",
+        "treatments": [
+          { "substance": "Substance-A", "appliedAt": "2026-09-10T23:30:00.000Z", "waitingPeriodDays": 14 }
+        ]
+      },
+      "expected": { "ok": true }
+    },
+    {
+      "name": "shipDate one day before until - blocked (spec boundary)",
+      "input": {
+        "shipDate": "2026-09-23",
+        "treatments": [
+          { "substance": "Substance-A", "appliedAt": "2026-09-10T23:30:00.000Z", "waitingPeriodDays": 14 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-09-24", "substance": "Substance-A" }
+    },
+    {
+      "name": "applied same day as shipment - still within waiting period",
+      "input": {
+        "shipDate": "2026-09-10",
+        "treatments": [
+          { "substance": "Substance-B", "appliedAt": "2026-09-10T00:00:00.000Z", "waitingPeriodDays": 7 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-09-17", "substance": "Substance-B" }
+    },
+    {
+      "name": "zero waiting period - shipment same day allowed",
+      "input": {
+        "shipDate": "2026-09-10",
+        "treatments": [
+          { "substance": "Substance-C", "appliedAt": "2026-09-10T00:00:00.000Z", "waitingPeriodDays": 0 }
+        ]
+      },
+      "expected": { "ok": true }
+    },
+    {
+      "name": "no treatments recorded - always allowed",
+      "input": { "shipDate": "2026-09-10", "treatments": [] },
+      "expected": { "ok": true }
+    },
+    {
+      "name": "single treatment far in the past - allowed",
+      "input": {
+        "shipDate": "2026-09-01",
+        "treatments": [
+          { "substance": "Substance-D", "appliedAt": "2026-01-01T00:00:00.000Z", "waitingPeriodDays": 5 }
+        ]
+      },
+      "expected": { "ok": true }
+    },
+    {
+      "name": "multiple treatments - only one still blocking is reported",
+      "input": {
+        "shipDate": "2026-09-15",
+        "treatments": [
+          { "substance": "Substance-A", "appliedAt": "2026-09-01T00:00:00.000Z", "waitingPeriodDays": 10 },
+          { "substance": "Substance-B", "appliedAt": "2026-09-05T00:00:00.000Z", "waitingPeriodDays": 20 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-09-25", "substance": "Substance-B" }
+    },
+    {
+      "name": "multiple treatments both blocking - reports the later until date",
+      "input": {
+        "shipDate": "2026-09-20",
+        "treatments": [
+          { "substance": "Substance-A", "appliedAt": "2026-09-01T00:00:00.000Z", "waitingPeriodDays": 30 },
+          { "substance": "Substance-B", "appliedAt": "2026-09-10T00:00:00.000Z", "waitingPeriodDays": 25 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-10-05", "substance": "Substance-B" }
+    },
+    {
+      "name": "multiple treatments - all waiting periods elapsed, ship on later until date",
+      "input": {
+        "shipDate": "2026-10-05",
+        "treatments": [
+          { "substance": "Substance-A", "appliedAt": "2026-09-01T00:00:00.000Z", "waitingPeriodDays": 30 },
+          { "substance": "Substance-B", "appliedAt": "2026-09-10T00:00:00.000Z", "waitingPeriodDays": 25 }
+        ]
+      },
+      "expected": { "ok": true }
+    },
+    {
+      "name": "waiting period crosses month boundary - blocked one day early",
+      "input": {
+        "shipDate": "2026-02-03",
+        "treatments": [
+          { "substance": "Substance-E", "appliedAt": "2026-01-25T12:00:00.000Z", "waitingPeriodDays": 10 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-02-04", "substance": "Substance-E" }
+    },
+    {
+      "name": "waiting period crosses month boundary - allowed on due date",
+      "input": {
+        "shipDate": "2026-02-04",
+        "treatments": [
+          { "substance": "Substance-E", "appliedAt": "2026-01-25T12:00:00.000Z", "waitingPeriodDays": 10 }
+        ]
+      },
+      "expected": { "ok": true }
+    },
+    {
+      "name": "treatment applied late in UTC day still uses that calendar date",
+      "input": {
+        "shipDate": "2026-09-10",
+        "treatments": [
+          { "substance": "Substance-F", "appliedAt": "2026-09-10T23:59:59.000Z", "waitingPeriodDays": 1 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-09-11", "substance": "Substance-F" }
+    },
+    {
+      "name": "array order does not determine which blocking treatment is reported - later until wins even though it is applied earlier and listed first",
+      "input": {
+        "shipDate": "2026-09-12",
+        "treatments": [
+          { "substance": "A", "appliedAt": "2026-09-01T00:00:00.000Z", "waitingPeriodDays": 40 },
+          { "substance": "B", "appliedAt": "2026-09-10T00:00:00.000Z", "waitingPeriodDays": 5 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-10-11", "substance": "A" }
+    },
+    {
+      "name": "tie on until - reports the substance with the smallest name in Unicode code-point order (R21)",
+      "input": {
+        "shipDate": "2026-09-10",
+        "treatments": [
+          { "substance": "Zeta", "appliedAt": "2026-09-01T00:00:00.000Z", "waitingPeriodDays": 10 },
+          { "substance": "Alpha", "appliedAt": "2026-09-05T00:00:00.000Z", "waitingPeriodDays": 6 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-09-11", "substance": "Alpha" }
+    },
+    {
+      "name": "tie on until - code-point order is case-sensitive, not case-insensitive alphabetical (R21)",
+      "input": {
+        "shipDate": "2026-09-05",
+        "treatments": [
+          { "substance": "beta", "appliedAt": "2026-09-01T00:00:00.000Z", "waitingPeriodDays": 10 },
+          { "substance": "Beta", "appliedAt": "2026-09-03T00:00:00.000Z", "waitingPeriodDays": 8 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-09-11", "substance": "Beta" }
+    },
+    {
+      "name": "tie on until - code points, not UTF-16 code units: U+FF21 sorts before U+1D400 (surrogate pair D835 DC00) (R21, R92)",
+      "input": {
+        "shipDate": "2026-09-05",
+        "treatments": [
+          { "substance": "𝐀", "appliedAt": "2026-09-01T00:00:00.000Z", "waitingPeriodDays": 10 },
+          { "substance": "Ａ", "appliedAt": "2026-09-03T00:00:00.000Z", "waitingPeriodDays": 8 }
+        ]
+      },
+      "expected": { "ok": false, "until": "2026-09-11", "substance": "Ａ" }
+    }
+  ]
+}

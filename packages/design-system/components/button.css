@@ -1,0 +1,167 @@
+.at-button {
+  --btn-bg: var(--c-surface);
+  --btn-fg: var(--c-ink);
+  --btn-border: var(--c-line-strong);
+  --btn-bg-hover: var(--c-surface);
+  --btn-border-hover: var(--c-ink-muted);
+
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-width: var(--touch);
+  min-height: var(--touch);
+  margin: 0;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--btn-border);
+  border-radius: var(--r-m);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font: 500 var(--fs-14) / var(--lh-14) var(--font-body);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.at-button:hover {
+  background: var(--btn-bg-hover);
+  border-color: var(--btn-border-hover);
+  color: var(--btn-fg);
+}
+
+.at-button:active {
+  translate: 0 1px;
+}
+
+.at-button[data-variant='primary'] {
+  --btn-bg: var(--c-field);
+  --btn-fg: var(--c-field-ink);
+  --btn-border: var(--c-field);
+  --btn-bg-hover: var(--c-field-hover);
+  --btn-border-hover: var(--c-field-hover);
+}
+
+.at-button[data-variant='ghost'] {
+  --btn-bg: transparent;
+  --btn-fg: var(--c-field);
+  --btn-border: transparent;
+  --btn-bg-hover: var(--c-surface);
+  --btn-border-hover: var(--c-line);
+}
+
+.at-button[data-variant='danger'] {
+  --btn-bg: var(--c-clay);
+  --btn-fg: var(--c-field-ink);
+  --btn-border: var(--c-clay);
+  --btn-bg-hover: var(--c-clay-hover);
+  --btn-border-hover: var(--c-clay-hover);
+}
+
+.at-button[data-size='s'] {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 var(--sp-3);
+  gap: 6px;
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.at-button[data-size='s']::before {
+  content: '';
+  position: absolute;
+  inset: calc((32px - var(--touch)) / 2 - 1px) -1px;
+}
+
+.at-button[data-size='s'][data-icon-only]::before {
+  inset: calc((32px - var(--touch)) / 2 - 1px);
+}
+
+.at-button__icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.at-button[data-size='s'] .at-button__icon {
+  width: 16px;
+  height: 16px;
+}
+
+.at-button[data-icon-only] {
+  padding: 0;
+}
+
+.at-button:disabled,
+.at-button[aria-disabled='true'] {
+  --btn-bg: var(--c-surface-sunk);
+  --btn-fg: var(--c-ink-muted);
+  --btn-border: var(--c-surface-sunk);
+  --btn-bg-hover: var(--c-surface-sunk);
+  --btn-border-hover: var(--c-surface-sunk);
+  cursor: not-allowed;
+  translate: none;
+}
+
+.at-button[data-variant='ghost']:disabled,
+.at-button[data-variant='ghost'][aria-disabled='true'] {
+  --btn-bg: transparent;
+  --btn-border: transparent;
+  --btn-bg-hover: transparent;
+  --btn-border-hover: transparent;
+}
+
+.at-button[aria-busy='true'] {
+  color: transparent;
+  pointer-events: none;
+}
+
+.at-button[aria-busy='true']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+
+.at-spinner,
+.at-button[aria-busy='true']::after {
+  --spin-c: currentColor;
+  display: inline-block;
+  width: 32px;
+  height: 3px;
+  border-radius: 2px;
+  background:
+    linear-gradient(var(--spin-c) 0 0) 0 0 / 40% 100% no-repeat,
+    repeating-linear-gradient(90deg, var(--spin-c) 0 2px, transparent 2px 5px) 0 50% / 100% 1px no-repeat;
+  animation: at-plough 1.1s var(--ease) infinite;
+}
+
+.at-button[aria-busy='true']::after {
+  --spin-c: var(--btn-fg);
+  width: min(48px, 50%);
+}
+
+.at-spinner {
+  flex: none;
+  vertical-align: middle;
+}
+
+@keyframes at-plough {
+  from {
+    background-position:
+      0 0,
+      0 50%;
+  }
+  to {
+    background-position:
+      100% 0,
+      0 50%;
+  }
+}

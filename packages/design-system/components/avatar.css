@@ -1,0 +1,40 @@
+.at-avatar {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--c-surface-sunk);
+  color: var(--c-ink);
+  font: 600 var(--fs-13) / 1 var(--font-display);
+  box-shadow: inset 0 0 0 1px var(--c-line);
+  user-select: none;
+}
+
+.at-avatar[data-size='s'] {
+  width: 24px;
+  height: 24px;
+  font-size: var(--fs-12);
+}
+
+.at-avatar[data-size='l'] {
+  width: 56px;
+  height: 56px;
+  font-size: var(--fs-18);
+}
+
+.at-avatar[data-shape='square'] {
+  border-radius: var(--r-s);
+}
+
+.at-avatar[data-shape='square'][data-size='l'] {
+  border-radius: var(--r-m);
+}
+
+.at-avatar > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

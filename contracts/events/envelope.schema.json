@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agrotrace.local/contracts/events/envelope.schema.json",
+  "title": "AgroTrace queue event envelope",
+  "description": "Common document of every queue event (spec 8.1, 8.2.1). Transport: each backend publishes only to its own durable topic exchange `agrotrace.{backend}` with routing key = `type`; its worker consumes only the quorum queue `agrotrace.{backend}.jobs` (bound with `#`), so an event is handled by exactly one worker of the backend that created it; rejected messages dead-letter to `agrotrace.{backend}.jobs.dlq`. Express publishes this document as the message body (persistent, content_type application/json, message_id = id); Celery and Laravel Queue pass this document as the single argument of the task/job named by `type` (their wrapper format is library-defined). Transactional outbox (R55, spec 11.2 — events are never lost): the event is written as a row of `outbox_events` (id = event id, backend = the writing implementation, type, payload = this whole document) in the SAME transaction as the state change that causes it (a rollback discards the event too). Relay (R56, at-least-once): after commit the API process publishes the row with publisher confirms, then runs `UPDATE outbox_events SET published_at = now(), attempts = attempts + 1 WHERE id = :id AND published_at IS NULL`; a crash between the two steps only causes a re-publish. A sweeper in every backend (every 5 s, skipped unless pg_try_advisory_lock(hashtext('agrotrace.outbox.{backend}')) succeeds) selects `outbox_events WHERE backend = self AND published_at IS NULL ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 100` and does the same publish, then UPDATE. Rows of a stopped backend wait until that backend starts again (no other implementation publishes them). Events produced by scheduler jobs and worker handlers use the same outbox inside their own transactions. Consumer idempotency (R56): every handler runs in ONE database transaction that starts with `INSERT INTO processed_events(event_id, backend) VALUES (:id, :self) ON CONFLICT DO NOTHING`; if it inserted 0 rows the event was already handled — the transaction is committed empty and the message acknowledged; otherwise all effects of the handler (rows, further outbox events) are written in the same transaction, so a crash before commit leaves the event unclaimed for redelivery. External sends (email, Telegram) after commit are not repeated on redelivery because the claim is committed. Retention (R59): the sweeper also deletes `outbox_events` rows with published_at older than 7 days and `processed_events` rows with processed_at older than 30 days (a duplicate arriving later than 30 days is not expected: the relay republishes only unpublished rows). A failed handler is retried in-process up to 5 times with delays 2, 4, 8, 16, 32 s (each attempt a new transaction), then the message is rejected without requeue and dead-letters to `agrotrace.{backend}.jobs.dlq`. Worker concurrency (R92): a `vsd.import` handler may hold its delivery for about two minutes during a Mercury outage (vsd.import), which must never delay other events (notifications). Every worker process therefore consumes `agrotrace.{backend}.jobs` on two channels, each with basic.qos prefetch 1 (one unacknowledged delivery per channel), and runs at most ONE `vsd.import` handler at a time: a `vsd.import` delivered on one channel while the other channel is handling a `vsd.import` is returned with basic.nack requeue=true after a 1 s pause (no claim, no side effects), so at least one channel always keeps handling the other event types. Requeues count as deliveries: a quorum queue dead-letters a message after `x-delivery-limit` deliveries (RabbitMQ 4 defaults it to 20), so infra/rabbitmq/definitions.json sets `x-delivery-limit` = 1000000 on every jobs queue explicitly — the vsd.import requeue loop during a long Mercury outage never dead-letters a message; real failures still dead-letter after the 5 in-process retries (basic.reject without requeue).",
+  "type": "object",
+  "required": ["id", "type", "occurredAt", "backend", "requestId", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Event id (UUID v4), also the AMQP message_id and `outbox_events.id`; consumers claim it in `processed_events` (R56)."
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "recall.requested",
+        "notification.dispatch",
+        "lab.escalate",
+        "rating.recalculate",
+        "vsd.import"
+      ]
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Clock time (UTC, ISO 8601 with Z) of the INSERT into `outbox_events`, i.e. inside the causing transaction, before its commit (R59)."
+    },
+    "backend": {
+      "type": "string",
+      "enum": ["express", "django", "laravel"]
+    },
+    "requestId": {
+      "type": ["string", "null"],
+      "maxLength": 64,
+      "description": "X-Request-Id of the API request that caused the event; null for scheduler jobs. An event published by a worker copies the requestId of the event being handled."
+    },
+    "data": {
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,913 @@
+# Модуль Batches (FR-PROD-03, FR-PROD-07, FR-PROD-08). Видимость партий — в описании тега Batches (openapi.yaml).
+/batches:
+  get:
+    operationId: listBatches
+    summary: Список партий
+    description: |
+      Партии, видимые пользователю (п. 4.2, описание тега Batches). Фильтры (объединяются по И):
+
+      - `status` — один или несколько статусов (`status=Approved&status=Accepted`), партия подходит при совпадении с любым;
+      - `productId`; `kind`;
+      - `holder` — `all` (по умолчанию): все видимые партии; `me`: только партии, текущий держатель которых —
+        организация пользователя. Для INSPECTOR, ADMIN и LAB организация не держит партий, поэтому `holder=me`
+        даёт пустую страницу;
+      - `origin` — `all` (по умолчанию) или `me`: только партии, созданные организацией пользователя
+        (`origin_org_id` = организация пользователя; для INSPECTOR, ADMIN и LAB — пустая страница);
+      - `orgId` — только для INSPECTOR и ADMIN: партии, у которых эта организация — создатель или текущий
+        держатель; для остальных ролей параметр запрещён — 400 `errors.orgId: [validation.orgId.notAllowed]`
+        (R49);
+      - `from`/`to` — по дате UTC производства: `harvestedAt` у RAW, `producedAt` у DERIVED;
+      - `q` — подстрока `publicCode` без учёта регистра.
+
+      Сортировка — `x-sort`.
+    tags: [Batches]
+    x-roles: [ANY]
+    x-sort:
+      fields: [publicCode, massKg, updatedAt, harvestedAt, producedAt]
+      default: updatedAt,desc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: status
+        in: query
+        description: Фильтр по статусам (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/common.yaml#/BatchStatus'
+      - name: productId
+        in: query
+        description: Фильтр по продукту.
+        schema:
+          type: string
+          format: uuid
+      - name: holder
+        in: query
+        description: '`me` — только партии у организации пользователя; `all` — все видимые.'
+        schema:
+          type: string
+          enum: [me, all]
+          default: all
+      - name: origin
+        in: query
+        description: '`me` — только партии, созданные организацией пользователя; `all` — все видимые.'
+        schema:
+          type: string
+          enum: [me, all]
+          default: all
+      - name: orgId
+        in: query
+        description: Партии, у которых организация — создатель или держатель (только INSPECTOR и ADMIN).
+        schema:
+          type: string
+          format: uuid
+      - name: kind
+        in: query
+        description: Фильтр по виду партии.
+        schema:
+          $ref: '../schemas/batches.yaml#/BatchKind'
+      - $ref: '../components/parameters.yaml#/DateFrom'
+      - $ref: '../components/parameters.yaml#/DateTo'
+    responses:
+      '200':
+        description: Страница партий.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/batches.yaml#/BatchPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  post:
+    operationId: createBatch
+    summary: Регистрация сырьевой партии
+    description: |
+      Создаёт сырьевую партию (FR-PROD-03, БП-1) в одной транзакции:
+
+      1. Проверки тела — 400 (см. `BatchCreate`).
+
+      2. Вставка: `publicCode` = `next_batch_code()`, `kind` = RAW, `origin` = `holder` = организация пользователя,
+      статус Created, `version` = 1; история: null → Created, `reason` CREATED, автор — пользователь.
+
+      3. Риск-модель BR-03 (`requiresLabTest`): `farmBatchCount` — число неудалённых RAW-партий хозяйства,
+      созданных до этой; `trustRating` — текущий рейтинг хозяйства; `pesticideTreatmentsLast30Days` — число
+      неудалённых обработок поля препаратами типа PESTICIDE с `appliedAt` в интервале [сейчас − 30 суток, сейчас].
+      Результат пишется в `testRequired`/`testReason`.
+
+      4. Анализ не нужен — переход Created → Approved (`reason` TEST_NOT_REQUIRED, автор null).
+      Нужен — назначается лаборатория: организация типа LAB в статусе ACTIVE с наименьшим числом неудалённых
+      анализов в статусах QUEUED, SAMPLED, ESCALATED; сначала среди лабораторий региона поля, если их нет — среди
+      всех; при равенстве — наименьший `id` (как текст, по кодовым точкам). Создаётся анализ (`reason` = PLANNED для SAMPLED,
+      иначе RISK; статус QUEUED; срок = 5 рабочих дней, `addWorkingDays`) и выполняется переход Created → OnTest
+      (`reason` TEST_REQUIRED, автор null). Если анализ нужен, а активных лабораторий нет ни одной, транзакция
+      откатывается целиком (партия не создаётся, номер последовательности `batch_code_seq` расходуется) —
+      409 NO_LAB_AVAILABLE без `params` (R42).
+
+      5. ВСД (R81, п. 11 — ФГИС «Меркурий»): если категория продукта DAIRY или MEAT — строка `batch_documents`
+      (`kind` VSD, `import_status` PENDING, `attempts` 0) и в outbox событие `vsd.import`
+      (`contracts/events/vsd.import.schema.json`); импорт выполняет воркер после коммита, его исход (IMPORTED,
+      NOT_FOUND, FAILED) на статус партии не влияет и в ответе не отражается (`getBatchDocuments`).
+
+      Каждый переход увеличивает `version` на 1. Ответ — карточка с итоговым статусом (OnTest или Approved).
+    tags: [Batches]
+    x-roles: [FARMER]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/batches.yaml#/BatchCreate'
+    responses:
+      '201':
+        description: Партия создана, решение риск-модели применено.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/batches.yaml#/Batch'
+            example:
+              id: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+              publicCode: AT-2026-000123
+              product:
+                id: 7a2b4c6d-8e0f-4a1b-9c3d-5e7f9a1b3c5d
+                name: Пшеница озимая
+                category: GRAIN
+                imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+              massKg: '12480.000'
+              status: OnTest
+              kind: RAW
+              holder:
+                id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                name: КФХ Петров
+                type: FARM
+                logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+              origin:
+                id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                name: КФХ Петров
+                type: FARM
+                logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+              harvestedAt: '2026-07-18T06:00:00Z'
+              producedAt: null
+              updatedAt: '2026-07-18T16:40:00Z'
+              field:
+                id: 2e4a6c8e-0b2d-4f6a-8c0e-2b4d6f8a0c2e
+                name: Участок «Восточный-3»
+              testRequired: true
+              testReason: RECENT_PESTICIDE
+              version: 2
+              actions: []
+              qrGeneratedAt: null
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '409':
+        description: Риск-модель требует анализа, но нет ни одной лаборатории в статусе ACTIVE (NO_LAB_AVAILABLE).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/no-lab-available
+              title: No laboratory available
+              status: 409
+              code: NO_LAB_AVAILABLE
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/batches/{id}:
+  get:
+    operationId: getBatch
+    summary: Карточка партии
+    description: Партия не существует, удалена или не видна пользователю (п. 4.2) — 404.
+    tags: [Batches]
+    x-roles: [ANY]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: Карточка партии с действиями, доступными пользователю.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/batches.yaml#/Batch'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/batches/{id}/graph:
+  get:
+    operationId: getBatchGraph
+    summary: Граф связанных партий
+    description: >-
+      Родители и потомки партии в графе переработки на `depth` уровней в обе стороны (FR-PROD-07); состав
+      и порядок — в описании `BatchGraph`. Корень не виден пользователю — 404; `depth` вне 1..5 или не целое —
+      400 `errors.depth: [validation.range]`.
+    tags: [Batches]
+    x-roles: [ANY]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - name: depth
+        in: query
+        description: Глубина обхода в каждую сторону.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 2
+    responses:
+      '200':
+        description: Граф партии.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/batches.yaml#/BatchGraph'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/batches/{id}/history:
+  get:
+    operationId: getBatchHistory
+    summary: История статусов партии
+    description: >-
+      Все записи `batch_status_history` партии без пагинации (их число ограничено жизненным циклом), по
+      `changedAt` по возрастанию, при равенстве — в порядке вставки. Невидимая партия — 404.
+    tags: [Batches]
+    x-roles: [ANY]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: История статусов.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/batches.yaml#/StatusHistoryItem'
+            example:
+              - from: null
+                to: Created
+                changedAt: '2026-07-18T16:40:00Z'
+                reason: CREATED
+                changedBy:
+                  fullName: Петров Иван Сергеевич
+                  avatarUrl: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+              - from: Created
+                to: OnTest
+                changedAt: '2026-07-18T16:40:00Z'
+                reason: TEST_REQUIRED
+                changedBy: null
+              - from: OnTest
+                to: Approved
+                changedAt: '2026-07-25T14:10:00Z'
+                reason: LAB_PASS
+                changedBy: null
+              - from: Approved
+                to: InTransit
+                changedAt: '2026-08-01T08:15:00Z'
+                reason: WAYBILL_SENT
+                changedBy:
+                  fullName: Петров Иван Сергеевич
+                  avatarUrl: null
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/batches/{id}/path:
+  get:
+    operationId: getBatchPath
+    summary: Путь партии по держателям
+    description: >-
+      Этапы владения в хронологическом порядке (правило построения — в описании `PathStep`), без пагинации.
+      Невидимая партия — 404.
+    tags: [Batches]
+    x-roles: [ANY]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: Путь партии.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              type: array
+              minItems: 1
+              items:
+                $ref: '../schemas/batches.yaml#/PathStep'
+            example:
+              - org:
+                  id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+                  name: КФХ Петров
+                  type: FARM
+                  logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+                from: '2026-07-18T06:00:00Z'
+                to: '2026-08-02T09:30:00Z'
+                waybillNumber: null
+              - org:
+                  id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+                  name: ООО «Кубанский мукомол»
+                  type: PROCESSOR
+                  logoUrl: null
+                from: '2026-08-02T09:30:00Z'
+                to: null
+                waybillNumber: WB-2026-000017
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/batches/{id}/qr:
+  post:
+    operationId: createBatchQr
+    summary: Генерация QR-кода партии
+    description: |
+      Генерирует и сохраняет QR для печати (FR-PROD-08, R43, R44). Блокировки (R47): партия `FOR UPDATE`;
+      проверки — над заблокированной строкой. Порядок проверок:
+
+      1. Партия не видна — 404.
+
+      2. Организация пользователя не держатель — 403 `{reason: NOT_HOLDER}`.
+
+      3. Статус не допускает QR — 403 `{reason: BATCH_STATUS, status}`. Допускается: Accepted или OnSale;
+      Approved — только для производной (DERIVED) партии, у которой организация пользователя — и создатель
+      (`origin`), и держатель, при роли PROCESSOR.
+
+      Результат: PNG (QR с `publicUrl`, уровень коррекции M,
+      1024 × 1024 px, чёрный на белом, поле 4 модуля) и PDF (этикетка A6: QR, `publicCode`, название продукта,
+      организация-создатель) сохраняются как файлы вида QR (`originalName` = `{publicCode}.png` / `{publicCode}.pdf`);
+      `batches.qr_png_file_id` / `qr_pdf_file_id` указывают на новые файлы, прежние файлы QR партии (если были)
+      мягко удаляются — ранее выданные на них ссылки перестают работать (404). `qrGeneratedAt` = текущее время;
+      `version` партии не меняется. Ссылки в ответе подписаны (R28), действуют 3600 с.
+    tags: [Batches]
+    x-roles: [PROCESSOR, RETAILER]
+    x-locks: [batches]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/batches.yaml#/QrRequest'
+    responses:
+      '201':
+        description: QR сгенерирован.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/batches.yaml#/QrLinks'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/QrForbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Повторная взаимоблокировка после одного повтора транзакции (VERSION_CONFLICT без `params`, R47).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/version-conflict
+              title: Version conflict
+              status: 409
+              code: VERSION_CONFLICT
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  get:
+    operationId: downloadBatchQr
+    summary: Скачивание QR-кода партии
+    description: >-
+      Отдаёт сохранённый при последней генерации (`POST`) файл QR в выбранном формате — те же байты, что по
+      подписанным ссылкам, поэтому ответ и `ETag` одинаковы во всех реализациях (R43). Проверки 1–3 — как в
+      `createBatchQr`; затем QR ещё не генерировался (`qr_png_file_id`/`qr_pdf_file_id` пусты) — 404 NOT_FOUND.
+      `Content-Disposition: inline; filename="{publicCode}.png|pdf"`; `ETag` — sha256 файла, `If-None-Match` → 304;
+      `Cache-Control: private, max-age=0, must-revalidate`.
+    tags: [Batches]
+    x-roles: [PROCESSOR, RETAILER]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - name: format
+        in: query
+        required: true
+        description: Формат файла.
+        schema:
+          type: string
+          enum: [png, pdf]
+        example: png
+      - $ref: '../components/parameters.yaml#/IfNoneMatch'
+    responses:
+      '200':
+        description: Файл QR (PNG 1024 × 1024 px или PDF-этикетка A6).
+        headers:
+          ETag:
+            $ref: '../components/headers.yaml#/ETag'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlPrivate'
+          Content-Length:
+            $ref: '../components/headers.yaml#/ContentLength'
+          Content-Disposition:
+            description: '`inline; filename="{publicCode}.png"` или `inline; filename="{publicCode}.pdf"`.'
+            schema:
+              type: string
+              pattern: '^inline; filename="AT-\d{4}-\d{6,}\.(png|pdf)"$'
+            example: inline; filename="AT-2026-000123.png"
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          image/png:
+            schema:
+              $ref: '../schemas/files.yaml#/FileBinary'
+          application/pdf:
+            schema:
+              $ref: '../schemas/files.yaml#/FileBinary'
+      '304':
+        $ref: '../components/responses.yaml#/NotModified'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/QrForbidden'
+      '404':
+        description: Партия не видна или QR для неё ещё не генерировался (NOT_FOUND).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/not-found
+              title: QR not generated
+              status: 404
+              code: NOT_FOUND
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/batches/{id}/documents:
+  get:
+    operationId: getBatchDocuments
+    summary: Документы партии
+    description: >-
+      Сопроводительные документы партии (R81): ВСД из ФГИС «Меркурий» (`vsd`, null — у партии нет ВСД: продукт не
+      DAIRY/MEAT или партия производная), протоколы испытаний неудалённых анализов партии с загруженным протоколом
+      и ссылки на сохранённые QR-файлы (null — QR не генерировался). Видимость партии — как у `getBatch` (невидимая
+      партия — 404); содержимое фильтруется по правам пользователя (R91, при нескольких ролях — объединение):
+      `labProtocols` — только анализы, видимые ему по правилам тега Lab (LAB — только анализы своей лаборатории;
+      INSPECTOR и ADMIN — все; FARMER, PROCESSOR, RETAILER — все анализы видимой партии), остальные не
+      перечисляются (массив может быть пустым); `qr` — только если пользователь может скачать QR
+      (`downloadBatchQr`: роль PROCESSOR или RETAILER, организация — держатель партии, статус допускает QR — R43,
+      R44), иначе null, даже если QR генерировался. Ссылки на протоколы и QR подписаны (R28, 3600 с).
+    tags: [Batches]
+    x-roles: [ANY]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: Документы партии.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/batches.yaml#/BatchDocuments'
+            examples:
+              holder:
+                summary: PROCESSOR организации-держателя, партия Accepted — все протоколы и QR (R91)
+                value:
+                  batchId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+                  vsd: null
+                  labProtocols:
+                    - labTestId: 8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e
+                      lab:
+                        id: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+                        name: АНО «Ветеринарный испытательный центр Клязьма»
+                        type: LAB
+                        logoUrl: null
+                      reason: RISK
+                      conclusion: PASS
+                      completedAt: '2026-07-20T09:00:00Z'
+                      file:
+                        id: 3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f
+                        url: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+                        mime: application/pdf
+                        sizeBytes: 48211
+                        originalName: protocol-AT-2026-000123.pdf
+                    - labTestId: 9a1b3c5d-7e9f-4a1b-8c3d-5e7f9a1b3c5d
+                      lab:
+                        id: 6b8d0f2a-4c6e-4b8d-9f2a-4c6e8b0d2f4a
+                        name: АНО «Лаборатория Приокская»
+                        type: LAB
+                        logoUrl: null
+                      reason: COMPLAINT
+                      conclusion: PASS
+                      completedAt: '2026-08-05T11:30:00Z'
+                      file:
+                        id: 4d0e8f2a-3b5c-4d7e-9f1a-2b3c4d5e6f7a
+                        url: /api/v1/files/4d0e8f2a-3b5c-4d7e-9f1a-2b3c4d5e6f7a?exp=1790247600&sig=0a3d5f7b9c1e2a4b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b
+                        mime: application/pdf
+                        sizeBytes: 51007
+                        originalName: protocol-2.pdf
+                  qr:
+                    publicUrl: http://react-express.localhost/p/AT-2026-000123
+                    pngUrl: /api/v1/files/6a8c0e2a-4c6e-4a8c-9e0a-2c4e6a8c0e2a?exp=1790247600&sig=1d3f5b7d9f1b3d5f7b9d1f3b5d7f9b1d3f5b7d9f1b3d5f7b9d1f3b5d7f9b1d3f
+                    pdfUrl: /api/v1/files/7b9d1f3b-5d7f-4b9d-8f1b-3d5f7b9d1f3b?exp=1790247600&sig=2e4a6c8e0a2c4e6a8c0e2a4c6e8a0c2e4a6c8e0a2c4e6a8c0e2a4c6e8a0c2e4a
+              lab:
+                summary: >-
+                  LAB «Клязьма» — та же партия: только протокол своей лаборатории, `qr` null (QR генерировался, но
+                  LAB не может его скачать; R91)
+                value:
+                  batchId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+                  vsd: null
+                  labProtocols:
+                    - labTestId: 8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e
+                      lab:
+                        id: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+                        name: АНО «Ветеринарный испытательный центр Клязьма»
+                        type: LAB
+                        logoUrl: null
+                      reason: RISK
+                      conclusion: PASS
+                      completedAt: '2026-07-20T09:00:00Z'
+                      file:
+                        id: 3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f
+                        url: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+                        mime: application/pdf
+                        sizeBytes: 48211
+                        originalName: protocol-AT-2026-000123.pdf
+                  qr: null
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/batches/{id}/documents/vsd/retry:
+  post:
+    operationId: retryBatchVsdImport
+    summary: Повторный импорт ВСД
+    description: |
+      Запускает импорт ВСД из ФГИС «Меркурий» заново (R81), если прошлый завершился NOT_FOUND или FAILED. Первая
+      сработавшая проверка возвращается:
+
+      1. Формат `Idempotency-Key` и повтор по нему (описание параметра).
+
+      Блокировки (R47, R52): партия `FOR UPDATE`, затем строка `batch_documents` (VSD) `FOR UPDATE`; шаги 2–5 — над
+      заблокированными строками.
+
+      2. Партия не видна — 404.
+
+      3. Организация пользователя не держатель — 403 `{reason: NOT_HOLDER}`.
+
+      4. У партии нет ВСД (продукт не DAIRY/MEAT или партия производная) — 404 NOT_FOUND.
+
+      5. Импорт не в NOT_FOUND и не в FAILED — 409 INVALID_TRANSITION `{from: <importStatus>, to: PENDING}`.
+
+      Результат (одна транзакция): `import_status` = PENDING, `attempts` = 0, `last_error` = null, найденные ранее поля
+      документа не меняются (у NOT_FOUND/FAILED их нет); аудит `retryBatchVsdImport` (entityType batchDocument); в
+      outbox — событие `vsd.import` (`contracts/events/vsd.import.schema.json`). Ответ 202 — ВСД в состоянии PENDING;
+      результат импорта приходит асинхронно (`getBatchDocuments`). Статус и версия партии не меняются.
+    tags: [Batches]
+    x-roles: [FARMER, PROCESSOR]
+    x-idempotent: true
+    x-locks: [batches, batchDocument]
+    x-transition: { entity: vsdImport, action: retry, to: PENDING }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/IdempotencyKey'
+    responses:
+      '202':
+        description: Импорт поставлен в очередь.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+          Idempotent-Replayed:
+            $ref: '../components/headers.yaml#/IdempotentReplayed'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/batches.yaml#/BatchVsd'
+            example:
+              id: 4e6a8c0e-2a4c-4e6a-8c0e-2a4c6e8a0c2e
+              importStatus: PENDING
+              document: null
+              attempts: 0
+              requestedAt: '2026-07-19T07:30:00Z'
+              updatedAt: '2026-07-21T10:15:00Z'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        description: Роль не FARMER/PROCESSOR (FORBIDDEN без `params`) или организация не держатель партии (NOT_HOLDER).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/forbidden
+              title: Not the batch holder
+              status: 403
+              code: FORBIDDEN
+              params:
+                reason: NOT_HOLDER
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: >-
+          INVALID_TRANSITION (импорт не в NOT_FOUND/FAILED), VERSION_CONFLICT без `params` (повторная взаимоблокировка,
+          R47), IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_KEY_IN_PROGRESS (`Retry-After: 1`).
+        headers:
+          Retry-After:
+            $ref: '../components/headers.yaml#/RetryAfterInProgress'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              importInProgress:
+                summary: Импорт ещё выполняется
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: PENDING
+                    to: PENDING
+              versionConflict:
+                summary: Повторная взаимоблокировка
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+              idempotencyKeyReused:
+                summary: Ключ уже использован для другого запроса
+                value:
+                  type: /problems/idempotency-key-reused
+                  title: Idempotency key reused
+                  status: 409
+                  code: IDEMPOTENCY_KEY_REUSED
+              idempotencyKeyInProgress:
+                summary: Первый запрос с этим ключом ещё выполняется
+                value:
+                  type: /problems/idempotency-key-in-progress
+                  title: Idempotency key in progress
+                  status: 409
+                  code: IDEMPOTENCY_KEY_IN_PROGRESS
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/batches/{id}/on-sale:
+  post:
+    operationId: putBatchOnSale
+    summary: Выставление партии в продажу
+    description: |
+      Переход Accepted → OnSale (действие `putOnSale`; R20 — только из Accepted). Блокировки (R47): партия
+      `FOR UPDATE`; проверки — над заблокированной строкой, `If-Match` — compare-and-set. Порядок проверок:
+
+      1. Партия не видна — 404.
+
+      2. Организация пользователя не держатель — 403 `{reason: NOT_HOLDER}`.
+
+      3. `If-Match` ≠ `version` — 409 VERSION_CONFLICT `{currentVersion}`.
+
+      4. Статус не Accepted — 409 INVALID_TRANSITION `{from: <статус>, to: OnSale}`.
+
+      Результат: история (`reason` ON_SALE, автор — пользователь), `version` + 1, сброс кэша публичной
+      страницы `pub:batch:{publicCode}`.
+    tags: [Batches]
+    x-roles: [RETAILER]
+    x-locks: [batches]
+    x-transition: { entity: batch, action: putOnSale, to: OnSale }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/IfMatch'
+    responses:
+      '200':
+        description: Партия в продаже.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/batches.yaml#/Batch'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/BatchForbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Устаревшая версия (VERSION_CONFLICT) или статус не Accepted (INVALID_TRANSITION).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              versionConflict:
+                summary: Устаревшая версия
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+                  params:
+                    currentVersion: 6
+              invalidTransition:
+                summary: Партия не в статусе Accepted
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: OnSale
+                    to: OnSale
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/batches/{id}/sold:
+  post:
+    operationId: markBatchSold
+    summary: Реализация партии
+    description: |
+      Переход OnSale → Sold (действие `sell`). Блокировки (R47) и порядок проверок — как в `putBatchOnSale`;
+      статус не OnSale —
+      409 INVALID_TRANSITION `{from: <статус>, to: Sold}`. Результат: история (`reason` SOLD), `version` + 1,
+      сброс кэша публичной страницы. Держатель не меняется.
+    tags: [Batches]
+    x-roles: [RETAILER]
+    x-locks: [batches]
+    x-transition: { entity: batch, action: sell, to: Sold }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/IfMatch'
+    responses:
+      '200':
+        description: Партия реализована.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/batches.yaml#/Batch'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/BatchForbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: Устаревшая версия (VERSION_CONFLICT) или статус не OnSale (INVALID_TRANSITION).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              versionConflict:
+                summary: Устаревшая версия
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+                  params:
+                    currentVersion: 7
+              invalidTransition:
+                summary: Партия не в продаже
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: Recalled
+                    to: Sold
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

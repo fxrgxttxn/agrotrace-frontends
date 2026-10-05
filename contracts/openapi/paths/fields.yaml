@@ -1,0 +1,183 @@
+# Модуль Fields (поля хозяйства, FR-PROD-01).
+# Видимость: FARMER — поля своей организации; INSPECTOR и ADMIN — все поля (только чтение); остальные роли — 403.
+/fields:
+  get:
+    operationId: listFields
+    summary: Список полей
+    description: >-
+      FARMER видит неудалённые поля своего хозяйства, INSPECTOR и ADMIN — всех хозяйств. Фильтры: `q` — подстрока
+      названия без учёта регистра; `regionCode`; `organizationId` — только для INSPECTOR и ADMIN (FARMER с этим параметром — 400
+      `errors.organizationId: [validation.organizationId.notAllowed]`, R51). Сортировка — `x-sort`.
+    tags: [Fields]
+    x-roles: [FARMER, INSPECTOR, ADMIN]
+    x-sort:
+      fields: [name, areaHa, lastTreatmentAt, createdAt]
+      default: name,asc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: regionCode
+        in: query
+        description: Фильтр по коду региона поля.
+        schema:
+          $ref: '../schemas/dictionaries-ref.yaml#/RegionCode'
+      - name: organizationId
+        in: query
+        description: Фильтр по хозяйству (только INSPECTOR и ADMIN, иначе 400 `validation.organizationId.notAllowed`, R51).
+        schema:
+          type: string
+          format: uuid
+    responses:
+      '200':
+        description: Страница полей.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/fields.yaml#/FieldPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  post:
+    operationId: createField
+    summary: Создание поля
+    description: >-
+      Создаёт поле в хозяйстве пользователя. Неизвестный `regionCode` — 400 `errors.regionCode: [validation.notFound]`;
+      незамкнутое кольцо контура — 400 `errors.geometry: [validation.geometry.ringNotClosed]`.
+    tags: [Fields]
+    x-roles: [FARMER]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/fields.yaml#/FieldInput'
+    responses:
+      '201':
+        description: Поле создано.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/fields.yaml#/Field'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/fields/{id}:
+  get:
+    operationId: getField
+    summary: Карточка поля
+    description: Поле чужого хозяйства (для FARMER) или удалённое поле — 404.
+    tags: [Fields]
+    x-roles: [FARMER, INSPECTOR, ADMIN]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '200':
+        description: Карточка поля.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/fields.yaml#/Field'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  put:
+    operationId: updateField
+    summary: Изменение поля
+    description: >-
+      Полная замена полей `FieldInput` (без оптимистичной блокировки — у полей нет `version`, побеждает
+      последняя запись). Поле чужого хозяйства или удалённое — 404; ошибки тела — как в `createField`.
+    tags: [Fields]
+    x-roles: [FARMER]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/fields.yaml#/FieldInput'
+    responses:
+      '200':
+        description: Обновлённое поле.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/fields.yaml#/Field'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  delete:
+    operationId: deleteField
+    summary: Удаление поля
+    description: >-
+      Мягкое удаление (`deleted_at`) с записью в журнал аудита. Обработки поля не удаляются и продолжают
+      учитываться в BR-01 для уже созданных партий; партии сохраняют ссылку `field` на удалённое поле.
+      Новые партии и обработки на удалённом поле создать нельзя. Поле чужого хозяйства или уже удалённое — 404.
+    tags: [Fields]
+    x-roles: [FARMER]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    responses:
+      '204':
+        description: Поле удалено.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

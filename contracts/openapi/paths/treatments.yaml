@@ -1,0 +1,151 @@
+# Журнал обработок полей (FR-PROD-02). Видимость обработки = видимость её поля (см. fields.yaml).
+/fields/{id}/treatments:
+  get:
+    operationId: listFieldTreatments
+    summary: Обработки поля
+    description: >-
+      Неудалённые обработки поля. Фильтры: `substanceId`; `from`/`to` — по дате UTC `appliedAt` включительно.
+      Невидимое или удалённое поле — 404. Сортировка — `x-sort`.
+    tags: [Fields]
+    x-roles: [FARMER, INSPECTOR, ADMIN]
+    x-sort:
+      fields: [appliedAt, createdAt]
+      default: appliedAt,desc
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - name: substanceId
+        in: query
+        description: Фильтр по препарату.
+        schema:
+          type: string
+          format: uuid
+      - $ref: '../components/parameters.yaml#/DateFrom'
+      - $ref: '../components/parameters.yaml#/DateTo'
+    responses:
+      '200':
+        description: Страница обработок.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/fields.yaml#/TreatmentPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+  post:
+    operationId: createTreatment
+    summary: Запись обработки поля
+    description: >-
+      Добавляет обработку в журнал поля своего хозяйства. Невидимое или удалённое поле — 404; ошибки тела —
+      в описании `TreatmentInput`.
+    tags: [Fields]
+    x-roles: [FARMER]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/fields.yaml#/TreatmentInput'
+    responses:
+      '201':
+        description: Обработка записана.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/fields.yaml#/Treatment'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/treatments/{id}:
+  put:
+    operationId: updateTreatment
+    summary: Изменение обработки
+    description: |
+      Полная замена полей `TreatmentInput`. Порядок проверок:
+
+      1. Тело по схеме — 400.
+
+      2. Обработка не существует, удалена или её поле не видно (чужое хозяйство, поле удалено) — 404.
+
+      3. Окно редактирования закрыто: текущее время сервера > `editableUntil` (`createdAt` + 24 ч, граница
+      включительно, функция `canEditTreatment`) — 403 FORBIDDEN, `params` = `{reason: EDIT_WINDOW_CLOSED,
+      editableUntil}`. Окно отсчитывается от создания записи, а не от `appliedAt`, и не продлевается изменением.
+
+      4. Ссылки и даты тела (`substanceId`, `appliedAt`) — 400, как при создании.
+    tags: [Fields]
+    x-roles: [FARMER]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/fields.yaml#/TreatmentInput'
+    responses:
+      '200':
+        description: Обновлённая обработка.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/fields.yaml#/Treatment'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        description: Роль не FARMER (FORBIDDEN без `params`) или окно редактирования закрыто (`params.reason` = EDIT_WINDOW_CLOSED).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/forbidden
+              title: Edit window closed
+              status: 403
+              code: FORBIDDEN
+              params:
+                reason: EDIT_WINDOW_CLOSED
+                editableUntil: '2026-06-03T15:20:00Z'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

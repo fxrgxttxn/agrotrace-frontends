@@ -1,0 +1,64 @@
+.at-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'label label'
+    'value spark';
+  align-items: end;
+  gap: var(--sp-2) var(--sp-4);
+  min-width: 0;
+  padding: var(--sp-5);
+  border-radius: var(--r-l);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-1);
+}
+
+.at-metric__label {
+  grid-area: label;
+  margin: 0;
+  color: var(--c-ink-muted);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.at-metric__value {
+  grid-area: value;
+  margin: 0;
+  color: var(--c-ink);
+  font: 600 var(--fs-28) / var(--lh-28) var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-display);
+  white-space: nowrap;
+}
+
+.at-metric__unit {
+  margin-left: 4px;
+  color: var(--c-ink-muted);
+  font: 500 var(--fs-14) / var(--lh-14) var(--font-body);
+  letter-spacing: 0;
+}
+
+.at-metric__delta {
+  display: block;
+  margin-top: 2px;
+  color: var(--c-ink-muted);
+  font: 500 var(--fs-13) / var(--lh-13) var(--font-body);
+  letter-spacing: 0;
+}
+
+.at-metric__spark {
+  grid-area: spark;
+  width: 96px;
+  height: 32px;
+  color: var(--c-field);
+}
+
+.at-metric__spark svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.at-metric[data-tone='danger'] .at-metric__spark {
+  color: var(--c-clay);
+}

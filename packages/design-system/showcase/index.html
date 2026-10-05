@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Основа — «Поле»</title>
+    <link rel="stylesheet" href="../index.css" />
+    <link rel="stylesheet" href="showcase.css" />
+    <script src="showcase.js" defer></script>
+  </head>
+  <body>
+    <header class="ds-header">
+      <a class="ds-brand" href="index.html" data-ds-keep-theme>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <path d="M4 20 9 4M10 20l5-16M16 20l4-13" />
+        </svg>
+        Поле
+      </a>
+      <nav aria-label="Разделы витрины">
+        <ul class="ds-nav">
+          <li><a href="index.html" aria-current="page" data-ds-keep-theme>Основа</a></li>
+          <li><a href="forms.html" data-ds-keep-theme>Формы</a></li>
+          <li><a href="data.html" data-ds-keep-theme>Данные</a></li>
+          <li><a href="shell.html" data-ds-keep-theme>Каркас</a></li>
+          <li><a href="icons.html" data-ds-keep-theme>Графика</a></li>
+        </ul>
+      </nav>
+    </header>
+
+    <main class="ds-cols">
+      <div class="ds-col">
+        <h1>Основа</h1>
+
+        <section class="ds-section" aria-labelledby="s-color">
+          <h2 id="s-color">Цвета</h2>
+          <div class="ds-swatches">
+            <div class="ds-swatch" style="--swatch: var(--c-ground)">Фон<code>--c-ground</code></div>
+            <div class="ds-swatch" style="--swatch: var(--c-surface)">
+              Поверхность<code>--c-surface</code>
+            </div>
+            <div class="ds-swatch" style="--swatch: var(--c-surface-sunk)">
+              Подложка<code>--c-surface-sunk</code>
+            </div>
+            <div class="ds-swatch" style="--swatch: var(--c-line)">Линия<code>--c-line</code></div>
+            <div class="ds-swatch" style="--swatch: var(--c-ink)">Почва<code>--c-ink</code></div>
+            <div class="ds-swatch" style="--swatch: var(--c-ink-muted)">
+              Суглинок<code>--c-ink-muted</code>
+            </div>
+            <div class="ds-swatch" style="--swatch: var(--c-field)">Поле<code>--c-field</code></div>
+            <div class="ds-swatch" style="--swatch: var(--c-straw)">Солома<code>--c-straw</code></div>
+            <div class="ds-swatch" style="--swatch: var(--c-clay)">Глина<code>--c-clay</code></div>
+            <div class="ds-swatch" style="--swatch: var(--c-straw-soft)">
+              Выделение<code>--c-straw-soft</code>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-status">
+          <h2 id="s-status">Группы статусов</h2>
+          <div class="ds-row">
+            <span class="at-chip" data-tone="neutral">Нейтральный</span>
+            <span class="at-chip" data-tone="attention">Внимание</span>
+            <span class="at-chip" data-tone="ok">Норма</span>
+            <span class="at-chip" data-tone="move">Движение</span>
+            <span class="at-chip" data-tone="danger">Опасность</span>
+            <span class="at-chip" data-tone="danger-solid">Опасность, сплошная</span>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-type">
+          <h2 id="s-type">Шрифты</h2>
+          <div class="ds-type">
+            <div>
+              <span class="ds-name">36 / 40</span>
+              <p
+                style="
+                  font: 700 var(--fs-36) / var(--lh-36) var(--font-display);
+                  letter-spacing: var(--tracking-display);
+                "
+              >
+                Пшеница озимая
+              </p>
+            </div>
+            <div>
+              <span class="ds-name">28 / 34</span>
+              <p
+                style="
+                  font: 600 var(--fs-28) / var(--lh-28) var(--font-display);
+                  letter-spacing: var(--tracking-display);
+                "
+              >
+                Партии
+              </p>
+            </div>
+            <div>
+              <span class="ds-name">22 / 28</span>
+              <p
+                style="
+                  font: 600 var(--fs-22) / var(--lh-22) var(--font-display);
+                  letter-spacing: var(--tracking-display);
+                "
+              >
+                Очередь проб
+              </p>
+            </div>
+            <div>
+              <span class="ds-name">18 / 24</span>
+              <p style="font: 600 var(--fs-18) / var(--lh-18) var(--font-display)">Карточка отзыва</p>
+            </div>
+            <div>
+              <span class="ds-name">16 / 24</span>
+              <p style="font-size: var(--fs-16); line-height: var(--lh-16)">
+                Отгрузка возможна после 25.09.2026: срок ожидания препарата Хлорпирифос
+              </p>
+            </div>
+            <div>
+              <span class="ds-name">14 / 20</span>
+              <p>Держатель — КФХ Петров, масса 12 480,000 кг, дата уборки 14.08.2026</p>
+            </div>
+            <div>
+              <span class="ds-name">13 / 18</span>
+              <p style="font-size: var(--fs-13); line-height: var(--lh-13); color: var(--c-ink-muted)">
+                Проба отобрана 15.08.2026, 09:40
+              </p>
+            </div>
+            <div>
+              <span class="ds-name">mono</span>
+              <p class="at-mono" style="font-size: var(--fs-16)">AT-2026-000123, ИНН 7707083893</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-space">
+          <h2 id="s-space">Отступы</h2>
+          <div class="ds-scale">
+            <figure>
+              <span style="width: var(--sp-1); height: var(--sp-1)"></span>
+              <figcaption>4</figcaption>
+            </figure>
+            <figure>
+              <span style="width: var(--sp-2); height: var(--sp-2)"></span>
+              <figcaption>8</figcaption>
+            </figure>
+            <figure>
+              <span style="width: var(--sp-3); height: var(--sp-3)"></span>
+              <figcaption>12</figcaption>
+            </figure>
+            <figure>
+              <span style="width: var(--sp-4); height: var(--sp-4)"></span>
+              <figcaption>16</figcaption>
+            </figure>
+            <figure>
+              <span style="width: var(--sp-5); height: var(--sp-5)"></span>
+              <figcaption>20</figcaption>
+            </figure>
+            <figure>
+              <span style="width: var(--sp-6); height: var(--sp-6)"></span>
+              <figcaption>24</figcaption>
+            </figure>
+            <figure>
+              <span style="width: var(--sp-8); height: var(--sp-8)"></span>
+              <figcaption>32</figcaption>
+            </figure>
+            <figure>
+              <span style="width: var(--sp-12); height: var(--sp-12)"></span>
+              <figcaption>48</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section class="ds-section" aria-labelledby="s-shape">
+          <h2 id="s-shape">Скругления, тень, борозды</h2>
+          <div class="ds-grid">
+            <div class="ds-radii">
+              <figure>
+                <span style="border-radius: var(--r-s)"></span>
+                <figcaption>6</figcaption>
+              </figure>
+              <figure>
+                <span style="border-radius: var(--r-m)"></span>
+                <figcaption>10</figcaption>
+              </figure>
+              <figure>
+                <span style="border-radius: var(--r-l)"></span>
+                <figcaption>12</figcaption>
+              </figure>
+              <figure>
+                <span style="border-radius: var(--r-pill)"></span>
+                <figcaption>999</figcaption>
+              </figure>
+            </div>
+            <div class="at-card"><div class="at-card__body">Карточка, диалог, меню</div></div>
+            <div class="ds-furrow" role="img" aria-label="Мотив борозд"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

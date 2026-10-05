@@ -1,0 +1,236 @@
+# Модуль Public (без авторизации).
+/public/batches/{publicCode}:
+  get:
+    operationId: getPublicBatch
+    summary: Публичная страница партии
+    description: >-
+      Данные QR-страницы `/p/{publicCode}` (FR-PUB-01, FR-PUB-02): продукт, происхождение, даты, путь,
+      итог анализов, статус безопасности. Персональные данные сотрудников не отдаются. Ответ кэшируется в общем
+      Redis на 5 минут (ключ `pub:batch:{publicCode}`, таблица общих ключей Redis в описании API, R82): при попадании в кэш
+      тело ответа — сохранённые байты как есть (без повторной сериализации); сброс — при изменении данных страницы
+      (статус, держатель, итог анализов, путь, продукт, организации пути — перечень в таблице). Удалённая или неизвестная партия — 404.
+    tags: [Public]
+    security: []
+    x-roles: [PUBLIC]
+    parameters:
+      - $ref: '../components/parameters.yaml#/PublicCode'
+    responses:
+      '200':
+        description: Публичные данные партии.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/public.yaml#/PublicBatch'
+            examples:
+              safe:
+                summary: Партия в продаже
+                value:
+                  publicCode: AT-2026-000123
+                  product:
+                    name: Пшеница озимая
+                    category: GRAIN
+                    imageUrl: /api/v1/public/files/2d4f6a8c-0e1a-4b3c-8d5e-7f9a1b3c5d7e
+                  origin:
+                    farmName: КФХ Петров
+                    logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+                    region:
+                      code: '23'
+                      name: Краснодарский край
+                  harvestedAt: '2026-07-18T06:00:00Z'
+                  producedAt: null
+                  status: OnSale
+                  safety: SAFE
+                  path:
+                    - orgName: КФХ Петров
+                      orgType: FARM
+                      logoUrl: /api/v1/public/files/8e4a1c2b-7d3f-4a6e-b5c9-2f1e0d9c8b7a
+                      from: '2026-07-18T06:00:00Z'
+                      to: '2026-08-20T12:00:00Z'
+                    - orgName: ООО «Кубань-Маркет»
+                      orgType: RETAILER
+                      logoUrl: null
+                      from: '2026-08-20T12:00:00Z'
+                      to: null
+                  labSummary:
+                    total: 1
+                    passed: 1
+                    lastConclusion: PASS
+                    lastDate: '2026-07-25T14:10:00Z'
+              recalled:
+                summary: Отозванная партия
+                value:
+                  publicCode: AT-2026-000457
+                  product:
+                    name: Мука пшеничная высшего сорта
+                    category: PROCESSED
+                    imageUrl: null
+                  origin:
+                    farmName: ООО «Кубанский мукомол»
+                    logoUrl: null
+                    region:
+                      code: '23'
+                      name: Краснодарский край
+                  harvestedAt: null
+                  producedAt: '2026-08-05T10:00:00Z'
+                  status: Recalled
+                  safety: RECALLED
+                  path:
+                    - orgName: ООО «Кубанский мукомол»
+                      orgType: PROCESSOR
+                      logoUrl: null
+                      from: '2026-08-05T10:00:00Z'
+                      to: null
+                  labSummary:
+                    total: 2
+                    passed: 1
+                    lastConclusion: FAIL
+                    lastDate: '2026-09-10T11:20:00Z'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+/public/batches/{publicCode}/complaints:
+  post:
+    operationId: createPublicComplaint
+    summary: Жалоба покупателя
+    description: >-
+      Жалоба на партию (FR-PUB-03, БП-6) со статусом NEW; инспекторы получают уведомление COMPLAINT.
+      Защита от спама: решение ALTCHA в поле `altcha` (неверное, истёкшее или повторно использованное —
+      400 CAPTCHA_FAILED) и лимит 10 жалоб в час на IP (429).
+    tags: [Public]
+    security: []
+    x-roles: [PUBLIC]
+    x-rate-limit: [complaint-ip]
+    parameters:
+      - $ref: '../components/parameters.yaml#/PublicCode'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/public.yaml#/PublicComplaintRequest'
+    responses:
+      '201':
+        description: Жалоба принята.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/public.yaml#/PublicComplaintCreated'
+      '400':
+        description: Ошибка валидации (VALIDATION) или неверное решение капчи (CAPTCHA_FAILED).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              validation:
+                summary: Слишком короткий текст
+                value:
+                  type: /problems/validation
+                  title: Validation failed
+                  status: 400
+                  code: VALIDATION
+                  errors:
+                    text: [validation.minLength]
+              captcha:
+                summary: Капча не пройдена
+                value:
+                  type: /problems/captcha-failed
+                  title: Captcha verification failed
+                  status: 400
+                  code: CAPTCHA_FAILED
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/public/captcha:
+  get:
+    operationId: getCaptchaChallenge
+    summary: Задача ALTCHA
+    description: >-
+      Выдаёт новую proof-of-work задачу ALTCHA для формы жалобы; `Cache-Control: no-store`.
+    tags: [Public]
+    security: []
+    x-roles: [PUBLIC]
+    responses:
+      '200':
+        description: Задача ALTCHA.
+        headers:
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControl'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/public.yaml#/AltchaChallenge'
+/public/files/{id}:
+  get:
+    operationId: downloadPublicFile
+    summary: Публичное изображение
+    description: >-
+      Публичные изображения без авторизации: логотипы организаций и фото продуктов (п. 4.2). Прочие файлы
+      (аватарки, протоколы, отчёты) по этому пути не отдаются — 404. WebP выбранного варианта или исходный SVG;
+      `Cache-Control: public, max-age=86400`; `If-None-Match` → 304.
+    tags: [Public]
+    security: []
+    x-roles: [PUBLIC]
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/ImageVariant'
+      - $ref: '../components/parameters.yaml#/IfNoneMatch'
+    responses:
+      '200':
+        $ref: '../components/responses.yaml#/PublicImageContent'
+      '304':
+        $ref: '../components/responses.yaml#/NotModified'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+/public/regions:
+  get:
+    operationId: listPublicRegions
+    summary: Справочник регионов
+    description: >-
+      Все регионы справочника `regions` без авторизации — для формы регистрации организации (`regionCode`) и фильтров.
+      Порядок — по `name` (кодовые точки Unicode), затем по `code`. Без пагинации (справочник мал).
+    tags: [Public]
+    security: []
+    x-roles: [PUBLIC]
+    responses:
+      '200':
+        description: Регионы.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../schemas/common.yaml#/Region'
+            example:
+              - code: '33'
+                name: Владимирская область
+              - code: '23'
+                name: Краснодарский край

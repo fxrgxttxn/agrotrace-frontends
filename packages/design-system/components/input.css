@@ -1,0 +1,129 @@
+.at-input,
+.at-textarea,
+.at-select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--touch);
+  margin: 0;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-m);
+  background-color: var(--c-surface);
+  color: var(--c-ink);
+  font: 400 var(--fs-14) / var(--lh-14) var(--font-body);
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.at-input::placeholder,
+.at-textarea::placeholder {
+  color: var(--c-ink-muted);
+  opacity: 1;
+}
+
+.at-input:hover,
+.at-textarea:hover,
+.at-select:hover {
+  border-color: var(--c-ink-muted);
+}
+
+.at-input:focus,
+.at-textarea:focus,
+.at-select:focus {
+  border-color: var(--c-field);
+}
+
+.at-input[aria-invalid='true'],
+.at-textarea[aria-invalid='true'],
+.at-select[aria-invalid='true'] {
+  border-color: var(--c-clay);
+}
+
+.at-input:disabled,
+.at-textarea:disabled,
+.at-select:disabled {
+  border-color: var(--c-line);
+  background-color: var(--c-surface-sunk);
+  color: var(--c-ink-disabled);
+  cursor: not-allowed;
+}
+
+.at-input:read-only:not(:disabled),
+.at-textarea:read-only:not(:disabled) {
+  border-style: dashed;
+  background-color: transparent;
+}
+
+.at-input.at-mono {
+  font-family: var(--font-mono);
+}
+
+.at-input-group {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-m);
+  background: var(--c-surface);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.at-input-group:hover {
+  border-color: var(--c-ink-muted);
+}
+
+.at-input-group:focus-within {
+  border-color: var(--c-field);
+}
+
+.at-input-group:has(.at-input:focus-visible) {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+.at-input-group:has([aria-invalid='true']) {
+  border-color: var(--c-clay);
+}
+
+.at-input-group:has(:disabled) {
+  border-color: var(--c-line);
+  background: var(--c-surface-sunk);
+}
+
+.at-input-group:has(:disabled) > .at-input-group__suffix {
+  color: var(--c-ink-disabled);
+}
+
+.at-input-group > .at-input {
+  flex: 1;
+  min-height: calc(var(--touch) - 2px);
+  border: 0;
+  border-radius: var(--r-m) 0 0 var(--r-m);
+  background: transparent;
+  text-align: end;
+}
+
+.at-input-group > .at-input:focus-visible {
+  outline: none;
+}
+
+.at-input-group__suffix {
+  display: flex;
+  flex: none;
+  align-items: center;
+  margin: var(--sp-2) 0;
+  padding: 0 var(--sp-3);
+  border-left: 1px solid var(--c-line);
+  color: var(--c-ink-muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .at-input,
+  .at-textarea,
+  .at-select {
+    font-size: var(--fs-16);
+    line-height: var(--lh-16);
+  }
+}

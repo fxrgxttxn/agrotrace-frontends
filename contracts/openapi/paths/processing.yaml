@@ -1,0 +1,179 @@
+# Модуль Processing (FR-PROD-06, БП-4).
+/processing:
+  post:
+    operationId: processBatches
+    summary: Переработка партий
+    description: |
+      Создаёт производные партии из входных в одной транзакции. Блокировки (R47): существующие входные партии
+      `FOR UPDATE ORDER BY id` сразу после шага 1; шаги 2–5 — над заблокированными строками. Порядок входов в
+      запросе определяет только, какая ошибка возвращается первой. Порядок проверок, первая сработавшая
+      возвращается:
+
+      1. Тело по схеме, повтор `batchId` во входах — 400 (`errors["inputs[1].batchId"]: [validation.duplicate]`).
+
+      2. Ссылки (все ошибки шага — одним ответом 400): входная партия не существует или не видна —
+      `errors["inputs[i].batchId"]: [validation.notFound]`; `massUsedKg` больше текущей массы партии —
+      `errors["inputs[i].massUsedKg"]: [validation.mass.exceedsBatch]`; продукт выхода не существует или удалён —
+      `errors["outputs[i].productId"]: [validation.notFound]`.
+
+      3. По каждому входу в порядке запроса: держатель — другая организация — 403 `{reason: NOT_HOLDER, publicCode}`;
+      статус Blocked или Recalled — 422 BR-06 `{publicCode, status}`; статус не Approved и не Accepted
+      (`canUseAsInput`) — 422 BR-05 `{publicCode, status}`.
+
+      4. Баланс масс (`checkMassBalance`, норма потерь — `loss_norm_percent` продукта каждой входной партии):
+      выход больше допустимого — 422 BR-04 `{inputKg, allowedKg, outputKg}`.
+
+      5. Защитная проверка ацикличности графа (п. 7.5): для каждой новой связи обход вверх от родителя не должен
+      встретить ребёнка — иначе 409 GRAPH_CYCLE `{parentCode, childCode}`. Так как выходы всегда новые партии,
+      при корректных данных цикл невозможен; проверка обязательна во всех реализациях.
+
+      Результат: каждая входная партия переходит в Processed (`reason` PROCESSED, автор — пользователь,
+      `version` + 1; масса не меняется, неиспользованный остаток считается израсходованным). Для каждого выхода
+      в порядке запроса создаётся партия: `publicCode` = `next_batch_code()`, `kind` = DERIVED, `origin` = `holder` =
+      организация пользователя, `producedAt` = момент операции (одинаков для всех выходов), `field` = null,
+      `testRequired` = false, `testReason` = NONE; история null → Created (CREATED, пользователь) и Created → Approved
+      (TEST_NOT_REQUIRED, автор null), итоговая `version` = 2. Связи `batch_links` создаются для каждой пары
+      (вход, выход) с `massUsedKg` = `massUsedKg` этого входа (вся использованная в операции масса входа, без
+      распределения по выходам).
+    tags: [Processing]
+    x-roles: [PROCESSOR]
+    x-locks: [batches]
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/processing.yaml#/ProcessingRequest'
+    responses:
+      '201':
+        description: Производные партии созданы.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/processing.yaml#/ProcessingResult'
+      '400':
+        description: Ошибка тела или ссылок (VALIDATION, `errors` по путям полей).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/validation
+              title: Validation failed
+              status: 400
+              code: VALIDATION
+              errors:
+                'inputs[0].massUsedKg': [validation.mass.exceedsBatch]
+                'outputs[1].productId': [validation.notFound]
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        description: Роль не PROCESSOR (FORBIDDEN без `params`) или входная партия у другой организации (NOT_HOLDER).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            example:
+              type: /problems/forbidden
+              title: Not the batch holder
+              status: 403
+              code: FORBIDDEN
+              params:
+                reason: NOT_HOLDER
+                publicCode: AT-2026-000131
+      '409':
+        description: >-
+          Связь образовала бы цикл в графе партий (GRAPH_CYCLE; защитная проверка) или повторная взаимоблокировка
+          (VERSION_CONFLICT без `params`, R47).
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              graphCycle:
+                summary: Цикл в графе
+                value:
+                  type: /problems/graph-cycle
+                  title: Batch graph cycle
+                  status: 409
+                  code: GRAPH_CYCLE
+                  params:
+                    parentCode: AT-2026-000457
+                    childCode: AT-2026-000123
+              lockRetryFailed:
+                summary: Повторная взаимоблокировка
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+      '422':
+        description: >-
+          Нарушено бизнес-правило BR-04, BR-05 или BR-06 (BUSINESS_RULE). Значения `params` BR-04 — строки
+          формата `MassTotal`.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              massBalance:
+                summary: BR-04 — выход больше входа за вычетом потерь
+                value:
+                  type: /problems/business-rule
+                  title: Business rule violated
+                  status: 422
+                  code: BUSINESS_RULE
+                  rule: BR-04
+                  params:
+                    inputKg: '10000.000'
+                    allowedKg: '7500.000'
+                    outputKg: '7800.000'
+              notEligible:
+                summary: BR-05 — партия не допущена к переработке
+                value:
+                  type: /problems/business-rule
+                  title: Business rule violated
+                  status: 422
+                  code: BUSINESS_RULE
+                  rule: BR-05
+                  params:
+                    publicCode: AT-2026-000124
+                    status: OnTest
+              blocked:
+                summary: BR-06 — партия заблокирована или отозвана
+                value:
+                  type: /problems/business-rule
+                  title: Business rule violated
+                  status: 422
+                  code: BUSINESS_RULE
+                  rule: BR-06
+                  params:
+                    publicCode: AT-2026-000125
+                    status: Blocked
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

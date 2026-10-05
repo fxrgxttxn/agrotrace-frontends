@@ -1,0 +1,246 @@
+# Задачи изъятия (БП-5, BR-08, BR-10). Правила — в описании тега Recalls (openapi.yaml).
+/recall-tasks:
+  get:
+    operationId: listRecallTasks
+    summary: Задачи отзыва
+    description: |
+      FARMER, PROCESSOR, RETAILER видят задачи, держатель которых (`holder`) — их организация (после переназначения
+      по R50 задача видна только новому держателю); INSPECTOR — все задачи (только чтение). Фильтры (объединяются по И):
+
+      - `status` — один или несколько статусов (параметр повторяется);
+      - `overdue` — `true`: только `RecallTask.overdue` = true, `false`: только false;
+      - `recallId` — задачи одного отзыва;
+      - `holderOrgId` — только для INSPECTOR (другие роли — 400 `errors.holderOrgId: [validation.holderOrgId.notAllowed]`,
+        R51);
+      - `q` — подстрока `publicCode` партии без учёта регистра.
+
+      Сортировка — `x-sort`.
+    tags: [Recalls]
+    x-roles: [FARMER, PROCESSOR, RETAILER, INSPECTOR]
+    x-sort:
+      fields: [dueAt, createdAt, confirmedAt]
+      default: dueAt,asc
+    parameters:
+      - $ref: '../components/parameters.yaml#/Page'
+      - $ref: '../components/parameters.yaml#/Size'
+      - $ref: '../components/parameters.yaml#/Sort'
+      - $ref: '../components/parameters.yaml#/Q'
+      - name: status
+        in: query
+        description: Фильтр по статусам (параметр повторяется).
+        style: form
+        explode: true
+        schema:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '../schemas/recalls.yaml#/RecallTaskStatus'
+      - name: overdue
+        in: query
+        description: Только просроченные (`true`) или только непросроченные (`false`).
+        schema:
+          type: boolean
+      - name: recallId
+        in: query
+        description: Задачи одного отзыва.
+        schema:
+          type: string
+          format: uuid
+      - name: holderOrgId
+        in: query
+        description: Фильтр по держателю задачи (только INSPECTOR, R51).
+        schema:
+          type: string
+          format: uuid
+    responses:
+      '200':
+        description: Страница задач.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/recalls.yaml#/RecallTaskPage'
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'
+/recall-tasks/{id}/confirm:
+  post:
+    operationId: confirmRecallTask
+    summary: Подтверждение изъятия
+    description: |
+      Держатель подтверждает изъятие партии (кнопка «Изъято»): задача CONFIRMED, партия WrittenOff, при последней
+      задаче отзыв закрывается (BR-10). Первая сработавшая проверка возвращается:
+
+      1. Формат `Idempotency-Key` и повтор по нему (описание параметра); затем тело по схеме — 400.
+
+      Блокировки (R47, порядок R52): задача читается без блокировки, чтобы узнать её отзыв и партию; затем отзыв
+      `FOR UPDATE`, партия `FOR UPDATE`, задача `FOR UPDATE`; шаги 2–5 — над заблокированными строками, `If-Match` —
+      compare-and-set по задаче.
+
+      2. Задача не видна (держатель — другая организация) — 404.
+
+      3. `If-Match` ≠ `version` задачи — 409 VERSION_CONFLICT `{currentVersion}`.
+
+      4. Статус CONFIRMED — 409 INVALID_TRANSITION `{from: CONFIRMED, to: CONFIRMED}` (подтвердить можно OPEN и
+      OVERDUE).
+
+      5. Партия не в статусе Recalled (защитная проверка; при открытой задаче не встречается) — 409 INVALID_TRANSITION
+      `{from: <статус>, to: WrittenOff, publicCode}`.
+
+      Результат: задача CONFIRMED, `confirmedAt` = текущее время, `confirmedBy` = пользователь, `version` + 1; партия →
+      WrittenOff (`writeOff`, `reason` WRITTEN_OFF, автор — пользователь, `version` + 1, сброс кэша публичной
+      страницы); если `shouldCloseRecall` по статусам всех задач отзыва = true — отзыв CLOSED, `closedAt` = текущее
+      время, `version` отзыва + 1, после коммита — уведомление RECALL `{event: CLOSED}` инспекторам.
+    tags: [Recalls]
+    x-roles: [FARMER, PROCESSOR, RETAILER]
+    x-idempotent: true
+    x-locks: [recall, batches, recallTasks]
+    x-transition: { entity: recallTask, action: confirm, to: CONFIRMED }
+    parameters:
+      - $ref: '../components/parameters.yaml#/IdPath'
+      - $ref: '../components/parameters.yaml#/IfMatch'
+      - $ref: '../components/parameters.yaml#/IdempotencyKey'
+    requestBody:
+      required: false
+      content:
+        application/json:
+          schema:
+            $ref: '../schemas/recalls.yaml#/RecallTaskConfirm'
+    responses:
+      '200':
+        description: Изъятие подтверждено.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+          Idempotent-Replayed:
+            $ref: '../components/headers.yaml#/IdempotentReplayed'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/recalls.yaml#/RecallTask'
+            example:
+              id: 5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e
+              recallId: 4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d
+              recallReason: Жалобы покупателей на горечь муки, партия зерна связана с нарушением
+              batch:
+                id: 3d5f7b9d-1f3a-4c5e-9b7d-1f3a5c7e9b1d
+                publicCode: AT-2026-000457
+                product:
+                  id: a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e
+                  name: Мука пшеничная высшего сорта
+                  category: PROCESSED
+                  imageUrl: null
+                massKg: '9500.000'
+                status: WrittenOff
+                kind: DERIVED
+                holder:
+                  id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+                  name: ООО «Кубань-Маркет»
+                  type: RETAILER
+                  logoUrl: null
+                origin:
+                  id: 4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d
+                  name: ООО «Кубанский мукомол»
+                  type: PROCESSOR
+                  logoUrl: null
+                harvestedAt: null
+                producedAt: '2026-08-05T10:00:00Z'
+                updatedAt: '2026-09-24T15:20:00Z'
+                qrGeneratedAt: '2026-08-21T08:00:00Z'
+              holder:
+                id: 6c8e0a2b-4d6f-4b8d-9f1a-3c5e7a9b1d3f
+                name: ООО «Кубань-Маркет»
+                type: RETAILER
+                logoUrl: null
+              dueAt: '2026-09-25T09:00:00Z'
+              status: CONFIRMED
+              overdue: false
+              escalatedAt: null
+              confirmedAt: '2026-09-24T15:20:00Z'
+              confirmedBy:
+                id: 2c4e6a8c-0e2a-4c4e-8a0c-2e4a6c8e0a2c
+                fullName: Кузнецова Мария Олеговна
+                avatarUrl: null
+              createdAt: '2026-09-24T09:00:00Z'
+              version: 2
+      '400':
+        $ref: '../components/responses.yaml#/BadRequest'
+      '401':
+        $ref: '../components/responses.yaml#/Unauthorized'
+      '403':
+        $ref: '../components/responses.yaml#/Forbidden'
+      '404':
+        $ref: '../components/responses.yaml#/NotFound'
+      '409':
+        description: >-
+          VERSION_CONFLICT, INVALID_TRANSITION задачи (`{from, to}`) или партии (`{from, to, publicCode}`),
+          IDEMPOTENCY_KEY_REUSED, IDEMPOTENCY_KEY_IN_PROGRESS (`Retry-After: 1`).
+        headers:
+          Retry-After:
+            $ref: '../components/headers.yaml#/RetryAfterInProgress'
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/problem+json:
+            schema:
+              $ref: '../schemas/common.yaml#/Problem'
+            examples:
+              versionConflict:
+                summary: Устаревшая версия задачи
+                value:
+                  type: /problems/version-conflict
+                  title: Version conflict
+                  status: 409
+                  code: VERSION_CONFLICT
+                  params:
+                    currentVersion: 2
+              taskTransition:
+                summary: Задача уже подтверждена
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: CONFIRMED
+                    to: CONFIRMED
+              batchTransition:
+                summary: Партия не в статусе Recalled
+                value:
+                  type: /problems/invalid-transition
+                  title: Invalid status transition
+                  status: 409
+                  code: INVALID_TRANSITION
+                  params:
+                    from: WrittenOff
+                    to: WrittenOff
+                    publicCode: AT-2026-000457
+              idempotencyKeyReused:
+                summary: Ключ уже использован для другого запроса
+                value:
+                  type: /problems/idempotency-key-reused
+                  title: Idempotency key reused
+                  status: 409
+                  code: IDEMPOTENCY_KEY_REUSED
+              idempotencyKeyInProgress:
+                summary: Первый запрос с этим ключом ещё выполняется
+                value:
+                  type: /problems/idempotency-key-in-progress
+                  title: Idempotency key in progress
+                  status: 409
+                  code: IDEMPOTENCY_KEY_IN_PROGRESS
+      '429':
+        $ref: '../components/responses.yaml#/TooManyRequests'

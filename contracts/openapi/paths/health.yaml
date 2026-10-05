@@ -1,0 +1,77 @@
+# Модуль Health.
+/health/live:
+  get:
+    operationId: getHealthLive
+    summary: Проверка живости процесса
+    description: >-
+      Процесс запущен и обрабатывает запросы; зависимости не проверяются. Ответ `{status: ok}` без `checks`.
+    tags: [Health]
+    security: []
+    x-roles: [PUBLIC]
+    responses:
+      '200':
+        description: Процесс жив.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              $ref: '../schemas/common.yaml#/HealthLive'
+/health/ready:
+  get:
+    operationId: getHealthReady
+    summary: Проверка готовности
+    description: >-
+      Проверяет зависимости: PostgreSQL (`db`), Redis, RabbitMQ, MinIO (`s3`). Все `ok` — 200 со `status: ok`;
+      хотя бы одна `fail` — 503 с тем же телом и `status: fail`.
+    tags: [Health]
+    security: []
+    x-roles: [PUBLIC]
+    responses:
+      '200':
+        description: Все зависимости доступны.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '../schemas/common.yaml#/Health'
+                - properties:
+                    status:
+                      const: ok
+            example:
+              status: ok
+              checks:
+                db: ok
+                redis: ok
+                rabbitmq: ok
+                s3: ok
+      '503':
+        description: Хотя бы одна зависимость недоступна.
+        headers:
+          X-Request-Id:
+            $ref: '../components/headers.yaml#/XRequestId'
+          X-Backend:
+            $ref: '../components/headers.yaml#/XBackend'
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '../schemas/common.yaml#/Health'
+                - properties:
+                    status:
+                      const: fail
+            example:
+              status: fail
+              checks:
+                db: ok
+                redis: ok
+                rabbitmq: fail
+                s3: ok

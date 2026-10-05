@@ -1,0 +1,270 @@
+# Аутентификация, 2FA, регистрация организации, сброс пароля, приглашения.
+AccessToken:
+  type: string
+  pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+  description: >-
+    JWT HS256 (общий `JWT_SECRET`), срок 15 минут; принимается любой backend-реализацией. Обязательные claims и их
+    типы (P12): `sub` — UUID пользователя (строка), `org` — UUID организации (строка), `roles` — непустой массив
+    `RoleCode`, `org_admin` — boolean, `exp` и `iat` — целые (секунды Unix, `exp` = `iat` + 900), `jti` — строка.
+    Токен с другим `alg` (в том числе `none`), с неверной подписью, истёкший, без любого из этих claims, с claim
+    другого типа или с заголовком `crit`, перечисляющим неизвестные параметры, — 401 UNAUTHORIZED.
+  example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYTJiM2M0ZC01ZTZmLTRhN2ItOGM5ZC0wZTFmMmEzYjRjNWQifQ.3fQy8m2Kc1q5Z0Xn9sVbWtRjLpHdGe7aCuYoIiMk4Nw
+LoginRequest:
+  type: object
+  required: [email, password]
+  additionalProperties: false
+  properties:
+    email:
+      $ref: './common.yaml#/Email'
+    password:
+      type: string
+      minLength: 1
+      maxLength: 128
+  example:
+    email: petrov@kfh-petrov.ru
+    password: Ozimaya-2026!
+LoginSuccess:
+  type: object
+  description: Успешный вход; refresh-токен выдаётся в cookie `at_refresh` (заголовок `Set-Cookie`).
+  required: [twoFactorRequired, accessToken, expiresIn, user]
+  additionalProperties: false
+  properties:
+    twoFactorRequired:
+      type: boolean
+      const: false
+    accessToken:
+      $ref: '#/AccessToken'
+    expiresIn:
+      type: integer
+      description: Срок действия access-токена в секундах.
+      const: 900
+    user:
+      $ref: './users.yaml#/Me'
+  example:
+    twoFactorRequired: false
+    accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYTJiM2M0ZC01ZTZmLTRhN2ItOGM5ZC0wZTFmMmEzYjRjNWQifQ.3fQy8m2Kc1q5Z0Xn9sVbWtRjLpHdGe7aCuYoIiMk4Nw
+    expiresIn: 900
+    user:
+      id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+      email: petrov@kfh-petrov.ru
+      fullName: Петров Иван Сергеевич
+      phone: '+79181234567'
+      avatarUrl: null
+      roles: [FARMER]
+      organization:
+        id: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+        name: КФХ Петров
+        type: FARM
+        logoUrl: null
+      isOrgAdmin: true
+      totpEnabled: false
+      channels:
+        email: true
+        telegram: false
+        telegramLinked: false
+TwoFactorChallenge:
+  type: object
+  description: >-
+    Пароль верен, но включена TOTP: токены не выдаются, клиент вызывает `POST /auth/2fa/verify`
+    с `challengeId` (действует 5 минут).
+  required: [twoFactorRequired, challengeId]
+  additionalProperties: false
+  properties:
+    twoFactorRequired:
+      type: boolean
+      const: true
+    challengeId:
+      $ref: './common.yaml#/Uuid'
+  example:
+    twoFactorRequired: true
+    challengeId: c4d5e6f7-a8b9-4c0d-9e1f-2a3b4c5d6e7f
+LoginResponse:
+  description: Различается по обязательному полю `twoFactorRequired` (false — вход выполнен, true — нужен код TOTP).
+  oneOf:
+    - $ref: '#/LoginSuccess'
+    - $ref: '#/TwoFactorChallenge'
+  example:
+    twoFactorRequired: true
+    challengeId: c4d5e6f7-a8b9-4c0d-9e1f-2a3b4c5d6e7f
+RefreshResponse:
+  type: object
+  required: [accessToken, expiresIn]
+  additionalProperties: false
+  properties:
+    accessToken:
+      $ref: '#/AccessToken'
+    expiresIn:
+      type: integer
+      const: 900
+  example:
+    accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYTJiM2M0ZC01ZTZmLTRhN2ItOGM5ZC0wZTFmMmEzYjRjNWQifQ.3fQy8m2Kc1q5Z0Xn9sVbWtRjLpHdGe7aCuYoIiMk4Nw
+    expiresIn: 900
+TotpCode:
+  type: string
+  pattern: '^\d{6}$'
+  example: '482915'
+TwoFactorVerifyRequest:
+  type: object
+  required: [challengeId, code]
+  additionalProperties: false
+  properties:
+    challengeId:
+      $ref: './common.yaml#/Uuid'
+    code:
+      $ref: '#/TotpCode'
+  example:
+    challengeId: c4d5e6f7-a8b9-4c0d-9e1f-2a3b4c5d6e7f
+    code: '482915'
+TwoFactorSetupRequest:
+  type: object
+  description: Без `code` — начать настройку (выдать секрет); с `code` — подтвердить и включить TOTP.
+  additionalProperties: false
+  properties:
+    code:
+      $ref: '#/TotpCode'
+  example:
+    code: '482915'
+TwoFactorSetupPending:
+  type: object
+  description: Секрет сгенерирован, TOTP ещё не включена; повторный запуск заменяет секрет.
+  required: [totpEnabled, secret, otpauthUrl]
+  additionalProperties: false
+  properties:
+    totpEnabled:
+      type: boolean
+      const: false
+    secret:
+      type: string
+      pattern: '^[A-Z2-7]{16,64}$'
+      description: Секрет TOTP в Base32.
+    otpauthUrl:
+      type: string
+      pattern: '^otpauth://totp/'
+  example:
+    totpEnabled: false
+    secret: JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP
+    otpauthUrl: otpauth://totp/AgroTrace:ivanova%40rosselkhoznadzor.ru?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=AgroTrace
+TwoFactorEnabled:
+  type: object
+  required: [totpEnabled]
+  additionalProperties: false
+  properties:
+    totpEnabled:
+      type: boolean
+      const: true
+  example:
+    totpEnabled: true
+TwoFactorSetupResponse:
+  description: Различается по полю `totpEnabled`.
+  oneOf:
+    - $ref: '#/TwoFactorSetupPending'
+    - $ref: '#/TwoFactorEnabled'
+  example:
+    totpEnabled: true
+RegistrableOrganizationType:
+  type: string
+  description: Тип организации, допустимый при самостоятельной регистрации (PLATFORM не регистрируется).
+  enum: [FARM, PROCESSOR, LAB, RETAILER, AUTHORITY]
+  example: FARM
+RegisterOrganizationRequest:
+  type: object
+  description: >-
+    `name` необязателен: при доступности DaData название и адрес берутся из DaData по ИНН. Если DaData недоступна
+    и `name` не передан — 400 VALIDATION (`errors.name`). ИНН не найден в DaData — 400 VALIDATION
+    (`errors.inn: [validation.inn.notFound]`); ИНН или email уже зарегистрированы — 400 VALIDATION
+    (`validation.inn.taken` / `validation.email.taken`).
+  required: [inn, type, regionCode, admin]
+  additionalProperties: false
+  properties:
+    inn:
+      type: string
+      pattern: '^\d{10}(\d{2})?$'
+      description: >-
+        ИНН (10 или 12 цифр) с контрольной суммой ФНС; несовпадение контрольной суммы — 400 VALIDATION
+        (`errors.inn: [validation.inn.checksum]`).
+    type:
+      $ref: '#/RegistrableOrganizationType'
+    name:
+      $ref: './common.yaml#/NameString'
+    regionCode:
+      type: string
+      maxLength: 8
+    admin:
+      type: object
+      description: Руководитель организации (создаётся с `isOrgAdmin = true` и ролью по типу организации).
+      required: [email, fullName, password]
+      additionalProperties: false
+      properties:
+        email:
+          $ref: './common.yaml#/Email'
+        fullName:
+          $ref: './common.yaml#/NameString'
+        password:
+          $ref: './common.yaml#/Password'
+  example:
+    inn: '2311123457'
+    type: FARM
+    name: КФХ Петров
+    regionCode: '23'
+    admin:
+      email: petrov@kfh-petrov.ru
+      fullName: Петров Иван Сергеевич
+      password: Ozimaya-2026!
+RegisterOrganizationResponse:
+  type: object
+  description: >-
+    PENDING — ИНН подтверждён DaData, ожидает одобрения администратором; MANUAL_CHECK — DaData недоступна,
+    требуется ручная проверка администратором. Вход до одобрения невозможен (403).
+  required: [organizationId, status]
+  additionalProperties: false
+  properties:
+    organizationId:
+      $ref: './common.yaml#/Uuid'
+    status:
+      type: string
+      enum: [PENDING, MANUAL_CHECK]
+  example:
+    organizationId: 0f8c2d7e-6a41-4b3e-9d25-7c1a9e4b2f10
+    status: PENDING
+ForgotPasswordRequest:
+  type: object
+  required: [email]
+  additionalProperties: false
+  properties:
+    email:
+      $ref: './common.yaml#/Email'
+  example:
+    email: petrov@kfh-petrov.ru
+ResetPasswordRequest:
+  type: object
+  required: [token, password]
+  additionalProperties: false
+  properties:
+    token:
+      type: string
+      minLength: 16
+      maxLength: 256
+      description: Одноразовый токен из ссылки в письме.
+    password:
+      $ref: './common.yaml#/Password'
+  example:
+    token: 9fK2mQ7xL4vT1nR8sW3yZ6bC5dE0gH
+    password: Ozimaya-2026!
+AcceptInviteRequest:
+  type: object
+  required: [token, fullName, password]
+  additionalProperties: false
+  properties:
+    token:
+      type: string
+      minLength: 16
+      maxLength: 256
+      description: Одноразовый токен из письма-приглашения.
+    fullName:
+      $ref: './common.yaml#/NameString'
+    password:
+      $ref: './common.yaml#/Password'
+  example:
+    token: Xa8Lp3Qw9Rt2Yu7Io4Pa1Sd6Fg0HjK
+    fullName: Сидорова Анна Викторовна
+    password: Urozhai-2026!

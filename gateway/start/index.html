@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Реализации — AgroTrace</title>
+    <link rel="stylesheet" href="/_ds/index.css" />
+    <style>
+      body {
+        display: flex;
+        justify-content: center;
+        padding: var(--sp-12) var(--sp-4);
+      }
+
+      .start {
+        width: 100%;
+        max-width: 640px;
+      }
+
+      .start h1 {
+        margin: 0 0 var(--sp-6);
+        font: 600 var(--fs-28) / var(--lh-28) var(--font-display);
+        letter-spacing: var(--tracking-display);
+      }
+
+      .start .at-table td {
+        vertical-align: middle;
+      }
+
+      .start-noscript {
+        margin: 0 0 var(--sp-4);
+        color: var(--c-ink-muted);
+        font-size: var(--fs-13);
+        line-height: var(--lh-13);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="start">
+      <h1>Реализации</h1>
+      <noscript>
+        <p class="start-noscript">
+          Без JavaScript статус backend не обновляется — переходите по ссылкам, чтобы проверить вручную.
+        </p>
+      </noscript>
+      <div class="at-table-wrap">
+        <table class="at-table">
+          <caption class="at-visually-hidden">
+            Ссылки на все комбинации фронтенда и backend, статус backend обновляется автоматически
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Фронтенд</th>
+              <th scope="col">Express</th>
+              <th scope="col">Django</th>
+              <th scope="col">Laravel</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Статус</th>
+              <td>
+                <span
+                  class="at-chip"
+                  data-tone="neutral"
+                  data-backend="express"
+                  role="status"
+                  aria-live="polite"
+                  >проверка…</span
+                >
+              </td>
+              <td>
+                <span
+                  class="at-chip"
+                  data-tone="neutral"
+                  data-backend="django"
+                  role="status"
+                  aria-live="polite"
+                  >проверка…</span
+                >
+              </td>
+              <td>
+                <span
+                  class="at-chip"
+                  data-tone="neutral"
+                  data-backend="laravel"
+                  role="status"
+                  aria-live="polite"
+                  >проверка…</span
+                >
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">React</th>
+              <td><a href="http://react-express.localhost/">react-express.localhost</a></td>
+              <td><a href="http://react-django.localhost/">react-django.localhost</a></td>
+              <td><a href="http://react-laravel.localhost/">react-laravel.localhost</a></td>
+            </tr>
+            <tr>
+              <th scope="row">Angular</th>
+              <td><a href="http://angular-express.localhost/">angular-express.localhost</a></td>
+              <td><a href="http://angular-django.localhost/">angular-django.localhost</a></td>
+              <td><a href="http://angular-laravel.localhost/">angular-laravel.localhost</a></td>
+            </tr>
+            <tr>
+              <th scope="row">Svelte</th>
+              <td><a href="http://svelte-express.localhost/">svelte-express.localhost</a></td>
+              <td><a href="http://svelte-django.localhost/">svelte-django.localhost</a></td>
+              <td><a href="http://svelte-laravel.localhost/">svelte-laravel.localhost</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+    <script src="start.js" defer></script>
+  </body>
+</html>
