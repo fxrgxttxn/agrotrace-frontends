@@ -5,6 +5,7 @@
   import { focusRescue } from '$lib/app/focusRescue';
   import { live } from '$lib/app/live.svelte';
   import { keepFocusFor, restoreKeptFocus } from '$lib/app/routeFocus';
+  import { stripBase } from '$lib/app/paths';
   import { cabinetRoute } from '$lib/app/routes';
   import { session } from '$lib/app/session.svelte';
   import { theme } from '$lib/app/theme.svelte';
@@ -23,7 +24,7 @@
   const entering = $derived(
     session.status === 'authenticated' &&
       navigating.to !== null &&
-      cabinetRoute(navigating.to.url.pathname) !== undefined &&
+      cabinetRoute(stripBase(navigating.to.url.pathname)) !== undefined &&
       !page.route.id?.startsWith('/(app)/(cabinet)'),
   );
 

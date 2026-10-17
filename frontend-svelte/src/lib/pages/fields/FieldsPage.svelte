@@ -8,6 +8,7 @@
   import { LOCALE, t } from '../../app/i18n';
   import { isBadListQuery, listGap, listParams } from '../../app/listState.svelte';
   import OrgPicker from '../../app/OrgPicker.svelte';
+  import { withBase } from '../../app/paths';
   import { session } from '../../app/session.svelte';
   import FieldMap from '../../maps/FieldMap.svelte';
   import AreaFailed from '../../ui/AreaFailed.svelte';
@@ -78,7 +79,7 @@
 {#snippet cell(f: FieldT, c: Column<FieldT>)}
   {#if c.key === 'name'}
     <span class="at-table__primary"
-      ><a href="/fields/{f.id}">{f.name}</a><span class="at-table__sub">{f.region.name}</span></span
+      ><a href={withBase(`/fields/${f.id}`)}>{f.name}</a><span class="at-table__sub">{f.region.name}</span></span
     >
   {:else if c.key === 'farm'}{f.organization.name}{:else if c.key === 'area'}{formatDecimal(
       f.areaHa,

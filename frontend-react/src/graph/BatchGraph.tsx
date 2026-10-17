@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { t } from '../app/i18n';
+import { withBase } from '../base';
 import { Button, Chip } from '../ui';
 import { useFullscreen, useThemeVersion } from '../ui/fullscreen';
 import type { BatchGraph as Graph } from './elements';
@@ -97,7 +98,7 @@ function GraphCanvas({
         view.current = mountGraph(el.current, graph, (node) => {
           opened.current();
           if (node.accessible) navigate(`/batches/${node.id}?tab=graph`);
-          else window.location.assign(`/p/${node.publicCode}`);
+          else window.location.assign(withBase(`/p/${node.publicCode}`));
         });
       },
       () => !cancelled && setFailed(true),

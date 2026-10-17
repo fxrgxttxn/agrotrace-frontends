@@ -13,6 +13,7 @@ export default defineConfig({
       { find: '$app/navigation', replacement: here('./test/kit/navigation.ts') },
       { find: '$app/state', replacement: here('./test/kit/state.svelte.ts') },
       { find: '$app/environment', replacement: here('./test/kit/environment.ts') },
+      { find: '$app/paths', replacement: here('./test/kit/paths.ts') },
     ],
   },
   server: { fs: { allow: [here('..')] } },

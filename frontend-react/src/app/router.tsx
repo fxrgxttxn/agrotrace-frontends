@@ -1,5 +1,6 @@
 import { Suspense, useEffect } from 'react';
 import { Outlet, useLocation, type RouteObject } from 'react-router-dom';
+import { withBase } from '../base';
 import { ForbiddenPage, NotFoundPage } from '../pages/errors';
 import { Shell } from '../shell/Shell';
 import { PageLoading } from '../ui';
@@ -33,7 +34,7 @@ function MaybeShell() {
 function PublicReload() {
   const location = useLocation();
   useEffect(() => {
-    window.location.replace(`${location.pathname}${location.search}`);
+    window.location.replace(withBase(`${location.pathname}${location.search}`));
   }, [location]);
   return null;
 }

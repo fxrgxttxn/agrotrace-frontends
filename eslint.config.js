@@ -13,6 +13,7 @@ export default tseslint.config(
       '**/.svelte-kit-mock/**',
       'frontend-svelte/build/**',
       'frontend-svelte/build-mock/**',
+      '_site/**',
       '**/test-results/**',
       '**/.angular/**',
       '**/coverage/**',

@@ -1,5 +1,6 @@
 import '@agrotrace/design-system/index.css';
 import { applyTheme, readTheme } from './app/theme';
+import { BASE, stripBase, withBase } from './base';
 import { renderBootFailure } from './bootFailure';
 import { afterChunkFailure, chunkLoaded, here } from './reload';
 import { earlyBatchUrl, startEarly } from './early';
@@ -10,16 +11,20 @@ document.getElementById('at-boot')?.remove();
 async function startMock(): Promise<void> {
   if (import.meta.env.MODE !== 'mock') return;
   const { startBrowserMock } = await import('@agrotrace/mock-api/browser');
-  await startBrowserMock();
+  await startBrowserMock({
+    serviceWorkerUrl: withBase('/mockServiceWorker.js'),
+    publicBaseUrl: `${location.origin}${BASE}`,
+  });
 }
 
 async function boot(): Promise<void> {
   const target = here();
-  const isPublic = location.pathname === '/p' || location.pathname.startsWith('/p/');
+  const path = stripBase(location.pathname);
+  const isPublic = path === '/p' || path.startsWith('/p/');
   try {
     await startMock();
     if (isPublic) {
-      const early = earlyBatchUrl(location.pathname, location.origin);
+      const early = earlyBatchUrl(path, location.origin);
       if (early) startEarly(early);
       await import('./public/main');
       chunkLoaded();

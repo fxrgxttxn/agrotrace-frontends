@@ -8,6 +8,7 @@
   import { userAction } from '../../app/focusRescue';
   import { t } from '../../app/i18n';
   import { CONCLUSION_TONE, LAB_STATUS_TONE } from '../../app/labTests';
+  import { withBase } from '../../app/paths';
   import { screenScope } from '../../app/screen';
   import { session } from '../../app/session.svelte';
   import AreaFailed from '../../ui/AreaFailed.svelte';
@@ -127,7 +128,7 @@
   }
 </script>
 
-{#snippet batchLink()}<a class="at-mono" href="/batches/{test!.batch.id}">{test!.batch.publicCode}</a>{/snippet}
+{#snippet batchLink()}<a class="at-mono" href={withBase(`/batches/${test!.batch.id}`)}>{test!.batch.publicCode}</a>{/snippet}
 {#snippet due()}
   {at(test!.dueAt)}{#if test!.overdue}
     <!-- eslint-disable-next-line svelte/no-useless-mustaches -->

@@ -7,6 +7,7 @@
   import { userAction } from '../../app/focusRescue';
   import { goto } from '../../app/goto';
   import { LOCALE, t } from '../../app/i18n';
+  import { withBase } from '../../app/paths';
   import { session } from '../../app/session.svelte';
   import AreaFailed from '../../ui/AreaFailed.svelte';
   import AreaLoading from '../../ui/AreaLoading.svelte';
@@ -103,7 +104,7 @@
         </span>
       {/snippet}
       {#snippet fieldFact()}
-        <a href="/fields/{b.field?.id}">{b.field?.name}</a>
+        <a href={withBase(`/fields/${b.field?.id}`)}>{b.field?.name}</a>
       {/snippet}
       {@const facts = [
         { key: 'product', term: t('batches.product'), value: b.product.name },

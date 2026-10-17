@@ -5,6 +5,7 @@
   import { query } from '../../app/cache.svelte';
   import { userAction } from '../../app/focusRescue';
   import { LOCALE, t } from '../../app/i18n';
+  import { withBase } from '../../app/paths';
   import { session } from '../../app/session.svelte';
   import AreaFailed from '../../ui/AreaFailed.svelte';
   import AreaLoading from '../../ui/AreaLoading.svelte';
@@ -40,7 +41,7 @@
 {#snippet cell(x: Item, c: Column<Item>)}
   {#if c.key === 'lab'}
     <span class="at-table__primary"
-      >{#if labLinks}<a href="/lab/tests/{x.id}">{x.lab.name}</a>{:else}<span>{x.lab.name}</span>{/if}<span
+      >{#if labLinks}<a href={withBase(`/lab/tests/${x.id}`)}>{x.lab.name}</a>{:else}<span>{x.lab.name}</span>{/if}<span
         class="at-table__sub">{enumLabel(t, 'LabTestReason', x.reason)}</span
       ></span
     >

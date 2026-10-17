@@ -11,7 +11,7 @@ import { ArtDirective } from './art';
 import { BatchPageComponent } from './batch-page';
 import { ComplaintPageComponent } from './complaint-page';
 import { t } from './i18n';
-import { matchPublic, path } from './nav';
+import { currentPath, matchPublic, path } from './nav';
 import { ARRIVALS, ART, arrivalFocus, HEADER, NOT_FOUND, titleEffect } from './views';
 
 @Component({
@@ -65,8 +65,8 @@ export class PublicApp {
   constructor() {
     const host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
     queueMicrotask(() => host.removeAttribute('ng-version'));
-    path.set(location.pathname);
-    const sync = () => path.set(location.pathname);
+    path.set(currentPath());
+    const sync = () => path.set(currentPath());
     window.addEventListener('popstate', sync);
     inject(DestroyRef).onDestroy(() => window.removeEventListener('popstate', sync));
   }

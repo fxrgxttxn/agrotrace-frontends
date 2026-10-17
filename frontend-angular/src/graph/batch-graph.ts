@@ -14,6 +14,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { withBase } from '../base';
 import { t } from '../app/i18n';
 import { ButtonComponent, ChipComponent, injectThemeVersion, isolate, type Fullscreen } from '../app/ui';
 import type { BatchGraph } from './elements';
@@ -112,7 +113,7 @@ export class BatchGraphComponent {
             this.view = mountGraph(el, graph, (node) => {
               this.fs().close();
               if (node.accessible) void this.router.navigateByUrl(`/batches/${node.id}?tab=graph`);
-              else window.location.assign(`/p/${node.publicCode}`);
+              else window.location.assign(withBase(`/p/${node.publicCode}`));
             });
           },
           () => {

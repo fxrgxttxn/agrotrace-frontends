@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>AgroTrace</title>
+    <script>
+      (function () {
+        var base = '%BASE%';
+        var path = location.pathname;
+        if (path.indexOf(base) !== 0) return;
+        var m = /^(react|angular|svelte)\/(.+)$/.exec(path.slice(base.length));
+        if (m)
+          location.replace(
+            base + m[1] + '/?__p=' + encodeURIComponent(m[2] + location.search + location.hash),
+          );
+      })();
+    </script>
+    <link rel="stylesheet" href="%BASE%ds/fonts.css" />
+    <link rel="stylesheet" href="%BASE%ds/tokens.css" />
+    <link rel="stylesheet" href="%BASE%ds/base.css" />
+    <link rel="stylesheet" href="%BASE%ds/components/button.css" />
+    <style>
+      main {
+        max-width: 30rem;
+        margin: 0 auto;
+        padding: var(--sp-12) var(--sp-4);
+        display: grid;
+        gap: var(--sp-4);
+        justify-items: start;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Страница не найдена</h1>
+      <a class="at-button" data-variant="primary" href="%BASE%">К списку реализаций</a>
+    </main>
+  </body>
+</html>

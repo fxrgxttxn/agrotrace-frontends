@@ -15,6 +15,7 @@
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
   import { t } from '../app/i18n';
+  import { withBase } from '../app/paths';
 
   let {
     page,
@@ -61,7 +62,7 @@
   {:else}
     <a
       class="at-pagination__item"
-      href={hrefFor?.(p)}
+      href={hrefFor && withBase(hrefFor(p))}
       aria-label={aria.label}
       aria-current={aria.current ? 'page' : undefined}>{@render content()}</a
     >

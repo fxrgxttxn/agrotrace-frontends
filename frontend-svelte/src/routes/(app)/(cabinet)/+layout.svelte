@@ -3,6 +3,7 @@
   import { goto } from '$lib/app/goto';
   import { page } from '$app/state';
   import { mayOpen } from '$lib/app/guards';
+  import { stripBase } from '$lib/app/paths';
   import { loginUrl, session } from '$lib/app/session.svelte';
   import Unavailable from '$lib/pages/Unavailable.svelte';
   import Shell from '$lib/shell/Shell.svelte';
@@ -10,11 +11,12 @@
 
   let { children }: { children: Snippet } = $props();
 
-  const allowed = $derived(mayOpen(page.url.pathname));
+  const pathname = $derived(stripBase(page.url.pathname));
+  const allowed = $derived(mayOpen(pathname));
 
   $effect(() => {
     if (session.status === 'anonymous')
-      void goto(session.loggedOut ? '/login' : loginUrl(`${page.url.pathname}${page.url.search}`), {
+      void goto(session.loggedOut ? '/login' : loginUrl(`${pathname}${page.url.search}`), {
         replaceState: true,
       });
     else if (session.status === 'authenticated' && !allowed) void goto('/403', { replaceState: true });

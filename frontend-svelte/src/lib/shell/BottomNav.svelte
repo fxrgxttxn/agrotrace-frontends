@@ -4,6 +4,7 @@
   import { flushSync } from 'svelte';
   import { t } from '../app/i18n';
   import { BOTTOM_NAV_ITEMS, isCurrent, NOTIFICATIONS_ITEM, PROFILE_ITEM, type NavItem } from '../app/nav';
+  import { stripBase, withBase } from '../app/paths';
   import { skipRouteFocus } from '../app/routeFocus';
   import Dialog from '../ui/Dialog.svelte';
   import Icon from '../ui/Icon.svelte';
@@ -23,7 +24,7 @@
   {#each main as item (item.key)}
     <a
       class="at-bottom-nav__link"
-      href={item.href}
+      href={withBase(item.href)}
       aria-current={isCurrent(item, pathname) ? 'page' : undefined}
       ><Icon name={item.icon} class="at-bottom-nav__icon" />{t(item.short ?? item.label)}</a
     >
@@ -51,12 +52,12 @@
         <li>
           <a
             class="at-sidebar__link"
-            href={item.href}
+            href={withBase(item.href)}
             aria-current={isCurrent(item, pathname) ? 'page' : undefined}
             onclick={(e) => {
               if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
               e.preventDefault();
-              const here = `${location.pathname}${location.search}` === item.href;
+              const here = `${stripBase(location.pathname)}${location.search}` === item.href;
               if (!here) skipRouteFocus(item.href);
               flushSync(() => (open = false));
               void goto(item.href, { keepFocus: true, replaceState: here });

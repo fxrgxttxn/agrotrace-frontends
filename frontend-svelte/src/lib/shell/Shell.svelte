@@ -5,6 +5,7 @@
   import { t } from '../app/i18n';
   import { live } from '../app/live.svelte';
   import { navFor } from '../app/nav';
+  import { stripBase } from '../app/paths';
   import PageLoading from '../ui/PageLoading.svelte';
   import BottomNav from './BottomNav.svelte';
   import Sidebar from './Sidebar.svelte';
@@ -21,7 +22,7 @@
       ? navigating.to.url.pathname
       : null,
   );
-  const pathname = $derived(pending ?? page.url.pathname);
+  const pathname = $derived(stripBase(pending ?? page.url.pathname));
 
   let main: HTMLElement | null = $state(null);
   $effect(() => {

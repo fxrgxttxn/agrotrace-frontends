@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
+  import { base } from '$app/paths';
   import { ApiProblem, retryAfterOf } from '@agrotrace/api-client/public';
   import { expiresAt, solveChallenge } from './altcha';
   import { api, BatchQuery, failureOf, focusIfIdle, Wait } from './data.svelte';
@@ -19,7 +20,7 @@
   const query = new BatchQuery(batchCode);
   const batchState = $derived(query.state);
   publicFrame(() => t('page.publicComplaint'));
-  const back = `/p/${encodeURIComponent(batchCode)}`;
+  const back = `${base}/p/${encodeURIComponent(batchCode)}`;
 
   const problemText = (c: string) => {
     const key = `errors.${c}`;

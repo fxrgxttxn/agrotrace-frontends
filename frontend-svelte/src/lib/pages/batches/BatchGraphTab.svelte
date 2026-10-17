@@ -5,6 +5,7 @@
   import { query } from '../../app/cache.svelte';
   import { userAction } from '../../app/focusRescue';
   import { LOCALE, t } from '../../app/i18n';
+  import { withBase } from '../../app/paths';
   import { session } from '../../app/session.svelte';
   import BatchGraph from '../../graph/BatchGraph.svelte';
   import type { GraphNode } from '../../graph/elements';
@@ -47,7 +48,7 @@
       <span class="at-table__primary"><span class="at-mono">{n.publicCode}</span><span class="at-table__sub">{n.product.name}</span></span>
     {:else}
       <span class="at-table__primary"
-        ><a class="at-mono" href="/p/{n.publicCode}">{n.publicCode}</a><span class="at-table__sub"
+        ><a class="at-mono" href={withBase(`/p/${n.publicCode}`)}>{n.publicCode}</a><span class="at-table__sub"
           >{n.product.name}, {t('graph.noAccess').toLocaleLowerCase('ru')}</span
         ></span
       >

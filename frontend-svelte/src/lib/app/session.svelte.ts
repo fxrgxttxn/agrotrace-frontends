@@ -1,4 +1,5 @@
 import { goto } from './goto';
+import { stripBase } from './paths';
 import {
   ApiProblem,
   createApi,
@@ -218,7 +219,7 @@ export class Session {
     if (this.#booting) return;
     this.#end(false);
     toasts.push({ tone: 'attention', text: t('errors.TOKEN_EXPIRED') });
-    void goto(loginUrl(`${location.pathname}${location.search}`), { replaceState: true });
+    void goto(loginUrl(`${stripBase(location.pathname)}${location.search}`), { replaceState: true });
   }
 }
 

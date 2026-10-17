@@ -55,6 +55,7 @@ import {
   type TimelineEntry,
   type Tone,
 } from '../app/ui';
+import { BASE } from '../base';
 import { BatchGraphComponent } from '../graph/batch-graph';
 import { BATCHES_KEY, batchKey, FIELDS_KEY } from './keys';
 import { FORM_GRID } from './layout';
@@ -849,7 +850,7 @@ interface Fact {
                         >
                       } @else {
                         <span class="at-table__primary"
-                          ><a class="at-mono" [attr.href]="'/p/' + n.publicCode">{{ n.publicCode }}</a
+                          ><a class="at-mono" [attr.href]="base + '/p/' + n.publicCode">{{ n.publicCode }}</a
                           ><span class="at-table__sub">{{ n.product.name }}, {{ noAccess }}</span></span
                         >
                       }
@@ -1124,6 +1125,7 @@ interface Fact {
 })
 export class BatchPage {
   protected readonly t = t;
+  protected readonly base = BASE;
   private readonly session = inject(SessionService);
   private readonly cache = inject(QueryCache);
   private readonly toasts = inject(ToastService);

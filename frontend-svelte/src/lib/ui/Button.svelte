@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { HTMLAnchorAttributes, HTMLButtonAttributes } from 'svelte/elements';
+  import { withBase } from '../app/paths';
   import Icon from './Icon.svelte';
   import type { IconName } from './icons';
 
@@ -45,6 +46,7 @@
     data-size={size}
     data-icon-only={iconOnly ? '' : undefined}
     {...rest as HTMLAnchorAttributes}
+    href={withBase(rest.href)}
   >
     {#if icon}<Icon name={icon} class="at-button__icon" />{/if}{@render children?.()}
   </a>

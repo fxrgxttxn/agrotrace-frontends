@@ -7,6 +7,7 @@
   import { userAction } from '../../app/focusRescue';
   import { LOCALE, t } from '../../app/i18n';
   import { isBadListQuery, listGap, listParams, type ListSpec } from '../../app/listState.svelte';
+  import { withBase } from '../../app/paths';
   import { session } from '../../app/session.svelte';
   import AreaFailed from '../../ui/AreaFailed.svelte';
   import AreaLoading from '../../ui/AreaLoading.svelte';
@@ -74,7 +75,7 @@
     const next = new URLSearchParams(list.params);
     for (const [k, v] of Object.entries(patch)) next.set(k, v);
     next.delete('page');
-    return `/admin/audit?${next.toString()}`;
+    return withBase(`/admin/audit?${next.toString()}`);
   }
 
   const log = query(

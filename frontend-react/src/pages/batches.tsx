@@ -34,6 +34,7 @@ import { LAB_STATUS_TONE } from '../app/labTests';
 import { OrgPicker } from '../app/OrgPicker';
 import { CABINET_ROUTES } from '../app/routes';
 import { useMe, useSession } from '../app/session';
+import { withBase } from '../base';
 import { BatchGraphView } from '../graph/BatchGraph';
 import {
   AreaLoading,
@@ -999,7 +1000,7 @@ function GraphTab({ batch }: { batch: Batch }) {
           </span>
         ) : (
           <span className="at-table__primary">
-            <a className="at-mono" href={`/p/${n.publicCode}`}>
+            <a className="at-mono" href={withBase(`/p/${n.publicCode}`)}>
               {n.publicCode}
             </a>
             <span className="at-table__sub">

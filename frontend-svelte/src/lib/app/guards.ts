@@ -1,12 +1,13 @@
 import { redirect } from '@sveltejs/kit';
 import { canAccess } from './access';
+import { stripBase, withBase } from './paths';
 import { cabinetRoute } from './routes';
 import { loginUrl, safeNext, session } from './session.svelte';
 
 export async function requireAuth(url: URL): Promise<void> {
-  const here = `${url.pathname}${url.search}`;
+  const here = `${stripBase(url.pathname)}${url.search}`;
   await session.start();
-  if (session.status === 'anonymous') redirect(307, session.loggedOut ? '/login' : loginUrl(here));
+  if (session.status === 'anonymous') redirect(307, withBase(session.loggedOut ? '/login' : loginUrl(here)));
 }
 
 export function requireRole(path: string): () => Promise<void> {
@@ -15,7 +16,7 @@ export function requireRole(path: string): () => Promise<void> {
   return async () => {
     await session.start();
     if (session.status === 'authenticated' && session.me && !canAccess(session.me, route.access))
-      redirect(307, '/403');
+      redirect(307, withBase('/403'));
   };
 }
 

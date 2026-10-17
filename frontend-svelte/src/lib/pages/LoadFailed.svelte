@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import { reloadPage, reloadPending } from '../app/chunkFailure';
   import { t } from '../app/i18n';
+  import { stripBase } from '../app/paths';
   import { cabinetRoute } from '../app/routes';
   import Button from '../ui/Button.svelte';
   import Card from '../ui/Card.svelte';
@@ -11,7 +12,7 @@
 
   let { standalone = false }: { standalone?: boolean } = $props();
 
-  const title = $derived(t(cabinetRoute(page.url.pathname)?.title ?? 'page.notFound'));
+  const title = $derived(t(cabinetRoute(stripBase(page.url.pathname))?.title ?? 'page.notFound'));
   const reloading = reloadPending(page.error);
 </script>
 

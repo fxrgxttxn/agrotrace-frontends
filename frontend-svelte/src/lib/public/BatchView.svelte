@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { base } from '$app/paths';
   import { withVariant, type SafetyStatus } from '@agrotrace/api-client/public';
   import { formatLocalDate, photoCredit } from '@agrotrace/i18n/public';
   import { ART } from './art';
@@ -136,7 +137,7 @@
       </div>
     </article>
     <div class="at-public__actions">
-      <a class="at-button" data-variant="primary" href="/p/{encodeURIComponent(b.publicCode)}/complaint"
+      <a class="at-button" data-variant="primary" href="{base}/p/{encodeURIComponent(b.publicCode)}/complaint"
         >{t('public.report')}</a
       >
     </div>

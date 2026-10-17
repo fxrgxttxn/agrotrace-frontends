@@ -1,13 +1,15 @@
-import { Directive, HostListener, inject, input } from '@angular/core';
+import { computed, Directive, HostListener, inject, input } from '@angular/core';
 import { Router } from '@angular/router';
+import { withBase } from '../../base';
 
 @Directive({
   selector: 'a[to]',
   standalone: true,
-  host: { '[attr.href]': 'to()' },
+  host: { '[attr.href]': 'href()' },
 })
 export class LinkDirective {
   readonly to = input.required<string>();
+  protected readonly href = computed(() => withBase(this.to()));
   private readonly router = inject(Router);
 
   @HostListener('click', ['$event'])

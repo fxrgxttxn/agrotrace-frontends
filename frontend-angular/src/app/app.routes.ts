@@ -9,6 +9,7 @@ import {
   PageLoadFailedStandalonePage,
   UnavailablePage,
 } from '../pages/errors';
+import { withBase } from '../base';
 import { resilientLoad } from './chunk';
 import { guestOnly, requireRole, signedIn, toLoginOrUnavailable, twoFactorChallenge } from './guards';
 import { AUTH_ROUTES, CABINET_ROUTES } from './routes';
@@ -25,7 +26,7 @@ const GUEST_ONLY = new Set(['/login', '/login/2fa']);
 })
 export class PublicReloadComponent {
   constructor() {
-    window.location.replace(inject(Router).url);
+    window.location.replace(withBase(inject(Router).url));
   }
 }
 

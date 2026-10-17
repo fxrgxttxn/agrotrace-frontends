@@ -10,6 +10,7 @@
   import { LOCALE, t } from '../app/i18n';
   import { userAction } from '../app/focusRescue';
   import { live } from '../app/live.svelte';
+  import { withBase } from '../app/paths';
   import { session } from '../app/session.svelte';
   import Button from '../ui/Button.svelte';
   import Card from '../ui/Card.svelte';
@@ -112,7 +113,7 @@
   {#if c.key === 'title'}
     {@const href = session.me ? linkFor(n, session.me) : null}
     <span class="at-table__primary"
-      >{#if href}<a {href}>{text(n, 'title')}</a>{:else}<span>{text(n, 'title')}</span>{/if}<span
+      >{#if href}<a href={withBase(href)}>{text(n, 'title')}</a>{:else}<span>{text(n, 'title')}</span>{/if}<span
         class="at-table__sub">{text(n, 'body')}</span
       ></span
     >

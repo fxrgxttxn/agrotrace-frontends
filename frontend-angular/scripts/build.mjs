@@ -7,6 +7,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const mock = process.argv.includes('--mock');
 const dist = join(root, mock ? 'dist-mock' : 'dist');
 const pub = join(root, 'dist-public');
+const trimmed = (process.env.AT_BASE_PATH ?? '').replace(/^\/+|\/+$/g, '');
+const base = trimmed ? `/${trimmed}/` : '/';
 const ng = (...args) => execFileSync('ng', args, { cwd: root, stdio: 'inherit' });
 
 rmSync(pub, { recursive: true, force: true });
@@ -18,10 +20,17 @@ const main = Object.entries(stats.outputs).find(([, o]) =>
 if (!main) throw new Error('build: the public build has no main file');
 writeFileSync(
   join(root, 'src/public-entry.build.ts'),
-  `const url = '/assets/p/${main}';\n` +
+  `const url = '${base}assets/p/${main}';\n` +
     `export const loadPublic = (): Promise<unknown> => import(/* @vite-ignore */ url);\n`,
 );
-ng('build', 'agrotrace', '-c', mock ? 'production,mock' : 'production', '--stats-json');
+ng(
+  'build',
+  'agrotrace',
+  '-c',
+  mock ? 'production,mock' : 'production',
+  '--stats-json',
+  ...(trimmed ? ['--deploy-url', `${base}assets/`] : []),
+);
 execFileSync('node', [join(root, 'scripts/postbuild.mjs'), ...(mock ? ['--mock'] : [])], {
   stdio: 'inherit',
 });

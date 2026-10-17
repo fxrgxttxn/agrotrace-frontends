@@ -7,6 +7,7 @@
   import { userAction } from '../../app/focusRescue';
   import { t } from '../../app/i18n';
   import { clock } from '../../app/now.svelte';
+  import { withBase } from '../../app/paths';
   import { RECALL_TONE } from '../../app/recalls';
   import { session } from '../../app/session.svelte';
   import BatchGraph from '../../graph/BatchGraph.svelte';
@@ -97,9 +98,9 @@
   {/if}
 {/snippet}
 
-{#snippet sourceLink()}<a class="at-mono" href="/batches/{recall!.sourceBatch.id}">{recall!.sourceBatch.publicCode}</a>{/snippet}
-{#snippet complaintLink()}<a href="/complaints/{recall!.complaintId}">{t('recalls.complaintOpen')}</a>{/snippet}
-{#snippet labLink()}<a href="/batches/{recall!.sourceBatch.id}?tab=tests">{t('recalls.labTestOpen')}</a>{/snippet}
+{#snippet sourceLink()}<a class="at-mono" href={withBase(`/batches/${recall!.sourceBatch.id}`)}>{recall!.sourceBatch.publicCode}</a>{/snippet}
+{#snippet complaintLink()}<a href={withBase(`/complaints/${recall!.complaintId}`)}>{t('recalls.complaintOpen')}</a>{/snippet}
+{#snippet labLink()}<a href={withBase(`/batches/${recall!.sourceBatch.id}?tab=tests`)}>{t('recalls.labTestOpen')}</a>{/snippet}
 
 {#if notFound}
   <Page title={t('page.recall')}>

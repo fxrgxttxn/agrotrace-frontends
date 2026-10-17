@@ -1,4 +1,5 @@
 import { signal } from '@angular/core';
+import { stripBase, withBase } from '../base';
 
 export type PublicRoute =
   { name: 'batch'; code: string } | { name: 'complaint'; code: string } | { name: 'none' };
@@ -15,15 +16,17 @@ export function matchPublic(path: string): PublicRoute {
   return m[2] ? { name: 'complaint', code } : { name: 'batch', code };
 }
 
-export const batchPath = (code: string) => `/p/${encodeURIComponent(code)}`;
+export const batchPath = (code: string) => withBase(`/p/${encodeURIComponent(code)}`);
 export const complaintPath = (code: string) => `${batchPath(code)}/complaint`;
 
-export const path = signal(typeof location === 'undefined' ? '/' : location.pathname);
+export const currentPath = (): string => stripBase(location.pathname);
+
+export const path = signal(typeof location === 'undefined' ? '/' : currentPath());
 
 export function navigate(to: string): void {
   if (to === window.location.pathname) return;
   window.history.pushState(null, '', to);
-  path.set(window.location.pathname);
+  path.set(currentPath());
 }
 
 export function onLink(e: MouseEvent): void {

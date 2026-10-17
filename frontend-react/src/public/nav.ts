@@ -1,4 +1,5 @@
 import { useSyncExternalStore, type MouseEvent } from 'react';
+import { stripBase, withBase } from '../base';
 
 export type PublicRoute =
   { name: 'batch'; code: string } | { name: 'complaint'; code: string } | { name: 'none' };
@@ -15,7 +16,7 @@ export function matchPublic(path: string): PublicRoute {
   return m[2] ? { name: 'complaint', code } : { name: 'batch', code };
 }
 
-export const batchPath = (code: string) => `/p/${encodeURIComponent(code)}`;
+export const batchPath = (code: string) => withBase(`/p/${encodeURIComponent(code)}`);
 export const complaintPath = (code: string) => `${batchPath(code)}/complaint`;
 
 const listeners = new Set<() => void>();
@@ -36,7 +37,7 @@ export function navigate(path: string): void {
 }
 
 export function usePath(): string {
-  return useSyncExternalStore(subscribe, () => window.location.pathname);
+  return useSyncExternalStore(subscribe, () => stripBase(window.location.pathname));
 }
 
 export function onLink(e: MouseEvent<HTMLAnchorElement>): void {

@@ -1,9 +1,10 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { t } from '$lib/app/i18n';
+  import { stripBase } from '$lib/app/paths';
   import ErrorScreen from '$lib/pages/ErrorScreen.svelte';
 
-  const showcase = import.meta.env.DEV && page.url.pathname === '/_ds' ? import('$lib/dev/Showcase.svelte') : null;
+  const showcase = import.meta.env.DEV && stripBase(page.url.pathname) === '/_ds' ? import('$lib/dev/Showcase.svelte') : null;
 </script>
 
 {#if showcase}

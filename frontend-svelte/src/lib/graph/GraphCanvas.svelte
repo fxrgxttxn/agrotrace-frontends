@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { t } from '../app/i18n';
   import { goto } from '../app/goto';
+  import { withBase } from '../app/paths';
   import { themeVersion } from '../ui/fullscreen.svelte';
   import type { GraphView } from './cytoscape';
   import type { BatchGraph } from './elements';
@@ -34,7 +35,7 @@
         view.current = mountGraph(node, g, (n) => {
           untrack(onopennode);
           if (n.accessible) void goto(`/batches/${n.id}?tab=graph`);
-          else window.location.assign(`/p/${n.publicCode}`);
+          else window.location.assign(withBase(`/p/${n.publicCode}`));
         });
       },
       () => {

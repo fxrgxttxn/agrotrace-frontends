@@ -3,6 +3,7 @@ import { page } from '$app/state';
 import { ApiProblem } from '@agrotrace/api-client';
 import { formatSort, parseSort, type SortState } from '../ui/table';
 import { goto } from './goto';
+import { stripBase } from './paths';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -89,7 +90,7 @@ export interface ListParams {
 }
 
 export function listParams(path: () => string, spec: ListSpec): ListParams {
-  const here = () => page.url.pathname === path();
+  const here = () => stripBase(page.url.pathname) === path();
   const params = $derived(sanitizeParams(page.url.searchParams, spec));
   const pageNo = $derived(Math.max(1, Number(params.get('page')) || 1));
   const sort = $derived(parseSort(params.get('sort')));
@@ -173,7 +174,7 @@ export function collapseAll(path: () => string): void {
     const statuses = page.url.searchParams.getAll('status');
     if (!statuses.includes(ALL) || statuses.length < 2) return;
     untrack(() => {
-      if (page.url.pathname !== path()) return;
+      if (stripBase(page.url.pathname) !== path()) return;
       const next = new URLSearchParams(page.url.searchParams);
       next.delete('status');
       next.append('status', ALL);

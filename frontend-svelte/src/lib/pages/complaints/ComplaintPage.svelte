@@ -6,6 +6,7 @@
   import { cache, query } from '../../app/cache.svelte';
   import { userAction } from '../../app/focusRescue';
   import { LOCALE, t } from '../../app/i18n';
+  import { withBase } from '../../app/paths';
   import { complaintActions, COMPLAINT_TONE } from '../../app/recalls';
   import { screenScope } from '../../app/screen';
   import { session } from '../../app/session.svelte';
@@ -106,9 +107,9 @@
   }
 </script>
 
-{#snippet batchLink()}<a class="at-mono" href="/batches/{complaint!.batch.id}">{complaint!.batch.publicCode}</a>{/snippet}
-{#snippet recallLink()}<a href="/recalls/{complaint!.recallId}">{t('complaints.recallLink')}</a>{/snippet}
-{#snippet labLink()}<a href="/batches/{complaint!.batch.id}?tab=tests">{t('complaints.labLink')}</a>{/snippet}
+{#snippet batchLink()}<a class="at-mono" href={withBase(`/batches/${complaint!.batch.id}`)}>{complaint!.batch.publicCode}</a>{/snippet}
+{#snippet recallLink()}<a href={withBase(`/recalls/${complaint!.recallId}`)}>{t('complaints.recallLink')}</a>{/snippet}
+{#snippet labLink()}<a href={withBase(`/batches/${complaint!.batch.id}?tab=tests`)}>{t('complaints.labLink')}</a>{/snippet}
 
 {#if notFound}
   <Page title={t('page.complaint')}>

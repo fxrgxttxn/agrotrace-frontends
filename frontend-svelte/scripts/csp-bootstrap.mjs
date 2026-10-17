@@ -4,6 +4,14 @@ import { join, relative } from 'node:path';
 
 const out = process.argv[2] ?? 'build';
 const APP_DIR = 'assets';
+const BASE = (process.env.AT_BASE_PATH ?? '').replace(/\/+$/, '');
+const RESTORE = BASE
+  ? `(function () {
+  var p = new URLSearchParams(location.search).get('__p');
+  if (p !== null) history.replaceState(history.state, '', ${JSON.stringify(BASE)} + '/' + p.replace(/^[/]+/, ''));
+})();
+`
+  : '';
 const INLINE = /<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g;
 
 const BOOT_FAILED = `var __agrotraceFallback = document.getElementById('at-load-failed');
@@ -87,7 +95,7 @@ for (const page of pages) {
     let js = code.trim().replace(/import\((["'])\.\/(?=assets\/)/g, 'import($1/');
     if (/import\((["'])\.\//.test(js)) throw new Error(`csp-bootstrap: relative import left in ${page}`);
     if (!START.test(js)) throw new Error(`csp-bootstrap: unexpected start-up call in ${page}:\n${js}`);
-    js = `${BOOT_FAILED}${js.replace(
+    js = `${RESTORE}${BOOT_FAILED}${js.replace(
       START,
       ']).then(([kit, app]) => kit.start(app, element)).catch(__agrotraceBootFailed);',
     )}`;
@@ -97,7 +105,7 @@ for (const page of pages) {
     const file = `boot.${hash}.js`;
     writeFileSync(join(dir, file), `${js}\n`);
     moved += 1;
-    return `<script src="/${APP_DIR}/immutable/entry/${file}"></script>`;
+    return `<script src="${BASE}/${APP_DIR}/immutable/entry/${file}"></script>`;
   });
   if (moved === 0) throw new Error(`csp-bootstrap: no start-up script found in ${page}`);
   if (/<script(?![^>]*\bsrc=)[^>]*>/.test(next))

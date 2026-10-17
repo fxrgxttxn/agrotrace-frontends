@@ -1,4 +1,6 @@
+import './deep-link';
 import { applyTheme, readTheme } from './app/theme';
+import { stripBase } from './base';
 import { earlyBatchUrl, startEarly } from './early';
 import { PAGE_LOAD_FAILED, RETRY } from './boot-texts.generated';
 import { startMock } from './mock';
@@ -47,10 +49,11 @@ function start(load: () => Promise<unknown>, clearsMark: boolean): void {
     );
 }
 
-const isPublic = location.pathname === '/p' || location.pathname.startsWith('/p/');
+const here = stripBase(location.pathname);
+const isPublic = here === '/p' || here.startsWith('/p/');
 if (isPublic)
   start(() => {
-    const early = earlyBatchUrl(location.pathname, location.origin);
+    const early = earlyBatchUrl(here, location.origin);
     if (early) startEarly(early);
     return loadPublic();
   }, true);

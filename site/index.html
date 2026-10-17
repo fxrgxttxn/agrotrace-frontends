@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>AgroTrace — три реализации фронтенда</title>
+    <link rel="stylesheet" href="ds/fonts.css" />
+    <link rel="stylesheet" href="ds/tokens.css" />
+    <link rel="stylesheet" href="ds/base.css" />
+    <link rel="stylesheet" href="ds/components/button.css" />
+    <link rel="stylesheet" href="ds/components/card.css" />
+    <style>
+      main {
+        max-width: 60rem;
+        margin: 0 auto;
+        padding: var(--sp-12) var(--sp-4);
+        display: grid;
+        gap: var(--sp-8);
+      }
+      .lead {
+        max-width: 42rem;
+        margin-top: var(--sp-3);
+        color: var(--c-ink-muted);
+        font-size: var(--fs-16);
+        line-height: var(--lh-16);
+      }
+      .fronts {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+        gap: var(--sp-4);
+      }
+      .fronts .at-card__body {
+        color: var(--c-ink-muted);
+      }
+      .demo {
+        display: grid;
+        gap: var(--sp-3);
+      }
+      .demo ul {
+        margin: 0;
+        padding-left: var(--sp-6);
+      }
+      code {
+        font-family: var(--font-mono);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>AgroTrace</h1>
+        <p class="lead">
+          Прослеживаемость сельхозпродукции «от поля до прилавка». Одно и то же приложение на React, Angular и
+          Svelte — по общему контракту OpenAPI и с одной дизайн-системой «Поле».
+        </p>
+      </header>
+
+      <section class="fronts" aria-label="Реализации">
+        <article class="at-card">
+          <header class="at-card__header"><h2 class="at-card__title">React 18</h2></header>
+          <div class="at-card__body">Vite, React Router, TanStack Query</div>
+          <footer class="at-card__footer">
+            <a class="at-button" data-variant="primary" href="react/">Открыть React</a>
+            <a class="at-button" data-variant="ghost" href="react/p/AT-2026-000002">Страница партии</a>
+          </footer>
+        </article>
+        <article class="at-card">
+          <header class="at-card__header"><h2 class="at-card__title">Angular 18</h2></header>
+          <div class="at-card__body">Standalone-компоненты, signals</div>
+          <footer class="at-card__footer">
+            <a class="at-button" data-variant="primary" href="angular/">Открыть Angular</a>
+            <a class="at-button" data-variant="ghost" href="angular/p/AT-2026-000002">Страница партии</a>
+          </footer>
+        </article>
+        <article class="at-card">
+          <header class="at-card__header"><h2 class="at-card__title">Svelte 5</h2></header>
+          <div class="at-card__body">SvelteKit, runes</div>
+          <footer class="at-card__footer">
+            <a class="at-button" data-variant="primary" href="svelte/">Открыть Svelte</a>
+            <a class="at-button" data-variant="ghost" href="svelte/p/AT-2026-000002">Страница партии</a>
+          </footer>
+        </article>
+      </section>
+
+      <section class="at-card" aria-labelledby="demo-title">
+        <header class="at-card__header"><h2 class="at-card__title" id="demo-title">Демо-доступ</h2></header>
+        <div class="at-card__body demo">
+          <p>
+            Сервера нет: API имитируется прямо в браузере, демо-данные и ваши изменения хранятся только в
+            вашем браузере.
+          </p>
+          <p>Пароль всех пользователей — <code>agrotrace-demo</code>. Например:</p>
+          <ul>
+            <li><code>zarya.head@agrotrace.test</code> — хозяйство</li>
+            <li><code>inspector.head@agrotrace.test</code> — инспектор</li>
+            <li><code>admin@agrotrace.test</code> — администратор</li>
+          </ul>
+          <p>
+            Публичная страница партии по QR-коду открывается без входа. Исходный код —
+            <a href="https://github.com/fxrgxttxn/agrotrace-frontends"
+              >github.com/fxrgxttxn/agrotrace-frontends</a
+            >.
+          </p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

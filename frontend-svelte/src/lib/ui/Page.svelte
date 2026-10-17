@@ -2,6 +2,7 @@
   import { onMount, type Snippet } from 'svelte';
   import { afterNavigate } from '$app/navigation';
   import { page } from '$app/state';
+  import { stripBase } from '../app/paths';
   import { arrive } from '../app/routeFocus';
 
   let {
@@ -14,9 +15,9 @@
 
   let h1: HTMLHeadingElement | null = $state(null);
 
-  onMount(() => arrive(page.url.pathname, h1));
+  onMount(() => arrive(stripBase(page.url.pathname), h1));
   afterNavigate(({ to }) => {
-    if (to) arrive(to.url.pathname, h1);
+    if (to) arrive(stripBase(to.url.pathname), h1);
   });
 
   $effect(() => {
