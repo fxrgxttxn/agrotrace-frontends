@@ -11,6 +11,11 @@ export async function startBrowserMock(options: BrowserMockOptions = {}): Promis
   const scope = new URL('.', new URL(url, location.href)).pathname;
   const api = createMockApi({ delayMs: 120, namespace: scope === '/' ? undefined : scope, ...options });
   const worker = setupWorker(...api.handlers);
+  const previous = navigator.serviceWorker.controller;
+  if (previous)
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (navigator.serviceWorker.controller !== previous) location.reload();
+    });
   await worker.start({
     serviceWorker: { url },
     onUnhandledRequest: 'bypass',

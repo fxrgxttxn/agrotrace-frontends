@@ -22,7 +22,8 @@ addEventListener('fetch', function (event) {
     return
   }
 
-  if (request.cache === 'only-if-cached' && request.mode !== 'same-origin') {
+  if (request.cache === 'only-if-cached') {
+    event.stopImmediatePropagation()
     return
   }
 

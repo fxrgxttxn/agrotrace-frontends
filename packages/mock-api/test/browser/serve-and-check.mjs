@@ -91,8 +91,19 @@ const workerRestart = await revived.evaluate(() =>
     }),
   ),
 );
+const workerErrors = [];
+cdp.on('ServiceWorker.workerErrorReported', (e) => workerErrors.push(e.errorMessage.errorMessage));
+const onlyIfCached = await revived.evaluate(() =>
+  fetch('/never-cached', { cache: 'only-if-cached', mode: 'same-origin' }).then(
+    (r) => r.status,
+    (e) => e.name,
+  ),
+);
+await revived.waitForTimeout(500);
+const devtoolsProbe = { onlyIfCached, workerErrors };
+errors.splice(0, errors.length, ...errors.filter((e) => !e.includes('/never-cached')));
 const race = { statuses: [...sa, ...sb, ...sc].every((s) => s === 201) ? '30 x 201' : [...sa, ...sb, ...sc], persisted, expected: 30, persistErrors };
 
-console.log(JSON.stringify({ tour, tabBRefresh: b1.refresh, tabBReadsUpload: b2.file, logoutInA: a2.logout, tabBAfterLogout: b3.refresh, race, navigatedAway, workerRestart, errors }, null, 2));
+console.log(JSON.stringify({ tour, tabBRefresh: b1.refresh, tabBReadsUpload: b2.file, logoutInA: a2.logout, tabBAfterLogout: b3.refresh, race, navigatedAway, workerRestart, devtoolsProbe, errors }, null, 2));
 await browser.close();
 server.close();
