@@ -1,7 +1,9 @@
-// The registered worker: MSW's own script (msw/mockServiceWorker.js, unpatched) plus one rule. A restarted worker
+// The registered worker: MSW's own script (msw/mockServiceWorker.js, unpatched) plus two rules. A restarted worker
 // (Chrome stops an idle one) has an empty list of mocking tabs and MSW would send every request of an open tab to
 // the network; before the first request of a tab it has not met since its start, it asks that tab (MOCK_REVIVE)
 // and waits up to a second for MOCK_ACTIVATE. Tabs that navigated in this worker's lifetime are never asked.
+// Navigations and `only-if-cached` requests (DevTools re-reading the page) never reach MSW: re-fetching an uncached
+// SPA URL fails and MSW reported it as an uncaught "Failed to fetch".
 
 const seen = new Set()
 const pending = new Map()
@@ -27,7 +29,8 @@ addEventListener('fetch', function (event) {
     return
   }
 
-  if (request.cache === 'only-if-cached' && request.mode !== 'same-origin') {
+  if (request.cache === 'only-if-cached') {
+    event.stopImmediatePropagation()
     return
   }
 
