@@ -17,8 +17,8 @@ process.env.VITE_YANDEX_MAPS_API_KEY ??= process.env.YANDEX_MAPS_API_KEY ?? '';
 // script (index.html only references the hashed entry; the module-preload polyfill, which would be bundled, is off —
 // every supported browser has native modulepreload).
 // `--mode mock` (ruling FM23): the same app with the in-browser backend of @agrotrace/mock-api, built into dist-mock
-// with the package's unpatched MSW worker (`/mockServiceWorker.js`) as the only public file; gateway-react serves it
-// at react-mock.localhost.
+// with the package's worker (`/mockServiceWorker.js` and the unpatched MSW script it imports, `/msw/`) as the only
+// public files; gateway-react serves it at react-mock.localhost.
 export default defineConfig(({ mode }) => {
   const mock = mode === 'mock';
   return {
