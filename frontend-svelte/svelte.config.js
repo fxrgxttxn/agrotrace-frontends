@@ -5,8 +5,8 @@ import { writeTemplates } from './scripts/templates.mjs';
 // Mock mode (ruling FM23, `AGROTRACE_MOCK=1 vite build --mode mock`, ./at.sh fe:build svelte --mock): the same app with
 // the in-browser backend of @agrotrace/mock-api (started by the `init` hook of src/hooks.client.ts), built into build-mock
 // with its own SvelteKit output directory (the production build and its module map stay untouched) and the package's
-// unpatched MSW worker (`/mockServiceWorker.js`) as the only static file; gateway-svelte serves it at
-// svelte-mock.localhost.
+// worker (`/mockServiceWorker.js` and the unpatched MSW script it imports, `/msw/`) as the only static files;
+// gateway-svelte serves it at svelte-mock.localhost.
 const mock = process.env.AGROTRACE_MOCK === '1';
 const out = mock ? 'build-mock' : 'build';
 
