@@ -7,12 +7,18 @@ export interface BrowserMockOptions extends MockApiOptions {
 }
 
 export async function startBrowserMock(options: BrowserMockOptions = {}): Promise<MockApi> {
-  const api = createMockApi({ delayMs: 120, ...options });
+  const url = options.serviceWorkerUrl ?? '/mockServiceWorker.js';
+  const scope = new URL('.', new URL(url, location.href)).pathname;
+  const api = createMockApi({ delayMs: 120, namespace: scope === '/' ? undefined : scope, ...options });
   const worker = setupWorker(...api.handlers);
   await worker.start({
-    serviceWorker: { url: options.serviceWorkerUrl ?? '/mockServiceWorker.js' },
+    serviceWorker: { url },
     onUnhandledRequest: 'bypass',
     quiet: options.quiet ?? true,
+  });
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type === 'MOCK_REVIVE')
+      (event.source as ServiceWorker | null)?.postMessage('MOCK_ACTIVATE');
   });
   await api.ready;
   (globalThis as { __agrotraceMock?: MockApi }).__agrotraceMock = api;

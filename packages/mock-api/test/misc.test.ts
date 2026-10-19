@@ -130,6 +130,31 @@ describe('one backend per origin', () => {
     b.dispose();
   });
 
+  it('namespaces on one origin share nothing: session, data and rate-limit counters live under their own keys', async () => {
+    const { storage, data } = memoryStorage();
+    const opts = { now: () => T0, loadAsset: nodeAssetLoader, persist: storage, blobStore: null, lock: null, rateLimits: true };
+    const a = createMockApi({ ...opts, namespace: '/site/react/' });
+    const b = createMockApi({ ...opts, namespace: '/site/angular/' });
+    await Promise.all([a.ready, b.ready]);
+    const login = await (await a.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }))).json();
+    expect((await a.handle(req('/auth/refresh', { method: 'POST' }))).status).toBe(200);
+    expect((await b.handle(req('/auth/refresh', { method: 'POST' }))).status).toBe(401);
+    expect((await a.handle(req('/fields', { method: 'POST', token: login.accessToken, json: { name: 'Только React', areaHa: '1.00', regionCode: '33' } }))).status).toBe(201);
+    const inB = await (await b.handle(req('/auth/login', { method: 'POST', json: { email: 'petrov@agrotrace.test', password: DEMO_PASSWORD } }))).json();
+    const list = await (await b.handle(req('/fields?size=100', { token: inB.accessToken }))).json();
+    expect(list.items.some((x: { name: string }) => x.name === 'Только React')).toBe(false);
+    expect([...data.keys()].sort()).toEqual([
+      'agrotrace-mock-api@/site/angular/',
+      'agrotrace-mock-api@/site/angular/:rate-limits',
+      'agrotrace-mock-api@/site/angular/:version',
+      'agrotrace-mock-api@/site/react/',
+      'agrotrace-mock-api@/site/react/:rate-limits',
+      'agrotrace-mock-api@/site/react/:version',
+    ]);
+    a.dispose();
+    b.dispose();
+  });
+
   const sharedLock = (): CrossTabLock => {
     let q: Promise<unknown> = Promise.resolve();
     return <T,>(fn: () => Promise<T>) => {

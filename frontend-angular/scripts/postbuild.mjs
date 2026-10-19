@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,11 +18,8 @@ if (base) {
   console.log(`postbuild: base /${base}/`);
 }
 if (process.argv.includes('--mock')) {
-  const worker = join(
-    dirname(fileURLToPath(import.meta.url)),
-    '../node_modules/@agrotrace/mock-api/public/mockServiceWorker.js',
-  );
-  copyFileSync(worker, join(dist, 'mockServiceWorker.js'));
-  console.log('postbuild: dist-mock/mockServiceWorker.js');
+  const workers = join(dirname(fileURLToPath(import.meta.url)), '../node_modules/@agrotrace/mock-api/public');
+  cpSync(workers, dist, { recursive: true });
+  console.log('postbuild: dist-mock/mockServiceWorker.js, dist-mock/msw/');
 }
 console.log(`postbuild: ${dist}/index.html, assets under assets/`);

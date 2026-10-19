@@ -4,7 +4,6 @@ import { Store } from './store.js';
 import type { FileRow, KvEntry, Sequences, Tables } from './types.js';
 
 export const SNAPSHOT_KEY = 'agrotrace-mock-api';
-export const VERSION_KEY = 'agrotrace-mock-api:version';
 const FORMAT = 2;
 
 interface Snapshot {
@@ -96,12 +95,17 @@ export class SharedState {
     private readonly storage: Storage,
     private readonly blobs: BlobStore | null,
     private readonly clock: () => number,
+    private readonly key = SNAPSHOT_KEY,
   ) {}
 
+  get versionKey(): string {
+    return `${this.key}:version`;
+  }
+
   loadIfChanged(): Store | null {
-    const version = this.storage.getItem(VERSION_KEY);
+    const version = this.storage.getItem(this.versionKey);
     if (version === null || version === this.version) return null;
-    const json = this.storage.getItem(SNAPSHOT_KEY);
+    const json = this.storage.getItem(this.key);
     const store = json ? deserialize(json, this.clock) : null;
     this.version = version;
     this.lastJson = json;
@@ -122,16 +126,16 @@ export class SharedState {
       return;
     }
     const version = hex(randomBytes(8));
-    this.storage.setItem(SNAPSHOT_KEY, json);
-    this.storage.setItem(VERSION_KEY, version);
+    this.storage.setItem(this.key, json);
+    this.storage.setItem(this.versionKey, version);
     store.dirty = false;
     this.version = version;
     this.lastJson = json;
   }
 
   async clear(): Promise<void> {
-    this.storage.removeItem(SNAPSHOT_KEY);
-    this.storage.removeItem(VERSION_KEY);
+    this.storage.removeItem(this.key);
+    this.storage.removeItem(this.versionKey);
     this.version = null;
     this.lastJson = null;
     this.inBlobs.clear();

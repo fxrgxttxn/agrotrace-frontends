@@ -79,8 +79,20 @@ const persistErrors = await Promise.all([ra, rb].map((p) => p.evaluate(() => Str
 const nav = await open('navigate');
 await nav.waitForTimeout(3500);
 const navigatedAway = { url: new URL(nav.url()).search, errors: errors.filter((e) => e.startsWith('navigate')).length };
+const revived = await open('idle');
+const cdp = await context.newCDPSession(revived);
+await cdp.send('ServiceWorker.enable');
+await cdp.send('ServiceWorker.stopAllWorkers');
+const workerRestart = await revived.evaluate(() =>
+  Promise.all(
+    [1, 2, 3].map(async () => {
+      const r = await fetch('/api/v1/public/batches/AT-2026-000001');
+      return `${r.status} ${r.headers.get('X-Backend')}`;
+    }),
+  ),
+);
 const race = { statuses: [...sa, ...sb, ...sc].every((s) => s === 201) ? '30 x 201' : [...sa, ...sb, ...sc], persisted, expected: 30, persistErrors };
 
-console.log(JSON.stringify({ tour, tabBRefresh: b1.refresh, tabBReadsUpload: b2.file, logoutInA: a2.logout, tabBAfterLogout: b3.refresh, race, navigatedAway, errors }, null, 2));
+console.log(JSON.stringify({ tour, tabBRefresh: b1.refresh, tabBReadsUpload: b2.file, logoutInA: a2.logout, tabBAfterLogout: b3.refresh, race, navigatedAway, workerRestart, errors }, null, 2));
 await browser.close();
 server.close();

@@ -24,7 +24,7 @@ import { usersHandlers } from './modules/users.js';
 import { waybillsHandlers } from './modules/waybills.js';
 import type { AssetLoader } from './render/documents.js';
 import type { Mock } from './runtime.js';
-import { indexedDbBlobs, SharedState, VERSION_KEY } from './store/persist.js';
+import { indexedDbBlobs, SharedState, SNAPSHOT_KEY } from './store/persist.js';
 import { buildSeed } from './store/seed.js';
 import type { Store } from './store/store.js';
 
@@ -49,6 +49,7 @@ export interface MockApiOptions {
   telegramBot?: string | null;
   onMail?: (mail: MockMail) => void;
   lifecycle?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'> | null;
+  namespace?: string;
 }
 
 export interface MockApi {
@@ -102,7 +103,8 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
     removeEventListener?: (t: string, f: (e: { key: string | null }) => void) => void;
   };
   const storage = storageOf(options.persist);
-  const blobs = options.blobStore === undefined ? (storage ? indexedDbBlobs() : null) : options.blobStore;
+  const name = options.namespace ? `${SNAPSHOT_KEY}@${options.namespace}` : SNAPSHOT_KEY;
+  const blobs = options.blobStore === undefined ? (storage ? indexedDbBlobs(name) : null) : options.blobStore;
   const cfg: MockConfig = {
     now,
     publicBaseUrl: options.publicBaseUrl ?? g.location?.origin ?? 'http://localhost',
@@ -116,9 +118,9 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
       options.onMail?.(mail);
     },
     blobs,
-    counters: options.counters ?? (storage ? storageCounters(storage) : memoryCounters()),
+    counters: options.counters ?? (storage ? storageCounters(storage, `${name}:rate-limits`) : memoryCounters()),
   };
-  const shared = storage ? new SharedState(storage, blobs, now) : null;
+  const shared = storage ? new SharedState(storage, blobs, now, name) : null;
   let persistError: unknown = null;
 
   const fresh = (): Store => buildSeed(cfg).store;
@@ -180,7 +182,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   lifecycle?.addEventListener('pagehide', onPageHide);
   lifecycle?.addEventListener('pageshow', onPageShow);
 
-  const lock: CrossTabLock | null = options.lock !== undefined ? options.lock : storage ? webLock() : null;
+  const lock: CrossTabLock | null = options.lock !== undefined ? options.lock : storage ? webLock(name) : null;
   if (storage && options.lock === undefined && !lock) warnNoLocks();
   const router = createRouter(m, handlers, {
     beforeEach: async () => {
@@ -207,7 +209,7 @@ export function createMockApi(options: MockApiOptions = {}): MockApi {
   };
 
   const onStorage = (e: { key: string | null }): void => {
-    if (e.key === VERSION_KEY || e.key === null) void serial(readThrough);
+    if (e.key === shared?.versionKey || e.key === null) void serial(readThrough);
   };
   if (storage && g.addEventListener) g.addEventListener('storage', onStorage);
 

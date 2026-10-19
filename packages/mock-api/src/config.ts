@@ -41,13 +41,13 @@ export function memoryCounters(): RateCounters {
 
 export const COUNTERS_KEY = 'agrotrace-mock-api:rate-limits';
 
-export function storageCounters(storage: Storage): RateCounters {
+export function storageCounters(storage: Storage, name = COUNTERS_KEY): RateCounters {
   let known: Windows = {};
   let failing = false;
   const read = (): Windows => {
     if (failing) return known;
     try {
-      return JSON.parse(storage.getItem(COUNTERS_KEY) ?? '{}') as Windows;
+      return JSON.parse(storage.getItem(name) ?? '{}') as Windows;
     } catch {
       return known;
     }
@@ -59,7 +59,7 @@ export function storageCounters(storage: Storage): RateCounters {
       w[key] = [count, expiresAt];
       known = w;
       try {
-        storage.setItem(COUNTERS_KEY, JSON.stringify(w));
+        storage.setItem(name, JSON.stringify(w));
         failing = false;
       } catch {
         failing = true;
@@ -69,7 +69,7 @@ export function storageCounters(storage: Storage): RateCounters {
     peek: (key, now) => live(read(), now)[key]?.[0] ?? 0,
     keys: () => Object.keys(read()),
     clear() {
-      storage.removeItem(COUNTERS_KEY);
+      storage.removeItem(name);
       known = {};
       failing = false;
     },
