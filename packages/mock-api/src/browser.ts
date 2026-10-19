@@ -21,6 +21,13 @@ export interface BrowserMockOptions extends MockApiOptions {
 export async function startBrowserMock(options: BrowserMockOptions = {}): Promise<MockApi> {
   const api = createMockApi({ delayMs: 120, ...options });
   const worker = setupWorker(...api.handlers);
+  // A new worker version (a deploy that changed public/) taking over this already controlled tab: MSW stays bound to
+  // the old worker and would ignore the new one's messages, so the tab reloads once under the new worker.
+  const previous = navigator.serviceWorker.controller;
+  if (previous)
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (navigator.serviceWorker.controller !== previous) location.reload();
+    });
   await worker.start({
     serviceWorker: { url: options.serviceWorkerUrl ?? '/mockServiceWorker.js' },
     onUnhandledRequest: 'bypass',
