@@ -1,6 +1,7 @@
 /**
- * Browser entry: registers the MSW service worker (copy `public/mockServiceWorker.js` of this package into the
- * frontend's public dir) and serves `/api/v1/*` from the mock. Requests outside `/api/v1` pass through.
+ * Browser entry: registers the MSW service worker (copy `public/` of this package — `mockServiceWorker.js` and
+ * `msw/` — into the frontend's public dir) and serves `/api/v1/*` from the mock. Requests outside `/api/v1` pass
+ * through.
  *
  *   if (import.meta.env.MODE === 'mock') {
  *     const { startBrowserMock } = await import('@agrotrace/mock-api/browser');
@@ -24,6 +25,12 @@ export async function startBrowserMock(options: BrowserMockOptions = {}): Promis
     serviceWorker: { url: options.serviceWorkerUrl ?? '/mockServiceWorker.js' },
     onUnhandledRequest: 'bypass',
     quiet: options.quiet ?? true,
+  });
+  // A restarted worker (Chrome stops an idle one) has forgotten this tab; public/mockServiceWorker.js asks the tab
+  // with MOCK_REVIVE before its first request and the tab activates mocking again.
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type === 'MOCK_REVIVE')
+      (event.source as ServiceWorker | null)?.postMessage('MOCK_ACTIVATE');
   });
   await api.ready;
   (globalThis as { __agrotraceMock?: MockApi }).__agrotraceMock = api;
