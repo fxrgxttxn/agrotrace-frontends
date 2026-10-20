@@ -87,7 +87,9 @@ IfMatch:
   description: >-
     Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110),
     например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`;
-    нечисловое значение — 400 VALIDATION.
+    нечисловое значение — 400 VALIDATION. Ключи ошибок — под именем заголовка `errors["If-Match"]`: заголовка нет
+    или он пуст — `validation.required`; не десятичное целое (кавычки, `W/`, знак, дробь) — `validation.type`;
+    `0` — `validation.min`. Проверяется вместе с остальными параметрами (до 404).
   schema:
     type: integer
     minimum: 1
