@@ -112,7 +112,7 @@
       4. Анализ не нужен — переход Created → Approved (`reason` TEST_NOT_REQUIRED, автор null).
       Нужен — назначается лаборатория: организация типа LAB в статусе ACTIVE с наименьшим числом неудалённых
       анализов в статусах QUEUED, SAMPLED, ESCALATED; сначала среди лабораторий региона поля, если их нет — среди
-      всех; при равенстве — наименьший `id` (как текст). Создаётся анализ (`reason` = PLANNED для SAMPLED,
+      всех; при равенстве — наименьший `id` (как текст, по кодовым точкам). Создаётся анализ (`reason` = PLANNED для SAMPLED,
       иначе RISK; статус QUEUED; срок = 5 рабочих дней, `addWorkingDays`) и выполняется переход Created → OnTest
       (`reason` TEST_REQUIRED, автор null). Если анализ нужен, а активных лабораторий нет ни одной, транзакция
       откатывается целиком (партия не создаётся, номер последовательности `batch_code_seq` расходуется) —
@@ -539,8 +539,13 @@
     description: >-
       Сопроводительные документы партии (R81): ВСД из ФГИС «Меркурий» (`vsd`, null — у партии нет ВСД: продукт не
       DAIRY/MEAT или партия производная), протоколы испытаний неудалённых анализов партии с загруженным протоколом
-      и ссылки на сохранённые QR-файлы (null — QR не генерировался). Видимость — как у `getBatch` (невидимая партия —
-      404); ссылки на протоколы и QR подписаны (R28, 3600 с).
+      и ссылки на сохранённые QR-файлы (null — QR не генерировался). Видимость партии — как у `getBatch` (невидимая
+      партия — 404); содержимое фильтруется по правам пользователя (R91, при нескольких ролях — объединение):
+      `labProtocols` — только анализы, видимые ему по правилам тега Lab (LAB — только анализы своей лаборатории;
+      INSPECTOR и ADMIN — все; FARMER, PROCESSOR, RETAILER — все анализы видимой партии), остальные не
+      перечисляются (массив может быть пустым); `qr` — только если пользователь может скачать QR
+      (`downloadBatchQr`: роль PROCESSOR или RETAILER, организация — держатель партии, статус допускает QR — R43,
+      R44), иначе null, даже если QR генерировался. Ссылки на протоколы и QR подписаны (R28, 3600 с).
     tags: [Batches]
     x-roles: [ANY]
     parameters:
@@ -557,6 +562,71 @@
           application/json:
             schema:
               $ref: '../schemas/batches.yaml#/BatchDocuments'
+            examples:
+              holder:
+                summary: PROCESSOR организации-держателя, партия Accepted — все протоколы и QR (R91)
+                value:
+                  batchId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+                  vsd: null
+                  labProtocols:
+                    - labTestId: 8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e
+                      lab:
+                        id: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+                        name: АНО «Ветеринарный испытательный центр Клязьма»
+                        type: LAB
+                        logoUrl: null
+                      reason: RISK
+                      conclusion: PASS
+                      completedAt: '2026-07-20T09:00:00Z'
+                      file:
+                        id: 3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f
+                        url: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+                        mime: application/pdf
+                        sizeBytes: 48211
+                        originalName: protocol-AT-2026-000123.pdf
+                    - labTestId: 9a1b3c5d-7e9f-4a1b-8c3d-5e7f9a1b3c5d
+                      lab:
+                        id: 6b8d0f2a-4c6e-4b8d-9f2a-4c6e8b0d2f4a
+                        name: АНО «Лаборатория Приокская»
+                        type: LAB
+                        logoUrl: null
+                      reason: COMPLAINT
+                      conclusion: PASS
+                      completedAt: '2026-08-05T11:30:00Z'
+                      file:
+                        id: 4d0e8f2a-3b5c-4d7e-9f1a-2b3c4d5e6f7a
+                        url: /api/v1/files/4d0e8f2a-3b5c-4d7e-9f1a-2b3c4d5e6f7a?exp=1790247600&sig=0a3d5f7b9c1e2a4b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b
+                        mime: application/pdf
+                        sizeBytes: 51007
+                        originalName: protocol-2.pdf
+                  qr:
+                    publicUrl: http://react-express.localhost/p/AT-2026-000123
+                    pngUrl: /api/v1/files/6a8c0e2a-4c6e-4a8c-9e0a-2c4e6a8c0e2a?exp=1790247600&sig=1d3f5b7d9f1b3d5f7b9d1f3b5d7f9b1d3f5b7d9f1b3d5f7b9d1f3b5d7f9b1d3f
+                    pdfUrl: /api/v1/files/7b9d1f3b-5d7f-4b9d-8f1b-3d5f7b9d1f3b?exp=1790247600&sig=2e4a6c8e0a2c4e6a8c0e2a4c6e8a0c2e4a6c8e0a2c4e6a8c0e2a4c6e8a0c2e4a
+              lab:
+                summary: >-
+                  LAB «Клязьма» — та же партия: только протокол своей лаборатории, `qr` null (QR генерировался, но
+                  LAB не может его скачать; R91)
+                value:
+                  batchId: 1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c
+                  vsd: null
+                  labProtocols:
+                    - labTestId: 8f0a2c4e-6a8c-4e0a-9c2e-4a6c8e0a2c4e
+                      lab:
+                        id: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+                        name: АНО «Ветеринарный испытательный центр Клязьма»
+                        type: LAB
+                        logoUrl: null
+                      reason: RISK
+                      conclusion: PASS
+                      completedAt: '2026-07-20T09:00:00Z'
+                      file:
+                        id: 3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f
+                        url: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e
+                        mime: application/pdf
+                        sizeBytes: 48211
+                        originalName: protocol-AT-2026-000123.pdf
+                  qr: null
       '400':
         $ref: '../components/responses.yaml#/BadRequest'
       '401':

@@ -1,0 +1,20 @@
+# Separate gateway for the React build (Plan 2, ruling F1): compose project `agrotrace-react`, the same nginx image and
+# template as the main gateway, serving frontend-react/dist at react-*.localhost and the design system at /_ds/, on
+# host port 8089. It joins the main stack's network (`agrotrace_at`, external) so `api-express` resolves; it never
+# creates or restarts any service of the shared `agrotrace` project.
+#   ./at.sh fe:gateway react [up|down]   ·   ./at.sh fe:e2e-smoke react
+name: agrotrace-react
+services:
+  gateway-react:
+    build: { context: ./gateway }
+    image: agrotrace/gateway-react:dev
+    volumes:
+      - ./frontend-react/dist:/srv/react:ro
+      - ./packages/design-system:/srv/ds:ro
+    environment: { GATEWAY_PORT: '8089' }
+    ports: ['8089:80']
+    networks: [at]
+networks:
+  at:
+    name: agrotrace_at
+    external: true

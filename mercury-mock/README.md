@@ -150,7 +150,7 @@ to run.
 Served from [`data/vsd.json`](./data/vsd.json): 15 documents covering the four
 animal-origin product categories seeded here (молоко, мясо говядина, яйцо куриное, мёд),
 5 sender organizations and 3 receiver organizations, dates spanning 2026-01-15 through
-2026-09-10, and all three statuses (`CONFIRMED`, `WITHDRAWN`, `UTILIZED`). All
+2026-09-10 as of the reference moment, and all three statuses (`CONFIRMED`, `WITHDRAWN`, `UTILIZED`). All
 `consignor.inn`/`consignee.inn` values pass the FNS INN checksum
 (`@agrotrace/validation`'s `isValidInn`) so they can be reused as-is by the seed task:
 
@@ -164,6 +164,16 @@ animal-origin product categories seeded here (молоко, мясо говяд�
 | `7705120028` | ООО «Молкомбинат Ставропольский» | receiver |
 | `5009870030` | ООО «Мясокомбинат Заречный» | receiver |
 | `231099887716` | ООО «Торговый дом Провизия» | receiver |
+
+### Relative dates (R90)
+
+The dates in `data/vsd.json` are written as of `MOCK_REFERENCE_NOW` = `2026-09-20T09:00:00Z` (`src/dates.ts`, the
+same moment the demo story of `db/seed` is written against). Every response shifts `issueDate` and
+`vetInspection.date` of every document by the whole UTC days between that moment and "now" — the real clock at the
+moment of the request, or `MOCK_NOW` (ISO instant, e.g. `2026-09-30T09:00:00Z`) when set; a malformed `MOCK_NOW` stops
+the process at start. Filters (`dateFrom`/`dateTo`) apply to the shifted dates. So the documents always lie as many
+days in the past as the dataset says: the seeded milk batch M3 (Луговая) and beef batch beef1 (Петров) find their
+CONFIRMED documents whatever the day of the seed (`./at.sh seed` replays the import with SEED_NOW as the clock).
 
 Product codes used are OKPD2-style: `10.51.11` (молоко сырое коровье), `10.11.11` (мясо
 говядина), `01.47.21` (яйцо куриное), `01.49.24` (мёд натуральный).
@@ -183,7 +193,8 @@ pnpm --filter @agrotrace/mercury-mock test
 ```
 
 Environment variables: `PORT` (default `8080`), `MOCK_FAIL_RATE` (default `0`),
-`MOCK_TIMEOUT_MS` (default `30000`).
+`MOCK_TIMEOUT_MS` (default `30000`), `MOCK_NOW` (ISO instant; default: the real clock
+at each request).
 
 ## Consumer: the `vsd.import` worker (R81)
 

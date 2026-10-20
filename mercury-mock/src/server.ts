@@ -1,19 +1,16 @@
 import http from 'node:http';
-import {
-  filterVsdList,
-  findVsdByUuid,
-  InvalidQueryError,
-  loadVsdList,
-  type Vsd,
-} from './store.js';
+import { filterVsdList, findVsdByUuid, InvalidQueryError, loadVsdList, type Vsd } from './store.js';
+import { parseMockNow, shiftVsdDates } from './dates.js';
 
 export interface ServerConfig {
   /** Probability (0..1) that an /api/v1/vsd* request fails with 500. */
   failRate: number;
   /** Delay in ms applied when a request carries `X-Mock-Fail: timeout`. */
   timeoutMs: number;
-  /** VSD dataset served by the mock. Defaults to data/vsd.json. */
+  /** VSD dataset served by the mock, dated as of MOCK_REFERENCE_NOW (dates.ts). Defaults to data/vsd.json. */
   data: Vsd[];
+  /** The clock documents are dated against (R90): MOCK_NOW when set, else the real clock — read per request. */
+  now: () => number;
 }
 
 function clamp01(n: number): number {
@@ -21,13 +18,18 @@ function clamp01(n: number): number {
   return Math.min(1, Math.max(0, n));
 }
 
-/** Reads failRate/timeoutMs defaults from the environment (MOCK_FAIL_RATE, MOCK_TIMEOUT_MS). */
+/**
+ * Reads the defaults from the environment (MOCK_FAIL_RATE, MOCK_TIMEOUT_MS, MOCK_NOW). A malformed MOCK_NOW
+ * throws, so the process fails at start instead of serving documents with surprising dates.
+ */
 export function configFromEnv(
   env: NodeJS.ProcessEnv = process.env,
-): Pick<ServerConfig, 'failRate' | 'timeoutMs'> {
+): Pick<ServerConfig, 'failRate' | 'timeoutMs' | 'now'> {
+  const pinned = parseMockNow(env.MOCK_NOW);
   return {
     failRate: clamp01(Number(env.MOCK_FAIL_RATE ?? 0)),
     timeoutMs: Number(env.MOCK_TIMEOUT_MS ?? 30000),
+    now: pinned === null ? () => Date.now() : () => pinned,
   };
 }
 
@@ -67,6 +69,7 @@ async function handleRequest(
   config: ServerConfig,
 ): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://mercury-mock.internal');
+  const data = shiftVsdDates(config.data, config.now());
 
   if (url.pathname === '/health') {
     if (req.method !== 'GET') {
@@ -110,7 +113,7 @@ async function handleRequest(
       dateTo: url.searchParams.get('dateTo') ?? undefined,
     };
     try {
-      const items = filterVsdList(config.data, filters);
+      const items = filterVsdList(data, filters);
       sendJson(res, 200, { items });
     } catch (err) {
       if (err instanceof InvalidQueryError) {
@@ -136,7 +139,7 @@ async function handleRequest(
       sendJson(res, 400, { error: 'BAD_REQUEST' });
       return;
     }
-    const found = findVsdByUuid(config.data, uuid);
+    const found = findVsdByUuid(data, uuid);
     if (!found) {
       sendJson(res, 404, { error: 'NOT_FOUND' });
       return;
@@ -155,6 +158,7 @@ export function createServer(overrides: Partial<ServerConfig> = {}): http.Server
     failRate: overrides.failRate ?? envConfig.failRate,
     timeoutMs: overrides.timeoutMs ?? envConfig.timeoutMs,
     data: overrides.data ?? loadVsdList(),
+    now: overrides.now ?? envConfig.now,
   };
 
   return http.createServer((req, res) => {

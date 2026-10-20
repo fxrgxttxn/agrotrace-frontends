@@ -14,7 +14,170 @@
     "reports": "Reports",
     "audit": "Audit Log",
     "profile": "Profile",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "stock": "Stock",
+    "qr": "QR Printing",
+    "recallTasks": "Recall Tasks",
+    "labTests": "Sample Queue",
+    "staff": "Staff",
+    "adminUsers": "Users",
+    "more": "More"
+  },
+  "page": {
+    "dashboard": "Dashboard",
+    "profile": "Profile",
+    "notifications": "Notifications",
+    "fields": "Fields",
+    "fieldNew": "New Field",
+    "field": "Field",
+    "batches": "Batches",
+    "batchNew": "New Batch",
+    "batch": "Batch",
+    "waybills": "Waybills",
+    "waybillNew": "New Waybill",
+    "waybill": "Waybill",
+    "stock": "Stock",
+    "processing": "Processing",
+    "qr": "QR Printing",
+    "labTests": "Sample Queue",
+    "labTest": "Lab Test",
+    "recallTasks": "Recall Tasks",
+    "recalls": "Recalls",
+    "recallNew": "New Recall",
+    "recall": "Recall",
+    "complaints": "Complaints",
+    "complaint": "Complaint",
+    "reports": "Reports",
+    "staff": "Staff",
+    "organizations": "Organizations",
+    "users": "Users",
+    "dictionaries": "Dictionaries",
+    "audit": "Audit Log",
+    "login": "Log In",
+    "twoFactor": "Verification Code",
+    "passwordForgot": "Password Recovery",
+    "passwordReset": "New Password",
+    "register": "Organization Registration",
+    "invite": "Invitation",
+    "publicBatch": "Batch",
+    "publicComplaint": "Report a Problem",
+    "forbidden": "Access Denied",
+    "notFound": "Page Not Found",
+    "unavailable": "Service Unavailable"
+  },
+  "shell": {
+    "skip": "Skip to content",
+    "mainMenu": "Main menu",
+    "otherSections": "Other sections",
+    "close": "Close",
+    "bell": "Notifications",
+    "bellUnread": "Notifications, unread: {count}",
+    "profileOf": "Profile, {name}",
+    "openCount": ", open:",
+    "loading": "Loading"
+  },
+  "ui": {
+    "openCalendar": "Open calendar",
+    "selectAll": "Select all",
+    "sort": "Sort",
+    "sortDefault": "Default",
+    "pages": "Pages",
+    "prevPage": "Previous page",
+    "nextPage": "Next page",
+    "pageSummary": "{from}–{to} of {total}",
+    "actions": "Actions",
+    "chooseFile": "Choose file",
+    "removeFile": "Remove {name}",
+    "uploading": "Uploading {name}",
+    "searching": "Searching",
+    "legend": "Legend",
+    "progressValue": "{value} of {max}"
+  },
+  "theme": {
+    "label": "Theme",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "auth": {
+    "forgot": "Forgot password?",
+    "register": "Register an organization",
+    "toLogin": "Back to sign in",
+    "lockedUntil": "Sign-in is locked until {time}: too many wrong passwords",
+    "forbidden": {
+      "USER_BLOCKED": "The account is blocked — contact the head of your organization",
+      "USER_INVITED": "The invitation is not accepted — set a password from the link in the email",
+      "ORGANIZATION_NOT_ACTIVE": "The organization is not active yet — sign-in opens after it is checked"
+    },
+    "retryIn": "Retry in {seconds} s",
+    "rateLimited": "Too many attempts — retry in {seconds} s",
+    "totpCode": "Code from the app",
+    "confirm": "Confirm",
+    "attemptsLeft": "Wrong code. Attempts left: {count}",
+    "challengeExpired": "Time to enter the code is over — sign in again",
+    "sendLink": "Send link",
+    "forgotSent": "If {email} is registered, an email with a link is on its way. The link is valid for 1 hour.",
+    "newPassword": "New password",
+    "setPassword": "Save password",
+    "resetDone": "Password changed — sign in with the new password",
+    "resetExpired": "The link has expired or was already used.",
+    "requestNewLink": "Request a new link",
+    "acceptInvite": "Accept invitation",
+    "inviteDone": "Invitation accepted — sign in",
+    "inviteExpired": "The invitation has expired or was already accepted.",
+    "inviteSignedIn": "You are signed in as {name}. The invitation is for another account: sign out to accept it.",
+    "organization": "Organization",
+    "orgType": "Organization type",
+    "head": "Head",
+    "chooseRegion": "Choose a region",
+    "regionsFailed": "Regions did not load — retry",
+    "registerPending": "Application sent. Sign-in opens once an administrator checks the organization.",
+    "registerManual": "Application sent. The INN could not be checked automatically — the organization will be checked manually."
+  },
+  "profile": {
+    "personal": "Personal data",
+    "avatar": "Avatar",
+    "avatarHint": "JPG, PNG or WebP up to 2 MB",
+    "avatarSaved": "Avatar updated",
+    "avatarDeleted": "Avatar removed",
+    "deleteAvatar": "Remove avatar",
+    "saved": "Profile saved",
+    "channels": "Notification channels",
+    "channelsFailed": "Notification channels did not load.",
+    "linkTelegram": "Link Telegram",
+    "telegramLinked": "Telegram linked",
+    "telegramCode": "Send the bot @{bot} the command /start {code}",
+    "telegramUntil": "The code is valid until {time}",
+    "openTelegram": "Open Telegram",
+    "newCode": "New code",
+    "twoFactor": "Two-factor authentication",
+    "twoFactorOn": "On",
+    "twoFactorOff": "Off",
+    "setup": "Set up",
+    "qr": "QR code for the authenticator app",
+    "secret": "Key",
+    "enable": "Turn on",
+    "twoFactorEnabled": "Two-factor authentication is on",
+    "appearance": "Appearance"
+  },
+  "files": {
+    "tooLarge": "The file is larger than {max} — choose a smaller file",
+    "unsupported": "This file type does not fit — choose {allowed}"
+  },
+  "notifications": {
+    "tabs": "Notifications",
+    "all": "All",
+    "unread": "Unread",
+    "new": "New",
+    "read": "Read",
+    "column": "Notification",
+    "received": "Received",
+    "status": "Status",
+    "selectAll": "Select all notifications",
+    "select": "Select “{title}”",
+    "emptyUnread": "No unread notifications.",
+    "showAll": "All notifications",
+    "failed": "Notifications did not load."
   },
   "action": {
     "ship": "Ship",
@@ -47,7 +210,9 @@
     "logout": "Log Out",
     "register": "Register",
     "markRead": "Mark Read",
-    "markAllRead": "Mark All Read"
+    "markAllRead": "Mark All Read",
+    "retry": "Retry",
+    "home": "Go to Dashboard"
   },
   "field": {
     "token": "Token",
@@ -116,7 +281,9 @@
     "complaints": "No complaints yet.",
     "users": "No staff yet.",
     "reports": "No data for this report.",
-    "search": "Nothing found."
+    "search": "Nothing found.",
+    "forbidden": "This section is not available to your role.",
+    "notFound": "There is no such page."
   },
   "status": {
     "batch": {
@@ -214,7 +381,7 @@
         "subject": "AgroTrace: batch {publicCode} sent for lab testing",
         "body": "Batch {publicCode} ({productName}) was sent for testing to {labName}. Reason: {reason}. Due {dueAt}."
       },
-      "telegram": "🧪 Batch {publicCode} ({productName}) — test at \"{labName}\" due {dueAt}"
+      "telegram": "Batch {publicCode} ({productName}) — test at \"{labName}\" due {dueAt}"
     },
     "LAB_RESULT": {
       "label": "Lab result",
@@ -224,7 +391,7 @@
         "subject": "AgroTrace: lab result for batch {publicCode}",
         "body": "Lab results were entered for batch {publicCode} ({productName}). Conclusion: {conclusion}."
       },
-      "telegram": "📋 Batch {publicCode} ({productName}): {conclusion}"
+      "telegram": "Batch {publicCode} ({productName}): {conclusion}"
     },
     "WAYBILL_INCOMING": {
       "label": "Incoming waybill",
@@ -234,7 +401,7 @@
         "subject": "AgroTrace: incoming waybill {number}",
         "body": "{senderName} sent you waybill {number} ({itemsCount} item(s)). Check the masses and accept or reject the delivery."
       },
-      "telegram": "🚚 Waybill {number} from {senderName}, items: {itemsCount}"
+      "telegram": "Waybill {number} from {senderName}, items: {itemsCount}"
     },
     "RECALL": {
       "label": "Recall",
@@ -245,7 +412,7 @@
           "subject": "AgroTrace: recall of batch {publicCode}",
           "body": "A product recall was started from source batch {publicCode} (trigger: {trigger}). Check your organization's seizure tasks."
         },
-        "telegram": "⚠️ Recall of batch {publicCode} ({trigger})"
+        "telegram": "Recall of batch {publicCode} ({trigger})"
       },
       "CLOSED": {
         "title": "Recall of batch {publicCode} closed",
@@ -254,7 +421,7 @@
           "subject": "AgroTrace: recall of batch {publicCode} closed",
           "body": "The recall from source batch {publicCode} (trigger: {trigger}) is closed: every seizure task is confirmed."
         },
-        "telegram": "✅ Recall of batch {publicCode} closed"
+        "telegram": "Recall of batch {publicCode} closed"
       }
     },
     "RECALL_TASK": {
@@ -266,7 +433,7 @@
           "subject": "AgroTrace: seize batch {publicCode} by {dueAt}",
           "body": "Batch {publicCode} is recalled. Seize it and confirm the seizure in the system by {dueAt}."
         },
-        "telegram": "⛔ Seize batch {publicCode} by {dueAt}"
+        "telegram": "Seize batch {publicCode} by {dueAt}"
       },
       "REASSIGNED": {
         "title": "Seizure of batch {publicCode} reassigned to you",
@@ -275,7 +442,7 @@
           "subject": "AgroTrace: seize batch {publicCode} by {dueAt}",
           "body": "The receiver rejected recalled batch {publicCode}; the seizure task is now your organization's. Confirm the seizure by {dueAt}."
         },
-        "telegram": "⛔ Seizure of batch {publicCode} reassigned to you, due {dueAt}"
+        "telegram": "Seizure of batch {publicCode} reassigned to you, due {dueAt}"
       }
     },
     "OVERDUE": {
@@ -286,7 +453,7 @@
         "subject": "AgroTrace: seizure of batch {publicCode} overdue",
         "body": "The seizure of batch {publicCode} was due {dueAt}; holder: {holderName}. The task was escalated to the inspectors."
       },
-      "telegram": "⏰ Seizure of batch {publicCode} overdue ({holderName}), was due {dueAt}"
+      "telegram": "Seizure of batch {publicCode} overdue ({holderName}), was due {dueAt}"
     },
     "COMPLAINT": {
       "label": "Complaint",
@@ -296,7 +463,7 @@
         "subject": "AgroTrace: complaint about batch {publicCode}",
         "body": "A customer complained about \"{productName}\" (batch {publicCode}). Review it under Complaints."
       },
-      "telegram": "📣 Complaint about batch {publicCode} ({productName})"
+      "telegram": "Complaint about batch {publicCode} ({productName})"
     },
     "LAB_OVERDUE": {
       "label": "Lab sample overdue",
@@ -306,7 +473,7 @@
         "subject": "AgroTrace: lab test of batch {publicCode} overdue",
         "body": "{labName} did not enter the lab result for batch {publicCode} by the due date ({dueAt}). The test was escalated."
       },
-      "telegram": "⏰ Lab test of batch {publicCode} at \"{labName}\" overdue (due {dueAt})"
+      "telegram": "Lab test of batch {publicCode} at \"{labName}\" overdue (due {dueAt})"
     }
   },
   "productCategory": {
@@ -472,6 +639,16 @@
   "count": {
     "batches": "{count, plural, one {# batch} other {# batches}}"
   },
+  "mail": {
+    "passwordReset": {
+      "subject": "AgroTrace: password reset",
+      "body": "Hello, {fullName}!\n\nWe received a request to change your AgroTrace password. To set a new password, open the link:\n\n{link}\n\nThe link is valid for 1 hour and can be used once. If you did not request a password change, just ignore this email."
+    },
+    "invite": {
+      "subject": "AgroTrace: invitation to {organizationName}",
+      "body": "Hello!\n\nYou have been invited to {organizationName} in AgroTrace. To accept the invitation, enter your full name and set a password via the link:\n\n{link}\n\nThe link is valid for 7 days and can be used once."
+    }
+  },
   "rules": {
     "BR-01": "Batch {publicCode} can be shipped from {until}: the waiting period for {substance} has not elapsed",
     "BR-02": "Indicator conclusion: exceeding the norm on even one indicator gives a FAIL result",
@@ -511,6 +688,7 @@
     "NO_LAB_AVAILABLE": "No lab is available for testing",
     "IDEMPOTENCY_KEY_IN_PROGRESS": "An earlier request with this key is still in progress",
     "REFERENCE_IN_USE": "This record is in use and cannot be deleted",
+    "METHOD_NOT_ALLOWED": "This action is not available for this address",
     "UNKNOWN": "Unknown error"
   },
   "validation": {

@@ -1,0 +1,21 @@
+# Build context = repository root (docker-compose.yml: context ., dockerfile backend-express/Dockerfile). BuildKit
+# reads this file instead of a root .dockerignore for this Dockerfile only.
+**/node_modules
+**/dist
+**/.svelte-kit
+**/.angular
+**/coverage
+.git
+.env
+.superpowers
+docs
+*.docx
+db/seed/images
+db/migrations
+db/schema.sql
+tests/ds/*.png
+tests/ds/**/*.png
+packages/design-system/fonts
+packages/design-system/illustrations
+gateway
+infra

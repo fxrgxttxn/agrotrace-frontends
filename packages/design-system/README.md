@@ -102,6 +102,17 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
 Ссылка-кнопка: `<a class="at-button" href="…">` — те же атрибуты. Текст кнопки называет результат («Принять», «Отгрузить»).
 Клавиатура: нативная (Enter/Space).
 
+Состояния. `data-variant` пишется всегда (в том числе `secondary`), `data-size` — только когда задан; так DOM одинаков
+во всех трёх фреймворках:
+
+```html
+<button class="at-button" type="button" data-variant="primary" aria-busy="true">Сохранить</button>
+<button class="at-button" type="button" data-variant="secondary" data-icon-only aria-label="Скачать список">
+  <svg class="at-button__icon" aria-hidden="true"><use href="#i-download" /></svg>
+</button>
+<button class="at-button" type="button" data-variant="secondary" disabled>Отгрузить</button>
+```
+
 ### Поле формы `at-field`
 
 ```html
@@ -113,9 +124,27 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
 ```
 
 - Элемент ошибки выводится **только** при ошибке; `data-invalid` на `.at-field`, `aria-invalid="true"` и
-  `aria-describedby` — на контроле. Без подсказок-пояснений под полями.
-- Группа флажков/переключателей: `<fieldset class="at-field"><legend class="at-field__label">…</legend>
-  <div class="at-field__options" data-direction="column">…</div></fieldset>`.
+  `aria-describedby` — на контроле. Без подсказок-пояснений под полями. Id ошибки — `<id контрола>-error`.
+- Без ошибки — ни `data-invalid`, ни `aria-invalid`, ни элемента ошибки:
+
+```html
+<div class="at-field">
+  <label class="at-field__label" for="name">Название</label>
+  <input class="at-input" id="name" />
+</div>
+```
+
+- Группа флажков/переключателей (`data-direction`: `column` по умолчанию или `row`):
+
+```html
+<fieldset class="at-field">
+  <legend class="at-field__label">Тема</legend>
+  <div class="at-field__options" data-direction="row">
+    <label class="at-radio"><input type="radio" name="theme" value="system" /><span>Системная</span></label>
+    <label class="at-radio"><input type="radio" name="theme" value="light" /><span>Светлая</span></label>
+  </div>
+</fieldset>
+```
 
 ### Текстовые поля
 
@@ -201,21 +230,72 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
   />
   <ul class="at-combobox__list" role="listbox" id="product-list" aria-label="Продукт">
     <li role="option" id="product-opt-1" aria-selected="true">
-      <span>Пшеница озимая</span><span class="at-combobox__meta">Зерно</span>
+      <span><mark>Пше</mark>ница озимая</span><span class="at-combobox__meta">Зерно</span>
     </li>
     <li role="option" id="product-opt-2" aria-selected="false" data-active>
       <span><mark>Пше</mark>ница яровая</span>
     </li>
-    <li role="option" id="product-opt-3" aria-selected="false" aria-disabled="true">…</li>
+    <li role="option" id="product-opt-3" aria-selected="false" aria-disabled="true"><span>…</span></li>
   </ul>
 </div>
 ```
 
-- Закрыт: `aria-expanded="false"` на поле и `hidden` на списке.
+- Пример — открытый список после ввода «Пше». Id: список `<id поля>-list`, варианты `<id поля>-opt-<N>` (с 1). Подпись
+  варианта — всегда в `<span>`, совпадение с введённым текстом (без учёта регистра, первое) — в `<mark>`; `.at-combobox__meta` —
+  необязательная вторая подпись.
+- Закрыт: `aria-expanded="false"` на поле, `hidden` на списке, `aria-activedescendant` нет.
 - `data-active` — подсвеченный с клавиатуры вариант (тот же, что в `aria-activedescendant`); `aria-selected="true"` — выбранный.
-- Загрузка / пусто — вместо списка вариантов тот же контейнер без `role=listbox`:
-  `<div class="at-combobox__list" id="product-list" role="status"><p class="at-combobox__status">…</p></div>`
-  (загрузка: `<span class="at-spinner" aria-hidden="true"></span>Поиск` и `aria-busy="true"` на поле; пусто: «Ничего не найдено.»).
+- Загрузка / нет вариантов — вместо `ul[role=listbox]` (пустой listbox — недопустимая ARIA) тот же контейнер с тем же id как
+  живая область `role="status"`. Она **никогда не скрывается** атрибутом `hidden` (иначе объявление теряется): закрытое поле
+  оставляет её пустой, а пустой `.at-combobox__list` не отображается (`:empty`). Текст — только при открытом списке:
+  загрузка — `<span class="at-spinner" aria-hidden="true"></span>Поиск` и `aria-busy="true"` на поле; пусто после ввода —
+  «Ничего не найдено.»; до первого ввода — пусто.
+
+```html
+<div class="at-combobox">
+  <input
+    class="at-input"
+    id="lab"
+    role="combobox"
+    aria-autocomplete="list"
+    autocomplete="off"
+    aria-expanded="true"
+    aria-controls="lab-list"
+    aria-busy="true"
+  />
+  <div class="at-combobox__list" id="lab-list" role="status">
+    <p class="at-combobox__status"><span class="at-spinner" aria-hidden="true"></span>Поиск</p>
+  </div>
+</div>
+<div class="at-combobox">
+  <input
+    class="at-input"
+    id="org"
+    role="combobox"
+    aria-autocomplete="list"
+    autocomplete="off"
+    aria-expanded="true"
+    aria-controls="org-list"
+  />
+  <div class="at-combobox__list" id="org-list" role="status">
+    <p class="at-combobox__status">Ничего не найдено.</p>
+  </div>
+</div>
+<div class="at-combobox">
+  <input
+    class="at-input"
+    id="region"
+    role="combobox"
+    aria-autocomplete="list"
+    autocomplete="off"
+    aria-expanded="false"
+    aria-controls="region-list"
+  />
+  <div class="at-combobox__list" id="region-list" role="status"></div>
+</div>
+```
+
+- Закрытое поле с вариантами — `<ul class="at-combobox__list" role="listbox" id="…" aria-label="…" hidden>` с теми же `li`.
 - Серверный поиск: запрос с задержкой ~250 мс после ввода; совпадение выделяется `<mark>`.
 - Клавиатура: ↓ — открыть / следующий; ↑ — предыдущий; Home / End — первый / последний (при открытом списке);
   Enter — выбрать подсвеченный и закрыть; Esc — закрыть без выбора; Tab — закрыть, фокус дальше.
@@ -247,7 +327,7 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
   <div class="at-file">
     <!-- data-dragover пока файл над зоной; data-invalid при ошибке -->
     <label class="at-file__drop">
-      <input type="file" accept="application/pdf,image/*" aria-labelledby="proto-label" />
+      <input id="proto" type="file" accept="application/pdf,image/*" aria-labelledby="proto-label" />
       <svg class="at-file__icon" aria-hidden="true"><use href="#i-upload" /></svg>
       <span class="at-file__action">Выбрать файл</span>
       <span class="at-file__hint">PDF, JPG или PNG до 10 МБ</span>
@@ -283,11 +363,59 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
 </div>
 ```
 
-`input[type=file]` скрыт визуально, но фокусируем: Tab — на зону, Enter/Space — диалог выбора. Перетаскивание:
-`dragover`/`dragleave`/`drop` на `.at-file` ставят/снимают `data-dragover`. Элемент файла — «семенная бирка».
-`progress` — только пока идёт загрузка.
+`input[type=file]` скрыт визуально, но фокусируем: Tab — на зону, Enter/Space — диалог выбора. Id поля — у `input`
+(`<id>`), подпись — `<id>-label`, ошибка — `<id>-error`. Перетаскивание: `data-dragover` стоит, пока файл над `.at-file`
+(`dragenter`/`dragleave` считаются парами — переход между вложенными элементами зоны не снимает его), снимается на `drop`.
+Элемент файла — «семенная бирка». `progress` — только пока идёт загрузка. Нет файлов — нет `ul.at-file__list`; нет
+подсказки — нет `.at-file__hint`.
+
+Ошибка (поле и файл), файл без превью (PDF), файл над зоной, без подсказки:
+
+```html
+<div class="at-field" data-invalid>
+  <span class="at-field__label" id="proto-label">Протокол анализа</span>
+  <div class="at-file" data-dragover data-invalid>
+    <label class="at-file__drop">
+      <input
+        id="proto"
+        type="file"
+        accept="application/pdf"
+        aria-labelledby="proto-label"
+        aria-invalid="true"
+        aria-describedby="proto-error"
+      />
+      <svg class="at-file__icon" aria-hidden="true"><use href="#i-upload" /></svg>
+      <span class="at-file__action">Выбрать файл</span>
+    </label>
+    <ul class="at-file__list">
+      <li class="at-file__item" data-error>
+        <span class="at-file__preview" aria-hidden="true">PDF</span>
+        <span class="at-file__body">
+          <span class="at-file__name">protokol.pdf</span>
+          <span class="at-file__size">Файл слишком большой</span>
+        </span>
+        <button
+          class="at-button"
+          data-variant="ghost"
+          data-size="s"
+          data-icon-only
+          type="button"
+          aria-label="Удалить protokol.pdf"
+        >
+          <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </li>
+    </ul>
+  </div>
+  <p class="at-field__error" id="proto-error" role="alert">Файл слишком большой</p>
+</div>
+```
 
 ### Индикатор `at-spinner`
+
+```html
+<span class="at-spinner" aria-hidden="true"></span>
+```
 
 `<span class="at-spinner" aria-hidden="true"></span>` — борозда, которую «пашут»: пунктирная колея и сплошной отрезок,
 идущий слева направо (без вращения; читается как прогресс, не как иконка). Цвет — `currentColor`. Цикличное движение —
@@ -344,8 +472,8 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
   <label class="at-table-mobilebar__sort">
     <span class="at-visually-hidden">Сортировка</span>
     <select class="at-select">
-      <option value="massKg:desc">Масса, по убыванию</option>
-      <option value="code:asc">Код партии</option>
+      <option value="massKg,desc">Масса, по убыванию</option>
+      <option value="code,asc">Код партии</option>
     </select>
   </label>
 </div>
@@ -402,7 +530,19 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
   скрыта (`display: none`); сортировка и «Выбрать все» — в `.at-table-mobilebar` над карточками (один `select`
   «поле: направление», значение то же, что у сортировки в URL; флажок «Выбрать все» — то же состояние, что флажок
   в шапке, включая `indeterminate`). Действия строки остаются на каждой карточке. На ≥ 768 px `.at-table-mobilebar`
-  скрыт.
+  скрыт. Значение сортировки — как в URL и в контракте: `поле,направление` (`massKg,desc`). Пока список не отсортирован
+  (в URL нет `sort`), первым идёт недоступный вариант-заглушка с пустым значением, и выбран он:
+
+```html
+<label class="at-table-mobilebar__sort">
+  <span class="at-visually-hidden">Сортировка</span>
+  <select class="at-select">
+    <option value="" disabled>По умолчанию</option>
+    <option value="massKg,desc">Масса, по убыванию</option>
+  </select>
+</label>
+```
+
 - `.at-table-wrap` прокручивается по горизонтали на любой ширине (таблица без `data-cards` не расширяет страницу);
   в режиме карточек прокрутки нет.
 
@@ -414,18 +554,26 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
   <ul class="at-pagination__pages">
     <li>
       <button class="at-pagination__item" type="button" aria-label="Предыдущая страница" disabled>
-        …#i-chevron-left…
+        <svg aria-hidden="true"><use href="#i-chevron-left" /></svg>
       </button>
     </li>
-    <li><a class="at-pagination__item" href="?page=1" aria-current="page">1</a></li>
-    <li><a class="at-pagination__item" href="?page=2">2</a></li>
+    <li><a class="at-pagination__item" href="/batches?page=1" aria-current="page">1</a></li>
+    <li><a class="at-pagination__item" href="/batches?page=2">2</a></li>
     <li><span class="at-pagination__gap" aria-hidden="true">…</span></li>
+    <li><a class="at-pagination__item" href="/batches?page=13">13</a></li>
     <li>
-      <a class="at-pagination__item" href="?page=2" aria-label="Следующая страница">…#i-chevron-right…</a>
+      <a class="at-pagination__item" href="/batches?page=2" aria-label="Следующая страница">
+        <svg aria-hidden="true"><use href="#i-chevron-right" /></svg>
+      </a>
     </li>
   </ul>
 </nav>
 ```
+
+- Номера: первая, последняя, текущая ± 1; пропуск ровно одной страницы показывает её номер, больше — `…`
+  (`at-pagination__gap`). Одна страница — только «1».
+- Ссылки — полный путь с остальными параметрами URL (фильтры, сортировка), меняется только `page`. Нет предыдущей или
+  следующей страницы — вместо ссылки `button` с `disabled`. Сводка «с–по из всего»; при 0 записей — «0–0 из 0».
 
 ### Вкладки `at-tabs`
 
@@ -457,13 +605,18 @@ surface): вырезы нарисованы цветом `--c-surface` и на �
 <div class="at-tabs__panel" role="tabpanel" id="panel-history" aria-labelledby="tab-history" tabindex="0">
   …
 </div>
-<div class="at-tabs__panel" role="tabpanel" id="panel-tests" aria-labelledby="tab-tests" tabindex="0" hidden>
-  …
-</div>
+<div
+  class="at-tabs__panel"
+  role="tabpanel"
+  id="panel-tests"
+  aria-labelledby="tab-tests"
+  tabindex="0"
+  hidden
+></div>
 ```
 
-Роуминг-табиндекс: у выбранной вкладки явно `tabindex="0"`, у остальных `tabindex="-1"`. Неактивные панели
-выводятся с атрибутом `hidden` (или не выводятся вовсе); видима только панель выбранной вкладки. ← / → — соседняя вкладка (по кругу),
+Роуминг-табиндекс: у выбранной вкладки явно `tabindex="0"`, у остальных `tabindex="-1"`. Панели выводятся
+все (id `tab-<ключ>` / `panel-<ключ>`), неактивные — пустые и с `hidden`; содержимое есть только у панели выбранной вкладки. ← / → — соседняя вкладка (по кругу),
 Home / End — первая / последняя; выбор при перемещении фокуса. Вкладка карточки партии отражается в `?tab=`.
 
 ### Диалог `at-dialog`
@@ -474,19 +627,24 @@ Home / End — первая / последняя; выбор при переме
   <div class="at-dialog__header">
     <h2 class="at-dialog__title" id="recall-title">Запустить отзыв</h2>
     <button class="at-button" data-variant="ghost" data-icon-only type="button" aria-label="Закрыть">
-      …#i-close…
+      <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
     </button>
   </div>
-  <div class="at-dialog__body">…повтор ключевого параметра (кода партии)…</div>
+  <div class="at-dialog__body">
+    <div class="at-field">
+      <label class="at-field__label" for="recall-code">Код партии</label>
+      <input class="at-input at-mono" id="recall-code" autocomplete="off" />
+    </div>
+  </div>
   <div class="at-dialog__actions">
     <button class="at-button" data-variant="ghost" type="button">Отмена</button>
-    <button class="at-button" data-variant="danger" type="button">Запустить отзыв</button>
+    <button class="at-button" data-variant="danger" type="button" disabled>Запустить отзыв</button>
   </div>
 </dialog>
 ```
 
 Открытие — `showModal()` (фокус-ловушка и Esc — нативные), закрытие — `close()`; фокус возвращается на кнопку,
-открывшую диалог.
+открывшую диалог. Содержимое тела выводится только у открытого диалога.
 
 - Начальный фокус: первый фокусируемый элемент тела диалога (для подтверждения отзыва — поле повтора кода партии);
   если в теле его нет — заголовок `.at-dialog__title` с `tabindex="-1"` (не кнопка «Закрыть» и не опасная кнопка).
@@ -500,7 +658,8 @@ Home / End — первая / последняя; выбор при переме
 ```html
 <div class="at-toasts">
   <!-- один на приложение: две области -->
-  <div class="at-toast-region" role="alert">…ошибки (data-tone="danger")…</div>
+  <div class="at-toast-region" role="alert"></div>
+  <!-- ↑ ошибки (data-tone="danger"); здесь пусто -->
   <div class="at-toast-region" aria-live="polite">
     <div class="at-toast" data-tone="ok">
       <!-- ok | attention | move | danger | neutral -->
@@ -515,7 +674,7 @@ Home / End — первая / последняя; выбор при переме
         type="button"
         aria-label="Закрыть"
       >
-        …#i-close…
+        <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
       </button>
     </div>
   </div>
@@ -576,7 +735,12 @@ Home / End — первая / последняя; выбор при переме
 
 ### Загрузка `at-skeleton`
 
-`<span class="at-skeleton" data-shape="text|block|circle" style="width: 40%"></span>`; контейнер области — `aria-busy="true"`.
+`data-shape`: `text` (по умолчанию), `block`, `circle`; ширина — `style="width: …"` только когда задана. Контейнер области — `aria-busy="true"`.
+
+```html
+<span class="at-skeleton" data-shape="text" style="width: 40%"></span>
+<span class="at-skeleton" data-shape="block"></span>
+```
 
 ### Аватар `at-avatar`
 
@@ -670,7 +834,7 @@ Home / End — первая / последняя; выбор при переме
     </li>
     <li>
       <a class="at-sidebar__link" href="/recall-tasks" title="Задачи отзыва">
-        <svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-recall" /></svg>
+        <svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-check" /></svg>
         <span class="at-sidebar__label">Задачи отзыва</span>
         <span class="at-visually-hidden">, открытых:</span><span class="at-sidebar__count">1</span>
       </a>
@@ -681,6 +845,22 @@ Home / End — первая / последняя; выбор при переме
 ```
 
 `aria-current="page"` — текущий раздел (и для вложенных маршрутов раздела).
+
+Иконки разделов — одни и те же во всех трёх фреймворках (в боковом меню, нижней навигации и «Ещё»); иконки пунктов
+одного меню не повторяются:
+
+| Раздел       | Иконка    | Раздел        | Иконка     |
+| ------------ | --------- | ------------- | ---------- |
+| Панель       | `graph`   | Задачи отзыва | `check`    |
+| Поля         | `field`   | Отзывы        | `recall`   |
+| Партии       | `batch`   | Жалобы        | `alert`    |
+| Накладные    | `waybill` | Отчёты        | `download` |
+| Склад        | `store`   | Сотрудники    | `users`    |
+| Переработка  | `factory` | Организации   | `building` |
+| Печать QR    | `qr`      | Пользователи  | `shield`   |
+| Очередь проб | `flask`   | Справочники   | `settings` |
+| Уведомления  | `bell`    | Журнал аудита | `eye`      |
+| Профиль      | `user`    |               |            |
 
 ### Нижняя навигация `at-bottom-nav`
 
@@ -704,7 +884,7 @@ Home / End — первая / последняя; выбор при переме
   <div class="at-dialog__header">
     <h2 class="at-dialog__title" id="more-title" tabindex="-1">Ещё</h2>
     <button class="at-button" data-variant="ghost" data-icon-only type="button" aria-label="Закрыть">
-      …#i-close…
+      <svg class="at-button__icon" aria-hidden="true"><use href="#i-close" /></svg>
     </button>
   </div>
   <div class="at-dialog__body">
@@ -712,7 +892,7 @@ Home / End — первая / последняя; выбор при переме
       <ul class="at-sidebar__list">
         <li>
           <a class="at-sidebar__link" href="/recall-tasks"
-            ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-recall" /></svg
+            ><svg class="at-sidebar__icon" aria-hidden="true"><use href="#i-check" /></svg
             ><span class="at-sidebar__label">Задачи отзыва</span></a
           >
         </li>
@@ -758,7 +938,7 @@ Home / End — первая / последняя; выбор при переме
 ```html
 <div class="at-page">
   <div class="at-page__header">
-    <h1 class="at-page__title">Партии</h1>
+    <h1 class="at-page__title" tabindex="-1">Партии</h1>
     <!-- существительное, без подзаголовка -->
     <div class="at-page__actions">
       <a class="at-button" data-variant="primary" href="/batches/new">Зарегистрировать партию</a>
@@ -785,3 +965,14 @@ Home / End — первая / последняя; выбор при переме
   `summary` скрыт, поля — в строку. На < 768 px `summary` — кнопка «Фильтры» со счётчиком выбранных, панель
   раскрывается под строкой поиска. Значения фильтров — в query-параметрах URL.
 - Поля страницы — `--gutter`, ширина контента до 1440 px.
+- Заголовок `h1.at-page__title` всегда с `tabindex="-1"` (цель фокуса при смене маршрута). Экраны вне оболочки (вход, 2FA,
+  пароль, регистрация, приглашение, 403/404 без сессии) — тот же `at-page` с шапкой; содержимое — в `at-card` под ней.
+
+### Фокус при смене маршрута
+
+Одинаково во всех трёх фреймворках: при каждой смене **пути** (`pathname`) на стороне клиента, кроме первой загрузки
+приложения (в том числе после перенаправлений при старте), фокус переходит на `h1.at-page__title` новой страницы — как
+только она отрисована (ленивый чанк мог грузиться). Изменение только query-параметров (фильтры, `?tab=`, `?page=`)
+фокус не двигает. Переходы из модальных потоков сохраняют свои правила: выбор пункта в «Ещё» возвращает фокус на
+«Ещё», диалог — на открывшую его кнопку. Отдельная скрытая живая область для объявления страницы не используется —
+объявлением служит фокус на заголовке. Прокрутка — в начало страницы.

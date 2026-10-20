@@ -146,21 +146,40 @@ describe('scenario', () => {
         .map((b) => b.id)
         .sort(),
     );
-    // At REFERENCE_NOW no harvest date is within ±3 days of a CONFIRMED document of the same farm and product.
-    expect(new Set(w.t.batch_documents.map((d) => `${d.import_status}/${d.attempts}`))).toEqual(
-      new Set(['NOT_FOUND/1']),
-    );
-    // Ten days later M3 (harvested 2026-07-18) matches Луговая's CONFIRMED VSD-2026-000012 of 2026-07-19.
+    // The mock dates its documents relative to its clock (R90), and the replay uses SEED_NOW as that clock: M3 and
+    // beef1 find their farm's CONFIRMED document at any SEED_NOW, every other animal batch has none.
+    const byKey = (v: World) =>
+      Object.fromEntries(
+        animal(v).map((b) => {
+          const d = v.t.batch_documents.find((x) => x.batch_id === b.id)!;
+          return [
+            b._key,
+            { status: d.import_status, attempts: d.attempts, number: d.number, date: d.issue_date },
+          ];
+        }),
+      );
+    const imported = {
+      M3: { status: 'IMPORTED', attempts: 1, number: 'VSD-2026-000011', date: '2026-07-08' },
+      beef1: { status: 'IMPORTED', attempts: 1, number: 'VSD-2026-000012', date: '2026-08-02' },
+    };
+    const notFound = { status: 'NOT_FOUND', attempts: 1, number: null, date: null };
+    const expected = (dates: Record<string, string>) =>
+      Object.fromEntries(
+        ['M1', 'M2', 'M3', 'beef1', 'M4', 'M5', 'M6', 'M7'].map((k) => [
+          k,
+          k in imported ? { ...imported[k as keyof typeof imported], date: dates[k] } : notFound,
+        ]),
+      );
+    expect(byKey(w)).toEqual(expected({ M3: '2026-07-08', beef1: '2026-08-02' }));
+    // Ten days later the story and the mock's documents both move ten days: the same documents match.
     const later = world('2026-09-30T09:00:00Z');
+    expect(byKey(later)).toEqual(expected({ M3: '2026-07-18', beef1: '2026-08-12' }));
     const m3 = later.t.batch_documents.find((d) => d.batch_id === later.batch('M3').id)!;
     expect(m3).toMatchObject({
-      import_status: 'IMPORTED',
-      number: 'VSD-2026-000012',
-      issue_date: '2026-07-19',
       vsd_status: 'CONFIRMED',
       external_uuid: '3304dbab-b7aa-485d-a945-ec4036f08727',
-      attempts: 1,
     });
+    expect(m3.payload).toMatchObject({ issueDate: '2026-07-18', vetInspection: { date: '2026-07-17' } });
     expect(later.audit.filter((a) => a.action === 'system.vsdImport')).toHaveLength(8);
   });
 

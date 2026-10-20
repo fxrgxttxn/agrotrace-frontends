@@ -82,6 +82,20 @@ jobs:
       - uses: ./.github/actions/pnpm-store-save
         if: always()
 
+  api-express:
+    name: api (tests/api against Express)
+    runs-on: ubuntu-latest
+    env:
+      SEED_NOW: '2026-09-24T12:00:00Z'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh api:test express --reset
+      - run: ./at.sh docs:test express
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+
   ds:
     name: ds (design-system showcase, Playwright)
     runs-on: ubuntu-latest

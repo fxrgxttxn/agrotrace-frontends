@@ -81,10 +81,16 @@ dump_schema() (
 # directives and for the absence of `proxy_intercept_errors` (fix round 1: that directive rewrote
 # real backend error responses into the gateway's own problem+json instead of passing them
 # through), then runs the full tests/gateway suite. The stub is always torn down afterwards, pass
-# or fail, so it never lingers or collides with a later plan's real api-express service.
+# or fail, so it never lingers. A running real api-express (Plan 1) would share the name with the stub (Docker DNS
+# round-robin), so it is stopped for the run and started again afterwards.
 gw_test() (
   set -euo pipefail
-  cleanup() { $DC --profile gwtest rm -sf gateway-test-upstream >/dev/null 2>&1 || true; }
+  had_api=0
+  if [ -n "$($DC ps -q --status running api-express 2>/dev/null)" ]; then had_api=1; $DC stop api-express >/dev/null; fi
+  cleanup() {
+    $DC --profile gwtest rm -sf gateway-test-upstream >/dev/null 2>&1 || true
+    if [ "$had_api" = "1" ]; then $DC start api-express >/dev/null 2>&1 || true; fi
+  }
   trap cleanup EXIT
 
   $DC --profile gwtest up -d --wait gateway-test-upstream
@@ -114,6 +120,18 @@ gw_test() (
     && { echo "gw:test: the query string of a request leaked into the gateway log"; exit 1; }
   echo "gw:test: access log has no query strings"
 
+  # R92: nor does the error log. nginx's error-log lines carry `request: "GET /path?query …"` and their format is
+  # not configurable, so the level is `crit`: an unreachable backend (react-laravel: no api-laravel container)
+  # logs at `error` and must leave no trace of the query string.
+  echo "$full" | grep -qE '^\s*error_log\s+\S+\s+crit;' \
+    || { echo "gw:test: error_log must be at level crit (its lines include the request line with the query)"; exit 1; }
+  eprobe="at-err-probe-$RANDOM$RANDOM"
+  $T sh -c "curl -s -o /dev/null -H 'Host: react-laravel.localhost' 'http://gateway/api/v1/health/live?sig=${eprobe}&access_token=${eprobe}'"
+  sleep 1
+  $DC logs --since 2m gateway 2>&1 | grep -q "$eprobe" \
+    && { echo "gw:test: the query string of a failed proxied request leaked into the gateway error log"; exit 1; }
+  echo "gw:test: error log has no query strings"
+
   $T pnpm --filter @agrotrace/tests-gateway test
 )
 
@@ -127,7 +145,7 @@ run() {
 # Services of one backend implementation (spec §14.4).
 backend_services() {
   case "$1" in
-    express) echo "api-express worker-express" ;;
+    express) echo "api-express worker-express scheduler-express" ;;
     django)  echo "api-django worker-django beat-django" ;;
     laravel) echo "api-laravel worker-laravel scheduler-laravel" ;;
     *) return 1 ;;
@@ -156,6 +174,51 @@ up_combo() (
   echo "$front + $back: http://${front}-${back}.localhost:${port}/"
 )
 
+# `./at up <back>`: infra + one backend's services (api, worker, scheduler), no gateway.
+up_backend() (
+  set -euo pipefail
+  back="$1"
+  services="$(backend_services "$back")"
+  run $DC up -d --build --wait $INFRA_SERVICES
+  run $DC up --build minio-init
+  run $DC up -d --build --wait $services
+  echo "$back up: http://api-${back}:8000/api/v1 inside the \`at\` network (through the gateway: ./at up <front> $back)"
+)
+
+# `./at api:test [backend] [--reset] [--ratelimits] [vitest args…]`: tests/api (HTTP contract suite, shared by the
+# three backends) against api-<backend> (default express). Starts infra and the backend's services first; --reset
+# reloads the demo data (./at reset) before the run. The suite reads the dev DB read-only (tests/api/lib/db.ts),
+# apart from the documented fixture writes.
+# P10: by default api-<backend> runs for the suite with the api-test overrides (docker-compose.api-test.yml:
+# RATE_LIMIT_OVERRIDES) and is restored to its plain configuration afterwards; the rate-limit tests (named
+# `[ratelimit]`) skip themselves. --ratelimits runs only those tests (API_RATELIMITS=1 → tests/api/vitest.config.ts
+# testNamePattern), against the plain backend (no overrides).
+api_test() (
+  set -euo pipefail
+  back="express"
+  case "${1:-}" in express|django|laravel) back="$1"; shift ;; esac
+  reset=0
+  ratelimits=0
+  while :; do
+    case "${1:-}" in
+      --reset) reset=1; shift ;;
+      --ratelimits) ratelimits=1; shift ;;
+      *) break ;;
+    esac
+  done
+  up_backend "$back"
+  if [ "$reset" = "1" ]; then run "$0" reset; fi
+  tests="$DC run --rm -e API_URL=http://api-${back}:8000/api/v1 -e API_BACKEND=${back}"
+  if [ "$ratelimits" = "1" ]; then
+    run $tests -e API_RATELIMITS=1 tools pnpm --filter @agrotrace/tests-api test "$@"
+    return
+  fi
+  restore() { run $DC up -d --no-build --wait "api-${back}"; }
+  trap restore EXIT
+  run $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait "api-${back}"
+  run $tests tools pnpm --filter @agrotrace/tests-api test "$@"
+)
+
 # Number of migrations applied to the dev DB (0 when schema_migrations does not exist).
 applied_migrations() {
   local q="$DC exec -T postgres psql -tA -v ON_ERROR_STOP=1 -U agrotrace_owner -d agrotrace -c"
@@ -165,6 +228,50 @@ applied_migrations() {
     echo 0
   fi
 }
+
+# ── Frontends (Plan 2+) ─────────────────────────────────────────────────────────────────────────────────────────────
+# `fe:<cmd> <front>`; only react exists so far. The React stand is a separate gateway (`gateway-react`, compose project
+# agrotrace-react, docker-compose.react-dev.yml, host port 8089) on the main stack's network: it never touches the
+# shared `agrotrace` services.
+DCR="docker compose -f docker-compose.react-dev.yml"
+
+fe_front() {
+  case "${1:-}" in
+    react) ;;
+    angular|svelte) echo "fe: frontend-$1 does not exist yet (its plan adds it)" >&2; exit 1 ;;
+    *) echo "usage: ./at fe:<build|test|dev|gateway|e2e-smoke> react" >&2; exit 2 ;;
+  esac
+}
+
+# `fe:gateway react [up|down]`: the built dist (./at fe:build react) behind the gateway nginx at
+# http://react-express.localhost:8089/ (the backend itself comes from the shared stack: ./at up express).
+fe_gateway() (
+  set -euo pipefail
+  fe_front "${1:-}"
+  case "${2:-up}" in
+    up)
+      if [ "${AT_DRY_RUN:-}" != "1" ]; then
+        [ -f frontend-react/dist/index.html ] || { echo "fe:gateway: no frontend-react/dist — run ./at fe:build react first" >&2; exit 1; }
+        docker network inspect agrotrace_at >/dev/null 2>&1 \
+          || { echo "fe:gateway: network agrotrace_at does not exist — start the stack first (./at up express)" >&2; exit 1; }
+      fi
+      run $DCR up -d --build --wait gateway-react
+      echo "React: http://react-express.localhost:8089/  (design system: http://localhost:8089/_ds/)" ;;
+    down) run $DCR down ;;
+    *) echo "usage: ./at fe:gateway react [up|down]" >&2; exit 2 ;;
+  esac
+)
+
+# `fe:e2e-smoke react [playwright args…]`: the build through gateway-react (started if needed), Playwright one-off in
+# the `playwright` service on network agrotrace_at — frontend-react/e2e (`//repo`: no Git Bash path conversion).
+fe_e2e_smoke() (
+  set -euo pipefail
+  fe_front "${1:-}"; shift
+  if [ "${AT_DRY_RUN:-}" = "1" ] || [ -z "$($DCR ps -q --status running gateway-react 2>/dev/null)" ]; then
+    fe_gateway react up
+  fi
+  run $DC run --rm -w //repo/frontend-react playwright npx --no-install playwright test -c e2e/playwright.config.ts "$@"
+)
 
 case "$cmd" in
   install)   $T pnpm install "$@" ;;
@@ -177,7 +284,7 @@ case "$cmd" in
   # The command wrappers (at, at.sh, at.cmd, at.ps1; `up` in AT_DRY_RUN mode) — tests/at.
   at:test)   $T pnpm --filter @agrotrace/tests-at test "$@" ;;
   # Everything, in dependency order: unit → wrappers → tests/db (throwaway agrotrace_test) → dev DB migrated and
-  # seed checked → gateway up + gw:test → design-system showcase (Playwright).
+  # seed checked → tests/api against Express (after a reset; then its rate-limit tests, P10) → gateway up + gw:test → Swagger UI through the gateway → design-system showcase.
   test:all)
     "$0" test
     "$0" at:test
@@ -185,15 +292,30 @@ case "$cmd" in
     "$0" db:test
     "$0" db:migrate
     "$0" seed:test
+    "$0" api:test express --reset
+    "$0" api:test express --ratelimits
     "$0" up gateway
     "$0" gw:test
+    "$0" docs:test express
     "$0" ds:test ;;
   # ESLint's flat config (eslint.config.js) already covers the whole repo tree in one pass — `-r`
   # would instead run per-workspace-package `lint` scripts, none of which exist (only the root
   # package.json has one), so recursing here silently lints nothing.
   lint)      $T pnpm lint ;;
   typecheck) $T pnpm -r typecheck ;;
-  fmt)       $T pnpm exec prettier --write . ;;
+  # P13: explicit paths only. No arguments or any flag-like argument (`--help`, `-w`, …) is refused: prettier would
+  # read a flag as an option and still `--write` the default target, reformatting the whole repository.
+  fmt)
+    if [ $# -eq 0 ]; then
+      echo "usage: ./at fmt <path>… — formats the given files/directories with Prettier (explicit paths only)" >&2
+      exit 2
+    fi
+    for p in "$@"; do
+      case "$p" in
+        -*) echo "./at fmt: '$p' looks like an option; only paths are accepted (P13)" >&2; exit 2 ;;
+      esac
+    done
+    run $T pnpm exec prettier --write -- "$@" ;;
   # --build on every `up` (R80): a stale gateway/mercury-mock image is never silently reused —
   # docker compose skips the build step on its own for any service without a `build:` key, so this
   # is a no-op for postgres/redis/rabbitmq/minio/mailpit.
@@ -207,8 +329,9 @@ case "$cmd" in
         set -a; . ./.env; set +a
         echo "Gateway up: http://localhost:${GATEWAY_PORT:-80}/  (design system: http://localhost:${GATEWAY_PORT:-80}/_ds/)" ;;
       react|angular|svelte) up_combo "$@" ;;
+      express|django|laravel) up_backend "$1" ;;
       all) run $DC up -d --build --wait ;;
-      *) echo "usage: ./at up [all|infra|gateway|<react|angular|svelte> <express|django|laravel>]" >&2; exit 2 ;;
+      *) echo "usage: ./at up [all|infra|gateway|<express|django|laravel>|<react|angular|svelte> <express|django|laravel>]" >&2; exit 2 ;;
     esac ;;
   down)        $DC down "$@" ;;
   db:migrate)  $DC run --rm dbmate --no-dump-schema --wait up && dump_schema ;;
@@ -229,14 +352,35 @@ case "$cmd" in
     $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
     $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" -e APP_DATABASE_URL="$TEST_APP_DATABASE_URL" tools \
       pnpm --filter @agrotrace/tests-db test ;;
+  # Kysely types of the Express backend (backend-express/src/db/types.generated.ts) from a freshly migrated
+  # agrotrace_test — the schema of the migrations on disk, never the drifting dev DB. tests/db checks freshness.
+  gen:db-types)
+    set -a; . ./.env; set +a
+    TDB=agrotrace_test
+    TEST_DATABASE_URL="${DATABASE_URL%/*}/${TDB}?sslmode=disable"
+    $DC up -d --wait postgres
+    recreate_db "$TDB"
+    $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
+    $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" tools \
+      pnpm --filter @agrotrace/backend-express gen:db-types ;;
   ds:test)     $DC run --rm playwright npx --no-install playwright test "$@" ;;
+  # Swagger UI of a backend through the gateway (P5, R89/I6): renders under the gateway CSP with no console error,
+  # CSP violation or foreign request. Starts the backend and the gateway first (`up <back>`, `up gateway`).
+  docs:test)
+    back="${1:-express}"; [ $# -gt 0 ] && shift
+    up_backend "$back"
+    run $DC up -d --build --wait gateway
+    run $DC run --rm -e "DOCS_BACKEND=${back}" playwright npx --no-install playwright test -c api-docs/playwright.config.ts "$@" ;;
   # Gateway must already be up (./at.sh up gateway). See gw_test() above for what this checks.
   gw:test)     gw_test ;;
+  api:test)    api_test "$@" ;;
   psql)        $DC exec postgres psql -U agrotrace_owner agrotrace ;;
   check)
     $DC exec -T postgres pg_isready -U agrotrace_owner && \
     $DC exec -T redis redis-cli ping && \
     $DC exec -T rabbitmq rabbitmq-diagnostics -q check_running && \
+    { [ "$($DC exec -T rabbitmq rabbitmqctl -q list_queues name arguments | grep -cE '\.jobs[[:space:]].*x-delivery-limit')" = "3" ] \
+      || { echo "rabbitmq: the three jobs queues (x-delivery-limit) did not load from definitions.json"; false; }; } && \
     $T sh -c 'curl -fsS http://minio:9000/minio/health/live && curl -fsS http://mailpit:8025/livez && curl -fsS http://mercury-mock:8080/health' && echo "infra ok" ;;
   # Demo data (db/seed): replaces all data of the dev DB (except roles, regions, schema_migrations),
   # its MinIO objects and Redis. Timestamps end at SEED_NOW (env, ISO minute; default: now).
@@ -255,6 +399,13 @@ case "$cmd" in
     $DC run --rm dbmate --no-dump-schema --wait up
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
   bench) exec "$(dirname "$0")/benchmark/bench.sh" "$@" ;;
+  # Frontends (see fe_front above): build into frontend-<front>/dist, component tests (Vitest + MSW from the contract),
+  # the Vite dev server on http://localhost:5173 (API proxied to api-express), the separate gateway, the smoke e2e.
+  fe:build)  fe_front "${1:-}"; run $T pnpm --filter "@agrotrace/frontend-$1" build ;;
+  fe:test)   fe_front "${1:-}"; front="$1"; shift; run $T pnpm --filter "@agrotrace/frontend-$front" test "$@" ;;
+  fe:dev)    fe_front "${1:-}"; run $DC run --rm -p 5173:5173 tools pnpm --filter "@agrotrace/frontend-$1" dev ;;
+  fe:gateway) fe_gateway "$@" ;;
+  fe:e2e-smoke) fe_e2e_smoke "$@" ;;
   # Top-level commands only (two-space indented case labels).
-  help|*)  grep -E '^  [a-z:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
+  help|*)  grep -E '^  [a-z0-9:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
 esac

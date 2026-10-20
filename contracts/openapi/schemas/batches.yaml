@@ -666,7 +666,8 @@ BatchDocuments:
   type: object
   description: >-
     Документы партии (R81): ВСД из Меркурия, протоколы анализов (по `createdAt` анализа, затем `id`) и QR-файлы (null —
-    QR не генерировался). Видимость — как у партии (`getBatch`).
+    QR не генерировался). Видимость — как у партии (`getBatch`); `labProtocols` — только видимые пользователю
+    анализы, `qr` — только если пользователь может скачать QR, иначе null (R91, описание `getBatchDocuments`).
   required: [batchId, vsd, labProtocols, qr]
   additionalProperties: false
   properties:

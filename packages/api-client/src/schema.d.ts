@@ -145,7 +145,7 @@ export interface paths {
         put?: never;
         /**
          * Установка нового пароля
-         * @description Устанавливает новый пароль по токену из письма, сбрасывает счётчик неудачных попыток и блокировку, отзывает все refresh-токены пользователя. Неизвестный, использованный или истёкший токен — 400 TOKEN_EXPIRED.
+         * @description Устанавливает новый пароль по токену из письма, сбрасывает счётчик неудачных попыток и блокировку, отзывает все refresh-токены пользователя. Неизвестный, использованный или истёкший токен — 400 TOKEN_EXPIRED. Сначала тело проверяется по схеме (400 VALIDATION, токен при этом не расходуется), и только затем токен читается `GETDEL` (R82).
          */
         post: operations["resetPassword"];
         delete?: never;
@@ -185,7 +185,7 @@ export interface paths {
         put?: never;
         /**
          * Принятие приглашения
-         * @description Активирует приглашённого сотрудника (INVITED → ACTIVE) по токену из письма: задаёт ФИО и пароль. После этого пользователь входит через `POST /auth/login`. Неизвестный, использованный или истёкший токен (7 дней) — 400 TOKEN_EXPIRED.
+         * @description Активирует приглашённого сотрудника (INVITED → ACTIVE) по токену из письма: задаёт ФИО и пароль. После этого пользователь входит через `POST /auth/login`. Неизвестный, использованный или истёкший токен (7 дней) — 400 TOKEN_EXPIRED. Сначала тело проверяется по схеме (400 VALIDATION, токен при этом не расходуется), и только затем токен читается `GETDEL` (R82).
          */
         post: operations["acceptInvite"];
         delete?: never;
@@ -225,7 +225,7 @@ export interface paths {
         get?: never;
         /**
          * Загрузка аватарки
-         * @description Загружает или заменяет аватарку (FR-IAM-07, п. 8.6): JPEG, PNG или WebP не более 2 МБ (≤ 2 097 152 байт включительно), тип определяется по сигнатуре содержимого. Сохраняется как WebP 96 и 480 px; прежний файл помечается удалённым. Аватарка доступна любому авторизованному пользователю.
+         * @description Загружает или заменяет аватарку (FR-IAM-07, п. 8.6): JPEG, PNG или WebP не более 2 МБ (≤ 2 097 152 байт включительно), тип определяется по сигнатуре содержимого. Сохраняется как WebP 96 и 480 px (без увеличения, P14); прежний файл помечается удалённым. Ошибки формы и декодирования — «Загрузка файлов (P14)» в описании API. Аватарка доступна любому авторизованному пользователю.
          */
         put: operations["uploadMyAvatar"];
         post?: never;
@@ -382,7 +382,7 @@ export interface paths {
         };
         /**
          * Карточка организации
-         * @description Участник видит свою организацию и организации своих непосредственных поставщиков и получателей; INSPECTOR и ADMIN — все организации (п. 4.2). Невидимая организация — 404.
+         * @description Участник видит свою организацию и организации своих непосредственных поставщиков и получателей — контрагентов по видимым ему накладным (правило — в описании тега Organizations, P14); INSPECTOR и ADMIN — все организации (п. 4.2). Невидимая организация — 404.
          */
         get: operations["getOrganization"];
         put?: never;
@@ -402,12 +402,12 @@ export interface paths {
         };
         /**
          * Логотип организации
-         * @description Логотип (WebP выбранного варианта или исходный SVG). Для страниц без авторизации тот же файл доступен по `GET /public/files/{id}`. Нет организации или логотипа — 404.
+         * @description Логотип (WebP выбранного варианта или исходный SVG). Для страниц без авторизации тот же файл доступен по `GET /public/files/{id}`. Нет организации, она невидима пользователю (тег Organizations, P14) или у неё нет логотипа — 404.
          */
         get: operations["getOrganizationLogo"];
         /**
          * Загрузка логотипа организации
-         * @description Загружает или заменяет логотип (п. 8.6): JPEG, PNG, WebP (→ WebP 96 и 480 px) или SVG (санитизация от скриптов, хранится как есть), не более 2 МБ (≤ 2 097 152 байт включительно); тип определяется по сигнатуре. Руководитель — только для своей организации (для чужой — 403); ADMIN — для любой. Логотип публичен.
+         * @description Загружает или заменяет логотип (п. 8.6): JPEG, PNG, WebP (→ WebP 96 и 480 px) или SVG (санитизация от скриптов, хранится как есть), не более 2 МБ (≤ 2 097 152 байт включительно); тип определяется по сигнатуре. Руководитель — только для своей организации (для чужой — 403); ADMIN — для любой. Невидимая организация (тег Organizations, P14) — 404, видимая чужая — 403. Ошибки формы и декодирования — «Загрузка файлов (P14)» в описании API. Логотип публичен.
          */
         put: operations["uploadOrganizationLogo"];
         post?: never;
@@ -568,7 +568,7 @@ export interface paths {
          *     4. Анализ не нужен — переход Created → Approved (`reason` TEST_NOT_REQUIRED, автор null).
          *     Нужен — назначается лаборатория: организация типа LAB в статусе ACTIVE с наименьшим числом неудалённых
          *     анализов в статусах QUEUED, SAMPLED, ESCALATED; сначала среди лабораторий региона поля, если их нет — среди
-         *     всех; при равенстве — наименьший `id` (как текст). Создаётся анализ (`reason` = PLANNED для SAMPLED,
+         *     всех; при равенстве — наименьший `id` (как текст, по кодовым точкам). Создаётся анализ (`reason` = PLANNED для SAMPLED,
          *     иначе RISK; статус QUEUED; срок = 5 рабочих дней, `addWorkingDays`) и выполняется переход Created → OnTest
          *     (`reason` TEST_REQUIRED, автор null). Если анализ нужен, а активных лабораторий нет ни одной, транзакция
          *     откатывается целиком (партия не создаётся, номер последовательности `batch_code_seq` расходуется) —
@@ -717,7 +717,7 @@ export interface paths {
         };
         /**
          * Документы партии
-         * @description Сопроводительные документы партии (R81): ВСД из ФГИС «Меркурий» (`vsd`, null — у партии нет ВСД: продукт не DAIRY/MEAT или партия производная), протоколы испытаний неудалённых анализов партии с загруженным протоколом и ссылки на сохранённые QR-файлы (null — QR не генерировался). Видимость — как у `getBatch` (невидимая партия — 404); ссылки на протоколы и QR подписаны (R28, 3600 с).
+         * @description Сопроводительные документы партии (R81): ВСД из ФГИС «Меркурий» (`vsd`, null — у партии нет ВСД: продукт не DAIRY/MEAT или партия производная), протоколы испытаний неудалённых анализов партии с загруженным протоколом и ссылки на сохранённые QR-файлы (null — QR не генерировался). Видимость партии — как у `getBatch` (невидимая партия — 404); содержимое фильтруется по правам пользователя (R91, при нескольких ролях — объединение): `labProtocols` — только анализы, видимые ему по правилам тега Lab (LAB — только анализы своей лаборатории; INSPECTOR и ADMIN — все; FARMER, PROCESSOR, RETAILER — все анализы видимой партии), остальные не перечисляются (массив может быть пустым); `qr` — только если пользователь может скачать QR (`downloadBatchQr`: роль PROCESSOR или RETAILER, организация — держатель партии, статус допускает QR — R43, R44), иначе null, даже если QR генерировался. Ссылки на протоколы и QR подписаны (R28, 3600 с).
          */
         get: operations["getBatchDocuments"];
         put?: never;
@@ -1121,7 +1121,8 @@ export interface paths {
          *     `ecedca06a78414e48b66ba0a401a61401c7f8af078b2fc35c8dfe5017e7a4a70` (hex), подпись —
          *     `9de1ced479cc0f1c78c9d8deff00f42955b37d6a7cb19f9635a07a6300c29ee0`. Параметр
          *     `variant` не подписывается: клиент свободно добавляет или заменяет `variant=96|480` в выданном URL.
-         *     Сравнение подписи — за постоянное время. Неверная подпись, `exp` в прошлом или только один из `exp`/`sig` — 403 FORBIDDEN;
+         *     Сравнение подписи — за постоянное время. Неверная подпись, `exp` в прошлом или только один из `exp`/`sig` — 403 FORBIDDEN (в том числе `exp`, не являющийся
+         *     десятичным целым без ведущих нулей (`^[1-9]\d{0,11}$`, P17), и `sig` не по шаблону — 403, не 400; параметры `id` и `variant` проверяются после подписи, P14);
          *     права пользователя при этом не проверяются. Если переданы `exp`/`sig`, проверяется только подпись
          *     (заголовок Authorization игнорируется).
          *
@@ -1151,7 +1152,7 @@ export interface paths {
         };
         /**
          * Публичная страница партии
-         * @description Данные QR-страницы `/p/{publicCode}` (FR-PUB-01, FR-PUB-02): продукт, происхождение, даты, путь, итог анализов, статус безопасности. Персональные данные сотрудников не отдаются. Ответ кэшируется в общем Redis на 5 минут (ключ `pub:batch:{publicCode}`, таблица общих ключей Redis в описании API, R82) со сбросом при изменении партии или связанных с ней партий. Удалённая или неизвестная партия — 404.
+         * @description Данные QR-страницы `/p/{publicCode}` (FR-PUB-01, FR-PUB-02): продукт, происхождение, даты, путь, итог анализов, статус безопасности. Персональные данные сотрудников не отдаются. Ответ кэшируется в общем Redis на 5 минут (ключ `pub:batch:{publicCode}`, таблица общих ключей Redis в описании API, R82): при попадании в кэш тело ответа — сохранённые байты как есть (без повторной сериализации); сброс — при изменении данных страницы (статус, держатель, итог анализов, путь, продукт, организации пути — перечень в таблице). Удалённая или неизвестная партия — 404.
          */
         get: operations["getPublicBatch"];
         put?: never;
@@ -1955,7 +1956,8 @@ export interface paths {
         put?: never;
         /**
          * Одобрение заявки организации
-         * @description Одобряет заявку на регистрацию (FR-IAM-01): PENDING или MANUAL_CHECK → ACTIVE. Порядок проверок:
+         * @description Одобряет заявку на регистрацию (FR-IAM-01): PENDING или MANUAL_CHECK → ACTIVE. У операции нет ответа 400:
+         *     `id`, не являющийся uuid, не называет никакой организации — 404 NOT_FOUND (P23). Порядок проверок:
          *
          *     Блокировки (R47, R59): организация `FOR UPDATE`; шаги 1–2 — над заблокированной строкой.
          *
@@ -1991,7 +1993,8 @@ export interface paths {
          *     - `q` — подстрока без учёта регистра: названия (products, substances, indicators), названия продукта или
          *       показателя (norms), названия или кода (regions);
          *     - `category` — только products; `type` — только substances; `productId`, `indicatorId` — только norms;
-         *     - `includeDeleted` — только ADMIN и только products, substances, indicators.
+         *     - `includeDeleted` — только ADMIN и только products, substances, indicators; параметр, переданный роли без
+         *       права или для norms/regions, — 400 при любом значении, в том числе `false` (P23).
          *
          *     Сортировка — `x-sort`; `name` для norms — название продукта, затем название показателя; для regions — название.
          */
@@ -2028,7 +2031,7 @@ export interface paths {
         get?: never;
         /**
          * Изменение строки справочника
-         * @description Полностью заменяет редактируемые поля строки (тело — схема справочника, как при создании). Строка не существует или мягко удалена — 404. Уникальность — как при создании, но совпадение с любой другой строкой (в том числе мягко удалённой) — 400 `validation.duplicate`. Изменение норматива не меняет уже внесённые результаты анализов (`normValue` — снимок) и применяется к анализам, результаты которых ещё не внесены. Ответ — изменённая строка.
+         * @description Полностью заменяет редактируемые поля строки (тело — схема справочника, как при создании). Строка не существует или мягко удалена — 404. Уникальность — как при создании, но совпадение с любой другой строкой (в том числе мягко удалённой) — 400 `validation.duplicate`. Тело, совпадающее со строкой (десятичные значения — численно), — не изменение: строка не записывается (`updatedAt` прежний), записи аудита нет (P23). Изменение норматива не меняет уже внесённые результаты анализов (`normValue` — снимок) и применяется к анализам, результаты которых ещё не внесены. Ответ — изменённая строка.
          */
         put: operations["updateDictionaryEntry"];
         post?: never;
@@ -2042,6 +2045,9 @@ export interface paths {
          *     - norms — физическое удаление (колонки `deleted_at` нет; результаты анализов хранят снимок норматива);
          *     - regions — физическое удаление, только если на регион не ссылается ни одна организация и ни одно поле (включая
          *       мягко удалённые), иначе 409 REFERENCE_IN_USE `{usedBy}` — список таблиц в порядке `organizations`, `fields`.
+         *
+         *     Запись аудита физического удаления (norms, regions) — `diff` вида «поле → `[значение до, null]`» по всем
+         *     непустым полям удалённой строки (зеркально созданию, P23).
          */
         delete: operations["deleteDictionaryEntry"];
         options?: never;
@@ -2071,20 +2077,29 @@ export interface paths {
          *     - XLSX — первый лист книги; строки и колонки листа как в CSV (строка 1 — заголовок, колонка A — первая); строковые
          *       ячейки берутся как есть; числовые — десятичной записью кратчайшего вида, однозначно восстанавливающего значение
          *       (`2` → `"2"`, `0.1` → `"0.1"`, без экспоненты); ячейки других типов (дата, логическая, ошибка) — ошибка строки
-         *       `validation.pattern` для этой колонки;
+         *       `validation.pattern` для этой колонки; лист не хранит пустых ячеек, поэтому строка листа короче заголовка
+         *       дополняется пустыми ячейками, а длиннее — ошибка `validation.import.columns`. Пределы книги (P23): не больше
+         *       64 элементов архива, не больше 16 МиБ на элемент и 32 МиБ в сумме (и по объявленным размерам, и по фактически
+         *       распакованным байтам), не больше 20 000 элементов `<row>` на листе (включая пустые), не больше 64 ячеек в
+         *       строке, не больше 10 с на чтение; превышение — 415 UNSUPPORTED_MEDIA_TYPE `{allowed, reason:
+         *       "workbook-too-large"}`; ZIP, не являющийся книгой, или книга, которую нельзя прочитать, — 415 `{allowed}`;
          *     - строка 1 — заголовок, ровно эти имена колонок в этом порядке: products `name;category;lossNormPercent`;
          *       substances `name;type;waitingPeriodDays`; indicators `name;unit`; norms `product;indicator;maxValue`; regions
          *       `code;name`. Иной заголовок — 400 `errors.file: [validation.import.header]` (файл не обрабатывается);
          *     - строки, все ячейки которых пусты, пропускаются; более 10 000 непустых строк данных — 400
-         *       `errors.file: [validation.import.tooManyRows]`; номер строки в отчёте — номер записи CSV / строки листа с 1
+         *       `errors.file: [validation.import.tooManyRows]` (проверяется при чтении файла, до проверки заголовка, P23); номер строки в отчёте — номер записи CSV / строки листа с 1
          *       (заголовок — 1), пропущенные пустые строки тоже считаются;
          *     - значения не обрезаются (R36). Правила значений — как у `DictionaryInput`, кроме: `lossNormPercent` —
          *       `^\d{1,3}(\.\d{1,2})?$` и не больше 100 (сохраняется с двумя знаками, R23); `waitingPeriodDays` — `^\d{1,4}$`
          *       и не больше 3650; `maxValue` — `Decimal`; `category`, `type` — коды перечислений; `product`, `indicator` —
-         *       точное название неудалённого продукта / показателя (иначе `validation.notFound`).
+         *       точное название неудалённого продукта / показателя (иначе `validation.notFound`). Ключи ошибок значений (P23):
+         *       пустая ячейка — `validation.required`; строка длиннее `maxLength` — `validation.maxLength`; строка только из
+         *       пробельных символов или число не по шаблону — `validation.pattern`; число больше предела — `validation.max`;
+         *       значение не из перечисления — `validation.enum`.
          *
          *     Обработка — строки по порядку, в одной транзакции: строка с неверным числом ячеек — ошибка
-         *     `{column: null, message: validation.import.columns}`; ошибки значений — по колонкам; повтор ключа в файле
+         *     `{column: null, message: validation.import.columns}`; ошибки значений — по колонкам; ошибки одной строки — в порядке колонок заголовка, у одной колонки
+         *     `validation.duplicate` — после ошибок её значения (P23); повтор ключа в файле
          *     (products/substances/indicators — `name`, regions — `code`, norms — пара `product` + `indicator`) — ошибка
          *     `validation.duplicate` у колонки ключа (`name`, `code`, `indicator`): ключ занимает первая по порядку файла строка с этим ключом (даже если
          *     в ней есть ошибки значений), все последующие строки с тем же ключом — ошибки (R59). Строка с
@@ -2358,7 +2373,7 @@ export interface components {
          * @example VALIDATION
          * @enum {string}
          */
-        ProblemCode: "VALIDATION" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "INVALID_TRANSITION" | "VERSION_CONFLICT" | "BUSINESS_RULE" | "FILE_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "RATE_LIMITED" | "ACCOUNT_LOCKED" | "INVALID_CREDENTIALS" | "TWO_FACTOR_REQUIRED" | "INVALID_TWO_FACTOR_CODE" | "TOKEN_EXPIRED" | "IDEMPOTENCY_KEY_REUSED" | "INVALID_IDEMPOTENCY_KEY" | "CAPTCHA_FAILED" | "GRAPH_CYCLE" | "BACKEND_UNAVAILABLE" | "EXTERNAL_UNAVAILABLE" | "INTERNAL" | "NO_LAB_AVAILABLE" | "IDEMPOTENCY_KEY_IN_PROGRESS" | "REFERENCE_IN_USE";
+        ProblemCode: "VALIDATION" | "UNAUTHORIZED" | "FORBIDDEN" | "NOT_FOUND" | "INVALID_TRANSITION" | "VERSION_CONFLICT" | "BUSINESS_RULE" | "FILE_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "RATE_LIMITED" | "ACCOUNT_LOCKED" | "INVALID_CREDENTIALS" | "TWO_FACTOR_REQUIRED" | "INVALID_TWO_FACTOR_CODE" | "TOKEN_EXPIRED" | "IDEMPOTENCY_KEY_REUSED" | "INVALID_IDEMPOTENCY_KEY" | "CAPTCHA_FAILED" | "GRAPH_CYCLE" | "BACKEND_UNAVAILABLE" | "EXTERNAL_UNAVAILABLE" | "INTERNAL" | "NO_LAB_AVAILABLE" | "IDEMPOTENCY_KEY_IN_PROGRESS" | "REFERENCE_IN_USE" | "METHOD_NOT_ALLOWED";
         /**
          * @description RFC 7807 Problem Details (`application/problem+json`). `type` детерминирован: `/problems/` + код в нижнем регистре через дефис (VERSION_CONFLICT → `/problems/version-conflict`). `title` — краткое описание для журналов, может различаться между реализациями; клиенты на него не опираются.
          * @example {
@@ -2459,7 +2474,7 @@ export interface components {
             mime: string;
             /** @description Размер исходного загруженного файла в байтах. */
             sizeBytes: number;
-            /** @description Имя файла из запроса (только для отображения и Content-Disposition, не используется в ключе хранилища). */
+            /** @description Базовое имя файла из запроса — без сегментов пути до последнего `/` или `\` (P17); только для отображения и Content-Disposition, не используется в ключе хранилища. */
             originalName: string;
         };
         /**
@@ -2527,7 +2542,7 @@ export interface components {
             };
         };
         /**
-         * @description JWT HS256 (общий `JWT_SECRET`), срок 15 минут; claims `sub`, `org`, `roles`, `org_admin`, `exp`, `iat`, `jti`. Принимается любой backend-реализацией.
+         * @description JWT HS256 (общий `JWT_SECRET`), срок 15 минут; принимается любой backend-реализацией. Обязательные claims и их типы (P12): `sub` — UUID пользователя (строка), `org` — UUID организации (строка), `roles` — непустой массив `RoleCode`, `org_admin` — boolean, `exp` и `iat` — целые (секунды Unix, `exp` = `iat` + 900), `jti` — строка. Токен с другим `alg` (в том числе `none`), с неверной подписью, истёкший, без любого из этих claims, с claim другого типа или с заголовком `crit`, перечисляющим неизвестные параметры, — 401 UNAUTHORIZED.
          * @example eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxYTJiM2M0ZC01ZTZmLTRhN2ItOGM5ZC0wZTFmMmEzYjRjNWQifQ.3fQy8m2Kc1q5Z0Xn9sVbWtRjLpHdGe7aCuYoIiMk4Nw
          */
         AccessToken: string;
@@ -2785,6 +2800,7 @@ export interface components {
         TelegramCode: {
             code: string;
             expiresAt: components["schemas"]["DateTime"];
+            /** @description Имя бота без `@` — значение `TELEGRAM_BOT_USERNAME` конфигурации развёртывания (P14). */
             botUsername: string;
         };
         /**
@@ -2901,7 +2917,7 @@ export interface components {
             total: components["schemas"]["TotalCount"];
         };
         /**
-         * @description Приглашение сотрудника (FR-IAM-02): создаётся пользователь со статусом INVITED и отправляется письмо со ссылкой-токеном. `organizationId` задаёт только ADMIN (иначе 400); руководитель приглашает в свою организацию. Роли должны соответствовать типу организации (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB, RETAILER→RETAILER, AUTHORITY→INSPECTOR, PLATFORM→ADMIN), иначе 400 VALIDATION (`errors.roles`). Занятый email — 400 VALIDATION (`errors.email: [validation.email.taken]`).
+         * @description Приглашение сотрудника (FR-IAM-02): создаётся пользователь со статусом INVITED и отправляется письмо со ссылкой-токеном. `organizationId` задаёт только ADMIN (иначе 400); руководитель приглашает в свою организацию. Роли должны соответствовать типу организации (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB, RETAILER→RETAILER, AUTHORITY→INSPECTOR, PLATFORM→ADMIN): набор ролей — ровно роль типа организации, иначе 400 VALIDATION `errors.roles: [validation.notAllowed]` (P14). Занятый email — 400 VALIDATION (`errors.email: [validation.email.taken]`).
          * @example {
          *       "email": "sidorova@kfh-petrov.ru",
          *       "fullName": "Сидорова Анна Викторовна",
@@ -2919,7 +2935,7 @@ export interface components {
             organizationId?: components["schemas"]["Uuid"];
         };
         /**
-         * @description Изменение ролей, признака руководителя и статуса сотрудника. Переходы статуса: только ACTIVE → BLOCKED и BLOCKED → ACTIVE (блокировка отзывает refresh-токены пользователя); INVITED → ACTIVE выполняется только через `POST /auth/accept-invite` — любое изменение `status` у пользователя INVITED даёт 409 INVALID_TRANSITION (`params.from`, `params.to`); `status`, равный текущему, — без изменений (200). Роли должны соответствовать типу организации пользователя (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB, RETAILER→RETAILER, AUTHORITY→INSPECTOR, PLATFORM→ADMIN), иначе 400 VALIDATION (`errors.roles`). Изменить собственные роли, признак руководителя или статус нельзя — 400 VALIDATION.
+         * @description Изменение ролей, признака руководителя и статуса сотрудника. Переходы статуса: только ACTIVE → BLOCKED и BLOCKED → ACTIVE (блокировка отзывает refresh-токены пользователя); INVITED → ACTIVE выполняется только через `POST /auth/accept-invite` — любое изменение `status` у пользователя INVITED даёт 409 INVALID_TRANSITION (`params.from`, `params.to`); `status`, равный текущему, — без изменений (200). Роли должны соответствовать типу организации пользователя (FARM→FARMER, PROCESSOR→PROCESSOR, LAB→LAB, RETAILER→RETAILER, AUTHORITY→INSPECTOR, PLATFORM→ADMIN): набор ролей — ровно роль типа организации, иначе 400 VALIDATION `errors.roles: [validation.notAllowed]` (P14). Изменить собственные роли, признак руководителя или статус нельзя: каждое из этих полей, присутствующее в теле запроса к самому себе (даже с текущим значением), — 400 VALIDATION `errors.<поле>: [validation.notAllowed]` (P14).
          * @example {
          *       "status": "BLOCKED"
          *     }
@@ -3019,12 +3035,12 @@ export interface components {
             size: components["schemas"]["PageSize"];
             total: components["schemas"]["TotalCount"];
         };
-        /** @description Изображение в поле `file`. MIME проверяется по сигнатуре содержимого, а не по расширению или заголовку части; имя файла сохраняется только как `originalName`. Хранится как WebP 96 и 480 px по большей стороне. */
+        /** @description Изображение в поле `file`. MIME проверяется по сигнатуре содержимого, а не по расширению или заголовку части; имя файла сохраняется только как `originalName`. Хранится как WebP 96 и 480 px по большей стороне без увеличения меньших изображений (P14). */
         ImageUpload: {
             /** Format: binary */
             file: string;
         };
-        /** @description Логотип в поле `file`: JPEG, PNG, WebP (конвертируются в WebP 96 и 480 px) или SVG (санитизируется от скриптов и хранится как есть). MIME проверяется по сигнатуре содержимого. */
+        /** @description Логотип в поле `file`: JPEG, PNG, WebP (конвертируются в WebP 96 и 480 px) или SVG (санитизируется от скриптов и хранится как есть). MIME проверяется по сигнатуре содержимого; растровые варианты — без увеличения, SVG — корректный XML в UTF-8 с корнем `svg` без префикса в пространстве имён SVG, только из разрешённых элементов, без `<!DOCTYPE>` и иных объявлений, в пределах сложности (не глубже 64 уровней, не больше 5 000 элементов и 20 000 атрибутов), обработанный за 3 с с учётом очереди, иначе 415 (P14, P15, P17, P18; подробно — «Загрузка файлов» в описании API). */
         LogoUpload: {
             /** Format: binary */
             file: string;
@@ -3955,7 +3971,7 @@ export interface components {
             file: components["schemas"]["FileRef"];
         };
         /**
-         * @description Документы партии (R81): ВСД из Меркурия, протоколы анализов (по `createdAt` анализа, затем `id`) и QR-файлы (null — QR не генерировался). Видимость — как у партии (`getBatch`).
+         * @description Документы партии (R81): ВСД из Меркурия, протоколы анализов (по `createdAt` анализа, затем `id`) и QR-файлы (null — QR не генерировался). Видимость — как у партии (`getBatch`); `labProtocols` — только видимые пользователю анализы, `qr` — только если пользователь может скачать QR, иначе null (R91, описание `getBatchDocuments`).
          * @example {
          *       "batchId": "1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c",
          *       "vsd": {
@@ -5786,8 +5802,10 @@ export interface components {
          *       действия движка отзыва внутри операции пишутся с `action` этой операции;
          *     - `diff` — объект «имя поля API (camelCase) → `[до, после]`» только по изменившимся полям, значения — в формате
          *       API (масса — строка `Mass`, даты — ISO 8601 UTC); создание — `до` = null у всех заполненных полей; мягкое
-         *       удаление — `{"deletedAt": [null, "<момент>"]}`; секреты (пароль, TOTP, токены, хеши) — значение `"***"` с обеих
+         *       удаление — `{"deletedAt": [null, "<момент>"]}`; физическое удаление — `[до, null]` по всем непустым полям
+         *       удалённой строки (P23); секреты (пароль, TOTP, токены, хеши) — значение `"***"` с обеих
          *       сторон; двоичные файлы — id файла;
+         *     - операция, ничего не изменившая (тело совпадает с текущими значениями), записей не пишет (P23);
          *     - `actor` — пользователь-автор; null — система, начальное наполнение или покупатель (публичная жалоба);
          *     - `ip` — IP клиента (как видит его backend за шлюзом, из `X-Forwarded-For`), null для системных записей;
          *     - `requestId` — `X-Request-Id` запроса (у всех записей одного запроса одинаковый), null для системных.
@@ -6076,7 +6094,7 @@ export interface components {
             total: components["schemas"]["TotalCount"];
         };
         /**
-         * @description Итог импорта: `created` — новые строки, `updated` — изменённые (в том числе восстановленные мягко удалённые), `unchanged` — совпавшие со строкой справочника, `errors` — отклонённые строки файла (не применены), в порядке строк, затем колонок. `row` — номер строки файла с 1 (строка 1 — заголовок), `column` — имя колонки из заголовка или null (ошибка строки целиком), `message` — ключ i18n (`validation.required`, `validation.pattern`, `validation.notFound`, `validation.duplicate`, `validation.max`, `validation.import.columns`).
+         * @description Итог импорта: `created` — новые строки, `updated` — изменённые (в том числе восстановленные мягко удалённые), `unchanged` — совпавшие со строкой справочника, `errors` — отклонённые строки файла (не применены), в порядке строк, затем колонок. `row` — номер строки файла с 1 (строка 1 — заголовок), `column` — имя колонки из заголовка или null (ошибка строки целиком), `message` — ключ i18n (`validation.required`, `validation.pattern`, `validation.notFound`, `validation.duplicate`, `validation.max`, `validation.maxLength`, `validation.enum`, `validation.import.columns`); ошибки одной строки — в порядке колонок заголовка (P23).
          * @example {
          *       "created": 12,
          *       "updated": 3,
@@ -6235,7 +6253,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Тип файла, определённый по сигнатуре содержимого, не допускается (UNSUPPORTED_MEDIA_TYPE, `params.allowed`; п. 8.6). */
+        /** @description Тип файла, определённый по сигнатуре содержимого, не допускается (UNSUPPORTED_MEDIA_TYPE, `params.allowed`; п. 8.6), либо содержимое не декодируется как тип, указанный сигнатурой (P14); SVG, превышающий пределы сложности, или не принятый в очередь санитизации либо не обработанный за срок, — с `params.reason` = `svg-too-complex` (P18). */
         UnsupportedMediaType: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
@@ -6328,6 +6346,26 @@ export interface components {
                  *       "params": {
                  *         "service": "telegram"
                  *       }
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Путь есть в контракте, но метод запроса для него не объявлен (METHOD_NOT_ALLOWED, P3): 405 с заголовком `Allow` — методы, объявленные для пути. Операции его не перечисляют: так отвечает любой путь контракта на необъявленный метод. Путь, которого нет в контракте, — 404 NOT_FOUND. */
+        MethodNotAllowed: {
+            headers: {
+                Allow: components["headers"]["Allow"];
+                "X-Request-Id": components["headers"]["XRequestId"];
+                "X-Backend": components["headers"]["XBackend"];
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "/problems/method-not-allowed",
+                 *       "title": "Method not allowed",
+                 *       "status": 405,
+                 *       "code": "METHOD_NOT_ALLOWED"
                  *     }
                  */
                 "application/problem+json": components["schemas"]["Problem"];
@@ -6579,6 +6617,11 @@ export interface components {
     requestBodies: never;
     headers: {
         /**
+         * @description Методы, объявленные контрактом для этого пути (RFC 9110), через запятую — только в ответе 405.
+         * @example GET, POST
+         */
+        Allow: string;
+        /**
          * @description Идентификатор запроса (correlation id): значение заголовка `X-Request-Id` из запроса или сгенерированное сервером; пишется в журналы.
          * @example 4f1c2a7e-9b3d-4e5f-8a6b-0c1d2e3f4a5b
          */
@@ -6614,7 +6657,7 @@ export interface components {
          */
         CacheControl: "private, max-age=0, must-revalidate" | "public, max-age=86400" | "no-store" | "no-cache";
         /**
-         * @description Всегда `inline; filename="<ascii>"; filename*=UTF-8''<pct>`, где имя = базовое имя `originalName` без расширения + `.` + расширение отдаваемого MIME (image/webp → webp, image/svg+xml → svg, image/png → png, application/pdf → pdf, xlsx → xlsx). `<ascii>` — то же имя, в котором символы вне печатного ASCII, `"` и `\` заменены на `_`; `<pct>` — имя в UTF-8, закодированное по RFC 5987.
+         * @description Всегда `inline; filename="<ascii>"; filename*=UTF-8''<pct>`, где имя = `originalName` без последнего расширения (часть от последней точки, если точка не первый символ, P14; сам `originalName` — уже базовое имя без сегментов пути, P17) + `.` + расширение отдаваемого MIME (image/webp → webp, image/svg+xml → svg, image/png → png, application/pdf → pdf, xlsx → xlsx). `<ascii>` — то же имя, в котором символы вне печатного ASCII, `"` и `\` заменены на `_`; `<pct>` — имя в UTF-8, закодированное по RFC 5987.
          * @example inline; filename="______.webp"; filename*=UTF-8''%D0%BF%D0%B5%D1%82%D1%80%D0%BE%D0%B2.webp
          */
         ContentDisposition: string;
@@ -6649,6 +6692,11 @@ export interface components {
          */
         ReportContentDisposition: string;
         /**
+         * @description Ответ с токенами (access-токен, challenge TOTP) никогда не кэшируется (P9).
+         * @example no-store
+         */
+        CacheControlNoStoreToken: "no-store";
+        /**
          * @description Динамически сформированный ответ не кэшируется.
          * @example no-store
          */
@@ -6675,6 +6723,7 @@ export interface operations {
             200: {
                 headers: {
                     "Set-Cookie": components["headers"]["SetRefreshCookie"];
+                    "Cache-Control": components["headers"]["CacheControlNoStoreToken"];
                     "X-Request-Id": components["headers"]["XRequestId"];
                     "X-Backend": components["headers"]["XBackend"];
                     [name: string]: unknown;
@@ -6715,6 +6764,7 @@ export interface operations {
             200: {
                 headers: {
                     "Set-Cookie": components["headers"]["SetRefreshCookie"];
+                    "Cache-Control": components["headers"]["CacheControlNoStoreToken"];
                     "X-Request-Id": components["headers"]["XRequestId"];
                     "X-Backend": components["headers"]["XBackend"];
                     [name: string]: unknown;
@@ -6813,6 +6863,7 @@ export interface operations {
             200: {
                 headers: {
                     "Set-Cookie": components["headers"]["SetRefreshCookie"];
+                    "Cache-Control": components["headers"]["CacheControlNoStoreToken"];
                     "X-Request-Id": components["headers"]["XRequestId"];
                     "X-Backend": components["headers"]["XBackend"];
                     [name: string]: unknown;
@@ -10894,7 +10945,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description ZIP, не являющийся книгой XLSX, или файл с байтом NUL (UNSUPPORTED_MEDIA_TYPE, R58). */
+            /** @description ZIP, не являющийся книгой XLSX, книга сверх пределов P23 (`params.reason` = `workbook-too-large`) или файл с байтом NUL (UNSUPPORTED_MEDIA_TYPE, R58). */
             415: {
                 headers: {
                     "X-Request-Id": components["headers"]["XRequestId"];

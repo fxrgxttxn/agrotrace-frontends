@@ -3,4 +3,6 @@ packages:
   - contracts
   - db/seed
   - mercury-mock
+  - backend-express
   - tests/*
+  - frontend-react

@@ -1,7 +1,8 @@
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createServer } from '../src/server.js';
+import { configFromEnv, createServer } from '../src/server.js';
+import { loadVsdList } from '../src/store.js';
 
 interface JsonResponse<T = unknown> {
   status: number;
@@ -9,11 +10,7 @@ interface JsonResponse<T = unknown> {
   body: T;
 }
 
-async function request(
-  baseUrl: string,
-  path: string,
-  init: RequestInit = {},
-): Promise<JsonResponse> {
+async function request(baseUrl: string, path: string, init: RequestInit = {}): Promise<JsonResponse> {
   const res = await fetch(`${baseUrl}${path}`, init);
   const body = await res.json();
   return { status: res.status, headers: res.headers, body };
@@ -24,7 +21,8 @@ describe('mercury-mock server', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
-    server = createServer({ failRate: 0, timeoutMs: 30000 });
+    // Pinned at the dataset's reference moment (R90), so the documents carry the dates of data/vsd.json.
+    server = createServer({ failRate: 0, timeoutMs: 30000, now: () => Date.parse('2026-09-20T09:00:00Z') });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const { port } = server.address() as AddressInfo;
     baseUrl = `http://127.0.0.1:${port}`;
@@ -229,5 +227,96 @@ describe('mercury-mock server', () => {
         });
       }
     });
+  });
+});
+
+describe('relative document dates (R90)', () => {
+  const REF = Date.parse('2026-09-20T09:00:00Z');
+  const DAY = 86_400_000;
+
+  async function withServer<T>(now: () => number, fn: (base: string) => Promise<T>): Promise<T> {
+    const s = createServer({ failRate: 0, now });
+    await new Promise<void>((resolve) => s.listen(0, resolve));
+    const { port } = s.address() as AddressInfo;
+    try {
+      return await fn(`http://127.0.0.1:${port}`);
+    } finally {
+      await new Promise<void>((resolve, reject) => s.close((err) => (err ? reject(err) : resolve())));
+    }
+  }
+
+  const ITEM = 'd3bc6508-f9e7-412e-a6c4-690f31cd59f0'; // VSD-2026-000001, 2026-01-15 as of the reference moment
+
+  it('at the reference moment the documents carry the dataset dates', async () => {
+    await withServer(
+      () => REF,
+      async (base) => {
+        const res = await request(base, `/api/v1/vsd/${ITEM}`);
+        expect(res.body).toMatchObject({ issueDate: '2026-01-15', vetInspection: { date: '2026-01-14' } });
+      },
+    );
+  });
+
+  it('ten days later every date moves ten days forward — in the list, the filters and the item', async () => {
+    await withServer(
+      () => REF + 10 * DAY,
+      async (base) => {
+        const item = await request(base, `/api/v1/vsd/${ITEM}`);
+        expect(item.body).toMatchObject({ issueDate: '2026-01-25', vetInspection: { date: '2026-01-24' } });
+        const hit = await request(base, '/api/v1/vsd?dateFrom=2026-01-25&dateTo=2026-01-25');
+        expect((hit.body as { items: { uuid: string }[] }).items.map((v) => v.uuid)).toEqual([ITEM]);
+        const miss = await request(base, '/api/v1/vsd?dateFrom=2026-01-15&dateTo=2026-01-15');
+        expect((miss.body as { items: unknown[] }).items).toEqual([]);
+      },
+    );
+  });
+
+  it('shifts by whole UTC days: 23:59 on the reference date is still day 0, 00:00 the next day is day 1', async () => {
+    const at = async (t: number) =>
+      withServer(
+        () => t,
+        async (base) =>
+          ((await request(base, `/api/v1/vsd/${ITEM}`)).body as { issueDate: string }).issueDate,
+      );
+    expect(await at(Date.parse('2026-09-20T23:59:59Z'))).toBe('2026-01-15');
+    expect(await at(Date.parse('2026-09-21T00:00:00Z'))).toBe('2026-01-16');
+    expect(await at(Date.parse('2026-09-19T00:00:00Z'))).toBe('2026-01-14');
+  });
+
+  it('the clock is read per request (a long-running container follows the calendar)', async () => {
+    let t = REF;
+    await withServer(
+      () => t,
+      async (base) => {
+        expect(((await request(base, `/api/v1/vsd/${ITEM}`)).body as { issueDate: string }).issueDate).toBe(
+          '2026-01-15',
+        );
+        t += 2 * DAY;
+        expect(((await request(base, `/api/v1/vsd/${ITEM}`)).body as { issueDate: string }).issueDate).toBe(
+          '2026-01-17',
+        );
+      },
+    );
+  });
+
+  it('MOCK_NOW pins the clock; a malformed MOCK_NOW fails fast', () => {
+    expect(configFromEnv({ MOCK_NOW: '2026-09-30T09:00:00Z' }).now()).toBe(
+      Date.parse('2026-09-30T09:00:00Z'),
+    );
+    expect(configFromEnv({ MOCK_NOW: '2026-09-30T12:00:00+03:00' }).now()).toBe(
+      Date.parse('2026-09-30T09:00:00Z'),
+    );
+    const live = configFromEnv({}).now();
+    expect(Math.abs(live - Date.now())).toBeLessThan(5000);
+    expect(() => configFromEnv({ MOCK_NOW: 'yesterday' })).toThrow(/MOCK_NOW/);
+    expect(() => configFromEnv({ MOCK_NOW: '2026-09-30' })).toThrow(/MOCK_NOW/);
+  });
+
+  it('shiftVsdDates / MOCK_REFERENCE_NOW match the seed reference moment', async () => {
+    const { MOCK_REFERENCE_NOW, shiftVsdDates } = await import('../src/dates.js');
+    const seedTime = await import('../../db/seed/src/time.js');
+    expect(MOCK_REFERENCE_NOW).toBe(seedTime.REFERENCE_NOW);
+    const [first] = shiftVsdDates(loadVsdList(), REF - 15 * DAY);
+    expect(first!.issueDate).toBe('2025-12-31');
   });
 });

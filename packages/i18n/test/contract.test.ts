@@ -276,7 +276,30 @@ describe('notification templates (R87)', () => {
       '<productName>, партия <publicCode>: Превышение нормативов',
     );
     expect(notificationMessage('RECALL_TASK', sample('RECALL_TASK', 'CREATED'), 'telegram', ru)).toBe(
-      '⛔ Изъять партию <publicCode> до 25.09.2026 09:30',
+      'Изъять партию <publicCode> до 25.09.2026 09:30',
     );
   });
+});
+
+describe('notification templates are plain text (R92: no emoji)', () => {
+  // Pictographs, dingbats, misc symbols/technical (⏰ ⛔ ✅ ⚠), variation selectors and regional indicators.
+  const EMOJI =
+    /[\u{1F000}-\u{1FAFF}\u{2300}-\u{23FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0E}\u{FE0F}\u{1F1E6}-\u{1F1FF}]/u;
+  const locales = {
+    ru: JSON.parse(readFileSync(new URL('../locales/ru.json', import.meta.url), 'utf8')),
+    en: JSON.parse(readFileSync(new URL('../locales/en.json', import.meta.url), 'utf8')),
+  };
+  for (const [name, dict] of Object.entries(locales)) {
+    it(`${name}: no emoji in any notification template`, () => {
+      const bad: string[] = [];
+      const walk = (v: unknown, path: string) => {
+        if (typeof v === 'string') {
+          if (EMOJI.test(v)) bad.push(`${path}: ${v}`);
+        } else if (v && typeof v === 'object')
+          for (const [k, x] of Object.entries(v)) walk(x, `${path}.${k}`);
+      };
+      walk((dict as Record<string, unknown>).notification, 'notification');
+      expect(bad).toEqual([]);
+    });
+  }
 });

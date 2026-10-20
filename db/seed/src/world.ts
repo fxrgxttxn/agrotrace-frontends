@@ -23,6 +23,8 @@ import {
 } from '@agrotrace/domain';
 import notificationRules from '../../../contracts/rules/notifications.json' with { type: 'json' };
 import mercuryVsd from '../../../mercury-mock/data/vsd.json' with { type: 'json' };
+import { shiftVsdDates } from '../../../mercury-mock/src/dates.js';
+import type { Vsd } from '../../../mercury-mock/src/store.js';
 import type { OrgType, RoleCode, SeedData } from './data.js';
 import { hashInt, uuid } from './ids.js';
 import { cmp, iso, plusSeconds, REFERENCE_NOW } from './time.js';
@@ -932,19 +934,21 @@ export class World {
 
   /**
    * The vsd.import handler (contracts/events/vsd.import.schema.json) replayed against the mercury-mock
-   * dataset: productCode + senderInn + harvestedAt ± 3 days, latest CONFIRMED document wins (R81).
+   * dataset: productCode + senderInn + harvestedAt ± 3 days, latest CONFIRMED document wins (R81). The mock dates its
+   * documents relative to its clock (R90); the replay uses SEED_NOW as that clock, so a seeded IMPORTED document is
+   * exactly what the mock serves on the day of the seed.
    */
   private importVsd(doc: Row, b: Row, at: string): void {
     const code = this.productById(b.product_id).mercury_code as string | null;
     const inn = this.orgById(b.origin_org_id).inn as string;
     const before = auditView(doc);
-    let found: (typeof mercuryVsd)[number] | undefined;
+    let found: Vsd | undefined;
     if (code) {
       const h = Date.parse(b.harvested_at as string);
       const from = iso(h - 3 * 86_400_000).slice(0, 10);
       const to = iso(h + 3 * 86_400_000).slice(0, 10);
       const desc = (x: string, y: string): number => (x < y ? 1 : x > y ? -1 : 0);
-      found = mercuryVsd
+      found = shiftVsdDates(mercuryVsd as Vsd[], Date.parse(this.seedNow))
         .filter(
           (v) =>
             v.product.code === code &&

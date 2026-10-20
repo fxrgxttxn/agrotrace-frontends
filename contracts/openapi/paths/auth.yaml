@@ -38,6 +38,8 @@
         headers:
           Set-Cookie:
             $ref: '../components/headers.yaml#/SetRefreshCookie'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlNoStoreToken'
           X-Request-Id:
             $ref: '../components/headers.yaml#/XRequestId'
           X-Backend:
@@ -148,6 +150,8 @@
         headers:
           Set-Cookie:
             $ref: '../components/headers.yaml#/SetRefreshCookie'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlNoStoreToken'
           X-Request-Id:
             $ref: '../components/headers.yaml#/XRequestId'
           X-Backend:
@@ -257,6 +261,8 @@
         headers:
           Set-Cookie:
             $ref: '../components/headers.yaml#/SetRefreshCookie'
+          Cache-Control:
+            $ref: '../components/headers.yaml#/CacheControlNoStoreToken'
           X-Request-Id:
             $ref: '../components/headers.yaml#/XRequestId'
           X-Backend:
@@ -394,7 +400,8 @@
     description: >-
       Устанавливает новый пароль по токену из письма, сбрасывает счётчик неудачных попыток и блокировку,
       отзывает все refresh-токены пользователя. Неизвестный, использованный или истёкший токен —
-      400 TOKEN_EXPIRED.
+      400 TOKEN_EXPIRED. Сначала тело проверяется по схеме (400 VALIDATION, токен при этом не расходуется), и только затем
+      токен читается `GETDEL` (R82).
     tags: [Auth]
     security: []
     x-roles: [PUBLIC]
@@ -465,7 +472,8 @@
     description: >-
       Активирует приглашённого сотрудника (INVITED → ACTIVE) по токену из письма: задаёт ФИО и пароль.
       После этого пользователь входит через `POST /auth/login`. Неизвестный, использованный или истёкший
-      токен (7 дней) — 400 TOKEN_EXPIRED.
+      токен (7 дней) — 400 TOKEN_EXPIRED. Сначала тело проверяется по схеме (400 VALIDATION, токен при этом не
+      расходуется), и только затем токен читается `GETDEL` (R82).
     tags: [Auth]
     security: []
     x-roles: [PUBLIC]

@@ -14,7 +14,170 @@
     "reports": "Отчёты",
     "audit": "Журнал аудита",
     "profile": "Профиль",
-    "notifications": "Уведомления"
+    "notifications": "Уведомления",
+    "stock": "Склад",
+    "qr": "Печать QR",
+    "recallTasks": "Задачи отзыва",
+    "labTests": "Очередь проб",
+    "staff": "Сотрудники",
+    "adminUsers": "Пользователи",
+    "more": "Ещё"
+  },
+  "page": {
+    "dashboard": "Панель",
+    "profile": "Профиль",
+    "notifications": "Уведомления",
+    "fields": "Поля",
+    "fieldNew": "Новое поле",
+    "field": "Поле",
+    "batches": "Партии",
+    "batchNew": "Новая партия",
+    "batch": "Партия",
+    "waybills": "Накладные",
+    "waybillNew": "Новая накладная",
+    "waybill": "Накладная",
+    "stock": "Склад",
+    "processing": "Переработка",
+    "qr": "Печать QR",
+    "labTests": "Очередь проб",
+    "labTest": "Анализ",
+    "recallTasks": "Задачи отзыва",
+    "recalls": "Отзывы",
+    "recallNew": "Новый отзыв",
+    "recall": "Отзыв",
+    "complaints": "Жалобы",
+    "complaint": "Жалоба",
+    "reports": "Отчёты",
+    "staff": "Сотрудники",
+    "organizations": "Организации",
+    "users": "Пользователи",
+    "dictionaries": "Справочники",
+    "audit": "Журнал аудита",
+    "login": "Вход",
+    "twoFactor": "Код подтверждения",
+    "passwordForgot": "Восстановление пароля",
+    "passwordReset": "Новый пароль",
+    "register": "Регистрация организации",
+    "invite": "Приглашение",
+    "publicBatch": "Партия",
+    "publicComplaint": "Сообщить о проблеме",
+    "forbidden": "Нет доступа",
+    "notFound": "Страница не найдена",
+    "unavailable": "Сервис недоступен"
+  },
+  "shell": {
+    "skip": "К содержимому",
+    "mainMenu": "Основное меню",
+    "otherSections": "Остальные разделы",
+    "close": "Закрыть",
+    "bell": "Уведомления",
+    "bellUnread": "Уведомления, непрочитанных: {count}",
+    "profileOf": "Профиль, {name}",
+    "openCount": ", открытых:",
+    "loading": "Загрузка"
+  },
+  "ui": {
+    "openCalendar": "Открыть календарь",
+    "selectAll": "Выбрать все",
+    "sort": "Сортировка",
+    "sortDefault": "По умолчанию",
+    "pages": "Страницы",
+    "prevPage": "Предыдущая страница",
+    "nextPage": "Следующая страница",
+    "pageSummary": "{from}–{to} из {total}",
+    "actions": "Действия",
+    "chooseFile": "Выбрать файл",
+    "removeFile": "Удалить {name}",
+    "uploading": "Загрузка {name}",
+    "searching": "Поиск",
+    "legend": "Обозначения",
+    "progressValue": "{value} из {max}"
+  },
+  "theme": {
+    "label": "Тема",
+    "system": "Системная",
+    "light": "Светлая",
+    "dark": "Тёмная"
+  },
+  "auth": {
+    "forgot": "Забыли пароль?",
+    "register": "Регистрация организации",
+    "toLogin": "Ко входу",
+    "lockedUntil": "Вход заблокирован до {time}: слишком много неверных паролей",
+    "forbidden": {
+      "USER_BLOCKED": "Учётная запись заблокирована — обратитесь к руководителю организации",
+      "USER_INVITED": "Приглашение не принято — задайте пароль по ссылке из письма",
+      "ORGANIZATION_NOT_ACTIVE": "Организация ещё не активна — вход откроется после её проверки"
+    },
+    "retryIn": "Повторить через {seconds} с",
+    "rateLimited": "Слишком много попыток — повторите через {seconds} с",
+    "totpCode": "Код из приложения",
+    "confirm": "Подтвердить",
+    "attemptsLeft": "Неверный код. Осталось попыток: {count}",
+    "challengeExpired": "Время на ввод кода истекло — войдите снова",
+    "sendLink": "Отправить ссылку",
+    "forgotSent": "Если адрес {email} зарегистрирован, на него придёт письмо со ссылкой. Ссылка действует 1 час.",
+    "newPassword": "Новый пароль",
+    "setPassword": "Сохранить пароль",
+    "resetDone": "Пароль изменён — войдите с новым паролем",
+    "resetExpired": "Ссылка устарела или уже использована.",
+    "requestNewLink": "Запросить новую ссылку",
+    "acceptInvite": "Принять приглашение",
+    "inviteDone": "Приглашение принято — войдите",
+    "inviteExpired": "Приглашение устарело или уже принято.",
+    "inviteSignedIn": "Вы вошли как {name}. Приглашение — для другой учётной записи: выйдите, чтобы принять его.",
+    "organization": "Организация",
+    "orgType": "Тип организации",
+    "head": "Руководитель",
+    "chooseRegion": "Выберите регион",
+    "regionsFailed": "Регионы не загрузились — повторите",
+    "registerPending": "Заявка отправлена. Вход откроется, когда администратор проверит организацию.",
+    "registerManual": "Заявка отправлена. ИНН не удалось проверить автоматически — организацию проверят вручную."
+  },
+  "profile": {
+    "personal": "Личные данные",
+    "avatar": "Аватар",
+    "avatarHint": "JPG, PNG или WebP до 2 МБ",
+    "avatarSaved": "Аватар обновлён",
+    "avatarDeleted": "Аватар удалён",
+    "deleteAvatar": "Удалить аватар",
+    "saved": "Профиль сохранён",
+    "channels": "Каналы уведомлений",
+    "channelsFailed": "Каналы уведомлений не загрузились.",
+    "linkTelegram": "Привязать Telegram",
+    "telegramLinked": "Telegram привязан",
+    "telegramCode": "Отправьте боту @{bot} команду /start {code}",
+    "telegramUntil": "Код действует до {time}",
+    "openTelegram": "Открыть Telegram",
+    "newCode": "Новый код",
+    "twoFactor": "Двухфакторная аутентификация",
+    "twoFactorOn": "Включена",
+    "twoFactorOff": "Выключена",
+    "setup": "Настроить",
+    "qr": "QR-код для приложения-аутентификатора",
+    "secret": "Ключ",
+    "enable": "Включить",
+    "twoFactorEnabled": "Двухфакторная аутентификация включена",
+    "appearance": "Оформление"
+  },
+  "files": {
+    "tooLarge": "Файл больше {max} — выберите файл меньше",
+    "unsupported": "Этот тип файла не подходит — выберите {allowed}"
+  },
+  "notifications": {
+    "tabs": "Уведомления",
+    "all": "Все",
+    "unread": "Непрочитанные",
+    "new": "Новое",
+    "read": "Прочитано",
+    "column": "Уведомление",
+    "received": "Получено",
+    "status": "Статус",
+    "selectAll": "Выбрать все уведомления",
+    "select": "Выбрать «{title}»",
+    "emptyUnread": "Непрочитанных нет.",
+    "showAll": "Все уведомления",
+    "failed": "Уведомления не загрузились."
   },
   "action": {
     "ship": "Отгрузить",
@@ -47,7 +210,9 @@
     "logout": "Выйти",
     "register": "Зарегистрироваться",
     "markRead": "Отметить прочитанным",
-    "markAllRead": "Отметить все прочитанными"
+    "markAllRead": "Отметить все прочитанными",
+    "retry": "Повторить",
+    "home": "На главную"
   },
   "field": {
     "token": "Токен",
@@ -116,7 +281,9 @@
     "complaints": "Жалоб пока нет.",
     "users": "Сотрудников пока нет.",
     "reports": "Данных для отчёта нет.",
-    "search": "Ничего не найдено."
+    "search": "Ничего не найдено.",
+    "forbidden": "Этот раздел недоступен для вашей роли.",
+    "notFound": "Такой страницы нет."
   },
   "status": {
     "batch": {
@@ -214,7 +381,7 @@
         "subject": "AgroTrace: партия {publicCode} направлена на анализ",
         "body": "Партия {publicCode} ({productName}) направлена на анализ в лабораторию {labName}. Основание: {reason}. Срок выполнения — {dueAt}."
       },
-      "telegram": "🧪 Партия {publicCode} ({productName}) — анализ в «{labName}» до {dueAt}"
+      "telegram": "Партия {publicCode} ({productName}) — анализ в «{labName}» до {dueAt}"
     },
     "LAB_RESULT": {
       "label": "Результат анализа",
@@ -224,7 +391,7 @@
         "subject": "AgroTrace: результат анализа партии {publicCode}",
         "body": "По партии {publicCode} ({productName}) внесены результаты анализа. Заключение: {conclusion}."
       },
-      "telegram": "📋 Партия {publicCode} ({productName}): {conclusion}"
+      "telegram": "Партия {publicCode} ({productName}): {conclusion}"
     },
     "WAYBILL_INCOMING": {
       "label": "Входящая накладная",
@@ -234,7 +401,7 @@
         "subject": "AgroTrace: входящая накладная {number}",
         "body": "Организация {senderName} отправила вам накладную {number} (позиций: {itemsCount}). Проверьте массу и примите или отклоните поставку."
       },
-      "telegram": "🚚 Накладная {number} от {senderName}, позиций: {itemsCount}"
+      "telegram": "Накладная {number} от {senderName}, позиций: {itemsCount}"
     },
     "RECALL": {
       "label": "Отзыв",
@@ -245,7 +412,7 @@
           "subject": "AgroTrace: отзыв партии {publicCode}",
           "body": "Запущен отзыв продукции по исходной партии {publicCode} (основание: {trigger}). Проверьте задачи изъятия своей организации."
         },
-        "telegram": "⚠️ Отзыв партии {publicCode} ({trigger})"
+        "telegram": "Отзыв партии {publicCode} ({trigger})"
       },
       "CLOSED": {
         "title": "Отзыв партии {publicCode} закрыт",
@@ -254,7 +421,7 @@
           "subject": "AgroTrace: отзыв партии {publicCode} закрыт",
           "body": "Отзыв по исходной партии {publicCode} (основание: {trigger}) закрыт: все задачи изъятия подтверждены."
         },
-        "telegram": "✅ Отзыв партии {publicCode} закрыт"
+        "telegram": "Отзыв партии {publicCode} закрыт"
       }
     },
     "RECALL_TASK": {
@@ -266,7 +433,7 @@
           "subject": "AgroTrace: изъять партию {publicCode} до {dueAt}",
           "body": "Партия {publicCode} отозвана. Изымите её и подтвердите изъятие в системе до {dueAt}."
         },
-        "telegram": "⛔ Изъять партию {publicCode} до {dueAt}"
+        "telegram": "Изъять партию {publicCode} до {dueAt}"
       },
       "REASSIGNED": {
         "title": "Задача изъятия партии {publicCode} передана вам",
@@ -275,7 +442,7 @@
           "subject": "AgroTrace: изъять партию {publicCode} до {dueAt}",
           "body": "Получатель отказался от отозванной партии {publicCode}, задача изъятия передана вашей организации. Подтвердите изъятие до {dueAt}."
         },
-        "telegram": "⛔ Задача изъятия партии {publicCode} передана вам, срок — {dueAt}"
+        "telegram": "Задача изъятия партии {publicCode} передана вам, срок — {dueAt}"
       }
     },
     "OVERDUE": {
@@ -286,7 +453,7 @@
         "subject": "AgroTrace: просрочено изъятие партии {publicCode}",
         "body": "Срок изъятия партии {publicCode} истёк {dueAt}, держатель — {holderName}. Задача эскалирована инспектору."
       },
-      "telegram": "⏰ Просрочено изъятие партии {publicCode} ({holderName}), срок был {dueAt}"
+      "telegram": "Просрочено изъятие партии {publicCode} ({holderName}), срок был {dueAt}"
     },
     "COMPLAINT": {
       "label": "Жалоба",
@@ -296,7 +463,7 @@
         "subject": "AgroTrace: жалоба на партию {publicCode}",
         "body": "Поступила жалоба покупателя на продукцию «{productName}» (партия {publicCode}). Рассмотрите её в разделе «Жалобы»."
       },
-      "telegram": "📣 Жалоба на партию {publicCode} ({productName})"
+      "telegram": "Жалоба на партию {publicCode} ({productName})"
     },
     "LAB_OVERDUE": {
       "label": "Просроченная проба",
@@ -306,7 +473,7 @@
         "subject": "AgroTrace: просрочен анализ партии {publicCode}",
         "body": "Лаборатория {labName} не внесла результат анализа партии {publicCode} в срок ({dueAt}). Задача эскалирована."
       },
-      "telegram": "⏰ Анализ партии {publicCode} в «{labName}» просрочен (срок {dueAt})"
+      "telegram": "Анализ партии {publicCode} в «{labName}» просрочен (срок {dueAt})"
     }
   },
   "productCategory": {
@@ -472,6 +639,16 @@
   "count": {
     "batches": "{count, plural, one {# партия} few {# партии} many {# партий} other {# партий}}"
   },
+  "mail": {
+    "passwordReset": {
+      "subject": "AgroTrace: восстановление пароля",
+      "body": "Здравствуйте, {fullName}!\n\nМы получили запрос на смену пароля для входа в AgroTrace. Чтобы задать новый пароль, откройте ссылку:\n\n{link}\n\nСсылка действует 1 час и может быть использована один раз. Если вы не запрашивали смену пароля, просто проигнорируйте это письмо."
+    },
+    "invite": {
+      "subject": "AgroTrace: приглашение в организацию {organizationName}",
+      "body": "Здравствуйте!\n\nВас пригласили в организацию {organizationName} в системе AgroTrace. Чтобы принять приглашение, укажите ФИО и задайте пароль по ссылке:\n\n{link}\n\nСсылка действует 7 дней и может быть использована один раз."
+    }
+  },
   "rules": {
     "BR-01": "Партию {publicCode} можно отгрузить с {until}: не истёк срок ожидания препарата {substance}",
     "BR-02": "Заключение по показателям: превышение норматива хотя бы по одному показателю даёт результат FAIL",
@@ -511,6 +688,7 @@
     "NO_LAB_AVAILABLE": "Нет доступной лаборатории для анализа",
     "IDEMPOTENCY_KEY_IN_PROGRESS": "Предыдущий запрос с этим ключом ещё выполняется",
     "REFERENCE_IN_USE": "Запись используется и не может быть удалена",
+    "METHOD_NOT_ALLOWED": "Это действие недоступно для данного адреса",
     "UNKNOWN": "Неизвестная ошибка"
   },
   "validation": {

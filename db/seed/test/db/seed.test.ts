@@ -27,6 +27,7 @@ import waybillMachine from '../../../../contracts/rules/waybill-state-machine.js
 import notificationRules from '../../../../contracts/rules/notifications.json' with { type: 'json' };
 import { DEMO_PASSWORD, loadData, SEED_ROOT } from '../../src/data';
 import { REFERENCE_NOW } from '../../src/time';
+import { shiftVsdDates } from '../../../../mercury-mock/src/dates';
 import { s3Client } from '../../src/seed';
 import { env } from './db';
 
@@ -360,8 +361,10 @@ describe('Blocked by the lab (R88 M8)', () => {
 
 describe('VSD import (R81)', () => {
   it('every DAIRY/MEAT raw batch has one VSD row replayed against mercury-mock; others have none', async () => {
-    const vsd = JSON.parse(
-      readFileSync(new URL('../../../../mercury-mock/data/vsd.json', import.meta.url), 'utf8'),
+    // As the mock serves them on the day of the seed (R90: dates relative to its clock = SEED_NOW).
+    const vsd = shiftVsdDates(
+      JSON.parse(readFileSync(new URL('../../../../mercury-mock/data/vsd.json', import.meta.url), 'utf8')),
+      Date.parse(NOW),
     );
     const rows = await q(
       `SELECT b.id, b.kind, b.harvested_at, p.category, p.mercury_code, o.inn, d.id AS doc_id, d.import_status,
@@ -371,6 +374,7 @@ describe('VSD import (R81)', () => {
          LEFT JOIN batch_documents d ON d.batch_id = b.id`,
     );
     expect(rows.filter((r) => r.doc_id).length).toBeGreaterThanOrEqual(8);
+    expect(rows.filter((r) => r.import_status === 'IMPORTED').length).toBe(2); // M3, beef1 (R90)
     for (const r of rows) {
       const animal = r.kind === 'RAW' && ['DAIRY', 'MEAT'].includes(r.category);
       expect(Boolean(r.doc_id), r.id).toBe(animal);
@@ -548,7 +552,12 @@ describe('recalls', () => {
   });
 
   it('the open recall recalled every downstream batch that could move, and the FAIL test links it (R57)', async () => {
-    const [open] = await q(`SELECT * FROM recalls WHERE status = 'OPEN' AND trigger = 'LAB'`);
+    // Two OPEN LAB recalls exist: #1 (M3 control test, the >24 h old one with the downstream graph) and #3
+    // (barley2, R88 M8, no downstream). Without ORDER BY the first row depends on the plan the planner picks
+    // from the table statistics (partial index on source_batch_id → #3 first; seq scan → #1 first).
+    const [open] = await q(
+      `SELECT * FROM recalls WHERE status = 'OPEN' AND trigger = 'LAB' ORDER BY opened_at LIMIT 1`,
+    );
     const down = await q(
       `WITH RECURSIVE down AS (SELECT child_batch_id AS id FROM batch_links WHERE parent_batch_id = $1
          UNION SELECT l.child_batch_id FROM batch_links l JOIN down d ON l.parent_batch_id = d.id)
@@ -561,7 +570,9 @@ describe('recalls', () => {
       if (MOVABLE.includes(d.status_before)) expect(['Recalled', 'WrittenOff']).toContain(d.status);
       else expect(d.status).toBe(d.status_before);
     }
-    const [fail] = await q(`SELECT * FROM lab_tests WHERE conclusion = 'FAIL'`);
+    const [fail] = await q(`SELECT * FROM lab_tests WHERE conclusion = 'FAIL' AND batch_id = $1`, [
+      open!.source_batch_id,
+    ]);
     expect(fail!.recall_id).toBe(open!.id);
     expect(open!.lab_test_id).toBe(fail!.id);
   });

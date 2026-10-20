@@ -2,7 +2,15 @@ import ru from '../locales/ru.json' with { type: 'json' };
 import en from '../locales/en.json' with { type: 'json' };
 
 export type { Locale } from './format.js';
-export { formatMass, formatDate, formatDateTime, formatPercent } from './format.js';
+export {
+  formatMass,
+  formatDate,
+  formatDateTime,
+  formatPercent,
+  formatLocalDateTime,
+  formatLocalTime,
+  formatBytes,
+} from './format.js';
 export { formatRuDate, parseRuDate, maskRuDateInput, isWithinRuDateBounds } from './date-input.js';
 export { problemMessage, type Problem, type T } from './problem.js';
 export { ENUM_LABELS, enumLabel } from './enum-labels.js';

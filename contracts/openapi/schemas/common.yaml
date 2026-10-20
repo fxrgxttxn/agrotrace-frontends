@@ -147,6 +147,7 @@ ProblemCode:
     - NO_LAB_AVAILABLE
     - IDEMPOTENCY_KEY_IN_PROGRESS
     - REFERENCE_IN_USE
+    - METHOD_NOT_ALLOWED
   example: VALIDATION
 Problem:
   type: object
@@ -268,7 +269,9 @@ FileRef:
       description: Размер исходного загруженного файла в байтах.
     originalName:
       type: string
-      description: Имя файла из запроса (только для отображения и Content-Disposition, не используется в ключе хранилища).
+      description: >-
+        Базовое имя файла из запроса — без сегментов пути до последнего `/` или `\` (P17); только для отображения и
+        Content-Disposition, не используется в ключе хранилища.
   example:
     id: 3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f
     url: /api/v1/files/3c9d7e1f-2a4b-4c6d-8e0f-1a2b3c4d5e6f?exp=1790247600&sig=9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c1b3d5f7e9a1c3b5d7f9e1a3c5b7d9f1e

@@ -11,6 +11,7 @@ import { DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand, S3Client 
 import pg from 'pg';
 import { DEMO_PASSWORD, loadData } from './data.js';
 import { renderFiles, type StoredObject } from './files.js';
+import { withDeleteObjectsContentMd5 } from './s3-md5.js';
 import { uuid } from './ids.js';
 import { hashDemoPassword } from './passwords.js';
 import { runScenario } from './scenario.js';
@@ -55,14 +56,16 @@ export function envFromProcess(e = process.env): SeedEnv {
 }
 
 export function s3Client(env: SeedEnv): S3Client {
-  return new S3Client({
-    endpoint: env.s3.endpoint,
-    region: 'us-east-1',
-    forcePathStyle: true,
-    credentials: { accessKeyId: env.s3.accessKey, secretAccessKey: env.s3.secretKey },
-    requestChecksumCalculation: 'WHEN_REQUIRED',
-    responseChecksumValidation: 'WHEN_REQUIRED',
-  });
+  return withDeleteObjectsContentMd5(
+    new S3Client({
+      endpoint: env.s3.endpoint,
+      region: 'us-east-1',
+      forcePathStyle: true,
+      credentials: { accessKeyId: env.s3.accessKey, secretAccessKey: env.s3.secretKey },
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+    }),
+  );
 }
 
 /** Runs the scenario in memory (no I/O besides reading the data files). */
@@ -192,7 +195,7 @@ async function listKeys(s3: S3Client, bucket: string, prefix: string): Promise<s
   return keys;
 }
 
-async function deleteKeys(s3: S3Client, bucket: string, keys: string[]): Promise<void> {
+export async function deleteKeys(s3: S3Client, bucket: string, keys: string[]): Promise<void> {
   for (let i = 0; i < keys.length; i += 1000) {
     const r = await s3.send(
       new DeleteObjectsCommand({

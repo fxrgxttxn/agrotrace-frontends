@@ -45,6 +45,33 @@ describe('queue events', () => {
     }
   });
 
+  it('worker concurrency: prefetch 1 per channel, one vsd.import at a time, other types never starved (R92)', () => {
+    const d: string = read('envelope.schema.json').description;
+    expect(d).toMatch(/Worker concurrency \(R92\)/);
+    expect(d).toMatch(/two channels, each with basic\.qos prefetch 1/);
+    expect(d).toMatch(/at most ONE `vsd\.import` handler at a time/);
+    expect(d).toMatch(/basic\.nack requeue=true/);
+    expect(read('vsd.import.schema.json').description).toMatch(
+      /At most one vsd\.import handler runs per worker process[^.]*R92/,
+    );
+  });
+
+  it('every jobs queue sets an explicit, large x-delivery-limit, documented in the envelope (P8)', () => {
+    const defs = JSON.parse(
+      readFileSync(new URL('../../infra/rabbitmq/definitions.json', import.meta.url), 'utf8'),
+    );
+    const jobs = defs.queues.filter((q: Json) => /^agrotrace\.[a-z]+\.jobs$/.test(q.name));
+    expect(jobs.map((q: Json) => q.name).sort()).toEqual([
+      'agrotrace.django.jobs',
+      'agrotrace.express.jobs',
+      'agrotrace.laravel.jobs',
+    ]);
+    for (const q of jobs) expect(q.arguments['x-delivery-limit'], q.name).toBe(1000000);
+    expect(read('envelope.schema.json').description).toMatch(
+      /`x-delivery-limit` = 1000000 on every jobs queue/,
+    );
+  });
+
   it('envelope transport uses the Task 2 RabbitMQ topology and the transactional outbox (R55)', () => {
     const defs = JSON.parse(
       readFileSync(new URL('../../infra/rabbitmq/definitions.json', import.meta.url), 'utf8'),

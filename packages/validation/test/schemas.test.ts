@@ -378,7 +378,7 @@ describe('RegisterOrganizationRequestSchema enforces the INN checksum (R66)', ()
 });
 
 describe('toFieldErrors', () => {
-  it('flattens a nested array path (items.0.massDeclaredKg) to an exact error object', () => {
+  it('flattens a nested array path to the contract form items[0].massDeclaredKg (info.description)', () => {
     const result = V.WaybillCreateSchema.safeParse({
       receiverOrgId: '4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d',
       items: [{ batchId: '1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c', massDeclaredKg: 'not-a-mass' }],
@@ -386,7 +386,7 @@ describe('toFieldErrors', () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(V.toFieldErrors(result.error)).toEqual({
-      'items.0.massDeclaredKg': ['validation.mass.format'],
+      'items[0].massDeclaredKg': ['validation.mass.format'],
     });
   });
 
@@ -567,6 +567,54 @@ describe('duplicate detection inside array bodies', () => {
   });
 });
 
+describe('duplicate items are keyed at the repeated element field (contract, fix round 1 I4)', () => {
+  const a = '1c3e5a7c-9e1b-4d3f-8a5c-7e9b1d3f5a7c';
+  const b = '4b6d8f0a-2c4e-4a6b-8d0f-1a3c5e7a9b1d';
+  const product = 'a4c6e8f0-2b4d-4f6a-8c0e-4b6d8f0a2c4e';
+
+  it('processing: errors["inputs[i].batchId"] for every repeat (processing.yaml step 1)', () => {
+    const r = V.ProcessingRequestSchema.safeParse({
+      inputs: [
+        { batchId: a, massUsedKg: '10.000' },
+        { batchId: b, massUsedKg: '1.000' },
+        { batchId: a, massUsedKg: '5.000' },
+        { batchId: a, massUsedKg: '2.000' },
+      ],
+      outputs: [{ productId: product, massKg: '7.000' }],
+    });
+    expect(r.success).toBe(false);
+    if (r.success) return;
+    expect(V.toFieldErrors(r.error)).toEqual({
+      'inputs[2].batchId': ['validation.duplicate'],
+      'inputs[3].batchId': ['validation.duplicate'],
+    });
+  });
+
+  it('lab results: errors["results[i].indicatorId"] (lab.yaml submitLabResults step 5)', () => {
+    const r = V.LabResultsInputSchema.safeParse({
+      results: [
+        { indicatorId: b, value: '1' },
+        { indicatorId: b, value: '2' },
+      ],
+    });
+    expect(r.success).toBe(false);
+    if (r.success) return;
+    expect(V.toFieldErrors(r.error)).toEqual({ 'results[1].indicatorId': ['validation.duplicate'] });
+  });
+
+  it('waybill create: errors["items[i].batchId"] (waybills.yaml createWaybill step 2)', () => {
+    const r = V.WaybillCreateSchema.safeParse({
+      receiverOrgId: b,
+      items: [
+        { batchId: a, massDeclaredKg: '1.000' },
+        { batchId: a, massDeclaredKg: '2.000' },
+      ],
+    });
+    expect(r.success).toBe(false);
+    if (r.success) return;
+    expect(V.toFieldErrors(r.error)).toEqual({ 'items[1].batchId': ['validation.duplicate'] });
+  });
+});
 describe('FieldInput geometry', () => {
   it('accepts a closed ring and null geometry', () => {
     expect(
@@ -591,6 +639,17 @@ describe('FieldInput geometry', () => {
       },
     });
     expect(result.success).toBe(false);
+  });
+  it('an empty ring is a minItems error, not an exception', () => {
+    const result = V.FieldInputSchema.safeParse({
+      name: 'Поле 1',
+      areaHa: '1.00',
+      regionCode: '23',
+      geometry: { type: 'Polygon', coordinates: [[]] },
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(V.toFieldErrors(result.error)).toEqual({ 'geometry.coordinates[0]': ['validation.minItems'] });
   });
 });
 

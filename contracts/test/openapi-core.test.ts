@@ -43,6 +43,7 @@ const PROBLEM_CODES = [
   'NO_LAB_AVAILABLE', // R42
   'IDEMPOTENCY_KEY_IN_PROGRESS', // R48
   'REFERENCE_IN_USE', // Task 10 D-table: hard delete of a referenced region
+  'METHOD_NOT_ALLOWED', // Plan 1 P3: 405 on a contract path with an undeclared method
 ];
 
 const RATE_LIMITS = JSON.parse(readFileSync(new URL('../rules/rate-limits.json', import.meta.url), 'utf8'));
@@ -271,6 +272,7 @@ const LOCK_ORDER = [
   'batchDocument',
 ];
 
+const ENVELOPE = JSON.parse(readFileSync(new URL('../events/envelope.schema.json', import.meta.url), 'utf8'));
 const ENTITY_SM = JSON.parse(
   readFileSync(new URL('../rules/entity-state-machines.json', import.meta.url), 'utf8'),
 );
@@ -419,6 +421,26 @@ describe('openapi contract: bundle', () => {
 
   it('ProblemCode enum equals ruling R5 exactly', () => {
     expect(doc.components.schemas.ProblemCode.enum).toEqual(PROBLEM_CODES);
+  });
+
+  it('P7: body-level errors use the `_root` key; duplicates sit at the repeated element', () => {
+    const d: string = doc.info.description;
+    expect(d).toMatch(/Ключ `_root` — ошибки тела целиком \(P7\)/);
+    expect(d).toMatch(/не разбирается как JSON[^.]*400 VALIDATION `errors\._root: \[validation\.invalid\]`/);
+    expect(d).toMatch(/`errors\._root: \[validation\.type\]`/);
+    expect(d).toMatch(/повтор элемента массива — у поля повторившегося элемента/);
+  });
+
+  it('P3: 405 METHOD_NOT_ALLOWED is a shared response with the Allow header, described in info', () => {
+    const r = doc.components.responses.MethodNotAllowed;
+    expect(r.content['application/problem+json'].example).toMatchObject({
+      type: '/problems/method-not-allowed',
+      status: 405,
+      code: 'METHOD_NOT_ALLOWED',
+    });
+    expect(Object.keys(r.headers)).toEqual(['Allow', 'X-Request-Id', 'X-Backend']);
+    expect(doc.components.headers.Allow.schema.pattern).toBe('^[A-Z]+(, [A-Z]+)*$');
+    expect(doc.info.description).toMatch(/405 METHOD_NOT_ALLOWED с заголовком `Allow`/);
   });
 });
 
@@ -933,6 +955,54 @@ describe('openapi contract: operations', () => {
     expect(doc.info.description).toMatch(/`batchDocument`/);
   });
 
+  it('R91: getBatchDocuments filters labProtocols by lab-test visibility and qr by QR download rights', () => {
+    const op = ops.find(({ op }) => op.operationId === 'getBatchDocuments')!.op;
+    const d: string = op.description;
+    expect(d).toMatch(/R91/);
+    expect(d).toMatch(/`labProtocols` — только анализы, видимые ему по правилам тега Lab/);
+    expect(d).toMatch(/LAB — только анализы своей лаборатории/);
+    expect(d).toMatch(/`qr` — только если пользователь может скачать QR[^.]*`downloadBatchQr`/);
+    expect(d).toMatch(/иначе null, даже если QR генерировался/);
+    expect(doc.components.schemas.BatchDocuments.description).toMatch(/R91/);
+    const ex = op.responses['200'].content['application/json'].examples;
+    expect(Object.keys(ex)).toEqual(['holder', 'lab']);
+    expect(ex.holder.value.qr).not.toBeNull();
+    expect(ex.lab.value.qr).toBeNull();
+    const labId = ex.lab.value.labProtocols.map((p: Json) => p.lab.id);
+    expect(new Set(labId).size).toBe(1);
+    expect(ex.holder.value.labProtocols.length).toBeGreaterThan(ex.lab.value.labProtocols.length);
+  });
+
+  it('R92: shared Redis residuals — tg:poller compare-and-PEXPIRE, pub:batch verbatim + invalidation list, GETDEL after validation', () => {
+    const d: string = doc.info.description;
+    const row = (key: string) => d.split('\n').find((l) => l.trim().startsWith(`| \`${key}\` |`))!;
+    expect(row('tg:poller')).toMatch(/compare-and-PEXPIRE/);
+    expect(row('tg:poller')).toMatch(/redis\.call\('GET', KEYS\[1\]\) == ARGV\[1\][^|]*PEXPIRE/);
+    const pub = row('pub:batch:{publicCode}');
+    expect(pub).toMatch(/сохранённые байты отдаются как есть/);
+    expect(pub).not.toMatch(/предков|потомков/);
+    for (const opId of [
+      'updateDictionaryEntry',
+      'importDictionary',
+      'uploadProductImage',
+      'updateAdminOrganization',
+      'uploadOrganizationLogo',
+    ])
+      expect(pub).toContain(`\`${opId}\``);
+    expect(row('pwreset:{sha256hex(token)}')).toMatch(/GETDEL[^|]*после проверки тела/);
+    expect(row('invite:{sha256hex(token)}')).toMatch(/GETDEL[^|]*после проверки тела/);
+    const opDesc = (id: string): string => ops.find(({ op }) => op.operationId === id)!.op.description;
+    expect(opDesc('resetPassword')).toMatch(
+      /Сначала тело проверяется по схеме[^.]*не расходуется\), и только затем\s+токен читается `GETDEL`/,
+    );
+    expect(opDesc('acceptInvite')).toMatch(
+      /Сначала тело проверяется по схеме[^.]*и только затем токен читается `GETDEL`/,
+    );
+    expect(opDesc('getPublicBatch')).toMatch(/сохранённые байты как есть/);
+    expect(d).toMatch(/сравниваются по кодовым точкам Unicode[^.]*COLLATE "C"/);
+    expect(opDesc('createBatch')).toMatch(/наименьший `id` \(как текст, по кодовым точкам\)/);
+  });
+
   it('R82: info.description has the shared Redis keys table with exact values and TTLs', () => {
     const d: string = doc.info.description;
     const rows = new Map(
@@ -969,6 +1039,101 @@ describe('openapi contract: operations', () => {
     expect(d).toMatch(/\$\{PUBLIC_BASE_URL\}\/password\/reset\/\{token\}/);
     expect(d).toMatch(/\$\{PUBLIC_BASE_URL\}\/invite\/\{token\}/);
     expect(d).toMatch(/только worker, удерживающий `tg:poller`/);
+  });
+
+  it('P9: client IP rule, Redis JSON reading rule, no-store on token responses', () => {
+    const d: string = doc.info.description;
+    expect(d).toMatch(/IP клиента \(P9\)[^]*ровно один прокси-хоп[^]*последний элемент\s+`X-Forwarded-For`/);
+    expect(d).toMatch(/без `X-Forwarded-For`[^.]*адрес сокетного соединения/);
+    expect(d).toMatch(/JSON-значения ключей \(P9\): читатель разбирает значение как JSON/);
+    expect(d).toMatch(/Исключение — `pub:batch:\{publicCode\}`/);
+    for (const id of ['login', 'refreshToken', 'verifyTwoFactor']) {
+      const op = ops.find(({ op }) => op.operationId === id)!.op;
+      const h = deref(deref(op.responses['200']).headers['Cache-Control']);
+      expect(h.required, id).toBe(true);
+      expect(deref(h.schema).enum, id).toEqual(['no-store']);
+    }
+  });
+
+  it('P12: JWT claim types and the per-user advisory refresh lock are documented', () => {
+    const at: string = doc.components.schemas.AccessToken.description;
+    for (const re of [
+      /`sub` — UUID пользователя/,
+      /`org` — UUID организации/,
+      /`roles` — непустой массив\s+`RoleCode`/,
+      /`org_admin` — boolean/,
+      /`exp` и `iat` — целые/,
+      /`jti` — строка/,
+      /`crit`, перечисляющим неизвестные параметры, — 401 UNAUTHORIZED/,
+    ])
+      expect(at).toMatch(re);
+    const d: string = doc.info.description;
+    expect(d).toMatch(
+      /Refresh-токены \(P12\)[^]*pg_advisory_xact_lock\(hashtext\('refresh:' \|\| user_id\)\)/,
+    );
+    expect(d).toMatch(/без взаимоблокировок: каждое получает 401, никогда 409/);
+  });
+
+  it('P14: task-3 behaviour is codified (visibility, uploads, roles, sorting, Telegram bot name)', () => {
+    const d: string = doc.info.description;
+    expect(d).toMatch(
+      /сортировка по строковым полям `x-sort`[^]*побайтово в UTF-8[^]*\(P14\)[^]*`COLLATE "C"`/,
+    );
+    expect(d).toMatch(/Загрузка файлов \(P14\)/);
+    expect(d).toMatch(/`errors\._root: \[validation\.invalid\]`/);
+    expect(d).toMatch(/не декодируется как тип, указанный сигнатурой[^]*415 UNSUPPORTED_MEDIA_TYPE/);
+    expect(d).toMatch(/без увеличения/);
+    expect(d).toMatch(/`TELEGRAM_BOT_USERNAME` — имя бота без `@`, отдаётся в `TelegramCode\.botUsername`/);
+    const tag = doc.tags.find((t: Json) => t.name === 'Organizations').description as string;
+    expect(tag).toMatch(/контрагентов по накладным[^]*кроме DRAFT[^]*404[^]*\/organizations\/\{id\}\/logo/);
+    const opDesc = (id: string) => ops.find(({ op }) => op.operationId === id)!.op.description as string;
+    for (const id of ['getOrganization', 'getOrganizationLogo', 'uploadOrganizationLogo'])
+      expect(opDesc(id), id).toMatch(/P14/);
+    expect(opDesc('downloadFile')).toMatch(/не являющийся\s+десятичным целым[^]*403, не 400/);
+    const s = doc.components.schemas;
+    expect(s.UserInvite.description).toMatch(/`errors\.roles: \[validation\.notAllowed\]`/);
+    expect(s.UserPatch.description).toMatch(/`errors\.roles: \[validation\.notAllowed\]`/);
+    expect(s.UserPatch.description).toMatch(/`errors\.<поле>: \[validation\.notAllowed\]`/);
+    expect(s.TelegramCode.properties.botUsername.description).toMatch(/TELEGRAM_BOT_USERNAME/);
+    expect(doc.components.responses.UnsupportedMediaType.description).toMatch(/не декодируется/);
+    const env = readFileSync(new URL('../../.env.example', import.meta.url), 'utf8');
+    expect(env).toMatch(/^TELEGRAM_BOT_USERNAME=agrotrace_bot$/m);
+  });
+
+  it('P15–P20: SVG limits and queue, style/CSS rules, base-name filenames, exp format, error keys', () => {
+    const d: string = doc.info.description;
+    expect(d).toMatch(/вложенность\s+элементов не больше 64 уровней, элементов не больше 5 000/);
+    expect(d).toMatch(/атрибутов не больше 100 у элемента и 20 000 всего/);
+    expect(d).toMatch(/не больше 32, значение атрибута не длиннее 64 КиБ/);
+    expect(d).toMatch(/`<!DOCTYPE>` и иных объявлений/);
+    expect(d).toMatch(/только элементы из списка[^]*feTurbulence/);
+    expect(d).toMatch(
+      /по одной выполняемой\s+и не более 8 ожидающих задач на процесс[^;]*; срок задачи — 3 с/,
+    );
+    expect(d).toMatch(/`\{allowed, reason: "svg-too-complex"\}`/);
+    expect(d).toMatch(/предел действует и пока обработчик перезапускается/);
+    expect(d).toMatch(/запуск обработчика, на котором выполняется сама задача, — нет,\s+P21/);
+    expect(d).toMatch(/выполняемая доводится до конца, и результат\s+отбрасывается/);
+    expect(d).toMatch(/корень с префиксом, например `s:svg`, не\s+принимается/);
+    expect(d).toMatch(/атрибут `style` сохраняет только свойства fill[^]*`@` и `expression\(`/);
+    expect(d).toMatch(/fill, stroke, filter, mask, clip-path, marker-\* удаляются[^]*`url\(#id\)` \(P20\)/);
+    expect(d).toMatch(/все сегменты пути до последнего `\/` или `\\` отбрасываются \(P17\)/);
+    expect(d).toMatch(/длина проверяется после отбрасывания пути, P20/);
+    expect(d).toMatch(/`minProperties: 1`, — `errors\._root: \[validation\.minProperties\]` \(P16\)/);
+    expect(d).toMatch(
+      /Ключи ошибок \(P19\): пустая строка[^]*`validation\.required`[^]*`validation\.minItems`/,
+    );
+    expect(doc.components.schemas.FileRef.properties.originalName.description).toMatch(/Базовое имя/);
+    const dl: string = ops.find(({ op }) => op.operationId === 'downloadFile')!.op.description;
+    expect(dl).toContain('`^[1-9]\\d{0,11}$`');
+    expect(doc.components.schemas.LogoUpload.description).toMatch(/20 000 атрибутов/);
+    expect(doc.components.responses.UnsupportedMediaType.description).toMatch(/svg-too-complex/);
+  });
+
+  it('P10: RATE_LIMIT_OVERRIDES is documented as deployment configuration', () => {
+    const d: string = doc.info.description;
+    expect(d).toMatch(/Конфигурация развёртывания \(P10\): переменная окружения `RATE_LIMIT_OVERRIDES`/);
+    expect(d).toMatch(/в эксплуатации не задаётся/);
   });
 
   it('R88 M2: signed file URLs use a key derived from JWT_SECRET; the documented vector is correct', () => {
@@ -1051,6 +1216,9 @@ describe('openapi contract: operations', () => {
         check('batch_documents', 'import_status'),
         ENTITY_SM.vsdImport.statuses,
       ],
+      // R92: the outbox writer column and processed_events.backend match the queue event envelope's backend enum.
+      ['outbox_events.backend', check('outbox_events', 'backend'), ENVELOPE.properties.backend.enum],
+      ['processed_events.backend', check('processed_events', 'backend'), ENVELOPE.properties.backend.enum],
     ];
     const bad = pairs
       .filter(([, db, api]) => JSON.stringify(db) !== JSON.stringify(api))
