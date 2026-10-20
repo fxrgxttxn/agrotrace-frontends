@@ -900,7 +900,8 @@ export interface paths {
          * @description Создаёт накладную в статусе DRAFT (R4): `number` = `next_waybill_number()`, отправитель — организация
          *     пользователя, `version` = 1. Партии не меняют статус. Порядок проверок:
          *
-         *     1. Формат `Idempotency-Key` и повтор по нему (описание параметра); затем тело по схеме — 400.
+         *     1. Формат `Idempotency-Key` и повтор по нему (описание параметра); затем тело по схеме — 400. Повтор партии в
+         *     `items` на этом шаге не сообщается — только на шаге 2 (P36).
          *
          *     Блокировки (R47): существующие партии позиций `FOR UPDATE ORDER BY id`; шаги 2–3 — над заблокированными
          *     строками.
@@ -1018,7 +1019,8 @@ export interface paths {
          * Приёмка накладной
          * @description Получатель принимает партии с фактической массой (FR-PROD-05). Первая сработавшая проверка возвращается:
          *
-         *     1. Формат `Idempotency-Key` и повтор по нему (описание параметра); затем тело по схеме — 400.
+         *     1. Формат `Idempotency-Key` и повтор по нему (описание параметра); затем тело по схеме — 400. Повтор позиции
+         *     (`batchId`) на этом шаге не сообщается — только на шаге 6 как `validation.items.mismatch` (P36).
          *
          *     Блокировки (R47): накладная `FOR UPDATE`, затем партии её позиций `FOR UPDATE ORDER BY id`; шаги 2–7 —
          *     над заблокированными строками, `If-Match` — compare-and-set по заблокированной накладной.
@@ -6616,7 +6618,7 @@ export interface components {
          */
         IdempotencyKey: string;
         /**
-         * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION.
+         * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION. Ключи ошибок — под именем заголовка `errors["If-Match"]`: заголовка нет или он пуст — `validation.required`; не десятичное целое (кавычки, `W/`, знак, дробь) — `validation.type`; `0` — `validation.min`. Проверяется вместе с остальными параметрами и телом (до 404): ошибки заголовка и ошибки тела по схеме возвращаются одним ответом 400 — общей картой `errors` (P36).
          * @example 3
          */
         IfMatch: number;
@@ -8478,7 +8480,7 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION.
+                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION. Ключи ошибок — под именем заголовка `errors["If-Match"]`: заголовка нет или он пуст — `validation.required`; не десятичное целое (кавычки, `W/`, знак, дробь) — `validation.type`; `0` — `validation.min`. Проверяется вместе с остальными параметрами и телом (до 404): ошибки заголовка и ошибки тела по схеме возвращаются одним ответом 400 — общей картой `errors` (P36).
                  * @example 3
                  */
                 "If-Match": components["parameters"]["IfMatch"];
@@ -8525,7 +8527,7 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION.
+                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION. Ключи ошибок — под именем заголовка `errors["If-Match"]`: заголовка нет или он пуст — `validation.required`; не десятичное целое (кавычки, `W/`, знак, дробь) — `validation.type`; `0` — `validation.min`. Проверяется вместе с остальными параметрами и телом (до 404): ошибки заголовка и ошибки тела по схеме возвращаются одним ответом 400 — общей картой `errors` (P36).
                  * @example 3
                  */
                 "If-Match": components["parameters"]["IfMatch"];
@@ -8924,7 +8926,7 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION.
+                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION. Ключи ошибок — под именем заголовка `errors["If-Match"]`: заголовка нет или он пуст — `validation.required`; не десятичное целое (кавычки, `W/`, знак, дробь) — `validation.type`; `0` — `validation.min`. Проверяется вместе с остальными параметрами и телом (до 404): ошибки заголовка и ошибки тела по схеме возвращаются одним ответом 400 — общей картой `errors` (P36).
                  * @example 3
                  */
                 "If-Match": components["parameters"]["IfMatch"];
@@ -8969,7 +8971,7 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION.
+                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION. Ключи ошибок — под именем заголовка `errors["If-Match"]`: заголовка нет или он пуст — `validation.required`; не десятичное целое (кавычки, `W/`, знак, дробь) — `validation.type`; `0` — `validation.min`. Проверяется вместе с остальными параметрами и телом (до 404): ошибки заголовка и ошибки тела по схеме возвращаются одним ответом 400 — общей картой `errors` (P36).
                  * @example 3
                  */
                 "If-Match": components["parameters"]["IfMatch"];
@@ -9073,7 +9075,7 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION.
+                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION. Ключи ошибок — под именем заголовка `errors["If-Match"]`: заголовка нет или он пуст — `validation.required`; не десятичное целое (кавычки, `W/`, знак, дробь) — `validation.type`; `0` — `validation.min`. Проверяется вместе с остальными параметрами и телом (до 404): ошибки заголовка и ошибки тела по схеме возвращаются одним ответом 400 — общей картой `errors` (P36).
                  * @example 3
                  */
                 "If-Match": components["parameters"]["IfMatch"];
@@ -9171,7 +9173,7 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION.
+                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION. Ключи ошибок — под именем заголовка `errors["If-Match"]`: заголовка нет или он пуст — `validation.required`; не десятичное целое (кавычки, `W/`, знак, дробь) — `validation.type`; `0` — `validation.min`. Проверяется вместе с остальными параметрами и телом (до 404): ошибки заголовка и ошибки тела по схеме возвращаются одним ответом 400 — общей картой `errors` (P36).
                  * @example 3
                  */
                 "If-Match": components["parameters"]["IfMatch"];
@@ -9625,7 +9627,7 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION.
+                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION. Ключи ошибок — под именем заголовка `errors["If-Match"]`: заголовка нет или он пуст — `validation.required`; не десятичное целое (кавычки, `W/`, знак, дробь) — `validation.type`; `0` — `validation.min`. Проверяется вместе с остальными параметрами и телом (до 404): ошибки заголовка и ошибки тела по схеме возвращаются одним ответом 400 — общей картой `errors` (P36).
                  * @example 3
                  */
                 "If-Match": components["parameters"]["IfMatch"];
@@ -9676,7 +9678,7 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION.
+                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION. Ключи ошибок — под именем заголовка `errors["If-Match"]`: заголовка нет или он пуст — `validation.required`; не десятичное целое (кавычки, `W/`, знак, дробь) — `validation.type`; `0` — `validation.min`. Проверяется вместе с остальными параметрами и телом (до 404): ошибки заголовка и ошибки тела по схеме возвращаются одним ответом 400 — общей картой `errors` (P36).
                  * @example 3
                  */
                 "If-Match": components["parameters"]["IfMatch"];
@@ -10112,7 +10114,7 @@ export interface operations {
             query?: never;
             header: {
                 /**
-                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION.
+                 * @description Текущая версия сущности (`version`) — голое целое число без кавычек и без `W/` (не entity-tag RFC 9110), например `If-Match: 3`. При расхождении — 409 VERSION_CONFLICT с `params.currentVersion`; нечисловое значение — 400 VALIDATION. Ключи ошибок — под именем заголовка `errors["If-Match"]`: заголовка нет или он пуст — `validation.required`; не десятичное целое (кавычки, `W/`, знак, дробь) — `validation.type`; `0` — `validation.min`. Проверяется вместе с остальными параметрами и телом (до 404): ошибки заголовка и ошибки тела по схеме возвращаются одним ответом 400 — общей картой `errors` (P36).
                  * @example 3
                  */
                 "If-Match": components["parameters"]["IfMatch"];
