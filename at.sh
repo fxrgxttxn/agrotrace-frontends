@@ -1,3 +1,6 @@
+        if [ "$front" = "angular" ]; then
+          [ -f "frontend-angular/dist-mock/index.html" ] || { echo "fe:gateway: no frontend-angular/dist-mock — run ./at fe:build angular --mock first" >&2; exit 1; }
+        fi
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -230,58 +233,88 @@ applied_migrations() {
 }
 
 # ── Frontends (Plan 2+) ─────────────────────────────────────────────────────────────────────────────────────────────
-# `fe:<cmd> <front>`; only react exists so far. The React stand is a separate gateway (`gateway-react`, compose project
-# agrotrace-react, docker-compose.react-dev.yml, host port 8089) on the main stack's network: it never touches the
-# shared `agrotrace` services.
+# `fe:<cmd> <front>`; react and angular exist so far. Each front has its own stand, never touching the shared
+# `agrotrace` services:
+#   react   — `gateway-react` (compose project agrotrace-react, docker-compose.react-dev.yml, host port 8089) on the
+#             main stack's network: react-express.localhost = dist against the shared api-express, react-mock.localhost
+#             = dist-mock (./at fe:build react --mock, ruling FM23: the mock backend in the browser).
+#   angular — `gateway-angular` (compose project agrotrace-angular, docker-compose.angular-dev.yml, host port 8090)
+#             on its own network: http://angular-mock.localhost:8090/ serves the mock-mode build (dist-mock, ruling
+#             FM23 — the MSW service worker of @agrotrace/mock-api answers /api/v1 in the browser, no API server);
+#             the production build (dist) is served at the other angular-* hosts (no backend on this network — its
+#             e2e answers /api/v1 in the page); its Playwright one-off runs in the same compose project.
 DCR="docker compose -f docker-compose.react-dev.yml"
+DCA="docker compose -f docker-compose.angular-dev.yml"
 
 fe_front() {
   case "${1:-}" in
-    react) ;;
-    angular|svelte) echo "fe: frontend-$1 does not exist yet (its plan adds it)" >&2; exit 1 ;;
-    *) echo "usage: ./at fe:<build|test|dev|gateway|e2e-smoke> react" >&2; exit 2 ;;
+    react|angular) ;;
+    svelte) echo "fe: frontend-$1 does not exist yet (its plan adds it)" >&2; exit 1 ;;
+    *) echo "usage: ./at fe:<build|test|dev|gateway|e2e-smoke> <react|angular>" >&2; exit 2 ;;
   esac
 }
 
-# `fe:gateway react [up|down]`: the built dist (./at fe:build react) and dist-mock (--mock) behind the gateway nginx at
-# http://react-express.localhost:8089/ (the backend itself comes from the shared stack: ./at up express).
+# `fe:gateway <front> [up|down]`: the built app (./at fe:build <front> [--mock]) behind the gateway nginx —
+# react: dist and/or dist-mock at http://react-express.localhost:8089/ and http://react-mock.localhost:8089/ (the
+# backend itself comes from the shared stack: ./at up express); angular: dist and dist-mock (both required) at
+# http://angular-mock.localhost:8090/.
 fe_gateway() (
   set -euo pipefail
   fe_front "${1:-}"
+  front="$1"
   case "${2:-up}" in
     up)
       if [ "${AT_DRY_RUN:-}" != "1" ]; then
-        [ -f frontend-react/dist/index.html ] || [ -f frontend-react/dist-mock/index.html ] \
-          || { echo "fe:gateway: no frontend-react/dist or dist-mock — run ./at fe:build react [--mock] first" >&2; exit 1; }
-        mkdir -p frontend-react/dist frontend-react/dist-mock
-        docker network inspect agrotrace_at >/dev/null 2>&1 \
-          || { echo "fe:gateway: network agrotrace_at does not exist — start the stack first (./at up express)" >&2; exit 1; }
+        if [ "$front" = "react" ]; then
+          [ -f frontend-react/dist/index.html ] || [ -f frontend-react/dist-mock/index.html ] \
+            || { echo "fe:gateway: no frontend-react/dist or dist-mock — run ./at fe:build react [--mock] first" >&2; exit 1; }
+          mkdir -p frontend-react/dist frontend-react/dist-mock
+          docker network inspect agrotrace_at >/dev/null 2>&1 \
+            || { echo "fe:gateway: network agrotrace_at does not exist — start the stack first (./at up express)" >&2; exit 1; }
+        else
+          [ -f "frontend-angular/dist/index.html" ] || { echo "fe:gateway: no frontend-angular/dist — run ./at fe:build angular first" >&2; exit 1; }
+          [ -f "frontend-angular/dist-mock/index.html" ] || { echo "fe:gateway: no frontend-angular/dist-mock — run ./at fe:build angular --mock first" >&2; exit 1; }
+        fi
       fi
-      run $DCR up -d --build --wait gateway-react
-      echo "React: http://react-express.localhost:8089/  mock: http://react-mock.localhost:8089/  (design system: http://localhost:8089/_ds/)" ;;
-    down) run $DCR down ;;
-    *) echo "usage: ./at fe:gateway react [up|down]" >&2; exit 2 ;;
+      if [ "$front" = "react" ]; then
+        run $DCR up -d --build --wait gateway-react
+        echo "React: http://react-express.localhost:8089/  mock: http://react-mock.localhost:8089/  (design system: http://localhost:8089/_ds/)"
+      else
+        run $DCA up -d --build --wait gateway-angular
+        echo "Angular: http://angular-mock.localhost:8090/  (design system: http://localhost:8090/_ds/)"
+      fi ;;
+    down) if [ "$front" = "react" ]; then run $DCR down; else run $DCA down; fi ;;
+    *) echo "usage: ./at fe:gateway <react|angular> [up|down]" >&2; exit 2 ;;
   esac
 )
 
-# `fe:e2e-smoke react [playwright args…]`: the build through gateway-react (started if needed), Playwright one-off in
-# the `playwright` service on network agrotrace_at — frontend-react/e2e (`//repo`: no Git Bash path conversion).
+# `fe:e2e-smoke <front> [playwright args…]`: the build through its gateway (started if needed), Playwright one-off —
+# frontend-<front>/e2e (`//repo`: no Git Bash path conversion). React: the `playwright` service on network
+# agrotrace_at; Angular: the `playwright-angular` service of project agrotrace-angular.
 fe_e2e_smoke() (
   set -euo pipefail
-  fe_front "${1:-}"; shift
-  if [ "${AT_DRY_RUN:-}" = "1" ] || [ -z "$($DCR ps -q --status running gateway-react 2>/dev/null)" ]; then
-    fe_gateway react up
+  fe_front "${1:-}"; front="$1"; shift
+  if [ "$front" = "react" ]; then
+    if [ "${AT_DRY_RUN:-}" = "1" ] || [ -z "$($DCR ps -q --status running gateway-react 2>/dev/null)" ]; then
+      fe_gateway react up
+    fi
+    run $DC run --rm -w //repo/frontend-react playwright npx --no-install playwright test -c e2e/playwright.config.ts "$@"
+  else
+    if [ "${AT_DRY_RUN:-}" = "1" ] || [ -z "$($DCA ps -q --status running gateway-angular 2>/dev/null)" ]; then
+      fe_gateway angular up
+    fi
+    run $DCA run --rm -w //repo/frontend-angular playwright-angular npx --no-install playwright test -c e2e/playwright.config.ts "$@"
   fi
-  run $DC run --rm -w //repo/frontend-react playwright npx --no-install playwright test -c e2e/playwright.config.ts "$@"
 )
 
-
 # `e2e [front] [back] [playwright args…]`: the shared parity suite tests/e2e (Plan 2 Task 9) against
-# http://{front}-{back}.localhost through a gateway, Playwright one-off in the `playwright` service on network
-# agrotrace_at. front ∈ react|angular|svelte (default react), back ∈ mock|express|django|laravel (default mock); every
-# other argument goes to Playwright unchanged (`./at e2e --grep UC-02`, `./at e2e svelte mock visual.spec.ts`).
+# http://{front}-{back}.localhost through a gateway. front ∈ react|angular|svelte (default react), back ∈
+# mock|express|django|laravel (default mock); every other argument goes to Playwright unchanged
+# (`./at e2e --grep UC-02`, `./at e2e angular mock visual.spec.ts`).
 # Gateway: GATEWAY_HOST if set, else the front's stand (gateway-<front>, compose project agrotrace-<front>) when it
-# runs, else the main `gateway`; inside the network it listens on 80 (GATEWAY_PORT).
+# runs, else the main `gateway`; inside the network it listens on 80 (GATEWAY_PORT). Playwright one-off: the
+# `playwright` service on network agrotrace_at, except for the Angular stand, which has its own network — there the
+# `playwright-angular` service of agrotrace-angular.
 e2e_gateway() {
   if [ -n "${GATEWAY_HOST:-}" ]; then echo "$GATEWAY_HOST"; return; fi
   local running
@@ -296,8 +329,9 @@ e2e() (
   case "${1:-}" in react|angular|svelte) front="$1"; shift ;; esac
   case "${1:-}" in mock|express|django|laravel) back="$1"; shift ;; esac
   gw="$(e2e_gateway "$front")"
-  run $DC run --rm -e FRONT="$front" -e BACK="$back" -e GATEWAY_HOST="$gw" -e GATEWAY_PORT=80 \
-    -w //repo/tests/e2e playwright npx --no-install playwright test "$@"
+  if [ "$gw" = "gateway-angular" ]; then compose="$DCA"; service=playwright-angular; else compose="$DC"; service=playwright; fi
+  run $compose run --rm -e FRONT="$front" -e BACK="$back" -e GATEWAY_HOST="$gw" -e GATEWAY_PORT=80 \
+    -w //repo/tests/e2e $service npx --no-install playwright test "$@"
 )
 
 case "$cmd" in
@@ -427,18 +461,19 @@ case "$cmd" in
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
   bench) exec "$(dirname "$0")/benchmark/bench.sh" "$@" ;;
   # Frontends (see fe_front above): build into frontend-<front>/dist, component tests (Vitest + MSW from the contract),
-  # the Vite dev server on http://localhost:5173 (API proxied to api-express), the separate gateway, the smoke e2e.
-  # `fe:build react [--mock]`: dist (the live API through the gateway) or, with --mock (ruling FM23), dist-mock with the
-  # in-browser backend of @agrotrace/mock-api (served by gateway-react at react-mock.localhost:8089).
+  # the Vite dev server on http://localhost:5173 (angular: 4200; API proxied to api-express), the separate gateway, the
+  # smoke e2e.
+  # `fe:build <front> [--mock]`: dist (the live API through the gateway) or, with --mock (ruling FM23), dist-mock with
+  # the in-browser backend of @agrotrace/mock-api (react-mock.localhost:8089, angular-mock.localhost:8090).
   fe:build)
     fe_front "${1:-}"; front="$1"; shift
     case "${1:-}" in
       '') run $T pnpm --filter "@agrotrace/frontend-$front" build ;;
       --mock) run $T pnpm --filter "@agrotrace/frontend-$front" build:mock ;;
-      *) echo "usage: ./at fe:build react [--mock]" >&2; exit 2 ;;
+      *) echo "usage: ./at fe:build <react|angular> [--mock]" >&2; exit 2 ;;
     esac ;;
   fe:test)   fe_front "${1:-}"; front="$1"; shift; run $T pnpm --filter "@agrotrace/frontend-$front" test "$@" ;;
-  fe:dev)    fe_front "${1:-}"; run $DC run --rm -p 5173:5173 tools pnpm --filter "@agrotrace/frontend-$1" dev ;;
+  fe:dev)    fe_front "${1:-}"; if [ "$1" = "angular" ]; then run $DC run --rm -p 4200:4200 tools pnpm --filter "@agrotrace/frontend-angular" dev; else run $DC run --rm -p 5173:5173 tools pnpm --filter "@agrotrace/frontend-$1" dev; fi ;;
   fe:gateway) fe_gateway "$@" ;;
   fe:e2e-smoke) fe_e2e_smoke "$@" ;;
   # `e2e [front] [back] [playwright args…]`: the shared parity suite (see e2e above).

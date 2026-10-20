@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": { "types": ["node"] },
+  "files": ["src/main.ts", "src/mock.mock.ts"],
+  "exclude": ["src/**/*.spec.ts", "../packages/*/src/**/*.test.ts"]
+}

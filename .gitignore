@@ -22,3 +22,5 @@ __pycache__/
 .venv/
 vendor/
 storage/*.key
+public-entry.build.ts
+dist-public/
