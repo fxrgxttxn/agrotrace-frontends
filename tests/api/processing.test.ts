@@ -24,12 +24,14 @@ import {
   kg,
   petrov,
   processBatches,
+  productOf,
   sendWaybill,
   sentWaybill,
   wheat,
   type Farm,
 } from './lib/production.js';
 import { closeRedis, redis } from './lib/redis.js';
+import { instant } from './lib/time.js';
 
 afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
@@ -239,6 +241,31 @@ describe('processBatches: request checks', () => {
         version: x.version,
       });
   });
+
+  it('BR-04 takes the loss norm of each input product (wheat and potato differ)', async () => {
+    const potato = await productOf(
+      (p) => p.category === 'VEGETABLE' && p.name === 'Картофель продовольственный',
+    );
+    expect(potato.lossNormPercent).not.toBe(wheatLoss);
+    const w = await acceptedAt(farm, processor);
+    const v = await acceptedAt(farm, processor, { productId: potato.id });
+    const allowed = allowance('1000.000', wheatLoss) + allowance('1000.000', potato.lossNormPercent);
+    const inputs = [
+      { batchId: w.id, massUsedKg: '1000.000' },
+      { batchId: v.id, massUsedKg: '1000.000' },
+    ];
+    const over = await processBatches(processor.client, inputs, [
+      { productId: flourId, massKg: kg(allowed + 1n) },
+    ]);
+    expectProblem(over, 422, 'BUSINESS_RULE', {
+      inputKg: '2000.000',
+      allowedKg: kg(allowed),
+      outputKg: kg(allowed + 1n),
+    });
+    const ok = await processBatches(processor.client, inputs, [{ productId: flourId, massKg: kg(allowed) }]);
+    expect(ok.status, ok.text).toBe(201);
+    expect(ok.body.balance).toEqual({ inputKg: '2000.000', allowedKg: kg(allowed), outputKg: kg(allowed) });
+  });
 });
 
 describe('processBatches: result', () => {
@@ -292,7 +319,7 @@ describe('processBatches: result', () => {
         product: { id: flourId },
       });
       expect(o.publicCode).toMatch(/^AT-\d{4}-\d{6,}$/);
-      expect(o.producedAt).toBe(outputs[0]!.producedAt);
+      expect(instant(o.producedAt)).toBe(instant(outputs[0]!.producedAt));
       expect(o.actions).toEqual([
         { action: 'ship', to: 'InTransit' },
         { action: 'process', to: 'Processed' },

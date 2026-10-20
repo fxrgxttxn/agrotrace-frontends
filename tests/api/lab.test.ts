@@ -40,6 +40,7 @@ import {
   type Farm,
 } from './lib/production.js';
 import { closeRedis, redis } from './lib/redis.js';
+import { instant, instants } from './lib/time.js';
 
 afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
@@ -264,7 +265,7 @@ describe('queue and visibility', () => {
         actions: [],
       });
     expect(risk.reason).toBe('RISK');
-    expect(risk.dueAt).toBe(addWorkingDays(risk.createdAt, 5));
+    expect(instant(risk.dueAt)).toBe(instant(addWorkingDays(risk.createdAt, 5)));
     expect(risk.norms).toEqual(
       product.norms.map(({ indicatorId, name, unit, maxValue }) => ({ indicatorId, name, unit, maxValue })),
     );
@@ -332,14 +333,14 @@ describe('queue and visibility', () => {
 
   it('x-sort dueAt asc by default; createdAt/completedAt; nulls last', async () => {
     const res = await listTests(inspector, { size: 100 });
-    const due = (res.body.items as { dueAt: string }[]).map((x) => x.dueAt);
-    expect([...due].sort()).toEqual(due);
+    const due = (res.body.items as { dueAt: string }[]).map((x) => instant(x.dueAt));
+    expect([...due].sort((a, b) => a - b)).toEqual(due);
     const done = await listTests(inspector, { size: 100, sort: 'completedAt,desc' });
     const completed = (done.body.items as { completedAt: string | null }[]).map((x) => x.completedAt);
     const firstNull = completed.indexOf(null);
     if (firstNull >= 0) expect(completed.slice(firstNull).every((x) => x === null)).toBe(true);
-    const nonNull = completed.filter((x): x is string => x !== null);
-    expect([...nonNull].sort().reverse()).toEqual(nonNull);
+    const nonNull = completed.filter((x): x is string => x !== null).map((x) => instant(x));
+    expect([...nonNull].sort((a, b) => b - a)).toEqual(nonNull);
   });
 
   it('from/to filter by the UTC date of createdAt (a test created at 23:30Z belongs to that UTC day)', async () => {
@@ -412,7 +413,7 @@ describe('createLabTest (INSPECTOR)', () => {
       recallId: null,
       actions: [],
     });
-    expect(t.dueAt).toBe(addWorkingDays(t.createdAt, 5));
+    expect(instant(t.dueAt)).toBe(instant(addWorkingDays(t.createdAt, 5)));
     expect((await getBatch(farm.client, b.id)).body).toMatchObject({
       status: 'Approved',
       version: b.version,
@@ -424,17 +425,19 @@ describe('createLabTest (INSPECTOR)', () => {
       (e) => e.payload.data.payload.labTestId === t.id,
     );
     expect(ev.length).toBe(1);
-    expect(ev[0]!.payload.data).toMatchObject({
-      notificationType: 'LAB_ASSIGNED',
-      recipients: { orgIds: [labId, farm.orgId], userIds: [], orgHeadIds: [], roles: [] },
-      payload: {
-        batchId: b.id,
-        publicCode: b.publicCode,
-        labOrgId: labId,
-        reason: 'INSPECTOR',
-        dueAt: t.dueAt,
-      },
-    });
+    expect(instants(ev[0]!.payload.data)).toMatchObject(
+      instants({
+        notificationType: 'LAB_ASSIGNED',
+        recipients: { orgIds: [labId, farm.orgId], userIds: [], orgHeadIds: [], roles: [] },
+        payload: {
+          batchId: b.id,
+          publicCode: b.publicCode,
+          labOrgId: labId,
+          reason: 'INSPECTOR',
+          dueAt: t.dueAt,
+        },
+      }),
+    );
     const audit = await auditEntries({ action: 'createLabTest', entityId: t.id });
     expect(audit.length).toBe(1);
     expect(audit[0]!.diff).toMatchObject({ status: [null, 'QUEUED'], reason: [null, 'INSPECTOR'] });
@@ -522,7 +525,7 @@ describe('submitLabResults', () => {
     const t = res.body as LabTest;
     expect(t).toMatchObject({ status: 'DONE', conclusion: 'PASS', version: 2, recallId: null });
     expect(t.completedAt).not.toBeNull();
-    expect(t.sampledAt).toBe(t.completedAt); // not sampled before: sampledAt = completion time
+    expect(instant(t.sampledAt!)).toBe(instant(t.completedAt!)); // not sampled before: sampledAt = completion time
     expect(t.results).toEqual(
       test.norms.map((n) => ({
         indicatorId: n.indicatorId,
@@ -629,7 +632,7 @@ describe('submitLabResults', () => {
     expect(t).toMatchObject({ status: 'DONE', conclusion: 'FAIL', version: 3 });
     expect(t.results.map((r) => r.isExceeded)).toEqual([true, false]);
     expect(t.recallId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(t.sampledAt).not.toBe(t.completedAt);
+    expect(instant(t.sampledAt!)).not.toBe(instant(t.completedAt!));
     expect((await getTest(fresh.client, test.id)).body.recallId).toBe(t.recallId);
     const [row] = await query<{ recall_id: string }>(`SELECT recall_id FROM lab_tests WHERE id = $1`, [
       test.id,
@@ -995,6 +998,8 @@ describe('lab-escalation scheduler (BR-08 of the lab, Review Focus 4)', () => {
         )
       ).status,
     ).toBe(200);
+    // Taken before the fixture writes: a tick may escalate right after the first one commits.
+    const since = await dbNow();
     // Fixture write (documented time control): the due moment is moved instead of waiting 5 working days.
     await fixtureWrite(`UPDATE lab_tests SET due_at = now() - interval '1 second' WHERE id = ANY($1)`, [
       [q.test.id, s.test.id, done.test.id],
@@ -1002,10 +1007,10 @@ describe('lab-escalation scheduler (BR-08 of the lab, Review Focus 4)', () => {
     await fixtureWrite(`UPDATE lab_tests SET due_at = now() + interval '1 hour' WHERE id = $1`, [
       notDue.test.id,
     ]);
-    const since = await dbNow();
-    // overdue is computed at read time, before the scheduler acts.
+    // overdue is computed at read time, whether or not the scheduler has acted yet (both statuses are open).
     const before = (await getTest(q.lab, q.test.id)).body as LabTest;
-    if (before.status === 'QUEUED') expect(before.overdue).toBe(true);
+    expect(['QUEUED', 'ESCALATED']).toContain(before.status);
+    expect(before.overdue).toBe(true);
     const escalated = await eventually(async () => {
       const t = (await getTest(q.lab, q.test.id)).body as LabTest;
       const u = (await getTest(s.lab, s.test.id)).body as LabTest;
@@ -1043,14 +1048,16 @@ describe('lab-escalation scheduler (BR-08 of the lab, Review Focus 4)', () => {
     expect(events.length).toBe(2);
     const ev = events.find((e) => e.payload.data.labTestId === q.test.id)!;
     expect(ev.payload.requestId).toBeNull();
-    expect(ev.payload.data).toEqual({
-      labTestId: q.test.id,
-      labOrgId: q.test.lab.id,
-      batchId: q.batch.id,
-      publicCode: q.batch.publicCode,
-      dueAt: escalated[0].dueAt,
-      escalatedAt: escalated[0].escalatedAt,
-    });
+    expect(instants(ev.payload.data)).toEqual(
+      instants({
+        labTestId: q.test.id,
+        labOrgId: q.test.lab.id,
+        batchId: q.batch.id,
+        publicCode: q.batch.publicCode,
+        dueAt: escalated[0].dueAt,
+        escalatedAt: escalated[0].escalatedAt,
+      }),
+    );
     const audit = await auditEntries({ action: 'system.labTestEscalate', entityId: q.test.id });
     expect(audit.length).toBe(1);
     expect(audit[0]!.actor).toBeNull();

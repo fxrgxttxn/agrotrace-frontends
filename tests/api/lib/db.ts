@@ -6,6 +6,7 @@
  * URL: TESTS_DATABASE_URL, else APP_DATABASE_URL (the tools container gets .env).
  */
 import pg from 'pg';
+import { assertEvent } from './events.js';
 
 let pool: pg.Pool | null = null;
 
@@ -44,12 +45,15 @@ export async function outboxEvents(opts: {
   type?: string;
   since?: Date;
 }): Promise<OutboxRow[]> {
-  return query<OutboxRow>(
+  const rows = await query<OutboxRow>(
     `SELECT id, backend, type, payload, created_at, published_at FROM outbox_events
       WHERE backend = $1 AND ($2::text IS NULL OR type = $2) AND ($3::timestamptz IS NULL OR created_at >= $3)
       ORDER BY created_at, id`,
     [opts.backend, opts.type ?? null, opts.since ?? null],
   );
+  // Every row read is a valid queue document of its type (contracts/events, R55).
+  for (const r of rows) assertEvent(r.payload);
+  return rows;
 }
 
 /** The DB clock (outbox `created_at` is DB time; use it as `since`, not the test process clock). */

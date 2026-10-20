@@ -31,6 +31,7 @@ import {
   type Farm,
 } from './lib/production.js';
 import { closeRedis, redis } from './lib/redis.js';
+import { instants } from './lib/time.js';
 
 afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
@@ -455,20 +456,24 @@ describe('getBatchPath (R45) and getBatchGraph (D16)', () => {
     const b = await approvedBatch(farm, { harvestedAt });
     const p0 = await path(farm.client, b.id);
     expect(p0.status, p0.text).toBe(200);
-    expect(p0.body).toEqual([
-      { org: b.origin, from: new Date(harvestedAt).toISOString(), to: null, waybillNumber: null },
-    ]);
+    expect(instants(p0.body)).toEqual(
+      instants([{ org: b.origin, from: harvestedAt, to: null, waybillNumber: null }]),
+    );
     const processor = await freshOrg('PROCESSOR');
     const wb = await deliver(farm.client, processor, b);
     const p1 = await path(processor.client, b.id);
     expect(p1.body.length).toBe(2);
-    expect(p1.body[0]).toMatchObject({ org: { id: farm.orgId }, to: wb.acceptedAt, waybillNumber: null });
-    expect(p1.body[1]).toMatchObject({
-      org: { id: processor.orgId },
-      from: wb.acceptedAt,
-      to: null,
-      waybillNumber: wb.number,
-    });
+    expect(instants(p1.body[0])).toMatchObject(
+      instants({ org: { id: farm.orgId }, to: wb.acceptedAt, waybillNumber: null }),
+    );
+    expect(instants(p1.body[1])).toMatchObject(
+      instants({
+        org: { id: processor.orgId },
+        from: wb.acceptedAt,
+        to: null,
+        waybillNumber: wb.number,
+      }),
+    );
   });
 
   it('graph: depth 1..5 (validation.range otherwise), nodes by depth then publicCode, edges between nodes', async () => {

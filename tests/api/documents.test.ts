@@ -32,6 +32,7 @@ import {
   type Farm,
 } from './lib/production.js';
 import { closeRedis } from './lib/redis.js';
+import { instants } from './lib/time.js';
 
 afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
@@ -187,7 +188,7 @@ describe('VSD import (R81)', () => {
     const replay = await retry(farm.client, res.body.id, key);
     expect(replay.status).toBe(202);
     expect(replay.headers.get('idempotent-replayed')).toBe('true');
-    expect(replay.body).toEqual(r.body);
+    expect(instants(replay.body)).toEqual(instants(r.body));
     const events = (await outboxEvents({ backend: BACKEND, type: 'vsd.import', since })).filter(
       (e) => e.payload.data.batchId === res.body.id,
     );

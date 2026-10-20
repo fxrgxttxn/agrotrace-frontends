@@ -16,6 +16,7 @@ import { closeDb, fixtureWrite } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
 import { freshEmployee, freshHead } from './lib/fixtures.js';
 import { closeRedis } from './lib/redis.js';
+import { instants } from './lib/time.js';
 
 afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
@@ -204,7 +205,7 @@ describe('createField / getField / updateField / deleteField', () => {
       treatmentsCount: 0,
       organization: { id: org.organizationId, name: expect.any(String), type: 'FARM', logoUrl: null },
     });
-    expect((await getField(client, res.body.id)).body).toEqual(res.body);
+    expect(instants((await getField(client, res.body.id)).body)).toEqual(instants(res.body));
     const noGeometry = await createField(client, { name: 'Без контура', areaHa: '0.01', regionCode: '50' });
     expect(noGeometry.status).toBe(201);
     expect(noGeometry.body.geometry).toBeNull();
@@ -396,16 +397,18 @@ describe('treatments', () => {
     expect(Date.parse(res.body.editableUntil) - Date.parse(res.body.createdAt)).toBe(DAY_MS);
     const [audit] = await auditEntries({ action: 'createTreatment', entityId: res.body.id });
     expect(audit).toMatchObject({ entityType: 'treatment', actor: { id: user.id } });
-    expect(audit!.diff).toEqual({
-      fieldId: [null, field.id],
-      substanceId: [null, s.id],
-      dose: [null, '0.250'],
-      doseUnit: [null, 'кг/га'],
-      appliedAt: [null, res.body.appliedAt],
-    });
+    expect(instants(audit!.diff)).toEqual(
+      instants({
+        fieldId: [null, field.id],
+        substanceId: [null, s.id],
+        dose: [null, '0.250'],
+        doseUnit: [null, 'кг/га'],
+        appliedAt: [null, res.body.appliedAt],
+      }),
+    );
     const inspector = await loginAs('INSPECTOR');
     const listed = await listTreatments(inspector, field.id);
-    expect(listed.body.items).toEqual([res.body]);
+    expect(instants(listed.body.items)).toEqual(instants([res.body]));
   });
 
   it('body errors: dose format/zero, unit, future appliedAt, unknown or deleted substance → 400', async () => {
@@ -482,13 +485,15 @@ describe('treatments', () => {
       await treatmentBody({ substanceId: subs[3]!.id, dose: '2.000' }),
     );
     expect(res.status, res.text).toBe(200);
-    expect(res.body).toMatchObject({
-      id: t.id,
-      substance: { id: subs[3]!.id },
-      dose: '2.000',
-      createdAt: t.createdAt,
-      editableUntil: t.editableUntil,
-    });
+    expect(instants(res.body)).toMatchObject(
+      instants({
+        id: t.id,
+        substance: { id: subs[3]!.id },
+        dose: '2.000',
+        createdAt: t.createdAt,
+        editableUntil: t.editableUntil,
+      }),
+    );
     const [audit] = await auditEntries({ action: 'updateTreatment', entityId: t.id });
     expect(audit!.diff).toEqual({ substanceId: [subs[0]!.id, subs[3]!.id], dose: ['1.500', '2.000'] });
     expectProblem(await updateTreatment(client, UUID0, await treatmentBody()), 404, 'NOT_FOUND');

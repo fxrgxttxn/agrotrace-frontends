@@ -34,6 +34,7 @@ import {
   type Farm,
 } from './lib/production.js';
 import { closeRedis, redis, sha256hex } from './lib/redis.js';
+import { instant, instants } from './lib/time.js';
 
 afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
@@ -573,10 +574,8 @@ describe('acceptWaybill / rejectWaybill', () => {
     );
     expect(ev.length).toBe(1);
     expect(ev[0]!.payload.data.recipients.orgIds).toEqual([farm.orgId]);
-    expect(ev[0]!.payload.data.payload).toMatchObject({
-      event: 'REASSIGNED',
-      dueAt: new Date(seed!.due_at).toISOString(),
-    });
+    expect(ev[0]!.payload.data.payload.event).toBe('REASSIGNED');
+    expect(instant(ev[0]!.payload.data.payload.dueAt)).toBe(instant(seed!.due_at));
     // The recalled batch keeps its status (only InTransit batches go back to Approved).
     for (const i of res.body.items as { batch: { status: string } }[])
       expect(i.batch.status).toBe('Recalled');
@@ -650,7 +649,7 @@ describe('Idempotency-Key (R48, R53)', () => {
     const again = await createWaybill(farm.client, body, key);
     expect(again.status).toBe(201);
     expect(again.headers.get('idempotent-replayed')).toBe('true');
-    expect(again.body).toEqual(first.body);
+    expect(instants(again.body)).toEqual(instants(first.body));
     expect((await listWaybills(farm.client, { q: b.publicCode })).body.total).toBe(1);
     const uid = await userId(farm.client);
     const raw = await redis().get(`idem:${uid}:${key}`);

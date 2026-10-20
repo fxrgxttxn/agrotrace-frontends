@@ -220,7 +220,9 @@ api_test() (
   procs="$(backend_services "$back")"
   restore() { run $DC up -d --no-build --wait $procs; }
   trap restore EXIT
-  API_TEST_TZ="${tz:-UTC}" run $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait $procs
+  # `env` makes the zone visible in a dry run (tests/at); without --tz the profile defaults TZ to UTC.
+  zone=(); if [ -n "$tz" ]; then zone=(env "API_TEST_TZ=$tz"); fi
+  run "${zone[@]}" $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait $procs
   run $tests tools pnpm --filter @agrotrace/tests-api test "$@"
 )
 

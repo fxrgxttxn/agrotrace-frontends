@@ -19,6 +19,7 @@ import { expectErrors, expectProblem } from './lib/expect.js';
 import { apiPath, fileIdOf, fixture, multipart, pngOfSize, upload, webpSize } from './lib/files.js';
 import { freshHead, platformAdmin, registerOrg } from './lib/fixtures.js';
 import { closeRedis, redis } from './lib/redis.js';
+import { instants } from './lib/time.js';
 import { csv, IMPORT_ALLOWED, IMPORT_MAX_BYTES, workbookXml, xlsx, zip } from './lib/sheets.js';
 
 afterAll(async () => {
@@ -327,7 +328,7 @@ describe('products: create, update, soft delete, restore by name', () => {
     expect(deleted.deletedAt).toEqual(expect.any(String));
     expectProblem(await remove(client, 'products', p.id), 404, 'NOT_FOUND');
     const [delAudit] = await auditEntries({ action: 'deleteDictionaryEntry', entityId: p.id });
-    expect(delAudit!.diff).toEqual({ deletedAt: [null, deleted.deletedAt] });
+    expect(instants(delAudit!.diff)).toEqual(instants({ deletedAt: [null, deleted.deletedAt] }));
 
     const restored = await create(client, 'products', {
       name: p.name,
@@ -347,11 +348,13 @@ describe('products: create, update, soft delete, restore by name', () => {
     const [again] = await auditEntries({ action: 'createDictionaryEntry', entityId: p.id }).then((r) =>
       r.filter((x) => x.diff.deletedAt),
     );
-    expect(again!.diff).toMatchObject({
-      deletedAt: [deleted.deletedAt, null],
-      category: ['GRAIN', 'MEAT'],
-      mercuryCode: ['10.51.11', null],
-    });
+    expect(instants(again!.diff)).toMatchObject(
+      instants({
+        deletedAt: [deleted.deletedAt, null],
+        category: ['GRAIN', 'MEAT'],
+        mercuryCode: ['10.51.11', null],
+      }),
+    );
   });
 });
 
