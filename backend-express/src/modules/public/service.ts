@@ -3,8 +3,9 @@
  *
  * - getPublicBatch — the PublicBatch of a non-deleted batch; cached in the shared Redis as `pub:batch:{publicCode}`
  *   (the exact JSON, EX 300): a hit is sent byte for byte, never parsed or re-serialized; the keys are deleted after
- *   the commit by every operation that changes the page (cache.ts). No personal data: organization names, region,
- *   dates, the lab summary and the status only.
+ *   the commit by every operation that changes the page (cache.ts); after its SET the builder re-reads the batch's
+ *   version and deletes the key if it changed meanwhile (no stale safety status after a parallel recall or block).
+ *   No personal data: organization names, region, dates, the lab summary and the status only.
  * - getCaptchaChallenge — an ALTCHA challenge (infra/altcha.ts), `Cache-Control: no-store`.
  * - createPublicComplaint — order: the `complaint-ip` limit (every request counts, RATE_LIMIT_OVERRIDES honoured) →
  *   the publicCode pattern and the body in one 400 → the ALTCHA solution (invalid, expired or already used →
@@ -53,7 +54,9 @@ export function publicService(c: Container) {
   const key = altchaKey(c.config.JWT_SECRET);
 
   /** PublicBatch of the non-deleted batch with `code`, or undefined. */
-  async function buildPage(code: string): Promise<Record<string, unknown> | undefined> {
+  async function buildPage(
+    code: string,
+  ): Promise<{ page: Record<string, unknown>; batchId: string; version: number } | undefined> {
     const b = await db
       .selectFrom('batches as b')
       .innerJoin('products as p', 'p.id', 'b.product_id')
@@ -64,6 +67,7 @@ export function publicService(c: Container) {
         'b.public_code',
         'b.kind',
         'b.status',
+        'b.version',
         'b.origin_org_id',
         'b.harvested_at',
         'b.produced_at',
@@ -92,7 +96,7 @@ export function publicService(c: Container) {
       .execute();
     const last = done.at(-1);
     const path = await pathStages(db, b);
-    return {
+    const page = {
       publicCode: b.public_code,
       product: {
         name: b.product_name,
@@ -122,6 +126,7 @@ export function publicService(c: Container) {
         lastDate: isoOrNull(last?.completed_at),
       },
     };
+    return { page, batchId: b.id, version: b.version };
   }
 
   return {
@@ -131,10 +136,18 @@ export function publicService(c: Container) {
       const cacheKey = `pub:batch:${code}`;
       const hit = await redis.getBuffer(cacheKey);
       if (hit) return hit;
-      const page = await buildPage(code);
-      if (!page) throw notFound();
-      const bytes = Buffer.from(JSON.stringify(page), 'utf8');
+      const built = await buildPage(code);
+      if (!built) throw notFound();
+      const bytes = Buffer.from(JSON.stringify(built.page), 'utf8');
       await redis.set(cacheKey, bytes, 'EX', PAGE_TTL_SEC);
+      // R82 re-check: a change that committed (and deleted the key) while the page was being built would otherwise
+      // leave a stale page — e.g. SAFE for a batch just recalled — for 5 minutes. Every status change bumps version.
+      const now = await db
+        .selectFrom('batches')
+        .select('version')
+        .where('id', '=', built.batchId)
+        .executeTakeFirst();
+      if (now?.version !== built.version) await redis.del(cacheKey);
       return bytes;
     },
 

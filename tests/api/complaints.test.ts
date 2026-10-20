@@ -178,6 +178,14 @@ describe('createPublicComplaint', () => {
     const failed = async (altcha: string) =>
       expectProblem(await complain(buyer, batch.publicCode, { text: text(), altcha }), 400, 'CAPTCHA_FAILED');
     await failed(s); // reused
+    // Step 5: two parallel complaints with one fresh solution — exactly one wins the SET NX.
+    const twin = await solution(buyer);
+    const pair = await Promise.all([
+      complain(api(), batch.publicCode, { text: text(), altcha: twin }),
+      complain(api(), batch.publicCode, { text: text(), altcha: twin }),
+    ]);
+    expect(pair.map((r) => r.status).sort()).toEqual([201, 400]);
+    expect(pair.find((r) => r.status === 400)!.body.code).toBe('CAPTCHA_FAILED');
     const decoded = JSON.parse(Buffer.from(await solution(buyer), 'base64').toString('utf8')) as Record<
       string,
       unknown
@@ -321,7 +329,12 @@ describe('startComplaintReview', () => {
 describe('decideComplaint', () => {
   it('body by schema: labOrgId only and always with LAB_TEST, blockUpstream only with RECALL; the comment', async () => {
     const c = await newComplaint(batch);
-    expectErrors(await decide(inspector, c.id, {}), { decision: ['validation.required'] });
+    // P44: a oneOf body without its discriminator — `decision` must be reported; other fields required in every
+    // variant (`comment`) may be reported too.
+    const none = await decide(inspector, c.id, {});
+    expectProblem(none, 400, 'VALIDATION');
+    expect(none.body.errors.decision).toContain('validation.required');
+    expect(Object.keys(none.body.errors).filter((k) => k !== 'decision' && k !== 'comment')).toEqual([]);
     expectErrors(await decide(inspector, c.id, { decision: 'REJECT', comment: 'x', labOrgId: UUID0 }), {
       labOrgId: ['validation.notAllowed'],
     });

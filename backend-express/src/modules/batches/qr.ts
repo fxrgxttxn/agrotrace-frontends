@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Container } from '../../container.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import { AppProblem } from '../../http/problem.js';
 import { sha256hex } from '../../infra/images.js';
 import { qrLabelPdf } from '../../infra/pdf.js';
@@ -132,7 +132,7 @@ export function qrService(c: Container, batches: BatchesService) {
         if (again) throw again;
         await insertFile(tx, pngFile);
         await insertFile(tx, pdfFile);
-        const now = new Date();
+        const now = await txNow(tx);
         const updated = await tx
           .updateTable('batches')
           .set({ qr_png_file_id: pngFile.row.id, qr_pdf_file_id: pdfFile.row.id, qr_generated_at: now })

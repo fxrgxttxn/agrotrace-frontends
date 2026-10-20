@@ -3,10 +3,11 @@
  * Telegram link code). Transactions touch only the database; MinIO objects are written before the row that points at
  * them, Redis after (P8).
  */
+import { sql } from 'kysely';
 import { randomInt } from 'node:crypto';
 import { ChannelsUpdateSchema, MeUpdateSchema } from '@agrotrace/validation';
 import type { Container } from '../../container.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
 import type { UploadedFile } from '../../http/multipart.js';
 import { RASTER_TYPES } from '../../infra/images.js';
@@ -83,7 +84,7 @@ export function meService(c: Container) {
         if (Object.keys(diff).length === 0) return;
         await tx
           .updateTable('users')
-          .set({ full_name: after.fullName, phone: after.phone, updated_at: new Date() })
+          .set({ full_name: after.fullName, phone: after.phone, updated_at: sql`now()` })
           .where('id', '=', p.userId)
           .execute();
         await auditService.record(tx, {
@@ -115,7 +116,7 @@ export function meService(c: Container) {
           .forUpdate()
           .executeTakeFirst();
         if (!u) throw new AppProblem(401, 'UNAUTHORIZED');
-        const now = new Date();
+        const now = await txNow(tx);
         await insertFile(tx, file);
         await tx
           .updateTable('users')
@@ -165,7 +166,7 @@ export function meService(c: Container) {
           .forUpdate()
           .executeTakeFirst();
         if (!u || u.avatar_file_id === null) return;
-        const now = new Date();
+        const now = await txNow(tx);
         await tx
           .updateTable('users')
           .set({ avatar_file_id: null, updated_at: now })
@@ -211,7 +212,7 @@ export function meService(c: Container) {
         if (before.email === after.email && before.telegram === after.telegram) return;
         await tx
           .updateTable('users')
-          .set({ notification_channels: JSON.stringify(after), updated_at: new Date() })
+          .set({ notification_channels: JSON.stringify(after), updated_at: sql`now()` })
           .where('id', '=', p.userId)
           .execute();
         await auditService.record(tx, {

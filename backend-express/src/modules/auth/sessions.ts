@@ -6,7 +6,7 @@
  */
 import { sql, type Kysely, type Transaction } from 'kysely';
 import type { DB } from '../../db/types.generated.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import { newOpaqueToken, sha256hex } from '../../security/tokens.js';
 
 export const REFRESH_TTL_SEC = 14 * 24 * 3600;
@@ -35,7 +35,6 @@ export function refreshCookieOf(header: string | undefined): string | null {
 export async function createRefreshToken(
   db: Kysely<DB> | Transaction<DB>,
   userId: string,
-  now = new Date(),
 ): Promise<{ id: string; token: string }> {
   const token = newOpaqueToken();
   const row = await db
@@ -43,7 +42,8 @@ export async function createRefreshToken(
     .values({
       user_id: userId,
       token_hash: sha256hex(token),
-      expires_at: new Date(now.getTime() + REFRESH_TTL_SEC * 1000),
+      // P43: derived from the statement's transaction instant, like created_at (DEFAULT now()).
+      expires_at: sql`now() + ${REFRESH_TTL_SEC} * interval '1 second'`,
     })
     .returning('id')
     .executeTakeFirstOrThrow();
@@ -105,7 +105,7 @@ export function rotateRefreshToken(db: Kysely<DB>, token: string | null): Promis
       .executeTakeFirst();
     if (!owner) return { kind: 'expired', clearCookie: true };
     await lockUserRefresh(tx, owner.user_id);
-    const now = new Date();
+    const now = await txNow(tx);
     const row = await tx
       .selectFrom('refresh_tokens')
       .select(['id', 'user_id', 'expires_at', 'revoked_at', 'replaced_by'])
@@ -143,7 +143,7 @@ export function rotateRefreshToken(db: Kysely<DB>, token: string | null): Promis
       await revoke();
       return { kind: 'forbidden', reason: 'ORGANIZATION_NOT_ACTIVE' };
     }
-    const next = await createRefreshToken(tx, row.user_id, now);
+    const next = await createRefreshToken(tx, row.user_id);
     await tx
       .updateTable('refresh_tokens')
       .set({ revoked_at: now, replaced_by: next.id })
@@ -158,18 +158,14 @@ export async function revokeRefreshToken(db: Kysely<DB>, token: string | null): 
   if (token === null || !/^[A-Za-z0-9_-]{16,256}$/.test(token)) return;
   await db
     .updateTable('refresh_tokens')
-    .set({ revoked_at: new Date() })
+    .set({ revoked_at: sql`now()` })
     .where('token_hash', '=', sha256hex(token))
     .where('revoked_at', 'is', null)
     .execute();
 }
 
 /** Every live refresh token of the user (password reset). */
-export async function revokeAllRefreshTokens(
-  tx: Transaction<DB>,
-  userId: string,
-  now = new Date(),
-): Promise<void> {
+export async function revokeAllRefreshTokens(tx: Transaction<DB>, userId: string, now: Date): Promise<void> {
   await lockUserRefresh(tx, userId);
   await tx
     .updateTable('refresh_tokens')

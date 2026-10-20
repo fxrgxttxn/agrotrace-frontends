@@ -17,7 +17,7 @@ import {
 import { createT } from '@agrotrace/i18n';
 import trustRating from '../../../../contracts/rules/trust-rating.json' with { type: 'json' };
 import type { Container } from '../../container.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
 import { hitRateLimit } from '../../http/rate-limit.js';
 import { issueAccessToken, ACCESS_TTL_SEC, type Principal } from '../../security/jwt.js';
@@ -265,7 +265,7 @@ export function authService(c: Container) {
         const updated = await withTx(db, async (tx) => {
           const r = await tx
             .updateTable('users')
-            .set({ totp_secret: secret, updated_at: new Date() })
+            .set({ totp_secret: secret, updated_at: sql`now()` })
             .where('id', '=', u.id)
             .where('totp_enabled', '=', false)
             .executeTakeFirst();
@@ -291,7 +291,7 @@ export function authService(c: Container) {
       const outcome = await withTx(db, async (tx) => {
         const r = await tx
           .updateTable('users')
-          .set({ totp_enabled: true, updated_at: new Date() })
+          .set({ totp_enabled: true, updated_at: sql`now()` })
           .where('id', '=', u.id)
           .where('totp_enabled', '=', false)
           .where('totp_secret', '=', secret)
@@ -369,7 +369,7 @@ export function authService(c: Container) {
       if (!entry) throw tokenExpired(400);
       const hash = await hashPassword(input.password);
       await withTx(db, async (tx) => {
-        const now = new Date();
+        const now = await txNow(tx);
         const r = await tx
           .updateTable('users')
           .set({ password_hash: hash, failed_logins: 0, locked_until: null, updated_at: now })
@@ -527,7 +527,7 @@ export function authService(c: Container) {
             status: 'ACTIVE',
             failed_logins: 0,
             locked_until: null,
-            updated_at: new Date(),
+            updated_at: sql`now()`,
           })
           .where('id', '=', u.id)
           .execute();

@@ -14,7 +14,7 @@ import { compareDecimalStrings, concludeLabTest } from '@agrotrace/domain';
 import { LabResultsInputSchema, LabSampleRequestSchema, LabTestCreateSchema } from '@agrotrace/validation';
 import type { Container } from '../../container.js';
 import { lockBatches } from '../../db/locks.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import type { DB } from '../../db/types.generated.js';
 import { parseBody } from '../../http/body.js';
 import { checkVersion, type IfMatch } from '../../http/if-match.js';
@@ -455,7 +455,7 @@ export function labService(c: Container) {
       await storeObjects(c.s3, file);
       await withTx(db, async (tx) => {
         const t = await lockOwnTest(tx, p, id);
-        const now = new Date();
+        const now = await txNow(tx);
         await insertFile(tx, file);
         await tx
           .updateTable('lab_tests')

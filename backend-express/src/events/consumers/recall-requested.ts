@@ -3,9 +3,9 @@
  * The recall itself is already committed by the operation that created it; the handler only fans out, in ONE
  * transaction that starts with the processed_events claim:
  *
- *   1. RECALL {event: OPENED} to the inspectors, every task holder and the source batch's origin — skipped for a
- *      recall without tasks (closed at creation, BR-10): its RECALL CLOSED was written in the creating transaction,
- *      and an OPENED after it would contradict it (R89);
+ *   1. RECALL {event: OPENED} to the inspectors, every task holder and the source batch's origin — skipped when the
+ *      recall is no longer OPEN (closed at creation without tasks, BR-10, or all tasks confirmed before the handler ran)
+ *      or is soft-deleted: its RECALL CLOSED is already written and an OPENED after it would contradict it (R89);
  *   2. RECALL_TASK {event: CREATED} per task to its holder;
  *   3. `rating.recalculate {cause: RECALL_SOURCE, sourceId: recallId}` into the outbox when the source's origin is a
  *      FARM (published right after the commit; the sweeper retries).
@@ -47,6 +47,8 @@ export function recallRequestedHandler(deps: { db: Db; relay: OutboxRelay }): Ev
           'b.public_code',
           'b.origin_org_id',
           'o.type as origin_type',
+          'r.status',
+          'r.deleted_at',
         ])
         .where('r.id', '=', data.recallId)
         .executeTakeFirst();
@@ -58,7 +60,9 @@ export function recallRequestedHandler(deps: { db: Db; relay: OutboxRelay }): Ev
         .where('t.recall_id', '=', r.id)
         .orderBy(sql`t.id::text COLLATE "C"`)
         .execute();
-      if (tasks.length > 0)
+      // R89: no OPENED once the recall is no longer OPEN (closed at creation, or every task confirmed before this
+      // handler ran — its CLOSED is already written) or is soft-deleted.
+      if (r.status === 'OPEN' && r.deleted_at === null && tasks.length > 0)
         await insertNotifications(tx, {
           notificationType: 'RECALL',
           recipients: {

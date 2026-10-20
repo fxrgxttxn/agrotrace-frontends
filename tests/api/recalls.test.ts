@@ -800,6 +800,8 @@ describe('recall-task-overdue (BR-08)', () => {
       (await listRecallTasks(retailer.client, { overdue: true })).body.items.map((t: RecallTask) => t.id),
     ).toEqual([late.id]);
 
+    // Idempotent across ticks: an OVERDUE task is not escalated again (wait for at least two more 1 s ticks).
+    await new Promise((r) => setTimeout(r, 2500));
     const ev = (await outboxEvents({ backend: BACKEND, type: 'notification.dispatch', since })).filter(
       (e) => e.payload.data.notificationType === 'OVERDUE' && e.payload.data.payload.taskId === late.id,
     );
@@ -822,6 +824,7 @@ describe('recall-task-overdue (BR-08)', () => {
       }),
     );
     const audit = await auditEntries({ entityType: 'recallTask', entityId: late.id });
+    expect(audit.filter((e) => e.action === 'system.recallTaskOverdue').length).toBe(1);
     expect(audit.at(-1)).toMatchObject({
       action: 'system.recallTaskOverdue',
       actor: null,
@@ -833,6 +836,65 @@ describe('recall-task-overdue (BR-08)', () => {
     expect(ok.body).toMatchObject({ status: 'CONFIRMED', overdue: false, version: 3 });
     expect(instant(ok.body.escalatedAt)).toBe(instant(overdue.escalatedAt!));
     void processor;
+  });
+});
+
+describe('concurrency and soft-deleted recalls', () => {
+  it('the last two tasks confirmed in parallel: both 200, the recall closes exactly once (version 2, one RECALL CLOSED)', async () => {
+    const { a, o1, o3, retailer, processor } = await chain();
+    const res = await createRecall(inspector, {
+      sourceBatchId: a.id,
+      reason: reason(),
+      blockUpstream: false,
+    });
+    expect(res.status, res.text).toBe(201);
+    const recall = res.body as Recall;
+    const t1 = recall.tasks.find((t) => t.batch.id === o1.id)!;
+    const t3 = recall.tasks.find((t) => t.batch.id === o3.id)!;
+    const since = await dbNow();
+    const both = await Promise.all([
+      confirmTask(retailer.client, t1.id, 1),
+      confirmTask(processor.client, t3.id, 1),
+    ]);
+    expect(
+      both.map((r) => r.status),
+      both.map((r) => r.text).join('\n'),
+    ).toEqual([200, 200]);
+    const card = (await getRecall(inspector, recall.id)).body as Recall;
+    expect(card).toMatchObject({ status: 'CLOSED', version: 2, progress: { confirmed: 2, total: 2 } });
+    const closeNotes = (
+      await outboxEvents({ backend: BACKEND, type: 'notification.dispatch', since })
+    ).filter(
+      (e) => e.payload.data.notificationType === 'RECALL' && e.payload.data.payload.recallId === recall.id,
+    );
+    expect(closeNotes.length).toBe(1);
+    const closes = (await auditEntries({ entityType: 'recall', entityId: recall.id })).filter(
+      (e) => e.diff.status?.[1] === 'CLOSED',
+    );
+    expect(closes.length).toBe(1);
+  });
+
+  it('a task of a soft-deleted recall is hidden, not confirmable (404) and never escalated', async () => {
+    const farm = await freshFarm();
+    const b = await labApproved(farm);
+    const res = await createRecall(inspector, {
+      sourceBatchId: b.id,
+      reason: reason(),
+      blockUpstream: false,
+    });
+    expect(res.status, res.text).toBe(201);
+    const task = (res.body as Recall).tasks[0]!;
+    // No API deletes a recall (soft delete is R59 data state): documented fixture writes, plus a past deadline.
+    await fixtureWrite(`UPDATE recalls SET deleted_at = now() WHERE id = $1`, [res.body.id]);
+    await fixtureWrite(`UPDATE recall_tasks SET due_at = now() - interval '1 second' WHERE id = $1`, [
+      task.id,
+    ]);
+    expect((await listRecallTasks(farm.client)).body.items).toEqual([]);
+    expectProblem(await getRecall(inspector, res.body.id), 404, 'NOT_FOUND');
+    expectProblem(await confirmTask(farm.client, task.id, 1), 404, 'NOT_FOUND');
+    await new Promise((r) => setTimeout(r, 2500)); // two scheduler ticks
+    const [row] = await query(`SELECT status, version FROM recall_tasks WHERE id = $1`, [task.id]);
+    expect(row).toEqual({ status: 'OPEN', version: 1 });
   });
 });
 
@@ -857,6 +919,47 @@ describe('trust rating (BR-09, eventually consistent)', () => {
     const ratings = audit.filter((e) => e.action === 'system.ratingRecalculate');
     expect(ratings.at(-1)).toMatchObject({ actor: null, diff: { trustRating: [57, 47] } });
     expect(ratings.map((e) => e.diff.trustRating![1])).toEqual([82, 57, 47].slice(-ratings.length));
+
+    // Redelivery (documented fixture writes on the outbox and the consumer claims, R55/R56): the recall's
+    // recall.requested goes out again with its claim kept → nothing new; its rating.recalculate goes out again with
+    // its claim removed → handled again, and a full fold (not a delta) leaves the rating at 47 with no new audit row.
+    const [requested] = (await outboxEvents({ backend: BACKEND, type: 'recall.requested' })).filter(
+      (e) => e.payload.data.recallId === r.body.id,
+    );
+    const [rating] = (await outboxEvents({ backend: BACKEND, type: 'rating.recalculate' })).filter(
+      (e) => e.payload.data.sourceId === r.body.id,
+    );
+    expect(requested && rating).toBeTruthy();
+    const opened = async () =>
+      (
+        await query(
+          `SELECT count(*)::int AS n FROM notifications WHERE type = 'RECALL' AND payload->>'recallId' = $1`,
+          [r.body.id],
+        )
+      )[0]!.n as number;
+    await handled(r.body.id);
+    const openedBefore = await opened();
+    await fixtureWrite(`DELETE FROM processed_events WHERE event_id = $1`, [rating!.id]);
+    await fixtureWrite(`UPDATE outbox_events SET published_at = NULL WHERE id = ANY($1::uuid[])`, [
+      [requested!.id, rating!.id],
+    ]);
+    await eventually(async () => {
+      const rows = await query(`SELECT 1 FROM processed_events WHERE event_id = $1`, [rating!.id]);
+      return rows.length > 0 ? true : undefined;
+    }, 25000);
+    await eventually(async () => {
+      const rows = await query(`SELECT 1 FROM outbox_events WHERE id = $1 AND published_at IS NOT NULL`, [
+        requested!.id,
+      ]);
+      return rows.length > 0 ? true : undefined;
+    }, 25000);
+    await new Promise((res) => setTimeout(res, 1500)); // the redelivered recall.requested reaches the worker
+    expect(await trustRating(farm.orgId)).toBe(47);
+    expect(await opened()).toBe(openedBefore);
+    const after = (await auditEntries({ entityType: 'organization', entityId: farm.orgId })).filter(
+      (e) => e.action === 'system.ratingRecalculate',
+    );
+    expect(after.length).toBe(ratings.length);
   });
 });
 
@@ -886,5 +989,7 @@ describe('race: acceptWaybill vs createRecall (Review Focus 1)', () => {
       expect((await getBatch(farm.client, b.id)).body.status).toBe('Recalled');
     }
     expect(outcomes.every((s) => s === 200 || s === 422)).toBe(true);
+    // Which side wins is the scheduler's choice (not forceable over HTTP); the mix is logged for the record.
+    console.info(`accept vs recall outcomes: ${outcomes.join(', ')}`);
   });
 });

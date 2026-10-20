@@ -23,6 +23,11 @@ export function recallTaskOverdueJob(db: Db): Job {
           .select(['id', 'recall_id', 'batch_id', 'holder_org_id', 'status', 'due_at', 'version'])
           .where('status', '=', 'OPEN')
           .where(sql<boolean>`due_at < now()`)
+          // Tasks of a soft-deleted recall are invisible and unconfirmable (tag Recalls): never escalated.
+          .where(
+            sql<boolean>`NOT EXISTS (SELECT 1 FROM recalls r
+              WHERE r.id = recall_tasks.recall_id AND r.deleted_at IS NOT NULL)`,
+          )
           .orderBy('due_at')
           .orderBy('id')
           .forUpdate()

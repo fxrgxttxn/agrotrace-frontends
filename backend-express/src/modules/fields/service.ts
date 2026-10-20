@@ -17,7 +17,7 @@ import {
 } from '@agrotrace/validation';
 import type { Container } from '../../container.js';
 import type { DB } from '../../db/types.generated.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import { dayAfter, QueryReader } from '../../http/params.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
 import { publicFileUrl } from '../../infra/file-urls.js';
@@ -358,7 +358,7 @@ export function fieldsService(c: Container) {
             area_ha: input.areaHa,
             region_id: region,
             geometry: input.geometry ? JSON.stringify(input.geometry) : null,
-            updated_at: new Date(),
+            updated_at: sql`now()`,
           })
           .where('id', '=', id)
           .returning(['area_ha', 'geometry'])
@@ -385,7 +385,7 @@ export function fieldsService(c: Container) {
     async remove(p: Principal, id: string): Promise<void> {
       await withTx(db, async (tx) => {
         await ownFieldForUpdate(tx, p, id);
-        const now = new Date();
+        const now = await txNow(tx);
         await tx.updateTable('fields').set({ deleted_at: now }).where('id', '=', id).execute();
         await auditService.record(tx, {
           actorId: p.userId,
@@ -447,7 +447,7 @@ export function fieldsService(c: Container) {
       const input = TreatmentInputSchema.parse(body);
       const id = await withTx(db, async (tx) => {
         await ownFieldForUpdate(tx, p, fieldId);
-        const now = new Date();
+        const now = await txNow(tx);
         await checkTreatmentRefs(tx, input, now);
         const t = await tx
           .insertInto('treatments')
@@ -519,7 +519,7 @@ export function fieldsService(c: Container) {
           .forUpdate('t')
           .executeTakeFirst();
         if (!t) throw new AppProblem(404, 'NOT_FOUND');
-        const now = new Date();
+        const now = await txNow(tx);
         const createdAt = iso(t.created_at);
         if (!canEditTreatment({ createdAt, now: now.toISOString() }).allowed)
           throw new AppProblem(403, 'FORBIDDEN', {

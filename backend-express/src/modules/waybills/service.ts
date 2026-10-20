@@ -21,7 +21,7 @@ import { WaybillAcceptSchema, WaybillCreateSchema, WaybillRejectSchema } from '@
 import waybillMachine from '../../../../contracts/rules/waybill-state-machine.json' with { type: 'json' };
 import type { Container } from '../../container.js';
 import { lockBatches, lockRecallTasks, lockWaybill } from '../../db/locks.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import type { DB } from '../../db/types.generated.js';
 import { parseBody } from '../../http/body.js';
 import { checkVersion, type IfMatch } from '../../http/if-match.js';
@@ -403,7 +403,7 @@ export function waybillsService(c: Container) {
           if (w.sender_org_id !== p.orgId) throw notSender();
           checkVersion(version, w.version);
           if (!canWaybillGo(w.status, 'DELETED')) throw invalidTransition({ from: w.status, to: 'DELETED' });
-          const now = new Date();
+          const now = await txNow(tx);
           await tx.updateTable('waybills').set({ deleted_at: now }).where('id', '=', id).execute();
           await auditService.record(tx, {
             actorId: p.userId,

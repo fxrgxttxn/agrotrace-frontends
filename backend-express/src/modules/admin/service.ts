@@ -227,7 +227,7 @@ export function adminService(c: Container) {
             address: after.address,
             region_id: region.id,
             status: after.status,
-            updated_at: new Date(),
+            updated_at: sql`now()`,
           })
           .where('id', '=', id)
           .execute();
@@ -252,7 +252,7 @@ export function adminService(c: Container) {
           throw new AppProblem(409, 'INVALID_TRANSITION', { params: { from: o.status, to: 'ACTIVE' } });
         await tx
           .updateTable('organizations')
-          .set({ status: 'ACTIVE', updated_at: new Date() })
+          .set({ status: 'ACTIVE', updated_at: sql`now()` })
           .where('id', '=', id)
           .execute();
         await auditService.record(tx, {
