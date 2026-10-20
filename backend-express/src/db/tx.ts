@@ -16,6 +16,11 @@ export interface TxOptions {
   isolation?: TxIsolation;
   /** Retry once on 40P01/40001 (default true). */
   retryOnce?: boolean;
+  /**
+   * Further errors that re-run the transaction once (same budget as 40P01/40001) — e.g. the recall engine's
+   * `ux_recalls_open_source` unique violation (tag Recalls, step 1): the repeat finds the recall the other one created.
+   */
+  retryIf?: (err: unknown) => boolean;
   /** `params` of the 409 after the retry also failed (e.g. `{currentVersion}`), read outside the failed tx. */
   conflictParams?: () => Promise<Record<string, unknown> | undefined>;
 }
@@ -38,7 +43,7 @@ export async function withTx<DB, T>(
         .setIsolationLevel(opts.isolation ?? 'read committed')
         .execute(fn);
     } catch (err) {
-      if (!isRetryableTxError(err)) throw err;
+      if (!isRetryableTxError(err) && !opts.retryIf?.(err)) throw err;
       if (attempt < attempts) continue;
       const params = opts.conflictParams ? await opts.conflictParams() : undefined;
       throw new AppProblem(409, 'VERSION_CONFLICT', params ? { params } : {});

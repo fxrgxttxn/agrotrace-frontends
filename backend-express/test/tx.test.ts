@@ -3,6 +3,7 @@ import type { Kysely } from 'kysely';
 import { describe, expect, it } from 'vitest';
 import { withTx } from '../src/db/tx.js';
 import { AppProblem } from '../src/http/problem.js';
+import { RECALL_TX } from '../src/modules/recalls/engine.js';
 
 /** A Kysely stand-in recording the isolation level of each transaction attempt. */
 function fakeDb() {
@@ -92,5 +93,46 @@ describe('withTx', () => {
       }),
     ).rejects.toBe(boom);
     expect(levels).toHaveLength(1);
+  });
+
+  it('RECALL_TX: REPEATABLE READ; the ux_recalls_open_source race (23505) re-runs once, another 23505 does not', async () => {
+    const race = Object.assign(pgError('23505'), { constraint: 'ux_recalls_open_source' });
+    const { db, levels } = fakeDb();
+    let calls = 0;
+    const out = await withTx(
+      db,
+      async () => {
+        calls++;
+        if (calls === 1) throw race;
+        return 'found the existing recall';
+      },
+      RECALL_TX,
+    );
+    expect(out).toBe('found the existing recall');
+    expect(levels).toEqual(['repeatable read', 'repeatable read']);
+
+    const twice = fakeDb();
+    const err = (await withTx(
+      twice.db,
+      async () => {
+        throw race;
+      },
+      RECALL_TX,
+    ).catch((e: unknown) => e)) as AppProblem;
+    expect(twice.levels).toHaveLength(2);
+    expect(err.status).toBe(409);
+
+    const other = fakeDb();
+    const dup = Object.assign(pgError('23505'), { constraint: 'recall_tasks_recall_id_batch_id_key' });
+    await expect(
+      withTx(
+        other.db,
+        async () => {
+          throw dup;
+        },
+        RECALL_TX,
+      ),
+    ).rejects.toBe(dup);
+    expect(other.levels).toHaveLength(1);
   });
 });
