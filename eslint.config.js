@@ -21,9 +21,10 @@ export default tseslint.config(
     ],
   },
   // TypeScript rules for script files and Svelte components only (the Angular inline templates are linted as HTML below).
+  // Configs with their own `files` (typescript-eslint's eslint-recommended overrides for .ts) keep them.
   ...tseslint.configs.recommended.map((c) => ({
     ...c,
-    files: ['**/*.{ts,tsx,mts,cts,js,mjs,cjs}', 'frontend-svelte/**/*.svelte'],
+    files: c.files ?? ['**/*.{ts,tsx,mts,cts,js,mjs,cjs}', 'frontend-svelte/**/*.svelte'],
   })),
   {
     files: ['frontend-react/**/*.{ts,tsx}'],
