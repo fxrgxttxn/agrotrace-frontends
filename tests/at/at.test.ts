@@ -121,7 +121,7 @@ describe('./at wrapper (R88 M6)', () => {
     );
     expect(cmds.some((l) => l.includes('docker-compose.api-test.yml'))).toBe(false);
     expect(readFileSync(`${REPO}docker-compose.api-test.yml`, 'utf8')).toMatch(
-      /RATE_LIMIT_OVERRIDES: '\{"user":100000,"login-ip":100000\}'/,
+      /RATE_LIMIT_OVERRIDES: '\{"user":100000,"login-ip":100000,"complaint-ip":100000}'/,
     );
   });
 

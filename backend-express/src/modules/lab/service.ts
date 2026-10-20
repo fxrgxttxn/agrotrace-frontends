@@ -10,7 +10,7 @@
  */
 import { sql, type Transaction } from 'kysely';
 import type { Request } from 'express';
-import { addWorkingDays, compareDecimalStrings, concludeLabTest } from '@agrotrace/domain';
+import { compareDecimalStrings, concludeLabTest } from '@agrotrace/domain';
 import { LabResultsInputSchema, LabSampleRequestSchema, LabTestCreateSchema } from '@agrotrace/validation';
 import type { Container } from '../../container.js';
 import { lockBatches } from '../../db/locks.js';
@@ -37,6 +37,7 @@ import {
   storeObjects,
   type FileRef,
 } from '../files/service.js';
+import { insertUnplannedLabTest } from './assign.js';
 import { dropPublicPages } from '../public/cache.js';
 import {
   applyRecall,
@@ -221,51 +222,13 @@ export function labService(c: Container) {
         else if (lab.type !== 'LAB') errors.labOrgId = ['validation.labOrg.type'];
         if (Object.keys(errors).length > 0) throw validationProblem(errors);
 
-        const { now } = (await sql<{ now: Date }>`SELECT now() AS now`.execute(tx)).rows[0]!;
-        const dueAt = addWorkingDays({ from: now.toISOString(), days: 5 }).result;
-        const t = await tx
-          .insertInto('lab_tests')
-          .values({
-            batch_id: b!.id,
-            lab_org_id: lab!.id,
-            reason: 'INSPECTOR',
-            status: 'QUEUED',
-            due_at: dueAt,
-            created_at: now,
-            created_by: p.userId,
-            version: 1,
-          })
-          .returning('id')
-          .executeTakeFirstOrThrow();
-        await auditService.record(tx, {
+        const t = await insertUnplannedLabTest(tx, {
+          batch: b!,
+          lab: lab!,
+          reason: 'INSPECTOR',
           actorId: p.userId,
           action: 'createLabTest',
-          entityType: 'labTest',
-          entityId: t.id,
-          diff: auditDiff(null, {
-            batchId: b!.id,
-            labOrgId: lab!.id,
-            reason: 'INSPECTOR',
-            status: 'QUEUED',
-            dueAt,
-            version: 1,
-          }),
         });
-        await notify(
-          tx,
-          'LAB_ASSIGNED',
-          { orgIds: [lab!.id, b!.origin_org_id] },
-          {
-            labTestId: t.id,
-            batchId: b!.id,
-            publicCode: b!.public_code,
-            productName: b!.product_name,
-            labOrgId: lab!.id,
-            labName: lab!.name,
-            reason: 'INSPECTOR',
-            dueAt,
-          },
-        );
         return t.id;
       });
       return view(p, id);

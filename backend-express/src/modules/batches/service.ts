@@ -26,8 +26,9 @@ import type { Principal } from '../../security/jwt.js';
 import { auditDiff, auditService } from '../audit/service.js';
 import { dropPublicPages } from '../public/cache.js';
 import { canBatchGo, notify, transitionBatch } from './lifecycle.js';
-import { iso, loadCard, loadListItems, orgRefs, type BatchCard } from './view.js';
+import { iso, loadCard, loadListItems, type BatchCard } from './view.js';
 import { batchVisibleTo, isParticipant, seesAll } from './visibility.js';
+import { pathStages } from './path.js';
 
 type Q = Kysely<DB> | Transaction<DB>;
 
@@ -452,28 +453,7 @@ export function batchesService(c: Container) {
      */
     async path(p: Principal, id: string) {
       const b = await visibleBatch(db, p, id);
-      const accepted = await db
-        .selectFrom('waybills as w')
-        .innerJoin('waybill_items as wi', 'wi.waybill_id', 'w.id')
-        .select(['w.number', 'w.receiver_org_id', 'w.accepted_at'])
-        .where('wi.batch_id', '=', id)
-        .where('w.status', '=', 'ACCEPTED')
-        .where('w.deleted_at', 'is', null)
-        .where('w.accepted_at', 'is not', null)
-        .orderBy('w.accepted_at')
-        .orderBy(sql`w.number COLLATE "C"`)
-        .execute();
-      const refs = await orgRefs(db, [b.origin_org_id, ...accepted.map((w) => w.receiver_org_id)]);
-      const start = b.kind === 'RAW' ? b.harvested_at : b.produced_at;
-      const steps: { org: unknown; from: string; to: string | null; waybillNumber: string | null }[] = [
-        { org: refs.get(b.origin_org_id), from: iso(start ?? b.created_at), to: null, waybillNumber: null },
-      ];
-      for (const w of accepted) {
-        const at = iso(w.accepted_at);
-        steps[steps.length - 1]!.to = at;
-        steps.push({ org: refs.get(w.receiver_org_id), from: at, to: null, waybillNumber: w.number });
-      }
-      return steps;
+      return pathStages(db, b);
     },
 
     /**
