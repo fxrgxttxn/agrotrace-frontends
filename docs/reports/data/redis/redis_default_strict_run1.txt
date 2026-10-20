@@ -1,0 +1,91 @@
+# Redis diagnostics after run 1: profile=default durability=strict (2026-09-25T12:32:01+00:00)
+# measured windows: 1074 (diagnostics reset before and read after each)
+
+# SLOWLOG entries during measured calls (slowlog-log-slower-than=10000 us): 0
+# LATENCY events during measured calls (threshold 1 ms), per series and event: windows with the event, max_ms (1456 readings)
+[redis d1_delete_batch c=1] aof-fsync-always: windows=1 max_ms=9
+[redis d1_delete_batch c=1] aof-write: windows=1 max_ms=1
+[redis d1_delete_batch c=1] aof-write-alone: windows=1 max_ms=1
+[redis d1_delete_batch c=16] aof-fsync-always: windows=1 max_ms=11
+[redis d1_delete_batch c=16] aof-write: windows=1 max_ms=1
+[redis d1_delete_batch c=16] aof-write-alone: windows=1 max_ms=1
+[redis d2_delete_tests_due_before] aof-fsync-always: windows=1010 max_ms=13
+[redis d2_delete_tests_due_before] aof-write: windows=165 max_ms=1
+[redis d2_delete_tests_due_before] aof-write-alone: windows=165 max_ms=1
+[redis d2_delete_tests_due_before] fork: windows=2 max_ms=1
+[redis w1_insert_batch c=1] aof-fsync-always: windows=1 max_ms=9
+[redis w1_insert_batch c=1] aof-write: windows=1 max_ms=1
+[redis w1_insert_batch c=1] aof-write-alone: windows=1 max_ms=1
+[redis w1_insert_batch c=16] aof-fsync-always: windows=1 max_ms=9
+[redis w1_insert_batch c=16] aof-write: windows=1 max_ms=1
+[redis w1_insert_batch c=16] aof-write-alone: windows=1 max_ms=1
+[redis w2_insert_batches] aof-fsync-always: windows=30 max_ms=22
+[redis w2_insert_batches] aof-write: windows=30 max_ms=1
+[redis w2_insert_batches] aof-write-active-child: windows=3 max_ms=1
+[redis w2_insert_batches] aof-write-alone: windows=30 max_ms=1
+[redis w2_insert_batches] fork: windows=3 max_ms=1
+[redis w3_update_status c=1] aof-fsync-always: windows=1 max_ms=9
+[redis w3_update_status c=1] aof-write: windows=1 max_ms=1
+[redis w3_update_status c=1] aof-write-alone: windows=1 max_ms=1
+[redis w3_update_status c=16] aof-fsync-always: windows=1 max_ms=9
+[redis w3_update_status c=16] aof-write: windows=1 max_ms=1
+[redis w3_update_status c=16] aof-write-alone: windows=1 max_ms=1
+# commandstats summed over measured calls (server-side time per command)
+del: calls=1089311 usec=407050 usec_per_call=0.37
+evalsha: calls=66642 usec=857638 usec_per_call=12.87
+exec: calls=11320 usec=98024 usec_per_call=8.66
+exists: calls=11320 usec=6328 usec_per_call=0.56
+get: calls=44000 usec=51528 usec_per_call=1.17
+hget: calls=1077920 usec=460199 usec_per_call=0.43
+hgetall: calls=309580 usec=629866 usec_per_call=2.03
+hincrby: calls=345280 usec=279908 usec_per_call=0.81
+hset: calls=322640 usec=717589 usec_per_call=2.22
+lrange: calls=55320 usec=36857 usec_per_call=0.67
+lrem: calls=1010000 usec=732896 usec_per_call=0.73
+multi: calls=11320 usec=1530 usec_per_call=0.14
+script|load: calls=2 usec=138 usec_per_call=69.00
+set: calls=311320 usec=133172 usec_per_call=0.43
+smembers: calls=259640 usec=234501 usec_per_call=0.90
+srem: calls=11361 usec=9352 usec_per_call=0.82
+zadd: calls=633960 usec=746699 usec_per_call=1.18
+zrangebyscore: calls=2020 usec=172029 usec_per_call=85.16
+zrem: calls=1055310 usec=507302 usec_per_call=0.48
+zrevrange: calls=44000 usec=66314 usec_per_call=1.51
+zscore: calls=11320 usec=8863 usec_per_call=0.78
+# INFO persistence (end of run)
+loading: 0
+async_loading: 0
+current_cow_peak: 0
+current_cow_size: 0
+current_cow_size_age: 0
+current_fork_perc: 0.0
+current_save_keys_processed: 0
+current_save_keys_total: 0
+rdb_changes_since_last_save: 1058579
+rdb_bgsave_in_progress: 0
+rdb_last_save_time: 1790339506
+rdb_last_bgsave_status: ok
+rdb_last_bgsave_time_sec: 0
+rdb_current_bgsave_time_sec: -1
+rdb_saves: 0
+rdb_last_cow_size: 6074368
+rdb_last_load_keys_expired: 0
+rdb_last_load_keys_loaded: 0
+aof_enabled: 1
+aof_rewrite_in_progress: 0
+aof_rewrite_scheduled: 0
+aof_last_rewrite_time_sec: 0
+aof_current_rewrite_time_sec: -1
+aof_last_bgrewrite_status: ok
+aof_rewrites: 0
+aof_rewrites_consecutive_failures: 0
+aof_last_write_status: ok
+aof_last_cow_size: 5537792
+module_fork_in_progress: 0
+module_fork_last_cow_size: 0
+aof_current_size: 26825232
+aof_base_size: 8033757
+aof_pending_rewrite: 0
+aof_buffer_length: 0
+aof_pending_bio_fsync: 0
+aof_delayed_fsync: 0

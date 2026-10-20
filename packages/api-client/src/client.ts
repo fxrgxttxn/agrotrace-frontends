@@ -1,7 +1,11 @@
 import createClient, { type Client } from 'openapi-fetch';
-import type { components, paths } from './schema';
+import type { paths } from './schema';
 import { ApiProblem } from './problem';
 import type { TokenStore } from './session';
+import { uuidv4 } from './util';
+import { withVariant } from './variant';
+
+export { withVariant };
 
 type FetchLike = typeof fetch;
 
@@ -31,39 +35,9 @@ const REFRESH_GRACE_WINDOW_MS = 10_000;
 /** R48/R53: retry a request that hit 409 IDEMPOTENCY_KEY_IN_PROGRESS up to this many times. */
 const IDEMPOTENCY_MAX_RETRIES = 5;
 
-/** RFC 4122 v4 UUID, preferring `crypto.randomUUID()` but falling back to `crypto.getRandomValues`
- * for environments/older browsers that only have the latter (R61). */
-function uuidv4(): string {
-  const cryptoObj = globalThis.crypto;
-  if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
-    return cryptoObj.randomUUID();
-  }
-  if (!cryptoObj || typeof cryptoObj.getRandomValues !== 'function') {
-    throw new Error('No secure random source available: crypto.getRandomValues is required');
-  }
-  const bytes = new Uint8Array(16);
-  cryptoObj.getRandomValues(bytes);
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0'));
-  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
-}
-
 /** R48/R53 helper: a fresh `Idempotency-Key` for a mutating request. */
 export function newIdempotencyKey(): string {
   return uuidv4();
-}
-
-/** R28/R39 helper: sets (or replaces) the `variant` query param of a signed or public file URL
- * without touching any other param (`exp`/`sig` are never re-derived client-side). The type is the
- * contract's own `ImageVariant` parameter (`96 | 480`, contracts/openapi/components/parameters.yaml). */
-export function withVariant(url: string, variant: components['parameters']['ImageVariant']): string {
-  const separatorIndex = url.indexOf('?');
-  const path = separatorIndex === -1 ? url : url.slice(0, separatorIndex);
-  const query = separatorIndex === -1 ? '' : url.slice(separatorIndex + 1);
-  const params = new URLSearchParams(query);
-  params.set('variant', String(variant));
-  return `${path}?${params.toString()}`;
 }
 
 function newRequestId(): string {
@@ -155,6 +129,10 @@ class RefreshCoordinator {
    * so a later, genuinely new auth-loss episode can still report. */
   private reportedDeadToken: string | null | undefined = undefined;
   private unsubscribe: () => void;
+  /** Bumps on every change of the store (a logout clearing it, a sign-in, another tab's token, our own install): a
+   * refresh whose answer arrives in a later generation belongs to a session that ended or was replaced — its token is
+   * neither installed nor broadcast. */
+  private generation = 0;
 
   constructor(
     private readonly baseUrl: string,
@@ -163,6 +141,7 @@ class RefreshCoordinator {
     private readonly onAuthLost?: () => void,
   ) {
     this.unsubscribe = this.session.subscribe((token) => {
+      this.generation += 1;
       if (token !== null) this.reportedDeadToken = undefined;
     });
     try {
@@ -260,6 +239,7 @@ class RefreshCoordinator {
     if (before !== tokenAtFailure) {
       return before;
     }
+    const generation = this.generation;
 
     let response: Response;
     try {
@@ -287,6 +267,9 @@ class RefreshCoordinator {
         throw ApiProblem.transient('Malformed response from /auth/refresh (no accessToken)', response.status);
       }
       const accessToken = body.accessToken;
+      // The session ended (a logout here or in another tab cleared the store) or another token was installed meanwhile
+      // (a sign-in, another tab's rotation): this answer is stale — never install or broadcast it.
+      if (this.generation !== generation) return this.session.get();
       this.session.set(accessToken);
       this.channel?.postMessage({ token: accessToken });
       return accessToken;

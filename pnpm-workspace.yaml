@@ -5,3 +5,6 @@ packages:
   - mercury-mock
   - backend-express
   - tests/*
+  - frontend-react
+  - frontend-angular
+  - frontend-svelte

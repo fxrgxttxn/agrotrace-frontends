@@ -77,6 +77,29 @@
   }
 }
 
+/* Up to 1439 px (README «Таблица»): several text actions of a row stand one under another at the width of the widest
+   (icon buttons follow in a row), and a long word of the title cell breaks instead of widening the table — every
+   action stays reachable without scrolling the table at 1024 and 1280 px. */
+@media (min-width: 768px) and (max-width: 1439px) {
+  .at-table .at-table__actions:not(:has(> .at-button[data-icon-only])) {
+    white-space: normal;
+  }
+
+  .at-table .at-table__actions:not(:has(> .at-button[data-icon-only])) > .at-button {
+    display: flex;
+    width: 100%;
+    margin-inline-start: 0;
+  }
+
+  .at-table .at-table__actions:not(:has(> .at-button[data-icon-only])) > .at-button + .at-button {
+    margin-top: var(--sp-2);
+  }
+
+  .at-table td[data-primary] .at-table__primary > * {
+    overflow-wrap: anywhere;
+  }
+}
+
 /* Numbers (masses, counts): right-aligned, tabular. */
 .at-table [data-numeric] {
   text-align: end;
@@ -113,6 +136,15 @@
   width: 1%;
   text-align: end;
   white-space: nowrap;
+}
+
+/* Several row actions: a gap between them, all on the middle line of the row. */
+.at-table .at-table__actions > .at-button {
+  vertical-align: middle;
+}
+
+.at-table .at-table__actions > .at-button + .at-button {
+  margin-inline-start: var(--sp-2);
 }
 
 .at-table__primary {
@@ -283,6 +315,13 @@ th[aria-sort='descending'] > .at-table__sort::after {
     text-align: start;
   }
 
+  /* A cell holding a form field (README «Таблица»: поле в ячейке): the label above, the field at the full card width,
+     so a long mass (123 456 789,000 кг) is not clipped at 360 px. */
+  .at-table[data-cards] td:has(> .at-field) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-1);
+  }
+
   /* Title cell (code + product) and status sit on the card's first line, without labels. */
   .at-table[data-cards] td[data-primary] {
     display: block;
@@ -290,6 +329,14 @@ th[aria-sort='descending'] > .at-table__sort::after {
     grid-row: 1;
     min-width: 0;
     padding: 0 0 10px;
+  }
+
+  /* A long title (a notification «Результат анализа партии AT-…») wraps inside the card instead of running under the
+     status chip and past the screen edge at 360 px. */
+  .at-table[data-cards] td[data-primary] a,
+  .at-table[data-cards] td[data-primary] .at-table__sub {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .at-table[data-cards] td[data-status-cell] {
@@ -342,5 +389,30 @@ th[aria-sort='descending'] > .at-table__sort::after {
 
   .at-table[data-cards] td.at-table__actions > .at-button {
     flex: 1 1 auto;
+    margin-inline-start: 0;
+  }
+
+  /* Row actions on a card keep the regular size — a 44 px target (ruling FM13) — whatever size the table row asks for. */
+  .at-table[data-cards] td.at-table__actions > .at-button[data-size='s'] {
+    min-width: var(--touch);
+    min-height: var(--touch);
+    padding: 0 var(--sp-4);
+    gap: var(--sp-2);
+    font-size: var(--fs-14);
+    line-height: var(--lh-14);
+  }
+
+  /* …with the regular 20 px icon, and an icon-only button stays a square without padding. */
+  .at-table[data-cards] td.at-table__actions > .at-button[data-size='s'] .at-button__icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .at-table[data-cards] td.at-table__actions > .at-button[data-size='s'][data-icon-only] {
+    padding: 0;
+  }
+
+  .at-table[data-cards] td.at-table__actions > .at-button[data-size='s']::before {
+    content: none;
   }
 }

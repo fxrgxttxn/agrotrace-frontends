@@ -1,0 +1,85 @@
+# Redis diagnostics after run 1: profile=tuned durability=relaxed (2026-09-25T13:43:42+00:00)
+# measured windows: 1074 (diagnostics reset before and read after each)
+
+# SLOWLOG entries during measured calls (slowlog-log-slower-than=10000 us): 0
+# LATENCY events during measured calls (threshold 1 ms), per series and event: windows with the event, max_ms (298 readings)
+[redis d1_delete_batch c=1] aof-write: windows=1 max_ms=1
+[redis d1_delete_batch c=1] aof-write-alone: windows=1 max_ms=1
+[redis d1_delete_batch c=16] aof-write: windows=1 max_ms=1
+[redis d1_delete_batch c=16] aof-write-alone: windows=1 max_ms=1
+[redis d2_delete_tests_due_before] aof-rename: windows=1 max_ms=1
+[redis d2_delete_tests_due_before] aof-write: windows=109 max_ms=1
+[redis d2_delete_tests_due_before] aof-write-active-child: windows=3 max_ms=1
+[redis d2_delete_tests_due_before] aof-write-alone: windows=106 max_ms=1
+[redis d2_delete_tests_due_before] fork: windows=4 max_ms=1
+[redis w1_insert_batch c=1] aof-write: windows=1 max_ms=1
+[redis w1_insert_batch c=1] aof-write-alone: windows=1 max_ms=1
+[redis w1_insert_batch c=16] aof-write: windows=1 max_ms=1
+[redis w1_insert_batch c=16] aof-write-alone: windows=1 max_ms=1
+[redis w2_insert_batches] aof-write: windows=29 max_ms=1
+[redis w2_insert_batches] aof-write-active-child: windows=2 max_ms=1
+[redis w2_insert_batches] aof-write-alone: windows=29 max_ms=1
+[redis w2_insert_batches] fork: windows=3 max_ms=1
+[redis w3_update_status c=1] aof-write: windows=1 max_ms=1
+[redis w3_update_status c=1] aof-write-alone: windows=1 max_ms=1
+[redis w3_update_status c=16] aof-write: windows=1 max_ms=1
+[redis w3_update_status c=16] aof-write-alone: windows=1 max_ms=1
+# commandstats summed over measured calls (server-side time per command)
+del: calls=1089311 usec=335709 usec_per_call=0.31
+evalsha: calls=66642 usec=771943 usec_per_call=11.58
+exec: calls=11320 usec=85292 usec_per_call=7.53
+exists: calls=11320 usec=4459 usec_per_call=0.39
+get: calls=44000 usec=46603 usec_per_call=1.06
+hget: calls=1077920 usec=458920 usec_per_call=0.43
+hgetall: calls=309580 usec=585838 usec_per_call=1.89
+hincrby: calls=345280 usec=195692 usec_per_call=0.57
+hset: calls=322640 usec=621401 usec_per_call=1.93
+lrange: calls=55320 usec=31732 usec_per_call=0.57
+lrem: calls=1010000 usec=652744 usec_per_call=0.65
+multi: calls=11320 usec=1320 usec_per_call=0.12
+script|load: calls=2 usec=159 usec_per_call=79.50
+set: calls=311320 usec=103270 usec_per_call=0.33
+smembers: calls=259640 usec=209827 usec_per_call=0.81
+srem: calls=11361 usec=6307 usec_per_call=0.56
+zadd: calls=633960 usec=576938 usec_per_call=0.91
+zrangebyscore: calls=2020 usec=159287 usec_per_call=78.85
+zrem: calls=1055310 usec=419881 usec_per_call=0.40
+zrevrange: calls=44000 usec=59094 usec_per_call=1.34
+zscore: calls=11320 usec=5969 usec_per_call=0.53
+# INFO persistence (end of run)
+loading: 0
+async_loading: 0
+current_cow_peak: 0
+current_cow_size: 0
+current_cow_size_age: 0
+current_fork_perc: 0.0
+current_save_keys_processed: 0
+current_save_keys_total: 0
+rdb_changes_since_last_save: 18068233
+rdb_bgsave_in_progress: 0
+rdb_last_save_time: 1790343460
+rdb_last_bgsave_status: ok
+rdb_last_bgsave_time_sec: -1
+rdb_current_bgsave_time_sec: -1
+rdb_saves: 0
+rdb_last_cow_size: 0
+rdb_last_load_keys_expired: 0
+rdb_last_load_keys_loaded: 87856
+aof_enabled: 1
+aof_rewrite_in_progress: 0
+aof_rewrite_scheduled: 0
+aof_last_rewrite_time_sec: 0
+aof_current_rewrite_time_sec: -1
+aof_last_bgrewrite_status: ok
+aof_rewrites: 0
+aof_rewrites_consecutive_failures: 0
+aof_last_write_status: ok
+aof_last_cow_size: 6795264
+module_fork_in_progress: 0
+module_fork_last_cow_size: 0
+aof_current_size: 24508194
+aof_base_size: 8592396
+aof_pending_rewrite: 0
+aof_buffer_length: 0
+aof_pending_bio_fsync: 0
+aof_delayed_fsync: 0

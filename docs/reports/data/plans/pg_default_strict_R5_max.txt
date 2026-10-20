@@ -1,0 +1,39 @@
+-- R5_max EXPLAIN (ANALYZE, BUFFERS), PostgreSQL profile=default durability=strict
+-- parameters: batch=917 (largest descendant set: 22), max_depth=20
+WITH RECURSIVE descendants(id, depth) AS (
+        SELECT child_id, 1 FROM batch_links WHERE parent_id = %s
+        UNION
+        SELECT bl.child_id, d.depth + 1
+        FROM batch_links bl
+        JOIN descendants d ON bl.parent_id = d.id
+        WHERE d.depth < %s
+    )
+    SELECT DISTINCT id FROM descendants
+
+HashAggregate  (cost=1833.18..1835.18 rows=200 width=8) (actual time=0.162..0.164 rows=22 loops=1)
+  Group Key: descendants.id
+  Batches: 1  Memory Usage: 40kB
+  Buffers: shared hit=60 read=8
+  CTE descendants
+    ->  Recursive Union  (cost=4.32..1826.54 rows=295 width=12) (actual time=0.027..0.155 rows=22 loops=1)
+          Buffers: shared hit=60 read=8
+          ->  Bitmap Heap Scan on batch_links  (cost=4.32..21.59 rows=5 width=12) (actual time=0.025..0.041 rows=5 loops=1)
+                Recheck Cond: (parent_id = '917'::smallint)
+                Heap Blocks: exact=5
+                Buffers: shared hit=5 read=2
+                ->  Bitmap Index Scan on ix_batch_links_parent  (cost=0.00..4.32 rows=5 width=0) (actual time=0.022..0.022 rows=5 loops=1)
+                      Index Cond: (parent_id = '917'::smallint)
+                      Buffers: shared read=2
+          ->  Nested Loop  (cost=0.29..180.20 rows=29 width=12) (actual time=0.007..0.021 rows=3 loops=5)
+                Buffers: shared hit=55 read=6
+                ->  WorkTable Scan on descendants d  (cost=0.00..1.12 rows=17 width=12) (actual time=0.000..0.000 rows=4 loops=5)
+                      Filter: (depth < '20'::smallint)
+                ->  Index Scan using ix_batch_links_parent on batch_links bl  (cost=0.29..10.51 rows=2 width=16) (actual time=0.003..0.005 rows=1 loops=22)
+                      Index Cond: (parent_id = d.id)
+                      Buffers: shared hit=55 read=6
+  ->  CTE Scan on descendants  (cost=0.00..5.90 rows=295 width=8) (actual time=0.028..0.157 rows=22 loops=1)
+        Buffers: shared hit=60 read=8
+Planning:
+  Buffers: shared hit=50 read=2
+Planning Time: 0.363 ms
+Execution Time: 0.276 ms

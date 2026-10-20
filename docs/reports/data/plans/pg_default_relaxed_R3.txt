@@ -1,0 +1,21 @@
+-- R3 EXPLAIN (ANALYZE, BUFFERS), PostgreSQL profile=default durability=relaxed
+-- parameters: holder=7656 status=Approved (the pair with most batches: 6)
+SELECT id, public_code, product, origin_org_id, holder_org_id, kind, mass_kg, status, harvested_at, version FROM batches WHERE holder_org_id = %s AND status = %s ORDER BY harvested_at DESC, id DESC LIMIT %s
+
+Limit  (cost=15.12..15.13 rows=3 width=83) (actual time=0.117..0.118 rows=6 loops=1)
+  Buffers: shared hit=15 read=2
+  ->  Sort  (cost=15.12..15.13 rows=3 width=83) (actual time=0.116..0.117 rows=6 loops=1)
+        Sort Key: harvested_at DESC, id DESC
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=15 read=2
+        ->  Bitmap Heap Scan on batches  (cost=4.32..15.10 rows=3 width=83) (actual time=0.046..0.068 rows=6 loops=1)
+              Recheck Cond: ((holder_org_id = '7656'::smallint) AND ((status)::text = 'Approved'::text))
+              Heap Blocks: exact=6
+              Buffers: shared hit=9 read=2
+              ->  Bitmap Index Scan on ix_batches_holder_status_harvested  (cost=0.00..4.32 rows=3 width=0) (actual time=0.038..0.038 rows=6 loops=1)
+                    Index Cond: ((holder_org_id = '7656'::smallint) AND ((status)::text = 'Approved'::text))
+                    Buffers: shared hit=3 read=2
+Planning:
+  Buffers: shared hit=161 read=2
+Planning Time: 0.994 ms
+Execution Time: 0.185 ms

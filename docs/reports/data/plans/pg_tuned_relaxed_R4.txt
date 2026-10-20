@@ -1,0 +1,40 @@
+-- R4 EXPLAIN (ANALYZE, BUFFERS), PostgreSQL profile=tuned durability=relaxed
+-- parameters: batch=6760 (most lab tests: 7)
+SELECT
+      b.id, b.public_code, b.product, b.origin_org_id, b.holder_org_id, b.kind, b.mass_kg,
+      b.status, b.harvested_at, b.version,
+      o.id, o.type, o.name, o.inn, o.region_code, o.trust_rating, o.created_at,
+      COALESCE(
+        (SELECT json_agg(json_build_object(
+            'id', t.id, 'batch_id', t.batch_id, 'lab_org_id', t.lab_org_id, 'reason', t.reason,
+            'conclusion', t.conclusion, 'value', t.value::text, 'due_at', t.due_at
+          ) ORDER BY t.id)
+         FROM lab_tests t WHERE t.batch_id = b.id),
+        '[]'::json
+      )
+    FROM batches b
+    JOIN organizations o ON o.id = b.holder_org_id
+    WHERE b.id = %s
+
+Nested Loop  (cost=0.57..8.67 rows=1 width=166) (actual time=0.138..0.138 rows=1 loops=1)
+  Buffers: shared hit=13 read=2
+  ->  Index Scan using batches_pkey on batches b  (cost=0.29..2.50 rows=1 width=83) (actual time=0.023..0.023 rows=1 loops=1)
+        Index Cond: (id = '6760'::smallint)
+        Buffers: shared hit=3
+  ->  Index Scan using organizations_pkey on organizations o  (cost=0.29..2.50 rows=1 width=51) (actual time=0.013..0.013 rows=1 loops=1)
+        Index Cond: (id = b.holder_org_id)
+        Buffers: shared hit=3
+  SubPlan 1
+    ->  Aggregate  (cost=3.66..3.67 rows=1 width=32) (actual time=0.097..0.097 rows=1 loops=1)
+          Buffers: shared hit=7 read=2
+          ->  Sort  (cost=3.63..3.63 rows=2 width=51) (actual time=0.071..0.071 rows=7 loops=1)
+                Sort Key: t.id
+                Sort Method: quicksort  Memory: 25kB
+                Buffers: shared hit=7 read=2
+                ->  Index Scan using ix_lab_tests_batch on lab_tests t  (cost=0.29..3.62 rows=2 width=51) (actual time=0.027..0.055 rows=7 loops=1)
+                      Index Cond: (batch_id = b.id)
+                      Buffers: shared hit=7 read=2
+Planning:
+  Buffers: shared hit=144 read=4
+Planning Time: 0.847 ms
+Execution Time: 0.211 ms

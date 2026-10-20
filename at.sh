@@ -229,6 +229,171 @@ applied_migrations() {
   fi
 }
 
+# ── Frontends (Plan 2+) ─────────────────────────────────────────────────────────────────────────────────────────────
+# `fe:<cmd> <front>` for react, angular and svelte. Each front has its own stand, never touching the shared
+# `agrotrace` services:
+#   react   — `gateway-react` (compose project agrotrace-react, docker-compose.react-dev.yml, host port 8089) on the
+#             main stack's network: react-express.localhost = dist against the shared api-express, react-mock.localhost
+#             = dist-mock (./at fe:build react --mock, ruling FM23: the mock backend in the browser).
+#   angular — `gateway-angular` (compose project agrotrace-angular, docker-compose.angular-dev.yml, host port 8090)
+#             on its own network: http://angular-mock.localhost:8090/ serves the mock-mode build (dist-mock, ruling
+#             FM23 — the MSW service worker of @agrotrace/mock-api answers /api/v1 in the browser, no API server);
+#             the production build (dist) is served at the other angular-* hosts (no backend on this network — its
+#             e2e answers /api/v1 in the page); its Playwright one-off runs in the same compose project.
+#   svelte  — `gateway-svelte` (compose project agrotrace-svelte, docker-compose.svelte-mock.yml, host port 8091) on its
+#             own network: svelte-mock.localhost = build-mock (./at fe:build svelte --mock, ruling FM23: the mock backend
+#             in the browser, no API server), svelte-express.localhost = the production build (nothing behind its /api:
+#             its e2e answers /api/v1 in Playwright's route layer), with its own Playwright.
+DCR="docker compose -f docker-compose.react-dev.yml"
+DCA="docker compose -f docker-compose.angular-dev.yml"
+DCS="docker compose -f docker-compose.svelte-mock.yml"
+
+fe_front() {
+  case "${1:-}" in
+    react|angular|svelte) ;;
+    *) echo "usage: ./at fe:<build|test|dev|gateway|e2e-smoke> <react|angular|svelte>" >&2; exit 2 ;;
+  esac
+}
+
+# `fe:gateway <front> [up|down]`: the built app (./at fe:build <front> [--mock]) behind the gateway nginx —
+# react: dist and/or dist-mock at http://react-express.localhost:8089/ and http://react-mock.localhost:8089/ (the
+# backend itself comes from the shared stack: ./at up express); angular: dist and dist-mock (both required) at
+# http://angular-mock.localhost:8090/; svelte: build and/or build-mock at http://svelte-mock.localhost:8091/ (no
+# backend needed). The design system at /_ds/ of the same port.
+fe_gateway() (
+  set -euo pipefail
+  fe_front "${1:-}"
+  front="$1"
+  case "${2:-up}" in
+    up)
+      if [ "${AT_DRY_RUN:-}" != "1" ]; then
+        case "$front" in
+          react)
+            [ -f frontend-react/dist/index.html ] || [ -f frontend-react/dist-mock/index.html ] \
+              || { echo "fe:gateway: no frontend-react/dist or dist-mock — run ./at fe:build react [--mock] first" >&2; exit 1; }
+            mkdir -p frontend-react/dist frontend-react/dist-mock
+            docker network inspect agrotrace_at >/dev/null 2>&1 \
+              || { echo "fe:gateway: network agrotrace_at does not exist — start the stack first (./at up express)" >&2; exit 1; } ;;
+          angular)
+            [ -f "frontend-angular/dist/index.html" ] || { echo "fe:gateway: no frontend-angular/dist — run ./at fe:build angular first" >&2; exit 1; }
+            [ -f "frontend-angular/dist-mock/index.html" ] || { echo "fe:gateway: no frontend-angular/dist-mock — run ./at fe:build angular --mock first" >&2; exit 1; } ;;
+          svelte)
+            [ -f frontend-svelte/build/index.html ] || [ -f frontend-svelte/build-mock/index.html ] \
+              || { echo "fe:gateway: no frontend-svelte/build or build-mock — run ./at fe:build svelte [--mock] first" >&2; exit 1; }
+            mkdir -p frontend-svelte/build frontend-svelte/build-mock ;;
+        esac
+      fi
+      case "$front" in
+        react)
+          run $DCR up -d --build --wait gateway-react
+          echo "React: http://react-express.localhost:8089/  mock: http://react-mock.localhost:8089/  (design system: http://localhost:8089/_ds/)" ;;
+        angular)
+          run $DCA up -d --build --wait gateway-angular
+          echo "Angular: http://angular-mock.localhost:8090/  (design system: http://localhost:8090/_ds/)" ;;
+        svelte)
+          # Always recreated: adapter-static replaces frontend-svelte/build on every build, and a running container
+          # would keep serving the deleted directory through its bind mount.
+          run $DCS up -d --build --force-recreate --wait gateway-svelte
+          echo "Svelte: mock http://svelte-mock.localhost:8091/  production http://svelte-express.localhost:8091/  (design system: http://localhost:8091/_ds/)" ;;
+      esac ;;
+    down)
+      case "$front" in
+        react) run $DCR down ;;
+        angular) run $DCA down ;;
+        svelte) run $DCS down ;;
+      esac ;;
+    *) echo "usage: ./at fe:gateway <react|angular|svelte> [up|down]" >&2; exit 2 ;;
+  esac
+)
+
+# Whether the Svelte stand (gateway-svelte) runs: 1 or 0 (dry run: AT_DRY_STAND, default 0).
+svelte_stand() {
+  if [ "${AT_DRY_RUN:-}" = "1" ]; then echo "${AT_DRY_STAND:-0}"; return; fi
+  [ -n "$($DCS ps -q --status running gateway-svelte 2>/dev/null)" ] && echo 1 || echo 0
+}
+
+# `fe:build <front> [--mock]`: dist (the live API through the gateway) or, with --mock (ruling FM23), the build with
+# the in-browser backend of @agrotrace/mock-api (react/angular: dist-mock, svelte: build-mock). Svelte (polish P2):
+# adapter-static deletes and recreates frontend-svelte/build[-mock], which a running gateway-svelte holds as a bind
+# mount — on Docker Desktop the build then fails (`ENOENT: mkdir build/assets/…`) or the stand keeps serving the
+# deleted directory. A running stand is stopped for the build and recreated afterwards, whatever the build's outcome.
+fe_build() (
+  set -euo pipefail
+  fe_front "${1:-}"; front="$1"; shift
+  local script
+  case "${1:-}" in
+    '') script=build ;;
+    --mock) script=build:mock ;;
+    *) echo "usage: ./at fe:build <react|angular|svelte> [--mock]" >&2; exit 2 ;;
+  esac
+  if [ "$front" = svelte ] && [ "$(svelte_stand)" = "1" ]; then
+    run $DCS stop gateway-svelte
+    trap 'fe_gateway svelte up' EXIT
+  fi
+  run $T pnpm --filter "@agrotrace/frontend-$front" "$script"
+)
+
+# `fe:e2e-smoke <front> [playwright args…]`: the build through its gateway (started if needed; svelte: always
+# recreated), Playwright one-off — frontend-<front>/e2e (`//repo`: no Git Bash path conversion). React: the
+# `playwright` service on network agrotrace_at; Angular: `playwright-angular` of project agrotrace-angular; Svelte:
+# `playwright-svelte` of project agrotrace-svelte.
+fe_e2e_smoke() (
+  set -euo pipefail
+  fe_front "${1:-}"; front="$1"; shift
+  case "$front" in
+    react)
+      if [ "${AT_DRY_RUN:-}" = "1" ] || [ -z "$($DCR ps -q --status running gateway-react 2>/dev/null)" ]; then
+        fe_gateway react up
+      fi
+      run $DC run --rm -w //repo/frontend-react playwright npx --no-install playwright test -c e2e/playwright.config.ts "$@" ;;
+    angular)
+      if [ "${AT_DRY_RUN:-}" = "1" ] || [ -z "$($DCA ps -q --status running gateway-angular 2>/dev/null)" ]; then
+        fe_gateway angular up
+      fi
+      run $DCA run --rm -w //repo/frontend-angular playwright-angular npx --no-install playwright test -c e2e/playwright.config.ts "$@" ;;
+    svelte)
+      fe_gateway svelte up
+      run $DCS run --rm -w //repo/frontend-svelte playwright-svelte npx --no-install playwright test -c e2e/playwright.config.ts "$@" ;;
+  esac
+)
+
+# `e2e [front] [back] [playwright args…]`: the shared parity suite tests/e2e (Plan 2 Task 9) against
+# http://{front}-{back}.localhost through a gateway. front ∈ react|angular|svelte (default react), back ∈
+# mock|express|django|laravel (default mock); every other argument goes to Playwright unchanged
+# (`./at e2e --grep UC-02`, `./at e2e angular mock visual.spec.ts`).
+# Gateway: GATEWAY_HOST if set, else the front's stand (gateway-<front>, compose project agrotrace-<front>) when it
+# runs, else the main `gateway`; inside the network it listens on 80 (GATEWAY_PORT). Playwright one-off: the
+# `playwright` service on network agrotrace_at, except for the Angular and Svelte stands, which have their own networks
+# (ruling FM23) — there `playwright-angular` of agrotrace-angular (when its stand runs) / `playwright-svelte` of
+# agrotrace-svelte (always for svelte: the main network cannot resolve its stand), with the
+# working directory overridden to tests/e2e.
+e2e_gateway() {
+  if [ -n "${GATEWAY_HOST:-}" ]; then echo "$GATEWAY_HOST"; return; fi
+  local running
+  if [ "${AT_DRY_RUN:-}" = "1" ]; then running="${AT_DRY_STAND:-1}"
+  else running=$([ -n "$(docker ps -q --filter "label=com.docker.compose.service=gateway-$1" --filter status=running)" ] && echo 1 || echo 0)
+  fi
+  if [ "$running" = "1" ]; then echo "gateway-$1"; else echo gateway; fi
+}
+e2e() (
+  set -euo pipefail
+  front=react; back=mock
+  case "${1:-}" in react|angular|svelte) front="$1"; shift ;; esac
+  case "${1:-}" in mock|express|django|laravel) back="$1"; shift ;; esac
+  gw="$(e2e_gateway "$front")"
+  if [ "$front" = svelte ] && [ "$gw" = gateway ]; then
+    # Polish P2: without its stand the run would only fail later on every page with a DNS error of Playwright.
+    echo "e2e: the Svelte stand (gateway-svelte, compose project agrotrace-svelte) is not running —" \
+      "build and start it first: ./at fe:build svelte --mock && ./at fe:gateway svelte up" >&2
+    exit 1
+  fi
+  if [ "$front" = svelte ]; then compose="$DCS"; service=playwright-svelte
+  elif [ "$gw" = gateway-angular ]; then compose="$DCA"; service=playwright-angular
+  else compose="$DC"; service=playwright; fi
+  run $compose run --rm -e FRONT="$front" -e BACK="$back" -e GATEWAY_HOST="$gw" -e GATEWAY_PORT=80 \
+    -w //repo/tests/e2e $service npx --no-install playwright test "$@"
+)
+
 case "$cmd" in
   install)   $T pnpm install "$@" ;;
   sh)        $T bash ;;
@@ -354,6 +519,19 @@ case "$cmd" in
     done
     $DC run --rm dbmate --no-dump-schema --wait up
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
+  bench) exec "$(dirname "$0")/benchmark/bench.sh" "$@" ;;
+  # Frontends (see fe_front above): build into frontend-<front>/dist (svelte: build), component tests (Vitest + MSW
+  # from the contract), the Vite dev server on http://localhost:5173 (angular: 4200; API proxied to api-express), the
+  # separate gateway, the smoke e2e.
+  # `fe:build <front> [--mock]`: the production build or, with --mock (ruling FM23), the build with the in-browser
+  # backend of @agrotrace/mock-api (react-mock.localhost:8089, angular-mock.localhost:8090, svelte-mock.localhost:8091).
+  fe:build)  fe_build "$@" ;;
+  fe:test)   fe_front "${1:-}"; front="$1"; shift; run $T pnpm --filter "@agrotrace/frontend-$front" test "$@" ;;
+  fe:dev)    fe_front "${1:-}"; if [ "$1" = "angular" ]; then run $DC run --rm -p 4200:4200 tools pnpm --filter "@agrotrace/frontend-angular" dev; else run $DC run --rm -p 5173:5173 tools pnpm --filter "@agrotrace/frontend-$1" dev; fi ;;
+  fe:gateway) fe_gateway "$@" ;;
+  fe:e2e-smoke) fe_e2e_smoke "$@" ;;
+  # `e2e [front] [back] [playwright args…]`: the shared parity suite (see e2e above).
+  e2e) e2e "$@" ;;
   # Top-level commands only (two-space indented case labels).
-  help|*)  grep -E '^  [a-z:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
+  help|*)  grep -E '^  [a-z0-9:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
 esac

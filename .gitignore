@@ -1,6 +1,7 @@
 node_modules/
 .pnpm-store/
 dist/
+dist-mock/
 .svelte-kit/
 .angular/
 coverage/
@@ -11,8 +12,24 @@ test-results/
 playwright-report/
 benchmark/results/*.csv
 !benchmark/results/.gitkeep
+benchmark/results/*.json
+benchmark/data/
+benchmark/.bench-state
+benchmark/.env
+benchmark/results/*/
 db/.schema.sql.*
 __pycache__/
 .venv/
 vendor/
 storage/*.key
+public-entry.build.ts
+dist-public/
+
+# SvelteKit static build
+frontend-svelte/build/
+frontend-svelte/.templates/
+
+# SvelteKit mock build (ruling FM23)
+frontend-svelte/build-mock/
+frontend-svelte/.svelte-kit-mock/
+dist-mock/

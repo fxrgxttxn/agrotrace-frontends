@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>AgroTrace</title>
+    %at.fallback.style%
+    %sveltekit.head%
+  </head>
+  <!-- Focus is managed by the app (README «Фокус при смене маршрута»): the router never blurs or resets it on a link
+       navigation; a pathname change focuses the new page title, a query-only change and a pick in «Ещё» keep it. -->
+  <body data-sveltekit-keepfocus>
+    <!-- FM18: shown only if the app has not started after 10 s (nothing of ours ran); the app removes it on start. -->
+    %at.fallback%
+    %sveltekit.body%
+  </body>
+</html>

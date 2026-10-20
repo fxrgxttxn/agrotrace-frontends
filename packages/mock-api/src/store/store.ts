@@ -1,0 +1,355 @@
+/**
+ * The mock's state: typed in-memory tables (DB rows), Redis-like keys with expiry, sequences — and the operation
+ * protocol every mutating handler runs in: all writes go through `insert`/`patch`/`remove`/`kvSet`, which keep an undo
+ * log, so a handler that fails after a partial write is rolled back like a database transaction. Changed rows are
+ * written to `audit_log` at commit (one entry per changed row, `action` = operationId, AuditEntry rules); work that the
+ * contract runs "after commit" (notifications, rating recalculation, VSD import) is queued and runs after the commit.
+ */
+import { hex, MOCK_NAMESPACE, randomBytes, uuidV5 } from '../lib/crypto.js';
+import { iso } from '../lib/time.js';
+import type { KvEntry, Sequences, TableName, Tables } from './types.js';
+
+type Row = object;
+
+type Undo = () => void;
+
+export interface AuditRecord {
+  action: string;
+  actorId: string | null;
+  entityType: string;
+  entityId: string | null;
+  diff: Record<string, [unknown, unknown]>;
+  at?: string;
+}
+
+interface Operation {
+  action: string;
+  actorId: string | null;
+  undo: Undo[];
+  touched: Map<object, { type: string; before: Record<string, unknown> | null; id: string }>;
+  audit: AuditRecord[];
+  afterCommit: (() => void)[];
+}
+
+const SECRET_COLUMNS = new Set(['password', 'totp_secret', 'token']);
+const AUDIT_SKIP = new Set(['id', 'created_at', 'updated_at', 'created_by', 'content', 'failed_logins']);
+
+const camel = (s: string): string => s.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+
+/** API-named audit view of a row (camelCase columns, secrets masked, bookkeeping omitted). */
+export function auditView(row: object): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) {
+    if (k.startsWith('_') || AUDIT_SKIP.has(k)) continue;
+    out[camel(k)] = SECRET_COLUMNS.has(k) ? (v === null ? null : '***') : v;
+  }
+  return out;
+}
+
+/** `{field: [before, after]}` over the changed fields; `before` null — a creation (non-null fields only). */
+export function auditDiff(
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+): Record<string, [unknown, unknown]> {
+  const diff: Record<string, [unknown, unknown]> = {};
+  for (const [k, v] of Object.entries(after)) {
+    const b = before ? (before[k] ?? null) : null;
+    if (before === null && (v === null || v === undefined)) continue;
+    if (JSON.stringify(b) !== JSON.stringify(v ?? null)) diff[k] = [b, v ?? null];
+  }
+  return diff;
+}
+
+/** A permanent delete: every non-null field of the removed row → `[before, null]` (the mirror of a creation, P23). */
+export function auditRemoval(before: Record<string, unknown>): Record<string, [unknown, unknown]> {
+  const out: Record<string, [unknown, unknown]> = {};
+  for (const [k, v] of Object.entries(before)) if (v !== null && v !== undefined) out[k] = [v, null];
+  return out;
+}
+
+export const emptyTables = (): Tables => ({
+  regions: [],
+  files: [],
+  products: [],
+  substances: [],
+  indicators: [],
+  norms: [],
+  organizations: [],
+  users: [],
+  refresh_tokens: [],
+  fields: [],
+  treatments: [],
+  batches: [],
+  batch_documents: [],
+  batch_links: [],
+  batch_status_history: [],
+  waybills: [],
+  waybill_items: [],
+  lab_tests: [],
+  lab_results: [],
+  recalls: [],
+  recall_batches: [],
+  recall_tasks: [],
+  complaints: [],
+  notifications: [],
+  audit_log: [],
+});
+
+export class Store {
+  t: Tables = emptyTables();
+  kv = new Map<string, KvEntry>();
+  seq: Sequences = { batch: 0, waybill: 0, notification: 0, audit: 0, id: 0 };
+  /** The mock browser's cookie jar (`at_refresh`), used when the request carries no Cookie header. */
+  cookies = new Map<string, string>();
+  /**
+   * Set by every write (and by `markDirty` at the few direct writes: counters, the cookie jar, sequences); the shared
+   * snapshot is written only when it is set (FM8) and clears it.
+   */
+  dirty = false;
+  /** X-Request-Id of the request being handled (written into audit rows). */
+  requestId: string | null = null;
+  /** Identity of this world: a reset makes a new one, so tabs can tell "another world" from "more changes". */
+  epoch: string = hex(randomBytes(8));
+  private op: Operation | null = null;
+  private byId = new Map<TableName, Map<string, Row>>();
+
+  constructor(private readonly clock: () => number) {}
+
+  now(): number {
+    return this.clock();
+  }
+
+  nowIso(): string {
+    return iso(this.clock());
+  }
+
+  /** A deterministic id for a new row (UUID v5 of the mock namespace and a counter). */
+  id(kind: string): string {
+    this.dirty = true;
+    this.seq.id += 1;
+    return uuidV5(MOCK_NAMESPACE, `${kind}:${this.seq.id}`);
+  }
+
+  /** For the few writes that bypass `insert`/`patch`/`kv*` (counters, the cookie jar, sequences). */
+  markDirty(): void {
+    this.dirty = true;
+  }
+
+  // ── lookups ──
+
+  get<T extends TableName>(table: T, id: string | null | undefined): Tables[T][number] | undefined {
+    if (!id) return undefined;
+    let index = this.byId.get(table);
+    if (!index) {
+      index = new Map();
+      for (const r of this.t[table] as Row[]) if ('id' in r) index.set((r as { id: string }).id, r);
+      this.byId.set(table, index);
+    }
+    return index.get(id) as Tables[T][number] | undefined;
+  }
+
+  /** Like `get`, but the row must exist (internal consistency). */
+  must<T extends TableName>(table: T, id: string | null | undefined): Tables[T][number] {
+    const r = this.get(table, id);
+    if (!r) throw new Error(`${table} ${String(id)} not found`);
+    return r;
+  }
+
+  private indexAdd(table: TableName, row: Row): void {
+    const index = this.byId.get(table);
+    if (index && 'id' in row) index.set((row as { id: string }).id, row);
+  }
+
+  private indexDrop(table: TableName, row: Row): void {
+    const index = this.byId.get(table);
+    if (index && 'id' in row) index.delete((row as { id: string }).id);
+  }
+
+  /** Rebuilds the id indexes (after `load`). */
+  reindex(): void {
+    this.byId.clear();
+  }
+
+  // ── writes (undo-logged inside an operation) ──
+
+  insert<T extends TableName>(table: T, row: Tables[T][number]): Tables[T][number] {
+    this.dirty = true;
+    const list = this.t[table] as Row[];
+    list.push(row);
+    this.indexAdd(table, row);
+    this.op?.undo.push(() => {
+      const i = list.lastIndexOf(row);
+      if (i >= 0) list.splice(i, 1);
+      this.indexDrop(table, row);
+    });
+    return row;
+  }
+
+  patch<R extends object>(row: R, changes: Partial<R>): R {
+    this.dirty = true;
+    const before: Partial<R> = {};
+    for (const k of Object.keys(changes) as (keyof R)[]) before[k] = row[k];
+    Object.assign(row, changes);
+    this.op?.undo.push(() => Object.assign(row, before));
+    return row;
+  }
+
+  remove<T extends TableName>(table: T, row: Tables[T][number]): void {
+    const list = this.t[table] as Row[];
+    const i = list.indexOf(row);
+    if (i < 0) return;
+    this.dirty = true;
+    list.splice(i, 1);
+    this.indexDrop(table, row);
+    this.op?.undo.push(() => {
+      list.splice(i, 0, row);
+      this.indexAdd(table, row);
+    });
+  }
+
+  // ── keys (Redis-like) ──
+
+  kvGet<V = unknown>(key: string): V | undefined {
+    const e = this.kv.get(key);
+    if (!e) return undefined;
+    if (e.expiresAt !== null && e.expiresAt <= this.now()) {
+      this.kv.delete(key);
+      this.dirty = true;
+      return undefined;
+    }
+    return e.value as V;
+  }
+
+  kvSet(key: string, value: unknown, ttlSec: number | null): void {
+    this.dirty = true;
+    const prev = this.kv.get(key);
+    this.kv.set(key, { value, expiresAt: ttlSec === null ? null : this.now() + ttlSec * 1000 });
+    this.op?.undo.push(() => (prev ? this.kv.set(key, prev) : this.kv.delete(key)));
+  }
+
+  kvDel(key: string): void {
+    const prev = this.kv.get(key);
+    if (!prev) return;
+    this.dirty = true;
+    this.kv.delete(key);
+    this.op?.undo.push(() => this.kv.set(key, prev));
+  }
+
+  /** Deletes every expired key (rate-limit windows, TOTP steps, pending idempotency marks…); dirty only if any. */
+  sweepExpired(): void {
+    const now = this.now();
+    for (const [key, e] of this.kv)
+      if (e.expiresAt !== null && e.expiresAt <= now) {
+        this.kv.delete(key);
+        this.dirty = true;
+      }
+  }
+
+  /** GETDEL. */
+  kvTake<V = unknown>(key: string): V | undefined {
+    const v = this.kvGet<V>(key);
+    if (v !== undefined) this.kvDel(key);
+    return v;
+  }
+
+  // ── operations ──
+
+  get inOperation(): boolean {
+    return this.op !== null;
+  }
+
+  /** Runs `fn` as one operation: rolled back entirely when it throws; audit rows and after-commit work on success. */
+  run<T>(action: string, actorId: string | null, fn: () => T): T {
+    if (this.op) return fn();
+    const op: Operation = { action, actorId, undo: [], touched: new Map(), audit: [], afterCommit: [] };
+    this.op = op;
+    let result: T;
+    try {
+      result = fn();
+      this.flushAudit(op);
+    } catch (e) {
+      for (let i = op.undo.length - 1; i >= 0; i--) op.undo[i]!();
+      this.op = null;
+      throw e;
+    }
+    this.op = null;
+    for (const job of op.afterCommit) job();
+    return result;
+  }
+
+  /** Async variant: the undo log still covers every write made before the first rejection. */
+  async runAsync<T>(action: string, actorId: string | null, fn: () => Promise<T>): Promise<T> {
+    if (this.op) return fn();
+    const op: Operation = { action, actorId, undo: [], touched: new Map(), audit: [], afterCommit: [] };
+    this.op = op;
+    let result: T;
+    try {
+      result = await fn();
+      this.flushAudit(op);
+    } catch (e) {
+      for (let i = op.undo.length - 1; i >= 0; i--) op.undo[i]!();
+      this.op = null;
+      throw e;
+    }
+    this.op = null;
+    for (const job of op.afterCommit) job();
+    return result;
+  }
+
+  get action(): string {
+    return this.op?.action ?? 'system';
+  }
+
+  get actorId(): string | null {
+    return this.op?.actorId ?? null;
+  }
+
+  /** Snapshots a row before its first change in the current operation (audited at commit). */
+  touch(entityType: string, row: { id: string }): void {
+    const op = this.op;
+    if (!op || op.touched.has(row)) return;
+    op.touched.set(row, { type: entityType, before: auditView(row), id: row.id });
+  }
+
+  /** A row created by the current operation (audited at commit with `before` = null). */
+  created(entityType: string, row: { id: string }): void {
+    this.op?.touched.set(row, { type: entityType, before: null, id: row.id });
+  }
+
+  /** An explicit audit entry of the current operation (deletions, secrets, relations). */
+  audit(entry: Omit<AuditRecord, 'action' | 'actorId'> & Partial<Pick<AuditRecord, 'action' | 'actorId'>>): void {
+    if (this.op) this.op.audit.push({ action: this.op.action, actorId: this.op.actorId, ...entry });
+    else this.writeAudit({ action: entry.action ?? 'system', actorId: entry.actorId ?? null, ...entry });
+  }
+
+  /** Work that runs after the operation commits (notifications, rating, VSD import); immediately outside one. */
+  afterCommit(job: () => void): void {
+    if (this.op) this.op.afterCommit.push(job);
+    else job();
+  }
+
+  private flushAudit(op: Operation): void {
+    for (const [row, t] of op.touched) {
+      const diff = auditDiff(t.before, auditView(row));
+      if (Object.keys(diff).length === 0) continue;
+      this.writeAudit({ action: op.action, actorId: op.actorId, entityType: t.type, entityId: t.id, diff });
+    }
+    for (const a of op.audit) this.writeAudit(a);
+  }
+
+  private writeAudit(a: AuditRecord): void {
+    this.seq.audit += 1;
+    this.insert('audit_log', {
+      id: this.seq.audit,
+      actor_id: a.actorId,
+      action: a.action,
+      entity_type: a.entityType,
+      entity_id: a.entityId,
+      diff: a.diff,
+      ip: a.actorId ? '127.0.0.1' : null,
+      backend: 'express',
+      request_id: a.actorId === null && a.action.startsWith('system.') ? null : this.requestId,
+      created_at: a.at ?? this.nowIso(),
+    });
+  }
+}

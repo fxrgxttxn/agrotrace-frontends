@@ -118,3 +118,50 @@ jobs:
       - run: ./at.sh gw:test
       - uses: ./.github/actions/pnpm-store-save
         if: always()
+
+  e2e:
+    name: e2e (shared Playwright suite tests/e2e, ${{ matrix.front }} × mock)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+<<<<<<< HEAD
+        front: [react, angular]
+=======
+        front: [react, svelte]
+>>>>>>> feat/plan-6-svelte
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      # The mock build carries its backend (@agrotrace/mock-api in the browser): no API container is needed. The
+      # React stand gateway joins the shared network (created by the compose runs above; created here if not).
+      - if: matrix.front == 'react'
+        run: |
+          ./at.sh fe:build react --mock
+          docker network inspect agrotrace_at >/dev/null 2>&1 || docker network create agrotrace_at
+      # The Angular stand (compose project agrotrace-angular, its own network) serves both builds: dist-mock at
+      # angular-mock.localhost and dist (the public budget is checked by this build) at the other angular-* hosts.
+      - if: matrix.front == 'angular'
+        run: |
+          ./at.sh fe:build angular
+          ./at.sh fe:build angular --mock
+<<<<<<< HEAD
+=======
+      # The Svelte stand (compose project agrotrace-svelte, network agrotrace_svelte) serves both builds: build-mock at
+      # svelte-mock.localhost and build (the public budget is checked by its own e2e) at svelte-express.localhost; the
+      # shared suite runs through playwright-svelte on that network (./at.sh e2e svelte).
+      - if: matrix.front == 'svelte'
+        run: |
+          ./at.sh fe:build svelte
+          ./at.sh fe:build svelte --mock
+>>>>>>> feat/plan-6-svelte
+      - run: ./at.sh fe:gateway ${{ matrix.front }}
+      - run: ./at.sh e2e ${{ matrix.front }} mock
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-results-${{ matrix.front }}
+          path: tests/e2e/test-results/run
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()

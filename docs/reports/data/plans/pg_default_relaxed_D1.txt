@@ -1,0 +1,53 @@
+-- D1 EXPLAIN (ANALYZE, BUFFERS), PostgreSQL profile=default durability=relaxed
+-- parameters: batch=6760 (rolled back)
+WITH deleted_tests AS (
+        DELETE FROM lab_tests WHERE batch_id = %s
+    ),
+    deleted_links AS (
+        DELETE FROM batch_links WHERE parent_id = %s OR child_id = %s
+    ),
+    deleted_batch AS (
+        DELETE FROM batches WHERE id = %s RETURNING id
+    )
+    SELECT count(*) FROM deleted_batch
+
+Aggregate  (cost=58.91..58.92 rows=1 width=8) (actual time=0.104..0.104 rows=1 loops=1)
+  Buffers: shared hit=13
+  CTE deleted_tests
+    ->  Delete on lab_tests  (cost=4.34..27.92 rows=0 width=0) (actual time=0.021..0.021 rows=0 loops=1)
+          Buffers: shared hit=16
+          ->  Bitmap Heap Scan on lab_tests  (cost=4.34..27.92 rows=7 width=6) (actual time=0.012..0.019 rows=7 loops=1)
+                Recheck Cond: (batch_id = '6760'::smallint)
+                Heap Blocks: exact=7
+                Buffers: shared hit=9
+                ->  Bitmap Index Scan on ix_lab_tests_batch  (cost=0.00..4.34 rows=7 width=0) (actual time=0.011..0.011 rows=7 loops=1)
+                      Index Cond: (batch_id = '6760'::smallint)
+                      Buffers: shared hit=2
+  CTE deleted_links
+    ->  Delete on batch_links  (cost=8.60..22.66 rows=0 width=0) (actual time=0.040..0.040 rows=0 loops=1)
+          Buffers: shared hit=7 read=2
+          ->  Bitmap Heap Scan on batch_links  (cost=8.60..22.66 rows=4 width=6) (actual time=0.036..0.039 rows=3 loops=1)
+                Recheck Cond: ((parent_id = '6760'::smallint) OR (child_id = '6760'::smallint))
+                Heap Blocks: exact=2
+                Buffers: shared hit=4 read=2
+                ->  BitmapOr  (cost=8.60..8.60 rows=4 width=0) (actual time=0.028..0.028 rows=0 loops=1)
+                      Buffers: shared hit=2 read=2
+                      ->  Bitmap Index Scan on ix_batch_links_parent  (cost=0.00..4.30 rows=2 width=0) (actual time=0.003..0.003 rows=1 loops=1)
+                            Index Cond: (parent_id = '6760'::smallint)
+                            Buffers: shared hit=2
+                      ->  Bitmap Index Scan on ix_batch_links_child  (cost=0.00..4.30 rows=2 width=0) (actual time=0.025..0.025 rows=2 loops=1)
+                            Index Cond: (child_id = '6760'::smallint)
+                            Buffers: shared read=2
+  CTE deleted_batch
+    ->  Delete on batches  (cost=0.29..8.30 rows=1 width=6) (actual time=0.101..0.101 rows=1 loops=1)
+          Buffers: shared hit=13
+          ->  Index Scan using batches_pkey on batches  (cost=0.29..8.30 rows=1 width=6) (actual time=0.014..0.014 rows=1 loops=1)
+                Index Cond: (id = '6760'::smallint)
+                Buffers: shared hit=3
+  ->  CTE Scan on deleted_batch  (cost=0.00..0.02 rows=1 width=0) (actual time=0.101..0.102 rows=1 loops=1)
+        Buffers: shared hit=13
+Planning Time: 0.086 ms
+Trigger for constraint batch_links_parent_id_fkey on batches: time=0.197 calls=1
+Trigger for constraint batch_links_child_id_fkey on batches: time=0.144 calls=1
+Trigger for constraint lab_tests_batch_id_fkey on batches: time=0.151 calls=1
+Execution Time: 0.913 ms

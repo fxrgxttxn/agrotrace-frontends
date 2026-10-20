@@ -1,0 +1,17 @@
+-- D2 EXPLAIN (ANALYZE, BUFFERS), PostgreSQL profile=default durability=strict
+-- parameters: due_before=2023-04-01T00:00:00+00:00 (rolled back)
+DELETE FROM lab_tests WHERE due_at < %s
+
+Delete on lab_tests  (cost=16.24..181.06 rows=0 width=0) (actual time=0.420..0.420 rows=0 loops=1)
+  Buffers: shared hit=1127 read=3
+  ->  Bitmap Heap Scan on lab_tests  (cost=16.24..181.06 rows=1026 width=6) (actual time=0.061..0.250 rows=1024 loops=1)
+        Recheck Cond: (due_at < '2023-04-01 00:00:00+00'::timestamp with time zone)
+        Heap Blocks: exact=103
+        Buffers: shared hit=103 read=3
+        ->  Bitmap Index Scan on ix_lab_tests_due  (cost=0.00..15.98 rows=1026 width=0) (actual time=0.044..0.045 rows=1024 loops=1)
+              Index Cond: (due_at < '2023-04-01 00:00:00+00'::timestamp with time zone)
+              Buffers: shared read=3
+Planning:
+  Buffers: shared hit=3
+Planning Time: 0.034 ms
+Execution Time: 0.441 ms

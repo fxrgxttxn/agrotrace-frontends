@@ -1,0 +1,107 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "newProjectRoot": ".",
+  "cli": { "analytics": false, "packageManager": "pnpm" },
+  "projects": {
+    "agrotrace-public": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "at",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "outputPath": { "base": "dist-public", "browser": "" },
+            "index": false,
+            "browser": "src/public/main.ts",
+            "tsConfig": "tsconfig.public.json",
+            "webWorkerTsConfig": "tsconfig.worker.json",
+            "polyfills": [],
+            "assets": [],
+            "styles": [],
+            "loader": { ".svg": "text" },
+            "optimization": { "scripts": true, "styles": false, "fonts": false },
+            "subresourceIntegrity": false,
+            "sourceMap": false,
+            "outputHashing": "all",
+            "extractLicenses": false
+          }
+        }
+      }
+    },
+    "agrotrace": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "at",
+      "schematics": {},
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "outputPath": { "base": "dist", "browser": "" },
+            "index": "src/index.html",
+            "deployUrl": "/",
+            "browser": "src/main.ts",
+            "tsConfig": "tsconfig.app.json",
+            "polyfills": [],
+            "assets": [],
+            "styles": ["node_modules/@agrotrace/design-system/index.css"],
+            "loader": { ".svg": "text" },
+            "preserveSymlinks": false,
+            "optimization": {
+              "scripts": true,
+              "styles": { "minify": true, "inlineCritical": false },
+              "fonts": false
+            },
+            "subresourceIntegrity": false,
+            "sourceMap": false,
+            "outputHashing": "all",
+            "extractLicenses": false,
+            "allowedCommonJsDependencies": ["cytoscape-dagre"],
+            "budgets": [
+              { "type": "initial", "maximumWarning": "400kb", "maximumError": "1mb" },
+              { "type": "anyComponentStyle", "maximumWarning": "4kb", "maximumError": "8kb" }
+            ]
+          },
+          "configurations": {
+            "production": {
+              "outputPath": { "base": "dist", "browser": "assets" },
+              "deployUrl": "/assets/",
+              "fileReplacements": [{ "replace": "src/public-entry.ts", "with": "src/public-entry.build.ts" }]
+            },
+            "mock": {
+              "outputPath": { "base": "dist-mock", "browser": "assets" },
+              "tsConfig": "tsconfig.mock.json",
+              "fileReplacements": [
+                { "replace": "src/mock.ts", "with": "src/mock.mock.ts" },
+                { "replace": "src/public-entry.ts", "with": "src/public-entry.build.ts" }
+              ],
+              "loader": { ".svg": "file", ".webp": "file", ".ttf": "file" },
+              "allowedCommonJsDependencies": ["cytoscape-dagre", "saxes", "xmlchars"]
+            },
+            "development": {
+              "optimization": false,
+              "sourceMap": true,
+              "outputHashing": "none",
+              "fileReplacements": [
+                { "replace": "src/app/dev-routes.ts", "with": "src/app/dev-routes.dev.ts" }
+              ]
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": { "proxyConfig": "proxy.conf.json" },
+          "configurations": {
+            "development": { "buildTarget": "agrotrace:build:development" }
+          },
+          "defaultConfiguration": "development"
+        }
+      }
+    }
+  }
+}

@@ -9,6 +9,11 @@ import {
   formatDate,
   formatDateTime,
   formatPercent,
+  formatLocalDateTime,
+  formatLocalTime,
+  formatBytes,
+  formatDecimal,
+  formatLocalDate,
   problemMessage,
 } from '../src/index.js';
 
@@ -231,5 +236,44 @@ describe('createT: {name} substitution and missing-key fallback', () => {
   it('a missing key resolves to the key itself', () => {
     const t = createT('ru');
     expect(t('nav.doesNotExist')).toBe('nav.doesNotExist');
+  });
+});
+
+describe('formatLocalDateTime / formatLocalTime / formatBytes', () => {
+  it('shows an instant in the given (else the viewer’s) time zone as ДД.ММ.ГГГГ ЧЧ:ММ', () => {
+    expect(formatLocalDateTime('2026-09-24T08:45:00Z', 'ru', 'Europe/Moscow')).toBe('24.09.2026 11:45');
+    expect(formatLocalDateTime('2026-09-24T22:10:00Z', 'ru', 'Europe/Moscow')).toBe('25.09.2026 01:10');
+    expect(formatLocalDateTime('2026-09-24T08:45:00Z', 'en', 'UTC')).toBe('09/24/2026 08:45');
+  });
+  it('time only, 24-hour', () => {
+    expect(formatLocalTime('2026-09-24T08:05:00Z', 'ru', 'Europe/Moscow')).toBe('11:05');
+    expect(formatLocalTime('2026-09-24T23:59:00Z', 'en', 'UTC')).toBe('23:59');
+  });
+  it('an unparsable instant is returned as it is', () => {
+    expect(formatLocalDateTime('soon', 'ru')).toBe('soon');
+  });
+  it('file sizes in КБ / МБ with one decimal (ru comma), bytes below 1 КБ', () => {
+    expect(formatBytes(2097152, 'ru')).toBe('2 МБ');
+    expect(formatBytes(1258291, 'ru')).toBe('1,2 МБ');
+    expect(formatBytes(1258291, 'en')).toBe('1.2 MB');
+    expect(formatBytes(3584, 'ru')).toBe('3,5 КБ');
+    expect(formatBytes(512, 'ru')).toBe('512 Б');
+  });
+});
+
+describe('formatDecimal', () => {
+  it('a wire decimal string with the locale separator and grouped thousands, digits kept as they are', () => {
+    expect(formatDecimal('124.50', 'ru')).toBe('124,50');
+    expect(formatDecimal('12480.500', 'ru')).toBe('12 480,500');
+    expect(formatDecimal('12480.500', 'en')).toBe('12,480.500');
+    expect(formatDecimal('7', 'ru')).toBe('7');
+  });
+});
+
+describe('formatLocalDate', () => {
+  it('the viewer’s calendar day of an instant', () => {
+    expect(formatLocalDate('2026-09-24T22:10:00Z', 'ru', 'Europe/Moscow')).toBe('25.09.2026');
+    expect(formatLocalDate('2026-09-24T22:10:00Z', 'en', 'UTC')).toBe('09/24/2026');
+    expect(formatLocalDate('soon', 'ru')).toBe('soon');
   });
 });
