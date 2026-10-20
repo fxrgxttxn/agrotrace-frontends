@@ -18,6 +18,8 @@ export default tseslint.config(
       '**/coverage/**',
       'contracts/**',
       'packages/mock-api/public/**',
+      // P33: the user's untracked document generators.
+      'docs/reports/**',
     ],
   },
   // TypeScript rules for script files and Svelte components only (the Angular inline templates are linted as HTML below).
