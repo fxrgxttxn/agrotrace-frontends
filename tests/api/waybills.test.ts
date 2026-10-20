@@ -33,6 +33,7 @@ import {
   sentWaybill,
   type Farm,
 } from './lib/production.js';
+import { freshFarm, labApproved } from './lib/quality.js';
 import { closeRedis, redis, sha256hex } from './lib/redis.js';
 import { instant, instants } from './lib/time.js';
 
@@ -529,8 +530,10 @@ describe('acceptWaybill / rejectWaybill', () => {
   it("reject of a waybill whose batch was recalled in transit: the receiver's open task goes to the sender (R50c), RECALL_TASK REASSIGNED", async () => {
     // Built through the API: a batch in transit to a retailer is recalled by a failed unplanned lab test (the recall
     // engine gives the task to the receiver of the SENT waybill, T9 note c).
+    // A fresh farm, not «КФХ Петров»: the FAIL and the recall lower the source farm's rating (BR-09, lib/quality.ts).
+    const farm = await freshFarm();
     const retailer = await freshOrg('RETAILER');
-    const b = await approvedBatch(farm);
+    const b = await labApproved(farm);
     const wb = await sentWaybill(farm.client, retailer.orgId, [b]);
     const inspector = await loginAs('INSPECTOR');
     const lab = await loginAs('LAB', { key: 'vetlab.head' });

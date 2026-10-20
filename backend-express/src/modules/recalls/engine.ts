@@ -1,6 +1,6 @@
 /**
  * The recall engine core (contract tag Recalls, steps 1–7; P2): synchronous, inside the transaction of the operation
- * that starts it (submitLabResults with FAIL now; createRecall and decideComplaint RECALL with Task 10/11), which runs
+ * that starts it (submitLabResults with FAIL, createRecall, decideComplaint with RECALL), which runs
  * at REPEATABLE READ (R54/D7, `RECALL_TX`).
  *
  *   1. an OPEN recall of the source → reused, steps 2–7 skipped (`findOpenRecall`); a concurrent creation hits
@@ -85,6 +85,8 @@ export interface RecallOutcome {
   /** Batches moved to Recalled — their public pages are dropped after the commit (R82). */
   changedCodes: string[];
   taskIds: string[];
+  /** Outbox rows to publish right after the commit (`recall.requested` of a new recall; R55 relay). */
+  eventIds: string[];
 }
 
 /** Step 1: the OPEN recall of the source batch, if any. */
@@ -279,7 +281,7 @@ export async function applyRecall(
         trigger: req.trigger,
       },
     );
-  await enqueue(tx, {
+  const requested = await enqueue(tx, {
     type: 'recall.requested',
     payload: {
       recallId: recall.id,
@@ -288,7 +290,7 @@ export async function applyRecall(
       openedBy: req.actorId,
     },
   });
-  return { recallId: recall.id, created: true, closed, changedCodes, taskIds };
+  return { recallId: recall.id, created: true, closed, changedCodes, taskIds, eventIds: [requested.id] };
 }
 
 /**
@@ -297,7 +299,8 @@ export async function applyRecall(
  */
 export async function startRecall(tx: Tx, req: RecallRequest): Promise<RecallOutcome> {
   const open = await findOpenRecall(tx, req.sourceBatchId);
-  if (open) return { recallId: open.id, created: false, closed: false, changedCodes: [], taskIds: [] };
+  if (open)
+    return { recallId: open.id, created: false, closed: false, changedCodes: [], taskIds: [], eventIds: [] };
   const members = await recallScope(tx, req.sourceBatchId, req.blockUpstream);
   const rows = await lockBatches(
     tx,

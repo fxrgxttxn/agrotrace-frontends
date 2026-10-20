@@ -31,6 +31,7 @@ import { usersRouter } from './modules/users/routes.js';
 import { labRouter } from './modules/lab/routes.js';
 import { processingRouter } from './modules/processing/routes.js';
 import { waybillsRouter } from './modules/waybills/routes.js';
+import { recallsRouter } from './modules/recalls/routes.js';
 
 export const ROUTER_OPTIONS = { caseSensitive: true, strict: true } as const;
 
@@ -82,6 +83,7 @@ export function createApp(c: Container): Express {
   api.use(waybillsRouter(c));
   api.use(processingRouter(c));
   api.use(labRouter(c));
+  api.use(recallsRouter(c));
   app.use('/api/v1', api);
 
   app.use(notFoundHandler());

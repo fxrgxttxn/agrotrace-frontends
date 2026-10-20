@@ -98,9 +98,15 @@ describe('getBatchDocuments', () => {
   it('seeded protocols: every visible lab test with a protocol, ordered by createdAt; LAB sees only its own', async () => {
     const inspector = await loginAs('INSPECTOR');
     // A seeded batch with protocols of both labs, if any; otherwise any batch with a protocol.
-    const list = await inspector.get('/batches', { query: { size: 100 } });
+    // Every page: other suites add batches of their own (newest first), so seeded ones may be past page 1.
+    const items: { id: string }[] = [];
+    for (let page = 1; ; page++) {
+      const list = await inspector.get('/batches', { query: { size: 100, page } });
+      items.push(...(list.body.items as { id: string }[]));
+      if (items.length >= list.body.total || list.body.items.length === 0) break;
+    }
     let checked = 0;
-    for (const item of list.body.items as { id: string }[]) {
+    for (const item of items.reverse()) {
       const res = await documents(inspector, item.id);
       if (res.body.labProtocols.length === 0) continue;
       checked++;

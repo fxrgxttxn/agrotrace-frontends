@@ -9,8 +9,8 @@
  *   business), then the message is rejected without requeue and dead-letters to `agrotrace.express.jobs.dlq`.
  * - Handlers claim the event in `processed_events` themselves, as the first statement of their transaction (R56).
  *
- * Task 6 registers `vsd.import`; Task 12 adds the other handlers (the relay publishes only registered types until
- * then, infra/relay.ts).
+ * Task 6 registers `vsd.import`, Task 10 `recall.requested` and `rating.recalculate`; Task 12 adds the other handlers
+ * (the relay publishes only registered types until then, infra/relay.ts).
  */
 import type { Channel, ConsumeMessage } from 'amqplib';
 import type { Logger } from '../logger.js';

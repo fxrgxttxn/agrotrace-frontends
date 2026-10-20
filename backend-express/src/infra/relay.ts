@@ -9,8 +9,9 @@
  * - sweeper: every 5 s, only while `pg_try_advisory_xact_lock(hashtext('agrotrace.outbox.express'))` succeeds, the
  *   oldest 100 unpublished rows of this backend.
  *
- * Task 6 scope (P1): only the event types with a consumer in the worker are relayed (`RELAYED_TYPES`); rows of the
- * other types stay unpublished in the outbox until Task 12 adds their consumers and widens the list to every type.
+ * Only the event types with a consumer in the worker are relayed (`RELAYED_TYPES`; P1): vsd.import (Task 6),
+ * recall.requested and rating.recalculate (Task 10). Rows of the other types (notification.dispatch, lab.escalate) stay
+ * unpublished in the outbox until Task 12 adds their consumers and widens the list to every type.
  */
 import { sql, type Transaction } from 'kysely';
 import type { ConfirmChannel } from 'amqplib';
@@ -21,7 +22,7 @@ import { EXCHANGE, type Amqp } from './amqp.js';
 import type { EventType } from './outbox.js';
 
 /** Event types the worker consumes so far (Task 12: every type of the envelope). */
-export const RELAYED_TYPES: readonly EventType[] = ['vsd.import'];
+export const RELAYED_TYPES: readonly EventType[] = ['vsd.import', 'recall.requested', 'rating.recalculate'];
 
 const SWEEP_INTERVAL_MS = 5000;
 const SWEEP_BATCH = 100;

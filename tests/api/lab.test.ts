@@ -25,10 +25,10 @@ import { expectErrors, expectProblem } from './lib/expect.js';
 import { apiPath, contentDisposition, fixture, sha256hex, upload } from './lib/files.js';
 import { registerOrg } from './lib/fixtures.js';
 import {
-  acceptedAt,
   approvedBatch,
   createBatch,
   daysAgo,
+  deliver,
   eventually,
   flour,
   freshOrg,
@@ -37,8 +37,8 @@ import {
   petrov,
   processBatches,
   sentWaybill,
-  type Farm,
 } from './lib/production.js';
+import { freshFarm, labApproved } from './lib/quality.js';
 import { closeRedis, redis } from './lib/redis.js';
 import { instant, instants } from './lib/time.js';
 
@@ -713,12 +713,15 @@ describe('submitLabResults', () => {
   });
 
   it('FAIL of an unplanned test on a processed batch: the downward recall (holders, InTransit receiver, depth); an OPEN recall is reused; a recall without tasks closes at once (BR-10)', async () => {
-    const farm: Farm = await petrov();
+    // A fresh farm, not «КФХ Петров»: the FAIL and the recall lower the source farm's rating (BR-09, lib/quality.ts).
+    const farm = await freshFarm();
     const processor = await freshOrg('PROCESSOR');
     const retailer = await freshOrg('RETAILER');
     const flourId = (await flour()).id;
     // A (farm) → processor → O1, O2; O1 shipped to the retailer (InTransit); O2 → O3.
-    const a = await acceptedAt(farm, processor);
+    const a0 = await labApproved(farm);
+    await deliver(farm.client, processor, a0);
+    const a = (await getBatch(processor.client, a0.id)).body as { id: string; publicCode: string };
     const p1 = await processBatches(
       processor.client,
       [{ batchId: a.id, massUsedKg: '100.000' }],
