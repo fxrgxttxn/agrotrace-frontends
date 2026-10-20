@@ -1176,7 +1176,24 @@ export interface paths {
         put?: never;
         /**
          * Жалоба покупателя
-         * @description Жалоба на партию (FR-PUB-03, БП-6) со статусом NEW; инспекторы получают уведомление COMPLAINT. Защита от спама: решение ALTCHA в поле `altcha` (неверное, истёкшее или повторно использованное — 400 CAPTCHA_FAILED) и лимит 10 жалоб в час на IP (429).
+         * @description Жалоба на партию (FR-PUB-03, БП-6) со статусом NEW; инспекторы получают уведомление COMPLAINT.
+         *     Защита от спама: решение ALTCHA в поле `altcha` (неверное, истёкшее или повторно использованное —
+         *     400 CAPTCHA_FAILED) и лимит 10 жалоб в час на IP (429). Порядок проверок:
+         *
+         *     1. Лимит `complaint-ip` (R30, P9 — IP клиента; учитывается каждый запрос, в том числе с ошибками) — 429.
+         *
+         *     2. `publicCode` по шаблону и тело по схеме — одна 400 VALIDATION (`errors.publicCode`, поля тела).
+         *
+         *     3. Решение ALTCHA (описание `getCaptchaChallenge`): не разбирается, истекло, не совпадает `challenge` или
+         *     `signature`, либо ключ `altcha-used:{signature}` уже есть (повтор) — 400 CAPTCHA_FAILED.
+         *
+         *     4. Партия с этим `publicCode` не существует или удалена — 404; решение при этом не расходуется.
+         *
+         *     5. Решение отмечается использованным: `SET altcha-used:{signature} "1" NX EX 600` (общий Redis, R82); ключ уже
+         *     есть (параллельный повтор) — 400 CAPTCHA_FAILED.
+         *
+         *     Результат: жалоба NEW (`contact` — из тела или null, `ip` — IP клиента), строка аудита без автора, после коммита —
+         *     уведомление COMPLAINT инспекторам (`roles: [INSPECTOR]`).
          */
         post: operations["createPublicComplaint"];
         delete?: never;
@@ -1194,7 +1211,7 @@ export interface paths {
         };
         /**
          * Задача ALTCHA
-         * @description Выдаёт новую proof-of-work задачу ALTCHA для формы жалобы; `Cache-Control: no-store`.
+         * @description Выдаёт новую proof-of-work задачу ALTCHA для формы жалобы; `Cache-Control: no-store`. Формат — ALTCHA v1 (altcha-lib / altcha / altcha-org/altcha), ключ HMAC общий для трёх реализаций, поэтому задачу одной принимает любая: `key` = hex(HMAC-SHA256(JWT_SECRET, "agrotrace:altcha:v1")) (строка из 64 символов — ключ HMAC в UTF-8); `salt` = случайные hex-символы + `?expires=<Unix-секунды>` (момент выдачи + 600); `challenge` = sha256hex(`salt` + `number`) для секретного целого `number` из [0, `maxnumber`]; `signature` = hex(HMAC-SHA256(`key`, `challenge`)). Решение (поле `altcha` жалобы) — base64 от JSON `{algorithm, challenge, number, salt, signature}` (другие поля виджета допускаются); оно верно, если `algorithm` = SHA-256, `expires` из `salt` не в прошлом, sha256hex(`salt` + `number`) = `challenge` и `signature` совпадает.
          */
         get: operations["getCaptchaChallenge"];
         put?: never;

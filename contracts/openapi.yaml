@@ -101,6 +101,7 @@ info:
       | `totp-used:{userId}:{step}` | `"1"` | 90 | принятый код TOTP шага `step` (R35): `SET NX EX 90`; ключ уже есть — повтор кода, 401 INVALID_TWO_FACTOR_CODE |
       | `2fa:{challengeId}` | `{"userId": "<uuid>", "exp": <unix>}` | 300 | `login` при включённой TOTP (R35); `verifyTwoFactor`: успех — `GETDEL` |
       | `2fa-fail:{challengeId}` | счётчик неверных кодов | 300 | `verifyTwoFactor`: `INCR`, при 1 — `EXPIRE 300`; при 5 — `DEL` обоих ключей challenge |
+      | `altcha-used:{signature}` | `"1"` | 600 | `createPublicComplaint`: принятое решение ALTCHA (`signature` — поле решения, 64 hex) — `SET NX EX 600` после проверки решения и партии; ключ уже есть — повтор, 400 CAPTCHA_FAILED |
       | `idem:{userId}:{Idempotency-Key}` | см. параметр `Idempotency-Key` (R48, R53) | 60 / 86400 | операции с `x-idempotent` |
       | `rl:{scope}:{subject}:{windowStartEpochSec}` | счётчик (R30) | окно скоупа | `contracts/rules/rate-limits.json` |
       | `tg:poller` | идентификатор процесса-поллера | 30 | `SET NX EX 30`, продление каждые 10 с только владельцем — атомарно скриптом Lua (compare-and-PEXPIRE: `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], 30000) end return 0`); 0 — владение потеряно, опрос прекращается |
