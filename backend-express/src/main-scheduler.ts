@@ -13,10 +13,19 @@ const config = configOrExit();
 const logger = createLogger({ level: config.LOG_LEVEL, process: 'scheduler' });
 crashOnUnhandled(logger);
 const container = createContainer(config, logger, { process: 'scheduler' });
+const jobs = [labEscalationJob(container.db)];
+// A tick holds one pool client for its advisory lock while the job runs on another: every job may tick at once.
+if (config.DB_POOL_MAX < jobs.length + 1) {
+  logger.fatal(
+    { DB_POOL_MAX: config.DB_POOL_MAX, jobs: jobs.length },
+    'scheduler needs DB_POOL_MAX >= jobs + 1',
+  );
+  process.exit(1);
+}
 const scheduler = startScheduler({
   pool: container.pool,
   logger,
-  jobs: [labEscalationJob(container.db)],
+  jobs,
   intervalMs: config.SCHEDULER_TICK_MS,
 });
 logger.info({ tickMs: config.SCHEDULER_TICK_MS }, 'scheduler started');
