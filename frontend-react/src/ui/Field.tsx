@@ -6,7 +6,7 @@ interface FieldState {
   invalid: boolean;
 }
 
-const FieldContext = createContext<FieldState | null>(null);
+export const FieldContext = createContext<FieldState | null>(null);
 
 export interface FieldProps {
   /** Id of the control; the label points at it, the error element is `${id}-error`. */
@@ -35,35 +35,6 @@ export function Field({ id, label, error, children }: FieldProps) {
         )}
       </div>
     </FieldContext.Provider>
-  );
-}
-
-/** Group of checkboxes / radios: `<fieldset class="at-field"><legend class="at-field__label">`. */
-export function FieldSet({
-  legend,
-  error,
-  errorId,
-  direction = 'column',
-  children,
-}: {
-  legend: ReactNode;
-  error?: string | null;
-  errorId?: string;
-  direction?: 'column' | 'row';
-  children: ReactNode;
-}) {
-  return (
-    <fieldset className="at-field" data-invalid={error ? '' : undefined}>
-      <legend className="at-field__label">{legend}</legend>
-      <div className="at-field__options" data-direction={direction}>
-        {children}
-      </div>
-      {error && (
-        <p className="at-field__error" id={errorId} role="alert">
-          {error}
-        </p>
-      )}
-    </fieldset>
   );
 }
 

@@ -14,13 +14,15 @@ import {
   ApiProblem,
   createApi,
   createMemoryTokenStore,
-  unwrap,
   type Api,
   type LoginSuccess,
   type Me,
   type TokenStore,
 } from '@agrotrace/api-client';
+import { call, retryAfterOf } from './api';
 import { t } from './i18n';
+import { cacheGeneration, resetSessionCache, setSessionActive } from './cache';
+import { trackRequest } from './actions';
 import { useToast } from '../ui/Toasts';
 
 // Session (spec §9.2 «Context + useReducer», rulings R32/R61/R62): the access token lives in memory only
@@ -28,6 +30,9 @@ import { useToast } from '../ui/Toasts';
 // session from the cookie (`POST /auth/refresh`, serialized across tabs by api-client's Web Lock) and loads `/me`.
 // A session lost for good (refresh 401/403) sends the user to `/login?next=<where they were>`; a transient failure
 // (network, 5xx) never logs out (R61). Logout is broadcast to the other tabs.
+
+/** Wait after a 429 of `/auth/refresh`: api-client reports it as a transient problem without its Retry-After. */
+const REFRESH_429_WAIT = 10;
 
 export const API_BASE = '/api/v1';
 const SESSION_CHANNEL = 'agrotrace-session';
@@ -51,7 +56,9 @@ export function createSessionCore(fetchImpl?: typeof fetch): SessionCore {
     baseUrl: apiBaseUrl(),
     session: store,
     onAuthLost: () => onAuthLost.current(),
-    ...(fetchImpl ? { fetch: fetchImpl } : {}),
+    // Requests an own action started are counted to it (FM26/FM30: the focus rescue follows the person's actions).
+    fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+      trackRequest(() => (fetchImpl ?? globalThis.fetch)(input, init)),
   });
   return { store, api, onAuthLost };
 }
@@ -59,17 +66,21 @@ export function createSessionCore(fetchImpl?: typeof fetch): SessionCore {
 export type SessionState =
   | { status: 'loading' }
   | { status: 'anonymous'; loggedOut?: boolean }
-  | { status: 'unavailable' }
+  | { status: 'unavailable'; retryAfter?: number }
   | { status: 'authenticated'; me: Me };
 
 type Action =
   | { type: 'loading' }
   | { type: 'anonymous'; loggedOut?: boolean }
-  | { type: 'unavailable' }
+  | { type: 'unavailable'; retryAfter?: number }
   | { type: 'authenticated'; me: Me };
 
 function reducer(_: SessionState, action: Action): SessionState {
   if (action.type === 'authenticated') return { status: 'authenticated', me: action.me };
+  if (action.type === 'unavailable')
+    return action.retryAfter
+      ? { status: 'unavailable', retryAfter: action.retryAfter }
+      : { status: 'unavailable' };
   if (action.type === 'anonymous')
     return action.loggedOut ? { status: 'anonymous', loggedOut: true } : { status: 'anonymous' };
   return { status: action.type };
@@ -124,30 +135,58 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
   here.current = `${location.pathname}${location.search}`;
   const { api, store } = core;
 
-  const loadMe = useCallback(async () => unwrap(await api.GET('/me')) as Me, [api]);
+  const loadMe = useCallback(() => call<Me>(api.GET('/me')), [api]);
 
+  // Whether a signed-in session is on — kept in step with every «authenticated» transition, synchronously, so screens
+  // that render in the same commit know they belong to a session (FM29) and late writes can be told apart (FM28).
+  const authed = useRef(false);
+  const becomeAuthenticated = useCallback(
+    (me: Me) => {
+      authed.current = true;
+      setSessionActive(queryClient, true);
+      dispatch({ type: 'authenticated', me });
+    },
+    [queryClient],
+  );
+
+  // FM32/FM28: a restore is bound to its own run — a logout broadcast, a sign-in or another restore while it waits
+  // (refresh, /me) makes its late answers void: they never turn the tab into a signed-in one.
+  const restoreRun = useRef(0);
   const restore = useCallback(async () => {
+    const run = ++restoreRun.current;
+    const current = () => restoreRun.current === run;
     booting.current = true;
     dispatch({ type: 'loading' });
     try {
       const token = store.get() ?? (await api.refresh());
+      if (!current()) return;
       if (!token) {
         dispatch({ type: 'anonymous' });
         return;
       }
-      dispatch({ type: 'authenticated', me: await loadMe() });
+      const me = await loadMe();
+      if (!current()) return;
+      becomeAuthenticated(me);
     } catch (e) {
-      // R61: a network error or 5xx is not a logout — offer a retry instead of the login screen.
-      if (e instanceof ApiProblem && (e.status === 0 || e.status >= 500)) dispatch({ type: 'unavailable' });
+      if (!current()) return;
+      // R61: a network error, a 5xx or a rate limit (429 of /auth/refresh or /me) is not a logout — the session is kept
+      // and a retry is offered (after Retry-After for a 429) instead of the login screen.
+      if (e instanceof ApiProblem && e.status === 429)
+        dispatch({
+          type: 'unavailable',
+          retryAfter: e.code === 'RATE_LIMITED' ? retryAfterOf(e) : REFRESH_429_WAIT,
+        });
+      else if (e instanceof ApiProblem && (e.status === 0 || e.status >= 500))
+        dispatch({ type: 'unavailable' });
       else if (e instanceof TypeError) dispatch({ type: 'unavailable' });
       else {
         store.set(null);
         dispatch({ type: 'anonymous' });
       }
     } finally {
-      booting.current = false;
+      if (current()) booting.current = false;
     }
-  }, [api, store, loadMe]);
+  }, [api, store, loadMe, becomeAuthenticated]);
 
   const toLogin = useCallback(() => {
     const next = safeNext(here.current);
@@ -160,7 +199,11 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
   const endLocally = useCallback(
     (loggedOut = false) => {
       store.set(null);
-      queryClient.clear();
+      // FM29: only a signed-in session that really ends bumps the generation (another tab's logout reaching a tab that
+      // is already on /login changes nothing — its login form must keep speaking).
+      if (authed.current) resetSessionCache(queryClient);
+      authed.current = false;
+      setSessionActive(queryClient, false);
       dispatch({ type: 'anonymous', loggedOut });
     },
     [store, queryClient],
@@ -169,6 +212,12 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
   useEffect(() => {
     core.onAuthLost.current = () => {
       if (booting.current) return; // start-up without a cookie is simply «not signed in»
+      // FM32: only a tab that had a session (its status, never a token that merely arrived) ends one and goes to
+      // /login; an anonymous screen (invite, forgot, register) keeps its typed data.
+      if (!authed.current) {
+        store.set(null);
+        return;
+      }
       endLocally();
       toast.push({ tone: 'attention', text: t('errors.TOKEN_EXPIRED') });
       toLogin();
@@ -176,7 +225,7 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     return () => {
       core.onAuthLost.current = () => {};
     };
-  }, [core, endLocally, toLogin, toast]);
+  }, [core, endLocally, toLogin, toast, store]);
 
   useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return;
@@ -184,6 +233,19 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     channel.current = ch;
     ch.onmessage = (e: MessageEvent) => {
       if ((e.data as { type?: string } | null)?.type === 'logout') {
+        // FM32: a tab without a session (anonymous, loading, unavailable) only drops a token it may have received
+        // from another tab; it neither ends a session nor leaves its screen.
+        if (!authed.current) {
+          store.set(null);
+          // A restore still waiting (refresh, /me) belongs to the session that just ended: it is voided and the tab
+          // ends anonymous where it is (no generation bump, no navigation — FM32).
+          if (booting.current) {
+            restoreRun.current++;
+            booting.current = false;
+            dispatch({ type: 'anonymous' });
+          }
+          return;
+        }
         endLocally(true);
         navigate('/login', { replace: true });
       }
@@ -192,7 +254,7 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
       ch.close();
       channel.current = null;
     };
-  }, [endLocally, navigate]);
+  }, [endLocally, navigate, store]);
 
   useEffect(() => {
     void restore();
@@ -200,10 +262,14 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
 
   const signIn = useCallback(
     (result: LoginSuccess) => {
+      // A new session starts on an empty cache (FM24: nothing of a previous person, their late writes dropped).
+      resetSessionCache(queryClient);
+      restoreRun.current++; // a restore still waiting never replaces the person who just signed in
+      booting.current = false;
       store.set(result.accessToken);
-      dispatch({ type: 'authenticated', me: result.user as Me });
+      becomeAuthenticated(result.user as Me);
     },
-    [store],
+    [store, queryClient, becomeAuthenticated],
   );
 
   const signOut = useCallback(
@@ -220,11 +286,19 @@ export function SessionProvider({ core, children }: { core: SessionCore; childre
     [api, endLocally, navigate],
   );
 
+  // FM28: a session state write never revives an ended session nor lands in the next person's: a re-read that
+  // answers after the session ended (or another started) is dropped; so is a profile handed in by a late answer.
   const reloadMe = useCallback(async () => {
-    dispatch({ type: 'authenticated', me: await loadMe() });
-  }, [loadMe]);
+    const gen = cacheGeneration(queryClient);
+    const me = await loadMe();
+    if (!authed.current || cacheGeneration(queryClient) !== gen) return;
+    dispatch({ type: 'authenticated', me });
+  }, [loadMe, queryClient]);
 
-  const setMe = useCallback((me: Me) => dispatch({ type: 'authenticated', me }), []);
+  const setMe = useCallback((me: Me) => {
+    if (!authed.current) return;
+    dispatch({ type: 'authenticated', me });
+  }, []);
 
   const value = useMemo<Session>(
     () => ({ state, api, store, signIn, signOut, reloadMe, setMe, restore }),

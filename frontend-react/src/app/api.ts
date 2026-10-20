@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FieldValues, Path, UseFormReturn } from 'react-hook-form';
 import { ApiProblem, type ProblemBody } from '@agrotrace/api-client';
-import { problemMessage } from '@agrotrace/i18n';
+import { enumLabel, problemMessage } from '@agrotrace/i18n';
 import { t } from './i18n';
+import { useScreenAlive } from './cache';
 import { useToast } from '../ui/Toasts';
+
+export { useCountdown, focusIfIdle, useFocusAfterWait } from '../ui/wait';
 
 // Calling the API from screens: every call goes through `call()` (api-client's typed result → data or ApiProblem),
 // the server's `Retry-After` of a 429 is kept on the problem, and forms map a problem onto their fields
@@ -50,8 +53,12 @@ export function retryAfterOf(p: ApiProblem): number {
 export function errorText(e: unknown): string {
   if (e instanceof ApiProblem) {
     if (e.code === 'FORBIDDEN' && typeof e.params?.reason === 'string') {
-      const key = `auth.forbidden.${e.params.reason}`;
-      const text = t(key);
+      // The other side of an operation (NOT_HOLDER, NOT_SENDER, NOT_RECEIVER) or a state (BATCH_STATUS): the reason's
+      // own text, with the batch code when the answer names it.
+      const code = typeof e.params.publicCode === 'string' ? e.params.publicCode : null;
+      const status = typeof e.params.status === 'string' ? enumLabel(t, 'BatchStatus', e.params.status) : '';
+      const key = `auth.forbidden.${e.params.reason}${code ? '_CODE' : ''}`;
+      const text = t(key, { publicCode: code ?? '', status });
       if (text !== key) return text;
     }
     if (e.status === 429) return t('auth.rateLimited', { seconds: retryAfterOf(e) });
@@ -69,24 +76,14 @@ export function fieldText(message: string | undefined): string | undefined {
   return message ? t(message) : undefined;
 }
 
-/** Countdown for a rate-limited form: `start(seconds)`, `left` = seconds remaining (0 — free). */
-export function useCountdown(): [number, (seconds: number) => void] {
-  const [left, setLeft] = useState(0);
-  useEffect(() => {
-    if (left <= 0) return;
-    const timer = setTimeout(() => setLeft((s) => s - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [left]);
-  const start = useCallback((seconds: number) => setLeft(Math.max(1, Math.ceil(seconds))), []);
-  return [left, start];
-}
-
 /** One form-level message at a time (an error toast, `role="alert"`): a new submit or message replaces it. */
 export function useFormAlert(): {
   show: (text: string, tone?: 'danger' | 'attention') => void;
   clear: () => void;
 } {
+  // FM26: a message of a screen that is gone (or of an ended session) is not shown.
   const toast = useToast();
+  const alive = useScreenAlive();
   const id = useRef<number | null>(null);
   const clear = useCallback(() => {
     if (id.current !== null) toast.dismiss(id.current);
@@ -95,12 +92,48 @@ export function useFormAlert(): {
   const show = useCallback(
     (text: string, tone: 'danger' | 'attention' = 'danger') => {
       clear();
-      id.current = toast.push({ tone, text });
+      if (alive()) id.current = toast.push({ tone, text });
     },
-    [toast, clear],
+    [toast, clear, alive],
   );
   useEffect(() => clear, [clear]);
   return { show, clear };
+}
+
+export interface DialogAlert {
+  /** The failure said in the dialog (`DialogMessage`), null — none. */
+  message: string | null;
+  show: (text: string, tone?: 'danger' | 'attention') => void;
+  /** A new attempt or a success: the failure no longer applies. */
+  clear: () => void;
+  /** The dialog closes (Отмена, the cross, Esc, or the screen closes it): a failure that still applies goes to the
+   * page as a toast. */
+  handOff: () => void;
+}
+
+/** README «Диалог» (polish P1): a failure inside an open modal dialog is said once — in the dialog's `role="alert"`,
+ * never at the same time as a page toast (the toast region is behind the modal, and both would be announced). When
+ * the dialog closes while the failure still applies (no retry or success cleared it), the page gets it as a toast. */
+export function useDialogAlert(): DialogAlert {
+  const toast = useToast();
+  const alive = useScreenAlive();
+  const [message, setMessage] = useState<string | null>(null);
+  const current = useRef<{ text: string; tone: 'danger' | 'attention' } | null>(null);
+  const show = useCallback((text: string, tone: 'danger' | 'attention' = 'danger') => {
+    current.current = { text, tone };
+    setMessage(text);
+  }, []);
+  const clear = useCallback(() => {
+    current.current = null;
+    setMessage(null);
+  }, []);
+  const handOff = useCallback(() => {
+    const failure = current.current;
+    clear();
+    // FM26: a failure of a screen that is gone (or of an ended session) is not shown.
+    if (failure && alive()) toast.push(failure);
+  }, [clear, alive, toast]);
+  return useMemo(() => ({ message, show, clear, handOff }), [message, show, clear, handOff]);
 }
 
 export interface ApplyOptions<F extends FieldValues> {
@@ -111,6 +144,8 @@ export interface ApplyOptions<F extends FieldValues> {
   alert: (text: string, tone?: 'danger' | 'attention') => void;
   /** Called for a 429 with the seconds to wait. */
   onRateLimit?: (seconds: number) => void;
+  /** Maps a server path onto the form field that shows it (`geometry.coordinates[0]` → `geometry`). */
+  alias?: (path: string) => string;
 }
 
 /** Puts a failed submit on the form: field errors, a form-level message, or the rate-limit countdown. */
@@ -119,13 +154,14 @@ export function applyProblem<F extends FieldValues>(e: unknown, o: ApplyOptions<
     const rest: string[] = [];
     const fields = (o.fields ?? []) as readonly string[];
     const marked = new Set<string>();
-    for (const [path, keys] of Object.entries(e.errors)) {
+    for (const [raw, keys] of Object.entries(e.errors)) {
+      const path = o.alias ? o.alias(raw) : raw;
       const key = keys[0];
       if (!key) continue;
-      if (o.form && fields.includes(path)) {
+      if (o.form && fields.includes(path) && !marked.has(path)) {
         o.form.setError(path as Path<F>, { type: 'server', message: key });
         marked.add(path);
-      } else rest.push(t(key));
+      } else if (!marked.has(path)) rest.push(t(key));
     }
     // Focus the first invalid field in the order of the form (`fields` is listed in DOM order), not of the answer.
     const firstField = fields.find((f) => marked.has(f));

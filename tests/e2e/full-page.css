@@ -1,0 +1,11 @@
+/* Full-page screenshots (helpers.ts FULL_PAGE_STYLE): Chromium captures the whole page with the viewport left as it
+   is, so the fixed bottom navigation (< 768 px) would be drawn over the content of the first screen. For the shot it
+   stands at the very end of the page instead — in the space .at-shell__main keeps for it — so everything under it is
+   compared and the bar itself still is. */
+.at-shell {
+  position: relative !important;
+}
+
+.at-bottom-nav {
+  position: absolute !important;
+}

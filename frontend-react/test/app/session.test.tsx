@@ -50,10 +50,60 @@ describe('session start-up', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Панель' })).toBeInTheDocument();
   });
 
+  it('a retry that fails again: the focus is on «Повторить» of the new screen (FM10)', async () => {
+    server.use(http.post(`${API_BASE}/auth/refresh`, () => new HttpResponse(null, { status: 503 })));
+    renderApp('/');
+    await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' });
+    await userEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Повторить' })).toHaveFocus());
+  });
+
   it('a network error of the refresh is transient too', async () => {
     server.use(http.post(`${API_BASE}/auth/refresh`, () => HttpResponse.error(), { once: true }));
     renderApp('/');
     expect(await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' })).toBeInTheDocument();
+  });
+
+  it('429 of the refresh (R61) is not a logout: «unavailable», retry after a wait', async () => {
+    server.use(
+      http.post(
+        `${API_BASE}/auth/refresh`,
+        () =>
+          HttpResponse.json(
+            { type: '/problems/rate-limited', title: 'Too many requests', status: 429, code: 'RATE_LIMITED' },
+            { status: 429, headers: { 'Content-Type': 'application/problem+json', 'Retry-After': '2' } },
+          ),
+        { once: true },
+      ),
+    );
+    const { router } = renderApp('/fields');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' })).toBeInTheDocument();
+    expect(screen.getByText('Слишком много запросов — попробуйте позже')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/fields');
+    expect(screen.getByRole('button', { name: /^Повторить через \d+ с$/ })).toBeDisabled();
+    await userEvent.click(await screen.findByRole('button', { name: 'Повторить' }, { timeout: 12000 }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Поля' })).toBeInTheDocument();
+  }, 20000);
+
+  it('429 of GET /me keeps the session: the retry waits Retry-After and reuses the token', async () => {
+    let refreshes = 0;
+    server.use(
+      contractResponse('refreshToken', { onRequest: () => void refreshes++ }),
+      contractResponse('getMe', { status: 429, headers: { 'Retry-After': '2' }, once: true }),
+    );
+    const { router, core } = renderApp('/fields');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Сервис недоступен' })).toBeInTheDocument();
+    expect(screen.getByText('Слишком много запросов — попробуйте позже')).toBeInTheDocument();
+    // The countdown may already have ticked once on a busy host.
+    expect(screen.getByRole('button', { name: /^Повторить через [12] с$/ })).toBeDisabled();
+    expect(core.store.get()).not.toBeNull();
+    expect(router.state.location.pathname).toBe('/fields');
+    const retry = await screen.findByRole('button', { name: 'Повторить' }, { timeout: 3500 });
+    // The wait is over: the focus is on the button that can act now.
+    await waitFor(() => expect(retry).toHaveFocus());
+    await userEvent.click(retry);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Поля' })).toBeInTheDocument();
+    expect(refreshes).toBe(1);
   });
 });
 
@@ -150,6 +200,49 @@ describe('session loss and logout', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Вход' })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/login');
     await waitFor(() => expect(got).toEqual([{ type: 'logout' }]));
+    other.close();
+  });
+
+  it('a logout in another tab while this one is still restoring: the late /me never signs it in (FM32)', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(contractResponse('getMe', { onRequest: () => held }));
+    const { router } = renderApp('/batches');
+    await new Promise((r) => setTimeout(r, 50));
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    expect(await screen.findByRole('heading', { level: 1, name: 'Вход' })).toBeInTheDocument();
+    release();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole('heading', { level: 1, name: 'Партии' })).toBeNull();
+    expect(router.state.location.pathname).toBe('/login');
+    other.close();
+  });
+
+  it("sign-in while a restore voided by another tab's logout still waits: the late refresh never replaces the new token", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      contractResponse('refreshToken', {
+        body: { ...(contractExample('refreshToken').body as object), accessToken: 'stale.cookie.token' },
+        onRequest: () => held,
+      }),
+    );
+    const { router, core } = renderApp('/login');
+    await new Promise((r) => setTimeout(r, 50));
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    await screen.findByRole('heading', { level: 1, name: 'Вход' });
+    await userEvent.type(screen.getByLabelText('Email'), 'petrov@kfh-petrov.ru');
+    await userEvent.type(screen.getByLabelText('Пароль'), 'secret');
+    await userEvent.click(screen.getByRole('button', { name: 'Войти' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+    const signedIn = core.store.get();
+    expect(signedIn).toBe((contractExample('login').body as { accessToken: string }).accessToken);
+    release();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(core.store.get()).toBe(signedIn);
+    expect(router.state.location.pathname).toBe('/');
     other.close();
   });
 

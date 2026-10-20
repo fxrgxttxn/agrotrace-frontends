@@ -47,8 +47,16 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.at-bottom-nav__link:hover {
+.at-bottom-nav__link:not(:disabled, [aria-disabled='true']):hover {
   color: var(--c-ink);
+}
+
+/* An item that cannot be used now (a `button` with `disabled`, a link with `aria-disabled="true"`): quieter than the
+   other items, no hover, no pointer. */
+.at-bottom-nav__link:disabled,
+.at-bottom-nav__link[aria-disabled='true'] {
+  color: var(--c-line-strong);
+  cursor: not-allowed;
 }
 
 .at-bottom-nav__link:focus-visible {

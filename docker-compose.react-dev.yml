@@ -10,7 +10,11 @@ services:
     image: agrotrace/gateway-react:dev
     volumes:
       - ./frontend-react/dist:/srv/react:ro
+      # Mock mode (FM23): ./at fe:build react --mock → react-mock.localhost:8089
+      - ./frontend-react/dist-mock:/srv/react-mock:ro
       - ./packages/design-system:/srv/ds:ro
+      # gzip for JS/CSS on this stand (Plan 2 Task 9; the main gateway gets it in Plan 8)
+      - ./frontend-react/stand/30-gzip.sh:/docker-entrypoint.d/30-gzip.sh:ro
     environment: { GATEWAY_PORT: '8089' }
     ports: ['8089:80']
     networks: [at]

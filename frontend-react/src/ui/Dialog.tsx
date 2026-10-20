@@ -67,6 +67,22 @@ export function Dialog({
     }
   }, [open, initialFocus]);
 
+  // A dialog rendered only while open (`{x && <Dialog open />}`) is removed by its close — Esc, the cross, a success —
+  // without a native `close` event: it still gives the focus back to its opener if it held it (FM21/FM25), closing
+  // first so the opener is no longer behind the modal. A focus the screen already moved elsewhere stays there.
+  useLayoutEffect(() => {
+    const dialog = ref.current;
+    return () => {
+      const back = opener.current;
+      if (!dialog?.open) return;
+      opener.current = null;
+      const active = document.activeElement;
+      const held = active === null || active === document.body || dialog.contains(active);
+      dialog.close();
+      if (held && back?.isConnected) back.focus();
+    };
+  }, []);
+
   // Title fallback focus runs once `tabindex="-1"` is on the heading.
   useEffect(() => {
     if (open && titleFocus) titleRef.current?.focus();
@@ -115,4 +131,15 @@ export function Dialog({
       {actions && <div className="at-dialog__actions">{actions}</div>}
     </dialog>
   );
+}
+
+/** A failure shown inside a modal dialog (README «Диалог»: the page's toast region is behind the modal, so the dialog
+ * says it itself — and only it; `useDialogAlert` hands a failure still standing to the page when the dialog closes).
+ * Nothing while there is no failure. */
+export function DialogMessage({ text }: { text: string | null | undefined }) {
+  return text ? (
+    <p className="at-field__error" role="alert" style={{ margin: 0 }}>
+      {text}
+    </p>
+  ) : null;
 }

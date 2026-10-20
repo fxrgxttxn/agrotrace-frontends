@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   ApiProblem,
   withVariant,
+  type FileRef,
   type Me,
   type NotificationChannels,
   type TelegramCode,
@@ -14,8 +15,17 @@ import {
   TwoFactorSetupRequestSchema,
   type TwoFactorSetupRequest,
 } from '@agrotrace/validation';
-import { call, errorText, errorTone, retryAfterOf, useCountdown, useFormAlert } from '../app/api';
+import {
+  call,
+  errorText,
+  errorTone,
+  retryAfterOf,
+  useCountdown,
+  useFocusAfterWait,
+  useFormAlert,
+} from '../app/api';
 import { errorOf, FORM_GRID, Submit, useSchemaForm } from '../app/forms';
+import { useCacheWriter, useScreenAlive, useScreenScope, useScreenToast } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { useMe, useSession } from '../app/session';
 import { ThemeSwitch } from '../shell/ThemeSwitch';
@@ -35,7 +45,6 @@ import {
   Page,
   Qr,
   Switch,
-  useToast,
   type FileItem,
 } from '../ui';
 
@@ -84,9 +93,26 @@ interface PersonalValues {
   phone: string | null;
 }
 
+/** The profile read again after a change that succeeded (FM28): the success is already said; a failed re-read keeps
+ * the shown profile and tries again a little later (a few times, while the screen and its session last) — it never
+ * turns the success into an error. */
+function useRefreshMe(): () => void {
+  const { reloadMe } = useSession();
+  const alive = useScreenAlive();
+  return useCallback(() => {
+    const attempt = (left: number) => {
+      reloadMe().catch(() => {
+        if (left > 0) setTimeout(() => alive() && attempt(left - 1), 3000);
+      });
+    };
+    attempt(2);
+  }, [reloadMe, alive]);
+}
+
 function PersonalCard({ me }: { me: Me }) {
   const { api, setMe } = useSession();
-  const toast = useToast();
+  const scope = useScreenScope();
+  const toast = useScreenToast();
   const { form, alert, wait, fail } = useSchemaForm<PersonalValues>(
     MeUpdateSchema,
     { fullName: me.fullName, phone: me.phone },
@@ -102,9 +128,11 @@ function PersonalCard({ me }: { me: Me }) {
     if (Object.keys(body).length === 0) return;
     try {
       const next = await call<Me>(api.PATCH('/me', { body }));
+      // FM28: the answer of an ended session (or of the previous person) never becomes the profile shown.
+      if (!scope.sameSession()) return;
       setMe(next);
       form.reset({ fullName: next.fullName, phone: next.phone });
-      toast.push({ tone: 'ok', text: t('profile.saved') });
+      toast.done({ tone: 'ok', text: t('profile.saved') });
     } catch (e) {
       fail(e);
     }
@@ -172,8 +200,10 @@ interface Picked {
 }
 
 function AvatarCard({ me }: { me: Me }) {
-  const { api, reloadMe } = useSession();
-  const toast = useToast();
+  const { api, setMe } = useSession();
+  const refreshMe = useRefreshMe();
+  const scope = useScreenScope();
+  const toast = useScreenToast();
   const alert = useFormAlert();
   const [picked, setPicked] = useState<Picked | null>(null);
   const [busy, setBusy] = useState<'upload' | 'delete' | null>(null);
@@ -197,10 +227,12 @@ function AvatarCard({ me }: { me: Me }) {
     try {
       const body = new FormData();
       body.append('file', picked.file);
-      await call(api.PUT('/me/avatar', { body: body as never }));
+      const stored = await call<FileRef>(api.PUT('/me/avatar', { body: body as never }));
+      // FM30: the known result is applied at once (the re-read may fail); only within this session.
+      if (scope.sameSession()) setMe({ ...me, avatarUrl: stored.url });
       setPicked(null);
-      await reloadMe();
-      toast.push({ tone: 'ok', text: t('profile.avatarSaved') });
+      toast.done({ tone: 'ok', text: t('profile.avatarSaved') });
+      refreshMe();
     } catch (e) {
       let error: string | undefined;
       if (e instanceof ApiProblem && e.code === 'FILE_TOO_LARGE')
@@ -223,8 +255,9 @@ function AvatarCard({ me }: { me: Me }) {
     setBusy('delete');
     try {
       await call(api.DELETE('/me/avatar'));
-      await reloadMe();
-      toast.push({ tone: 'ok', text: t('profile.avatarDeleted') });
+      if (scope.sameSession()) setMe({ ...me, avatarUrl: null });
+      toast.done({ tone: 'ok', text: t('profile.avatarDeleted') });
+      refreshMe();
     } catch (e) {
       alert.show(errorText(e), errorTone(e));
     } finally {
@@ -286,14 +319,15 @@ const CHANNELS_KEY = ['me', 'channels'] as const;
 
 function ChannelsCard() {
   const { api } = useSession();
-  const queryClient = useQueryClient();
-  const toast = useToast();
+  const cache = useCacheWriter();
+  const toast = useScreenToast();
   const alert = useFormAlert();
   const [code, setCode] = useState<TelegramCode | null>(null);
   const [saving, setSaving] = useState(false);
   const [codeBusy, setCodeBusy] = useState(false);
   const channels = useQuery({
     queryKey: CHANNELS_KEY,
+    meta: { failed: 'profile.channelsFailed' },
     queryFn: () => call<NotificationChannels>(api.GET('/me/channels')),
     // While a link code is out, watch for the bot to confirm the link.
     refetchInterval: code ? 5000 : false,
@@ -310,7 +344,7 @@ function ChannelsCard() {
   useEffect(() => {
     if (code && linked) {
       setCode(null);
-      toast.push({ tone: 'ok', text: t('profile.telegramLinked') });
+      toast.done({ tone: 'ok', text: t('profile.telegramLinked') });
     }
   }, [code, linked, toast]);
 
@@ -319,7 +353,7 @@ function ChannelsCard() {
     setSaving(true);
     try {
       const data = await call<NotificationChannels>(api.PUT('/me/channels', { body: next }));
-      queryClient.setQueryData(CHANNELS_KEY, data);
+      cache.set(CHANNELS_KEY, data);
     } catch (e) {
       const key = e instanceof ApiProblem ? (e.errors?.telegram?.[0] ?? e.errors?.email?.[0]) : undefined;
       alert.show(key ? t(key) : errorText(e), errorTone(e));
@@ -413,8 +447,10 @@ function ChannelsCard() {
 const groupSecret = (s: string) => s.replace(/(.{4})(?=.)/g, '$1 ');
 
 function TwoFactorCard({ me }: { me: Me }) {
-  const { api, reloadMe } = useSession();
-  const toast = useToast();
+  const { api, setMe } = useSession();
+  const refreshMe = useRefreshMe();
+  const scope = useScreenScope();
+  const toast = useScreenToast();
   const [pending, setPending] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [starting, setStarting] = useState(false);
   const { form, alert, wait, fail } = useSchemaForm<TwoFactorSetupRequest>(
@@ -423,12 +459,28 @@ function TwoFactorCard({ me }: { me: Me }) {
     ['code'],
   );
 
-  // A 429 on the start step waits on its own button.
+  // A 429 on the start step waits on its own button (FM17: the focus comes back to it when it can act).
   const [startWait, startStartWait] = useCountdown();
+  const setupRef = useFocusAfterWait(startWait);
+  // FM24: «Настроить» reveals the code form — the focus goes to its field; «Отмена» removes it — back to «Настроить».
+  const [backToSetup, setBackToSetup] = useState(false);
+  // FM25: the revealed code field takes the focus only if nothing else holds it (the removed «Настроить» leaves it on
+  // the body). A layout effect: it runs in the same commit, before the focus rescue could send the focus to the title.
+  useLayoutEffect(() => {
+    if (!pending) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || !active.isConnected || active.matches('h1.at-page__title'))
+      form.setFocus('code');
+  }, [pending, form]);
+  useEffect(() => {
+    if (!backToSetup) return;
+    setBackToSetup(false);
+    setupRef.current?.focus();
+  }, [backToSetup, setupRef]);
 
-  const alreadyOn = async () => {
+  const alreadyOn = () => {
     setPending(null);
-    await reloadMe();
+    refreshMe();
   };
 
   const start = async () => {
@@ -436,11 +488,12 @@ function TwoFactorCard({ me }: { me: Me }) {
     setStarting(true);
     try {
       const res = await call<TwoFactorSetupResponse>(api.POST('/auth/2fa/setup', { body: {} }));
-      if ('secret' in res && res.secret && res.otpauthUrl)
+      if ('secret' in res && res.secret && res.otpauthUrl) {
+        form.reset({ code: '' });
         setPending({ secret: res.secret, otpauthUrl: res.otpauthUrl });
-      else await alreadyOn();
+      } else alreadyOn();
     } catch (e) {
-      if (e instanceof ApiProblem && e.status === 409) await alreadyOn();
+      if (e instanceof ApiProblem && e.status === 409) alreadyOn();
       else if (e instanceof ApiProblem && e.status === 429) {
         startStartWait(retryAfterOf(e));
         alert.show(errorText(e), errorTone(e));
@@ -454,10 +507,12 @@ function TwoFactorCard({ me }: { me: Me }) {
     alert.clear();
     try {
       await call<TwoFactorSetupResponse>(api.POST('/auth/2fa/setup', { body }));
+      // FM30: two-factor is on — shown at once, whatever the follow-up re-read does.
+      if (scope.sameSession()) setMe({ ...me, totpEnabled: true });
       setPending(null);
       form.reset({ code: '' });
-      await reloadMe();
-      toast.push({ tone: 'ok', text: t('profile.twoFactorEnabled') });
+      toast.done({ tone: 'ok', text: t('profile.twoFactorEnabled') });
+      refreshMe();
     } catch (e) {
       if (e instanceof ApiProblem && e.code === 'INVALID_TWO_FACTOR_CODE') {
         form.setError(
@@ -465,7 +520,7 @@ function TwoFactorCard({ me }: { me: Me }) {
           { type: 'server', message: 'errors.INVALID_TWO_FACTOR_CODE' },
           { shouldFocus: true },
         );
-      } else if (e instanceof ApiProblem && e.status === 409) await alreadyOn();
+      } else if (e instanceof ApiProblem && e.status === 409) alreadyOn();
       else fail(e);
     }
   });
@@ -479,7 +534,7 @@ function TwoFactorCard({ me }: { me: Me }) {
       </CardHeader>
       {!me.totpEnabled && !pending && (
         <CardFooter>
-          <Button busy={starting} disabled={startWait > 0} onClick={() => void start()}>
+          <Button ref={setupRef} busy={starting} disabled={startWait > 0} onClick={() => void start()}>
             {startWait > 0 ? t('auth.retryIn', { seconds: startWait }) : t('profile.setup')}
           </Button>
         </CardFooter>
@@ -513,7 +568,16 @@ function TwoFactorCard({ me }: { me: Me }) {
             <Submit busy={form.formState.isSubmitting} wait={wait}>
               {t('profile.enable')}
             </Submit>
-            <Button variant="ghost" onClick={() => setPending(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                // FM27: reopening starts clean — no code, no error of the previous attempt.
+                setPending(null);
+                form.reset({ code: '' });
+                alert.clear();
+                setBackToSetup(true);
+              }}
+            >
               {t('action.cancel')}
             </Button>
           </CardFooter>

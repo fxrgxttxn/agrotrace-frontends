@@ -1,4 +1,5 @@
-import { Suspense, type ReactNode } from 'react';
+import { useCountdown, useFocusAfterWait } from './api';
+import { Suspense, useEffect, type ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { canAccess, type Access } from './access';
 import { safeNext, useSession } from './session';
@@ -6,17 +7,43 @@ import { t } from './i18n';
 import { Button, Empty, PageLoading } from '../ui';
 import { AuthLayout } from './layouts';
 
+/** Set by «Повторить»: when the retry ends on this screen again, the new button gets the focus (FM10). */
+let retried = false;
+
 /** Screen shown when the session cannot be restored for a transient reason (R61): retry, not a logout. */
 export function Unavailable() {
-  const { restore } = useSession();
+  const { restore, state } = useSession();
+  const retryAfter = state.status === 'unavailable' ? state.retryAfter : undefined;
+  // After a 429 the retry waits out Retry-After (the session itself is kept).
+  const [wait, startWait] = useCountdown();
+  useEffect(() => {
+    if (retryAfter) startWait(retryAfter);
+  }, [retryAfter, startWait]);
+  // A disabled button drops the focus; when the wait is over, the focus goes to the button that can act now (FM17).
+  const button = useFocusAfterWait(wait);
+  // A failed retry (loading → unavailable) remounts this screen: the focus goes back to «Повторить».
+  useEffect(() => {
+    if (retried) {
+      retried = false;
+      button.current?.focus();
+    }
+  }, [button]);
   return (
     <AuthLayout title={t('page.unavailable')}>
       <Empty
         art="empty-search"
-        text={t('errors.BACKEND_UNAVAILABLE')}
+        text={retryAfter ? t('errors.RATE_LIMITED') : t('errors.BACKEND_UNAVAILABLE')}
         action={
-          <Button variant="primary" onClick={() => void restore()}>
-            {t('action.retry')}
+          <Button
+            ref={button}
+            variant="primary"
+            disabled={wait > 0}
+            onClick={() => {
+              retried = true;
+              void restore();
+            }}
+          >
+            {wait > 0 ? t('auth.retryIn', { seconds: wait }) : t('action.retry')}
           </Button>
         }
       />

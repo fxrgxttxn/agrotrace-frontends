@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { File as NodeFile } from 'node:buffer';
 import { formatLocalTime } from '@agrotrace/i18n';
 import { server } from '../setup';
-import { contractExample, contractResponse } from '../msw/fromContract';
+import { API_BASE, contractExample, contractResponse } from '../msw/fromContract';
+import { http, HttpResponse } from 'msw';
 import { renderApp } from '../app/renderApp';
 
 // /profile on the contract's MSW handlers: updateMe, uploadMyAvatar, deleteMyAvatar, getMyChannels,
@@ -460,5 +461,210 @@ describe('two-factor authentication', () => {
     expect(tfa.getByLabelText('Код из приложения')).toHaveAccessibleDescription(
       'Код должен состоять из 6 цифр',
     );
+  });
+});
+
+describe('session boundaries and focus (FM17, FM24)', () => {
+  it('a late answer of the previous person never lands in the next session (cross-user)', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    let reads = 0;
+    server.use(
+      contractResponse('getMyChannels', {
+        body: { email: true, telegram: false, telegramLinked: true },
+        onRequest: () => void reads++,
+      }),
+      contractResponse('updateMyChannels', {
+        body: { email: false, telegram: false, telegramLinked: true },
+        onRequest: () => held,
+      }),
+    );
+    await openProfile();
+    const email = await within(card('Каналы уведомлений')).findByRole('switch', { name: 'Email' });
+    await userEvent.click(email);
+    // A signs out while the PUT is still on its way; B signs in in the same tab.
+    await userEvent.click(screen.getByRole('button', { name: 'Выйти' }));
+    await screen.findByRole('heading', { level: 1, name: 'Вход' });
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+    await userEvent.type(screen.getByLabelText('Email'), 'b@agrotrace.test');
+    await userEvent.type(screen.getByLabelText('Пароль'), 'agrotrace-demo');
+    await userEvent.click(screen.getByRole('button', { name: 'Войти' }));
+    await screen.findByRole('heading', { level: 1, name: 'Панель' });
+    const readsBefore = reads;
+    await userEvent.click(screen.getAllByRole('link', { name: /Профиль/ })[0]!);
+    await screen.findByRole('heading', { level: 1, name: 'Профиль' });
+    // B's channels are read from the server (A's PUT answer was dropped), and they are B's.
+    await waitFor(() => expect(reads).toBe(readsBefore + 1));
+    expect(await within(card('Каналы уведомлений')).findByRole('switch', { name: 'Email' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
+  it('a save that waited out a 429 takes the focus back when it can act (FM17, every form submit)', async () => {
+    server.use(contractResponse('updateMe', { status: 429, headers: { 'Retry-After': '1' } }));
+    await openProfile();
+    const personal = within(card('Личные данные'));
+    await userEvent.type(personal.getByLabelText('ФИО'), 'а');
+    await userEvent.click(personal.getByRole('button', { name: 'Сохранить' }));
+    expect(await personal.findByRole('button', { name: 'Повторить через 1 с' })).toBeDisabled();
+    const save = await personal.findByRole('button', { name: 'Сохранить' }, { timeout: 3000 });
+    await waitFor(() => expect(save).toHaveFocus());
+  });
+
+  it('2FA: «Настроить» reveals the code form with its field focused; «Отмена» returns to «Настроить»', async () => {
+    server.use(asMe({ roles: ['INSPECTOR'] }), contractResponse('setupTwoFactor', { example: 'pending' }));
+    await openProfile();
+    const tfa = within(card('Двухфакторная аутентификация'));
+    await userEvent.click(tfa.getByRole('button', { name: 'Настроить' }));
+    await waitFor(() => expect(tfa.getByLabelText('Код из приложения')).toHaveFocus());
+    await userEvent.click(tfa.getByRole('button', { name: 'Отмена' }));
+    await waitFor(() => expect(tfa.getByRole('button', { name: 'Настроить' })).toHaveFocus());
+  });
+
+  it('2FA: after «Включить» the form goes and the focus is on the page title, not the body (FM21)', async () => {
+    server.use(
+      asMe({ roles: ['INSPECTOR'] }),
+      contractResponse('setupTwoFactor', { example: 'pending', once: true }),
+      contractResponse('setupTwoFactor', {
+        example: 'enabled',
+        onRequest: () => void server.use(asMe({ roles: ['INSPECTOR'], totpEnabled: true })),
+      }),
+    );
+    await openProfile();
+    const tfa = within(card('Двухфакторная аутентификация'));
+    await userEvent.click(tfa.getByRole('button', { name: 'Настроить' }));
+    await userEvent.type(await tfa.findByLabelText('Код из приложения'), '482915');
+    await userEvent.click(tfa.getByRole('button', { name: 'Включить' }));
+    expect(await tfa.findByText('Включена')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Профиль' })).toHaveFocus());
+  });
+
+  it('2FA «Настроить» after a 429 wait gets the focus back (FM17)', async () => {
+    server.use(
+      asMe({ roles: ['ADMIN'] }),
+      contractResponse('setupTwoFactor', { status: 429, headers: { 'Retry-After': '1' } }),
+    );
+    await openProfile();
+    const tfa = within(card('Двухфакторная аутентификация'));
+    await userEvent.click(tfa.getByRole('button', { name: 'Настроить' }));
+    expect(await tfa.findByRole('button', { name: 'Повторить через 1 с' })).toBeDisabled();
+    const setup = await tfa.findByRole('button', { name: 'Настроить' }, { timeout: 3000 });
+    await waitFor(() => expect(setup).toHaveFocus());
+  });
+});
+
+describe('late answers and follow-up re-reads (FM27, FM28)', () => {
+  beforeEach(() => vi.stubGlobal('FormData', UndiciFormData));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('a PATCH /me answering after another tab logged out never revives the session nor shows its name', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      contractResponse('updateMe', { body: { ...me(), fullName: 'A LATE' }, onRequest: () => held }),
+    );
+    await openProfile();
+    const personal = within(card('Личные данные'));
+    await userEvent.clear(personal.getByLabelText('ФИО'));
+    await userEvent.type(personal.getByLabelText('ФИО'), 'A LATE');
+    await userEvent.click(personal.getByRole('button', { name: 'Сохранить' }));
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    await screen.findByRole('heading', { level: 1, name: 'Вход' });
+    other.close();
+    release();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(screen.getByRole('heading', { level: 1, name: 'Вход' })).toBeInTheDocument();
+    expect(screen.queryByText('A LATE')).toBeNull();
+    expect(document.querySelectorAll('.at-toast__text').length).toBe(0);
+  });
+
+  it('an avatar stored while the re-read of the profile fails: the success is said, never an error', async () => {
+    let failMe = false;
+    server.use(
+      contractResponse('uploadMyAvatar', { onRequest: () => void (failMe = true) }),
+      http.get(`${API_BASE}/me`, () =>
+        failMe ? HttpResponse.json({ status: 503 }, { status: 503 }) : HttpResponse.json(me()),
+      ),
+    );
+    await openProfile();
+    const avatar = within(card('Аватар'));
+    await userEvent.upload(avatar.getByLabelText('Файл'), png());
+    await userEvent.click(avatar.getByRole('button', { name: 'Загрузить' }));
+    await waitFor(() => expect(politeText()).toContain('Аватар обновлён'));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(document.querySelector('.at-toast-region[role="alert"] .at-toast__text')).toBeNull();
+  });
+
+  it('2FA: a wrong code, «Отмена», «Настроить» again — the form starts clean (FM27)', async () => {
+    server.use(
+      asMe({ roles: ['INSPECTOR'] }),
+      contractResponse('setupTwoFactor', { example: 'pending', once: true }),
+      contractResponse('setupTwoFactor', {
+        status: 400,
+        body: problem(400, 'INVALID_TWO_FACTOR_CODE'),
+        once: true,
+      }),
+      contractResponse('setupTwoFactor', { example: 'pending' }),
+    );
+    await openProfile();
+    const tfa = within(card('Двухфакторная аутентификация'));
+    await userEvent.click(tfa.getByRole('button', { name: 'Настроить' }));
+    await userEvent.type(await tfa.findByLabelText('Код из приложения'), '000000');
+    await userEvent.click(tfa.getByRole('button', { name: 'Включить' }));
+    await waitFor(() =>
+      expect(tfa.getByLabelText('Код из приложения')).toHaveAttribute('aria-invalid', 'true'),
+    );
+    await userEvent.click(tfa.getByRole('button', { name: 'Отмена' }));
+    await userEvent.click(tfa.getByRole('button', { name: 'Настроить' }));
+    const code = await tfa.findByLabelText('Код из приложения');
+    expect(code).toHaveValue('');
+    expect(code).not.toHaveAttribute('aria-invalid');
+  });
+
+  it('2FA: the code field is not focused when the person moved elsewhere while the setup answered (FM25)', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      asMe({ roles: ['INSPECTOR'] }),
+      contractResponse('setupTwoFactor', { example: 'pending', onRequest: () => held }),
+    );
+    await openProfile();
+    const tfa = within(card('Двухфакторная аутентификация'));
+    await userEvent.click(tfa.getByRole('button', { name: 'Настроить' }));
+    const name = within(card('Личные данные')).getByLabelText('ФИО');
+    await userEvent.click(name);
+    release();
+    await tfa.findByLabelText('Код из приложения');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(name).toHaveFocus();
+  });
+});
+
+describe('known results applied at once (FM30)', () => {
+  it('2FA enabled while the re-read of the profile fails: the card says «Включена», no error', async () => {
+    let failMe = false;
+    server.use(
+      asMe({ roles: ['INSPECTOR'] }),
+      contractResponse('setupTwoFactor', { example: 'pending', once: true }),
+      contractResponse('setupTwoFactor', { example: 'enabled', onRequest: () => void (failMe = true) }),
+    );
+    await openProfile();
+    server.use(
+      http.get(`${API_BASE}/me`, () =>
+        failMe
+          ? HttpResponse.json({ status: 503 }, { status: 503 })
+          : HttpResponse.json({ ...me(), roles: ['INSPECTOR'] }),
+      ),
+    );
+    const tfa = within(card('Двухфакторная аутентификация'));
+    await userEvent.click(tfa.getByRole('button', { name: 'Настроить' }));
+    await userEvent.type(await tfa.findByLabelText('Код из приложения'), '482915');
+    await userEvent.click(tfa.getByRole('button', { name: 'Включить' }));
+    expect(await tfa.findByText('Включена')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(document.querySelector('.at-toast-region[role="alert"] .at-toast__text')).toBeNull();
   });
 });

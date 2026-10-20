@@ -78,6 +78,7 @@ export function NotificationsPage() {
 
   const list = useQuery({
     queryKey: ['notifications', { tab, page }],
+    meta: { failed: 'notifications.failed' },
     queryFn: () =>
       call<NotificationPage>(
         api.GET('/notifications', {

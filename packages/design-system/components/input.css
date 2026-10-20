@@ -47,7 +47,7 @@
 .at-select:disabled {
   border-color: var(--c-line);
   background-color: var(--c-surface-sunk);
-  color: var(--c-ink-muted);
+  color: var(--c-ink-disabled);
   cursor: not-allowed;
 }
 
@@ -93,6 +93,11 @@
 .at-input-group:has(:disabled) {
   border-color: var(--c-line);
   background: var(--c-surface-sunk);
+}
+
+/* The unit of a disabled field is text next to it (WCAG 1.4.3 does not exempt it): 4.5:1 on the sunk fill. */
+.at-input-group:has(:disabled) > .at-input-group__suffix {
+  color: var(--c-ink-disabled);
 }
 
 .at-input-group > .at-input {

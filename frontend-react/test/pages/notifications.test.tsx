@@ -266,3 +266,183 @@ describe('/notifications', () => {
     expect(await screen.findByRole('link', { name: 'Изъять партию AT-2026-000002' })).toBeInTheDocument();
   });
 });
+
+describe('app-wide live refresh and focus (FM21, FM24)', () => {
+  it('a `notification` event while elsewhere refreshes the cached list: back on /notifications it is new', async () => {
+    let reads = 0;
+    server.use(
+      contractResponse('listNotifications', { body: pageOf([note(1)]), onRequest: () => void reads++ }),
+    );
+    const { router } = await open();
+    await screen.findByRole('link', { name: 'Изъять партию AT-2026-000001' });
+    await act(() => router.navigate('/profile'));
+    await screen.findByRole('heading', { level: 1, name: 'Профиль' });
+    server.use(
+      contractResponse('listNotifications', {
+        body: pageOf([note(2), note(1)]),
+        onRequest: () => void reads++,
+      }),
+    );
+    act(() => FakeEventSource.last!.emit('notification', note(2), '2'));
+    const before = reads;
+    await act(() => router.navigate('/notifications'));
+    // Within the 30 s the list would be fresh; the event made it stale, so it is asked again at once.
+    expect(await screen.findByRole('link', { name: 'Изъять партию AT-2026-000002' })).toBeInTheDocument();
+    expect(reads).toBe(before + 1);
+  });
+
+  it('«Отметить прочитанным» goes away with the selection: the focus goes to the page title, not the body', async () => {
+    server.use(
+      contractResponse('listNotifications', { body: pageOf([note(12), note(11)]) }),
+      contractResponse('markNotificationsRead', { body: { count: 1 } }),
+    );
+    await open();
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: 'Выбрать «Изъять партию AT-2026-000011»' }),
+    );
+    screen.getByRole('button', { name: 'Отметить прочитанным' }).focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Отметить прочитанным' })).toBeNull());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Уведомления' })).toHaveFocus());
+  });
+});
+
+describe('stale-while-revalidate and late answers (FM24, FM25, FM26)', () => {
+  it('a refetch of the shown list that fails keeps the rows and says so in a toast', async () => {
+    server.use(contractResponse('listNotifications', { body: pageOf([note(1)]) }));
+    await open();
+    await screen.findByRole('link', { name: 'Изъять партию AT-2026-000001' });
+    server.use(http.get(`${API_BASE}/notifications`, () => HttpResponse.error()));
+    act(() => FakeEventSource.last!.emit('notification', note(2), '2'));
+    // Two retries (≈ 1 s, 2 s), then the failure: the rows stay, the toast says what did not load.
+    await waitFor(
+      () =>
+        expect(document.querySelector('.at-toast-region[role="alert"]')!.textContent).toContain(
+          'Уведомления не загрузились.',
+        ),
+      { timeout: 8000 },
+    );
+    expect(screen.getByRole('link', { name: 'Изъять партию AT-2026-000001' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Повторить' })).toBeNull();
+  }, 15000);
+
+  it('a passive refresh that removes the focused row never moves the focus (no own input)', async () => {
+    server.use(contractResponse('listNotifications', { body: pageOf([note(12), note(11)]) }));
+    await open();
+    const link = await screen.findByRole('link', { name: 'Изъять партию AT-2026-000011' });
+    link.focus();
+    server.use(contractResponse('listNotifications', { body: pageOf([note(13), note(12)]) }));
+    act(() => FakeEventSource.last!.emit('notification', note(13), '13'));
+    await screen.findByRole('link', { name: 'Изъять партию AT-2026-000013' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole('heading', { level: 1, name: 'Уведомления' })).not.toHaveFocus();
+  });
+
+  it('a mark-read answer arriving after the person left the screen still sets the bell (same session, FM26 amendment)', async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      contractResponse('listNotifications', { body: pageOf([note(12), note(11)]) }),
+      contractResponse('markNotificationsRead', { body: { count: 0 }, onRequest: () => held }),
+    );
+    const { router } = await open();
+    act(() => FakeEventSource.last!.emit('unread', { count: 2 }));
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: 'Выбрать «Изъять партию AT-2026-000011»' }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Отметить прочитанным' }));
+    await act(() => router.navigate('/profile'));
+    await screen.findByRole('heading', { level: 1, name: 'Профиль' });
+    release();
+    await new Promise((r) => setTimeout(r, 100));
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: 'Уведомления, непрочитанных: 2' })).toBeNull(),
+    );
+  });
+});
+
+describe('round 4: cancellations, own actions, live events mid-fetch (FM25, FM26, FM29)', () => {
+  it('a refetch cancelled by the end of the session (another tab signs out) never toasts on /login', async () => {
+    server.use(contractResponse('listNotifications', { body: pageOf([note(1)]) }));
+    await open();
+    await screen.findByRole('link', { name: 'Изъять партию AT-2026-000001' });
+    // The next read hangs; a live event starts it; meanwhile the session ends in another tab.
+    server.use(http.get(`${API_BASE}/notifications`, () => new Promise<never>(() => {})));
+    act(() => FakeEventSource.last!.emit('notification', note(2), '2'));
+    await new Promise((r) => setTimeout(r, 50));
+    const other = new BroadcastChannel('agrotrace-session');
+    other.postMessage({ type: 'logout' });
+    await screen.findByRole('heading', { level: 1, name: 'Вход' });
+    other.close();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(document.querySelector('.at-toast-region[role="alert"]')!.textContent).not.toContain(
+      'Уведомления не загрузились.',
+    );
+  });
+
+  it('an own action whose answer takes longer than 2 s still hands the focus to the title', async () => {
+    server.use(
+      contractResponse('listNotifications', { body: pageOf([note(12), note(11)]) }),
+      contractResponse('markNotificationsRead', {
+        body: { count: 1 },
+        onRequest: () => new Promise((r) => setTimeout(r, 2500)),
+      }),
+    );
+    await open();
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: 'Выбрать «Изъять партию AT-2026-000011»' }),
+    );
+    screen.getByRole('button', { name: 'Отметить прочитанным' }).focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(
+      () => expect(screen.getByRole('heading', { level: 1, name: 'Уведомления' })).toHaveFocus(),
+      { timeout: 5000 },
+    );
+  });
+
+  it('a live event while the shown list is still being read: it is read again after (FM25)', async () => {
+    let reads = 0;
+    let release: () => void = () => {};
+    server.use(
+      contractResponse('listNotifications', { body: pageOf([note(1)]), onRequest: () => void reads++ }),
+    );
+    await open();
+    await screen.findByRole('link', { name: 'Изъять партию AT-2026-000001' });
+    const held = new Promise<void>((r) => (release = r));
+    server.use(
+      contractResponse('listNotifications', {
+        body: pageOf([note(1)]),
+        once: true,
+        onRequest: async () => {
+          reads++;
+          await held;
+        },
+      }),
+      contractResponse('listNotifications', {
+        body: pageOf([note(2), note(1)]),
+        onRequest: () => void reads++,
+      }),
+    );
+    // A tab change starts a read of the list; the event arrives while it runs.
+    await userEvent.click(screen.getByRole('tab', { name: /Непрочитанные/ }));
+    await waitFor(() => expect(reads).toBe(2));
+    act(() => FakeEventSource.last!.emit('notification', note(2), '2'));
+    release();
+    expect(await screen.findByRole('link', { name: 'Изъять партию AT-2026-000002' })).toBeInTheDocument();
+  });
+});
+
+describe('passive refreshes never move the focus (FM30)', () => {
+  it('a key press shortly before a live refresh that removes the focused row: the focus is not moved', async () => {
+    server.use(contractResponse('listNotifications', { body: pageOf([note(12), note(11)]) }));
+    await open();
+    const link = await screen.findByRole('link', { name: 'Изъять партию AT-2026-000011' });
+    link.focus();
+    server.use(contractResponse('listNotifications', { body: pageOf([note(13), note(12)]) }));
+    await userEvent.keyboard('{Shift}');
+    act(() => FakeEventSource.last!.emit('notification', note(13), '13'));
+    await screen.findByRole('link', { name: 'Изъять партию AT-2026-000013' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.getByRole('heading', { level: 1, name: 'Уведомления' })).not.toHaveFocus();
+  });
+});

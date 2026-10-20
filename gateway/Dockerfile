@@ -29,6 +29,9 @@ COPY start/ /srv/start/
 # the empty directory just needs to exist so nginx has somewhere to alias to before the mount lands.
 RUN mkdir -p /srv/ds
 
+# Mock stands (ruling FM23): each frontend stand bind-mounts its dist-mock build here.
+RUN mkdir -p /srv/react-mock /srv/angular-mock /srv/svelte-mock
+
 # Build-time config sanity check: envsubst the template exactly like the real entrypoint would
 # (default GATEWAY_PORT), then let nginx validate the result — into a scratch path, never
 # /etc/nginx/nginx.conf itself, which must stay absent from the image so the entrypoint always

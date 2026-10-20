@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import { useFocusRescue } from '../app/focusRescue';
 import { navFor } from '../app/nav';
 import { t } from '../app/i18n';
 import { useMe } from '../app/session';
@@ -14,6 +15,7 @@ export function Shell() {
   const unread = useUnread();
   const items = useMemo(() => navFor(me), [me]);
   const { pathname } = useLocation();
+  useFocusRescue();
 
   useEffect(() => {
     window.scrollTo?.(0, 0);

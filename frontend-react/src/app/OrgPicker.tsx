@@ -1,0 +1,107 @@
+import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { Organization, OrganizationDirectoryPage, OrganizationType } from '@agrotrace/api-client';
+import { enumLabel } from '@agrotrace/i18n';
+import { call } from './api';
+import { t } from './i18n';
+import { useSession } from './session';
+import { Combobox, Field, type ComboOption } from '../ui';
+
+// Organization filter (INSPECTOR, ADMIN): the organizations directory (listOrganizations, R46) with server search by
+// name or INN prefix. The URL keeps only the id; its name is read back with getOrganization (INSPECTOR and ADMIN see
+// every organization). Clearing the text clears the filter.
+
+export function OrgPicker({
+  id,
+  label,
+  value,
+  onChange,
+  types,
+  error,
+  exclude,
+  onOrg,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (id: string | null) => void;
+  types?: OrganizationType[];
+  /** Error text of the field (a form field). */
+  error?: string | null;
+  /** An organization never offered (the user's own: a waybill receiver). */
+  exclude?: string;
+  /** The picked (or, for a value from a link, read back) organization itself: its type decides the role of an invited
+   * user. */
+  onOrg?: (org: { id: string; name: string; type: OrganizationType } | null) => void;
+}) {
+  const { api } = useSession();
+  const [query, setQuery] = useState('');
+  const [search, setSearch] = useState<string | null>(null);
+  // The option just picked carries its name: it is not read again (a FARMER choosing a waybill receiver cannot read
+  // another organization's card — getOrganization answers 404 outside INSPECTOR/ADMIN).
+  const [picked, setPicked] = useState<ComboOption | null>(null);
+
+  const chosen = useQuery({
+    queryKey: ['organization', value],
+    enabled: value !== '' && picked?.value !== value,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => call<Organization>(api.GET('/organizations/{id}', { params: { path: { id: value } } })),
+  });
+  // The chosen organization's name fills the field (after a reload, or when the filter comes from a link).
+  useEffect(() => {
+    if (value === '') setQuery('');
+    else if (chosen.data) setQuery(chosen.data.name);
+  }, [value, chosen.data]);
+  const reportOrg = useRef(onOrg);
+  reportOrg.current = onOrg;
+  useEffect(() => {
+    if (chosen.data) reportOrg.current?.(chosen.data);
+  }, [chosen.data]);
+
+  const found = useQuery({
+    queryKey: ['organizations', 'directory', search, types],
+    enabled: search !== null && search.trim() !== '',
+    queryFn: () =>
+      call<OrganizationDirectoryPage>(
+        api.GET('/organizations', {
+          params: {
+            query: { q: search!.trim(), size: 20, sort: 'name,asc', ...(types ? { type: types } : {}) },
+          },
+        }),
+      ),
+  });
+  const options: ComboOption[] = (found.data?.items ?? [])
+    .filter((o) => o.id !== exclude)
+    .map((o) => ({
+      value: o.id,
+      label: o.name,
+      meta: enumLabel(t, 'OrganizationType', o.type),
+    }));
+
+  return (
+    <Field id={id} label={label} error={error}>
+      <Combobox
+        listLabel={label}
+        query={query}
+        onQueryChange={(text) => {
+          setQuery(text);
+          if (text.trim() === '' && value !== '') {
+            onChange(null);
+            onOrg?.(null);
+          }
+        }}
+        onSearch={setSearch}
+        options={search && search.trim() ? options : []}
+        loading={found.isFetching}
+        selected={value || null}
+        onSelect={(o) => {
+          setPicked(o);
+          setQuery(o.label);
+          onChange(o.value);
+          const org = found.data?.items.find((x) => x.id === o.value);
+          if (org) onOrg?.(org);
+        }}
+      />
+    </Field>
+  );
+}

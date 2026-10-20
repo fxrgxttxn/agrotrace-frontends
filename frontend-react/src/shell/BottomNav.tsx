@@ -27,7 +27,7 @@ export function BottomNav({ items }: { items: NavItem[] }) {
             aria-current={isCurrent(item, pathname) ? 'page' : undefined}
           >
             <Icon name={item.icon} className="at-bottom-nav__icon" />
-            {t(item.label)}
+            {t(item.short ?? item.label)}
           </Link>
         ))}
         <button

@@ -11,8 +11,9 @@ export interface FileItem {
   /** Image preview URL (blob: or a signed URL); otherwise `kind` (e.g. `PDF`) is shown. */
   previewUrl?: string;
   kind?: string;
-  /** Upload progress 0–100 while uploading; omitted otherwise. */
-  progress?: number;
+  /** Upload progress 0–100 while uploading; `null` — uploading, the sent part unknown (fetch has no upload progress:
+   * an indeterminate `progress` without `value`); omitted otherwise. */
+  progress?: number | null;
 }
 
 export interface FileFieldProps {
@@ -99,7 +100,11 @@ export function FileField({
             <use href="#i-upload" />
           </svg>
           <span className="at-file__action">{t('ui.chooseFile')}</span>
-          {hint && <span className="at-file__hint">{hint}</span>}
+          {hint && (
+            <span className="at-file__hint" id={`${id}-hint`}>
+              {hint}
+            </span>
+          )}
         </label>
         {files.length > 0 && (
           <ul className="at-file__list">
@@ -121,7 +126,7 @@ export function FileField({
                     <progress
                       className="at-file__progress"
                       max={100}
-                      value={f.progress}
+                      value={f.progress ?? undefined}
                       aria-label={t('ui.uploading', { name: f.name })}
                     ></progress>
                   )}

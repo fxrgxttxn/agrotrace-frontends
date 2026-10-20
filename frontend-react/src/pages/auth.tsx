@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   ApiProblem,
@@ -25,6 +25,7 @@ import {
 } from '@agrotrace/validation';
 import { call } from '../app/api';
 import { errorOf, FORM_GRID, Submit, useSchemaForm } from '../app/forms';
+import { useScreenNavigate, useScreenToast } from '../app/cache';
 import { LOCALE, t } from '../app/i18n';
 import { AuthLayout } from '../app/layouts';
 import { useSession } from '../app/session';
@@ -39,7 +40,6 @@ import {
   Input,
   Page,
   Select,
-  useToast,
 } from '../ui';
 
 // Auth screens (spec §9.4): React Hook Form + the shared Zod schemas of @agrotrace/validation; server answers are
@@ -58,7 +58,7 @@ const isProblem = (e: unknown, code: string): e is ApiProblem => e instanceof Ap
 /** `/login` — email and password; TOTP users continue on `/login/2fa`. */
 export function LoginPage() {
   const { api, signIn } = useSession();
-  const navigate = useNavigate();
+  const navigate = useScreenNavigate();
   const location = useLocation();
   const { form, alert, wait, fail } = useSchemaForm<LoginRequest>(
     LoginRequestSchema,
@@ -117,9 +117,9 @@ export function TwoFactorPage() {
 
 function TwoFactorForm({ challengeId }: { challengeId: string }) {
   const { api, signIn } = useSession();
-  const navigate = useNavigate();
+  const navigate = useScreenNavigate();
   const location = useLocation();
-  const toast = useToast();
+  const toast = useScreenToast();
   const { form, alert, wait, fail } = useSchemaForm<TwoFactorVerifyRequest>(
     TwoFactorVerifyRequestSchema,
     { challengeId, code: '' },
@@ -258,8 +258,8 @@ export function PasswordResetPage() {
 
 function ResetForm({ token, onDead }: { token: string; onDead: () => void }) {
   const { api } = useSession();
-  const navigate = useNavigate();
-  const toast = useToast();
+  const navigate = useScreenNavigate();
+  const toast = useScreenToast();
   const { form, alert, wait, fail } = useSchemaForm<ResetPasswordRequest>(
     ResetPasswordRequestSchema,
     { token, password: '' },
@@ -270,7 +270,7 @@ function ResetForm({ token, onDead }: { token: string; onDead: () => void }) {
     alert.clear();
     try {
       await call(api.POST('/auth/password/reset', { body }));
-      toast.push({ tone: 'ok', text: t('auth.resetDone') });
+      toast.done({ tone: 'ok', text: t('auth.resetDone') });
       navigate('/login', { replace: true });
     } catch (e) {
       if (deadToken(e)) onDead();
@@ -325,8 +325,8 @@ export function InvitePage() {
 
 function InviteForm({ token, onDead }: { token: string; onDead: () => void }) {
   const { api } = useSession();
-  const navigate = useNavigate();
-  const toast = useToast();
+  const navigate = useScreenNavigate();
+  const toast = useScreenToast();
   const { form, alert, wait, fail } = useSchemaForm<AcceptInviteRequest>(
     AcceptInviteRequestSchema,
     { token, fullName: '', password: '' },
@@ -337,7 +337,7 @@ function InviteForm({ token, onDead }: { token: string; onDead: () => void }) {
     alert.clear();
     try {
       await call(api.POST('/auth/accept-invite', { body }));
-      toast.push({ tone: 'ok', text: t('auth.inviteDone') });
+      toast.done({ tone: 'ok', text: t('auth.inviteDone') });
       navigate('/login', { replace: true });
     } catch (e) {
       if (deadToken(e)) onDead();
@@ -378,6 +378,7 @@ export function RegisterPage() {
   const [outcome, setOutcome] = useState<RegisterOrganizationResponse['status'] | null>(null);
   const regions = useQuery({
     queryKey: ['public', 'regions'],
+    meta: { failed: 'auth.regionsFailed' },
     queryFn: () => call<Region[]>(api.GET('/public/regions')),
     staleTime: Infinity,
   });

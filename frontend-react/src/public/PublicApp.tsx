@@ -1,36 +1,36 @@
-import { useEffect } from 'react';
-import { createT } from '@agrotrace/i18n';
+import { useEffect, useRef } from 'react';
+import { BatchPage } from './BatchPage';
+import { ComplaintPage } from './ComplaintPage';
+import { t } from './i18n';
+import { matchPublic, usePath } from './nav';
+import { NotFound, PublicPage } from './views';
 
-// No router and no shared cabinet modules here: the path is matched by hand so the chunk stays small.
-const t = createT('ru');
+// The public QR pages without menu or session (spec §9.6). On every client-side path change except the first load
+// the focus goes to the page title (ruling F4) and the page scrolls to the top.
 
-export type PublicRoute =
-  { name: 'batch'; code: string } | { name: 'complaint'; code: string } | { name: 'none' };
-
-export function matchPublic(path: string): PublicRoute {
-  const m = /^\/p\/([^/]+)(\/complaint)?\/?$/.exec(path);
-  if (!m) return { name: 'none' };
-  const code = decodeURIComponent(m[1]!);
-  return m[2] ? { name: 'complaint', code } : { name: 'batch', code };
-}
-
-export function PublicApp({ path }: { path: string }) {
+export function PublicApp() {
+  const path = usePath();
   const route = matchPublic(path);
-  const title =
-    route.name === 'batch'
-      ? t('page.publicBatch')
-      : route.name === 'complaint'
-        ? t('page.publicComplaint')
-        : t('page.notFound');
+  const first = useRef(true);
   useEffect(() => {
-    document.title = `${title} — AgroTrace`;
-  }, [title]);
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    window.scrollTo(0, 0);
+    document.querySelector<HTMLElement>('h1.at-page__title')?.focus();
+  }, [path]);
   return (
-    <main className="at-page" id="main" tabIndex={-1}>
-      <div className="at-page__header">
-        <h1 className="at-page__title">{title}</h1>
-      </div>
-      {route.name !== 'none' && <p className="at-mono">{route.code}</p>}
-    </main>
+    <>
+      {route.name === 'batch' ? (
+        <BatchPage key={route.code} code={route.code} />
+      ) : route.name === 'complaint' ? (
+        <ComplaintPage key={route.code} code={route.code} />
+      ) : (
+        <PublicPage title={t('page.publicBatch')}>
+          <NotFound />
+        </PublicPage>
+      )}
+    </>
   );
 }

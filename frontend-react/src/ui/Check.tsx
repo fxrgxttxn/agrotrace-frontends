@@ -2,6 +2,7 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   type InputHTMLAttributes,
   type ReactNode,
@@ -32,14 +33,20 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckProps>(function Checkb
   );
 });
 
-/** `at-radio`. */
+/** `at-radio` (README «Флажок»: no `checked` attribute — the choice is live state, the `checked` property; React
+ * mirrors the initial choice into the attribute, which is taken off once mounted, ruling F13). */
 export const Radio = forwardRef<
   HTMLInputElement,
   Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & { children: ReactNode }
 >(function Radio({ children, ...rest }, ref) {
+  const inner = useRef<HTMLInputElement>(null);
+  useImperativeHandle(ref, () => inner.current as HTMLInputElement);
+  useLayoutEffect(() => {
+    inner.current?.removeAttribute('checked');
+  }, []);
   return (
     <label className="at-radio">
-      <input ref={ref} type="radio" {...rest} />
+      <input ref={inner} type="radio" {...rest} />
       <span>{children}</span>
     </label>
   );

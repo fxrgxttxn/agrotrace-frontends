@@ -1,52 +1,56 @@
 import { createHmac } from 'node:crypto';
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
-// Shared pieces of the React e2e specs (through gateway-react, the live Express API of the shared stack).
+// Shared pieces of the React e2e specs. The mock stand (react-mock.localhost, ruling FM23) runs the in-browser backend of
+// @agrotrace/mock-api: every test context has its own demo world (the mock keeps it in the origin's storage, shared by
+// the context's tabs), the letters it "sends" are in `window.__agrotraceMock.mailbox` of the tab that made the request.
 
 export const DEMO_PASSWORD = 'agrotrace-demo';
-/** Direct API (network agrotrace_at) for set-up steps the UI of this task does not cover (inviting a user). */
-export const API = 'http://api-express:8000/api/v1';
-/** Mailpit of the shared stack (letters of invite and password reset). */
-export const MAILPIT = 'http://mailpit:8025/api/v1';
 
 export interface Watch {
   problems: string[];
+  /** `signIn` met the login-ip limit (429) and waited it out: that answer is expected then. */
+  loginRetried?: boolean;
+  /** Moments (ms) of main-frame navigations and of event-stream 503s (see `unexpected`). */
+  navAt: number[];
+  streamDropAt: number[];
 }
 
-/** Answers that are expected, not defects: the anonymous start-up refresh (401) and endpoints the Express backend does
- * not serve yet (404: SSE, notifications list, public regions) — see `annotateMissing`. */
-export const EXPECTED = [
-  /^http 401 POST \/api\/v1\/auth\/refresh$/,
-  /^http 404 GET \/api\/v1\/events\/stream$/,
-  /^http 404 GET \/api\/v1\/notifications$/,
-  /^http 404 GET \/api\/v1\/public\/regions$/,
-];
+const LOGIN_LIMITED = /^http 429 POST \/api\/v1\/auth\/login$/;
+
+/** Answers that are expected, not defects: the anonymous start-up refresh (401). */
+export const EXPECTED = [/^http 401 POST \/api\/v1\/auth\/refresh$/];
+
+const STREAM_503 = 'http 503 GET /api/v1/events/stream';
+/** A full page load this close to an event-stream 503 explains it (mock stand): the document being left reconnects its
+ * stream while the MSW worker no longer serves that closing client, so the request reaches the gateway (503); the new
+ * document opens its own stream through the worker. A 503 with no navigation around it is a defect. */
+const NAV_WINDOW_MS = 2000;
 
 export function unexpected(w: Watch, alsoExpected: RegExp[] = []): string[] {
-  return w.problems.filter(
-    (p) =>
-      !/^console: Failed to load resource/.test(p) &&
-      ![...EXPECTED, ...alsoExpected].some((re) => re.test(p)),
+  const allowed = [...EXPECTED, ...alsoExpected, ...(w.loginRetried ? [LOGIN_LIMITED] : [])];
+  const unexplained = w.streamDropAt
+    .filter((at) => !w.navAt.some((n) => Math.abs(n - at) <= NAV_WINDOW_MS))
+    .map(() => STREAM_503);
+  return [...w.problems, ...unexplained].filter(
+    (p) => !/^console: Failed to load resource/.test(p) && !allowed.some((re) => re.test(p)),
   );
 }
 
-export function annotateMissing(w: Watch): void {
-  for (const re of EXPECTED.slice(1))
-    if (w.problems.some((p) => re.test(p)))
-      test
-        .info()
-        .annotations.push({ type: 'backend', description: `${re.source} — not served by the backend yet` });
-}
-
 export async function watch(page: Page): Promise<Watch> {
-  const w: Watch = { problems: [] };
+  const w: Watch = { problems: [], navAt: [], streamDropAt: [] };
+  page.on('framenavigated', (f) => {
+    if (f === page.mainFrame()) w.navAt.push(Date.now());
+  });
   page.on('console', (m) => {
     if (m.type() === 'error') w.problems.push(`console: ${m.text()}`);
   });
   page.on('pageerror', (e) => w.problems.push(`pageerror: ${e.message}`));
   page.on('response', (r) => {
-    if (r.status() >= 400)
-      w.problems.push(`http ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`);
+    if (r.status() < 400) return;
+    const line = `http ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`;
+    if (line === STREAM_503) w.streamDropAt.push(Date.now());
+    else w.problems.push(line);
   });
   await page.addInitScript(() => {
     document.addEventListener('securitypolicyviolation', (e) => {
@@ -65,31 +69,37 @@ export async function horizontalOverflow(page: Page): Promise<number> {
   return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 }
 
-/** Through the browser (the request context would not use Chromium's host mapping). */
-export async function apiUp(page: Page): Promise<boolean> {
-  await page.goto('/p/health-probe');
-  return page.evaluate(async () => (await fetch('/api/v1/health/live')).status === 200);
-}
-
-/** The login form: submits and, if the login-ip limit answers 429, waits out the countdown and submits again. */
-export async function signIn(page: Page, email: string, password: string): Promise<void> {
+/** The login form: submits and, if the login-ip limit answers 429 (20 per 60 s, rate-limits.json — the mock counts it
+ * too), waits out the countdown and submits again. Pass the page's Watch so that 429 is not a defect.
+ * Returns once the page left /login or showed an error message; throws when nothing happened within 16 s or the limit
+ * still answered after the last attempt (a silent return would only move the failure to a confusing later step). */
+export async function signIn(page: Page, email: string, password: string, w?: Watch): Promise<void> {
   if (!/\/login/.test(page.url())) await page.goto('/login');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Пароль').fill(password);
+  const never = () => new Promise<never>(() => {});
   for (let attempt = 0; attempt < 3; attempt++) {
     await page.getByRole('button', { name: 'Войти' }).click();
-    const wait = page.getByRole('button', { name: /^Повторить через/ });
     const outcome = await Promise.race([
-      page.waitForURL((u) => u.pathname !== '/login', { timeout: 15000 }).then(() => 'moved' as const),
-      wait.waitFor({ timeout: 15000 }).then(() => 'limited' as const),
+      page.waitForURL((u) => u.pathname !== '/login', { timeout: 15000 }).then(() => 'moved' as const, never),
+      page
+        .getByRole('button', { name: /^Повторить через/ })
+        .waitFor({ timeout: 15000 })
+        .then(() => 'limited' as const, never),
       page
         .locator('.at-toast-region[role="alert"] .at-toast')
         .waitFor({ timeout: 15000 })
-        .then(() => 'error' as const),
+        .then(() => 'error' as const, never),
+      new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 16000)),
     ]);
-    if (outcome !== 'limited') return;
+    if (outcome === 'moved' || outcome === 'error') return;
+    if (outcome === 'timeout')
+      throw new Error(`signIn(${email}): no navigation, message or limit within 16 s`);
+    if (w) w.loginRetried = true;
+    if (attempt === 2) break;
     await expect(page.getByRole('button', { name: 'Войти' })).toBeEnabled({ timeout: 70000 });
   }
+  throw new Error(`signIn(${email}): the login limit still answered 429 after 3 attempts`);
 }
 
 export async function signOut(page: Page): Promise<void> {
@@ -115,23 +125,54 @@ export function totp(secretBase32: string, step: number): string {
 
 export const currentStep = () => Math.floor(Date.now() / 30000);
 
-/** The newest letter to `to` whose text matches `link`; returns the first capture group (the token). */
-export async function mailToken(request: APIRequestContext, to: string, link: RegExp): Promise<string> {
-  const deadline = Date.now() + 45000;
-  while (Date.now() < deadline) {
-    const search = await request.get(`${MAILPIT}/search`, { params: { query: `to:"${to}"` } });
-    if (search.ok()) {
-      const { messages } = (await search.json()) as { messages: { ID: string }[] };
-      for (const m of messages ?? []) {
-        const msg = await request.get(`${MAILPIT}/message/${m.ID}`);
-        const text = ((await msg.json()) as { Text?: string }).Text ?? '';
-        const hit = link.exec(text);
-        if (hit?.[1]) return hit[1];
-      }
-    }
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  throw new Error(`no letter to ${to} matching ${link}`);
+/** The newest letter of the mock (`kind`) to `to` in the mailbox of `page` (the tab whose request sent it; a full page
+ * load starts a new mailbox) — its token. */
+export async function mockMail(page: Page, to: string, kind: 'invite' | 'passwordReset'): Promise<string> {
+  // polled with evaluate: waitForFunction needs eval, which the gateway CSP (script-src 'self') refuses
+  let token: string | null = null;
+  await expect
+    .poll(
+      async () =>
+        (token = await page.evaluate(
+          ([address, what]) => {
+            const box = (
+              window as unknown as {
+                __agrotraceMock?: { mailbox: { kind: string; to: string; token: string }[] };
+              }
+            ).__agrotraceMock?.mailbox;
+            return [...(box ?? [])].reverse().find((m) => m.to === address && m.kind === what)?.token ?? null;
+          },
+          [to, kind] as const,
+        )),
+      { timeout: 15000 },
+    )
+    .not.toBeNull();
+  return token!;
+}
+
+/** The API of the mock from inside `page` (its own tab of the context's world): `fetch` with a bearer token. */
+export async function mockApi(
+  page: Page,
+  path: string,
+  init: { method?: string; token?: string; body?: unknown } = {},
+): Promise<{ status: number; body: unknown }> {
+  // the service worker answers only once the page started the mock (`__agrotraceMock` is set when it is ready)
+  await expect.poll(() => page.evaluate(() => '__agrotraceMock' in window)).toBe(true);
+  return page.evaluate(
+    async ({ path, init }) => {
+      const res = await fetch(`/api/v1${path}`, {
+        method: init.method ?? 'GET',
+        headers: {
+          ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...(init.token ? { Authorization: `Bearer ${init.token}` } : {}),
+        },
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      });
+      const text = await res.text();
+      return { status: res.status, body: text ? JSON.parse(text) : null };
+    },
+    { path, init },
+  );
 }
 
 /** A random INN with a valid FNS checksum (10 digits, legal entity). */
@@ -147,3 +188,18 @@ export function randomInn(): string {
 /** A unique address for this run (never a demo account: the shared data of Plan 1 stays as it is). */
 export const freshEmail = (what: string) =>
   `e2e-react-${what}-${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}@agrotrace.test`;
+
+/** Tab `times` times: the focus is only ever inside `selector` (a full-screen block, the rest inert) or out of the page. */
+export async function focusStaysIn(page: Page, selector: string, times = 6): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await page.keyboard.press('Tab');
+    const inside = await page.evaluate((sel) => {
+      // Past the last control the focus leaves the document for the browser (body is active), as with a native modal
+      // dialog; it must never land on the page behind the block.
+      const a = document.activeElement;
+      return !a || a === document.body || Boolean(document.querySelector(sel)?.contains(a));
+    }, selector);
+    const where = await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 160) ?? '');
+    expect(inside, `Tab ${i + 1} left ${selector}: ${where}`).toBe(true);
+  }
+}

@@ -32,6 +32,7 @@
 @import url('./components/metric.css');
 @import url('./components/progress.css');
 @import url('./components/graph.css');
+@import url('./components/chart.css');
 
 /* App shell */
 @import url('./components/shell.css');
@@ -40,3 +41,6 @@
 @import url('./components/topbar.css');
 @import url('./components/bell.css');
 @import url('./components/page.css');
+
+/* Public QR page */
+@import url('./components/public.css');

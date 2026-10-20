@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, type ComponentType } from 'react';
+import { Suspense, useEffect } from 'react';
 import { Outlet, useLocation, type RouteObject } from 'react-router-dom';
 import { ForbiddenPage, NotFoundPage } from '../pages/errors';
 import { Shell } from '../shell/Shell';
@@ -8,19 +8,14 @@ import { AUTH_ROUTES, CABINET_ROUTES } from './routes';
 import { SessionProvider, useSession, type SessionCore } from './session';
 import { LiveEventsProvider } from './sse';
 import { RouteFocusProvider } from './routeFocus';
+import { lazyPage, RouteError } from './chunks';
 
 // All routes of spec §9.4. The public QR pages (/p/*) are a separate entry (src/public): a client-side navigation
 // into them reloads the document so the cabinet code never serves them.
 
-const lazyCache = new Map<string, ComponentType>();
-function lazyPage(key: string, load: () => Promise<ComponentType>): ComponentType {
-  let C = lazyCache.get(key);
-  if (!C) {
-    C = lazy(async () => ({ default: await load() }));
-    lazyCache.set(key, C);
-  }
-  return C;
-}
+// Every page element is keyed by its route: a navigation mounts a new Suspense boundary, so the loading page shows at
+// once (and the new location — aria-current — commits) while the chunk loads, instead of the transition keeping the
+// old page on screen (FM10). A chunk that fails to load is handled by `lazyPage` (FM11).
 
 /** Guest-only auth screens: a signed-in user is sent on (`next` or home). */
 const GUEST_ONLY = new Set(['/login', '/login/2fa']);
@@ -62,17 +57,18 @@ export function buildRoutes(core: SessionCore, EventSourceImpl?: typeof EventSou
   return [
     {
       element: <Root core={core} EventSourceImpl={EventSourceImpl} />,
+      errorElement: <RouteError />,
       children: [
         ...AUTH_ROUTES.map((r) => {
-          const Page = lazyPage(r.path, r.load);
+          const Page = lazyPage(r.load, r.title, true);
           return {
             path: r.path,
             element: GUEST_ONLY.has(r.path) ? (
-              <GuestOnly>
+              <GuestOnly key={r.path}>
                 <Page />
               </GuestOnly>
             ) : (
-              <Suspense fallback={<PageLoading />}>
+              <Suspense key={r.path} fallback={<PageLoading />}>
                 <Page />
               </Suspense>
             ),
@@ -85,11 +81,11 @@ export function buildRoutes(core: SessionCore, EventSourceImpl?: typeof EventSou
             </RequireAuth>
           ),
           children: CABINET_ROUTES.map((r) => {
-            const Page = lazyPage(r.path, r.load);
+            const Page = lazyPage(r.load, r.title);
             return {
               path: r.path,
               element: (
-                <RequireRole access={r.access}>
+                <RequireRole key={r.path} access={r.access}>
                   <Page />
                 </RequireRole>
               ),

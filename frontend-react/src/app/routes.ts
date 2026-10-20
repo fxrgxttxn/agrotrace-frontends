@@ -45,7 +45,11 @@ const stock = () => import('../pages/stock');
 const lab = () => import('../pages/lab');
 const recalls = () => import('../pages/recalls');
 const complaints = () => import('../pages/complaints');
-const admin = () => import('../pages/admin');
+const organizations = () => import('../pages/organizations');
+const users = () => import('../pages/users');
+const dictionaries = () => import('../pages/dictionaries');
+const audit = () => import('../pages/audit');
+const reports = () => import('../pages/reports');
 
 /** Screens outside the cabinet shell (no session needed). */
 export const AUTH_ROUTES: readonly PublicAuthRoute[] = [
@@ -119,7 +123,14 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/batches/:id',
     title: 'page.batch',
     access: 'auth',
-    ops: ['getBatch', 'getBatchHistory', 'getBatchPath', 'getBatchGraph', 'getBatchDocuments'],
+    ops: [
+      'getBatch',
+      'getBatchHistory',
+      'getBatchPath',
+      'getBatchGraph',
+      'getBatchDocuments',
+      'listLabTests',
+    ],
     load: page(batches, 'BatchPage'),
   },
   {
@@ -175,7 +186,7 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/lab/tests/:id',
     title: 'page.labTest',
     access: { roles: [L] },
-    ops: ['getLabTest', 'submitLabResults'],
+    ops: ['getLabTest', 'registerLabSample', 'submitLabResults', 'uploadLabProtocol'],
     load: page(lab, 'LabTestPage'),
   },
   {
@@ -196,7 +207,7 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/recalls/new',
     title: 'page.recallNew',
     access: { roles: [I] },
-    ops: ['createRecall'],
+    ops: ['createRecall', 'listBatches', 'getBatch'],
     load: page(recalls, 'RecallNewPage'),
   },
   {
@@ -217,7 +228,7 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     path: '/complaints/:id',
     title: 'page.complaint',
     access: { roles: [I] },
-    ops: ['getComplaint'],
+    ops: ['getComplaint', 'startComplaintReview', 'decideComplaint', 'listOrganizations'],
     load: page(complaints, 'ComplaintPage'),
   },
   {
@@ -225,41 +236,48 @@ export const CABINET_ROUTES: readonly CabinetRoute[] = [
     title: 'page.reports',
     access: { roles: [I, A], orgAdmin: true },
     ops: ['downloadReport'],
-    load: page(admin, 'ReportsPage'),
+    load: page(reports, 'ReportsPage'),
   },
   {
     path: '/org/staff',
     title: 'page.staff',
     access: { roles: [], orgAdmin: true },
-    ops: ['listUsers'],
-    load: page(admin, 'StaffPage'),
+    ops: ['listUsers', 'inviteUser', 'updateUser', 'uploadOrganizationLogo'],
+    load: page(users, 'StaffPage'),
   },
   {
     path: '/admin/organizations',
     title: 'page.organizations',
     access: { roles: [A] },
-    ops: ['listAdminOrganizations'],
-    load: page(admin, 'OrganizationsPage'),
+    ops: ['listAdminOrganizations', 'approveOrganization', 'updateAdminOrganization'],
+    load: page(organizations, 'OrganizationsPage'),
   },
   {
     path: '/admin/users',
     title: 'page.users',
     access: { roles: [A] },
-    ops: ['listUsers'],
-    load: page(admin, 'UsersPage'),
+    ops: ['listUsers', 'inviteUser', 'updateUser', 'listOrganizations'],
+    load: page(users, 'UsersPage'),
   },
   {
     path: '/admin/dictionaries/:name',
     title: 'page.dictionaries',
     access: { roles: [A] },
-    ops: ['listDictionary', 'createDictionaryEntry'],
-    load: page(admin, 'DictionaryPage'),
+    ops: [
+      'listDictionary',
+      'createDictionaryEntry',
+      'updateDictionaryEntry',
+      'deleteDictionaryEntry',
+      'importDictionary',
+      'uploadProductImage',
+    ],
+    load: page(dictionaries, 'DictionaryPage'),
   },
   {
     path: '/admin/audit',
     title: 'page.audit',
     access: { roles: [A, I] },
     ops: ['listAuditLog'],
-    load: page(admin, 'AuditPage'),
+    load: page(audit, 'AuditPage'),
   },
 ];

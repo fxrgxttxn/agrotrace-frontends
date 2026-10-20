@@ -61,12 +61,19 @@ const PAIRS: [fg: string, bg: string, min: number][] = [
   ['--c-ink', '--c-surface-sunk', 4.5],
   ['--c-ink-muted', '--c-surface', 4.5],
   ['--c-ink-muted', '--c-ground', 4.5],
+  // Text of a disabled control and the unit of a disabled input group (on the sunk fill of the disabled field).
+  ['--c-ink-disabled', '--c-surface-sunk', 4.5],
   ['--c-field-ink', '--c-field', 4.5],
   ['--c-field-ink', '--c-field-hover', 4.5],
   ['--c-field', '--c-surface', 4.5],
   // Clay is also the error-message text colour (at-field__error).
   ['--c-clay', '--c-surface', 4.5],
   ['--c-clay', '--c-ground', 4.5],
+  // The attention ink is also the warning text colour (at-field__warning) on cards and the page.
+  ['--status-attention-fg', '--c-surface', 4.5],
+  ['--status-attention-fg', '--c-ground', 4.5],
+  // The recall warning title of the public QR page (public.css).
+  ['--status-danger-fg', '--c-surface', 4.5],
   // Control boundaries (inputs, secondary buttons, stepper markers) — WCAG 1.4.11, R69.
   ['--c-line-strong', '--c-surface', 3],
   ['--c-line-strong', '--c-ground', 3],
