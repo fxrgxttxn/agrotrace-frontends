@@ -251,10 +251,17 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
     // Defaults react × mock; an option first is a Playwright argument, never taken for the front or the back.
     expect(e2e([])).toEqual([cmd('react', 'mock', 'gateway-react')]);
     expect(e2e(['--grep', 'UC-02'])).toEqual([cmd('react', 'mock', 'gateway-react', ' --grep UC-02')]);
+    // The Angular and Svelte stands have their own networks: their Playwright services run there.
     expect(e2e(['svelte', '--grep', 'UC-03'])).toEqual([
-      cmd('svelte', 'mock', 'gateway-svelte', ' --grep UC-03'),
+      cmd(
+        'svelte',
+        'mock',
+        'gateway-svelte',
+        ' --grep UC-03',
+        'docker compose -f docker-compose.svelte-mock.yml',
+        'playwright-svelte',
+      ),
     ]);
-    // The Angular stand has its own network: its Playwright service runs there.
     expect(e2e(['angular', 'mock', 'visual.spec.ts'])).toEqual([
       cmd(
         'angular',
@@ -266,14 +273,56 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
       ),
     ]);
     // No stand of the front running: the main gateway; GATEWAY_HOST always wins.
-    expect(e2e(['svelte', 'django'], { AT_DRY_STAND: '0' })).toEqual([cmd('svelte', 'django', 'gateway')]);
+    expect(e2e(['angular', 'django'], { AT_DRY_STAND: '0' })).toEqual([cmd('angular', 'django', 'gateway')]);
     expect(e2e(['react'], { GATEWAY_HOST: 'gw-x' })).toEqual([cmd('react', 'mock', 'gw-x')]);
   });
 
-  it('rejects frontends that do not exist yet', () => {
-    const r = sh(['./at', 'fe:build', 'svelte'], { AT_DRY_RUN: '1' });
-    expect(r.code).toBe(1);
-    expect(r.err).toMatch(/frontend-svelte does not exist yet/);
+  it('fe:gateway svelte starts and stops only gateway-svelte of project agrotrace-svelte (own network, port 8091)', () => {
+    expect(plus(sh(['./at', 'fe:gateway', 'svelte'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose -f docker-compose.svelte-mock.yml up -d --build --force-recreate --wait gateway-svelte',
+    ]);
+    expect(plus(sh(['./at', 'fe:gateway', 'svelte', 'down'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose -f docker-compose.svelte-mock.yml down',
+    ]);
+    const compose = readFileSync(`${REPO}docker-compose.svelte-mock.yml`, 'utf8');
+    expect(compose).toMatch(/^name: agrotrace-svelte$/m);
+    expect(compose).not.toMatch(/agrotrace_at/);
+    expect(compose).toMatch(/- \.\/frontend-svelte\/build:\/srv\/svelte:ro/);
+    expect(compose).toMatch(/'8091:80'/);
+  });
+
+  it('fe:build / fe:test / fe:e2e-smoke svelte', () => {
+    expect(plus(sh(['./at', 'fe:build', 'svelte'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte build',
+    ]);
+    expect(plus(sh(['./at', 'fe:build', 'svelte', '--mock'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte build:mock',
+    ]);
+    expect(sh(['./at', 'fe:build', 'svelte', '--prod'], { AT_DRY_RUN: '1' }).code).toBe(2);
+    // Polish P2: a running stand holds the build directory as a bind mount — stopped for the build, recreated after.
+    expect(
+      plus(sh(['./at', 'fe:build', 'svelte', '--mock'], { AT_DRY_RUN: '1', AT_DRY_STAND: '1' }).out),
+    ).toEqual([
+      '+ docker compose -f docker-compose.svelte-mock.yml stop gateway-svelte',
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte build:mock',
+      '+ docker compose -f docker-compose.svelte-mock.yml up -d --build --force-recreate --wait gateway-svelte',
+    ]);
+    // …and the shared suite says what to do when the stand is down, instead of failing on every page.
+    const down = sh(['./at', 'e2e', 'svelte', 'mock'], { AT_DRY_RUN: '1', AT_DRY_STAND: '0' });
+    expect(down.code).toBe(1);
+    expect(down.err).toMatch(/Svelte stand .* is not running .* \.\/at fe:gateway svelte up/);
+    expect(plus(sh(['./at', 'fe:test', 'svelte'], { AT_DRY_RUN: '1' }).out)).toEqual([
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/frontend-svelte test',
+    ]);
+    expect(plus(sh(['./at', 'fe:e2e-smoke', 'svelte'], { AT_DRY_RUN: '1' }).out).at(-1)).toBe(
+      '+ docker compose -f docker-compose.svelte-mock.yml run --rm -w //repo/frontend-svelte playwright-svelte npx --no-install playwright test -c e2e/playwright.config.ts',
+    );
+  });
+
+  it('rejects unknown frontends', () => {
+    const r = sh(['./at', 'fe:build', 'vue'], { AT_DRY_RUN: '1' });
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(/usage: \.\/at fe:/);
     expect(sh(['./at', 'fe:test'], { AT_DRY_RUN: '1' }).code).toBe(2);
   });
 });

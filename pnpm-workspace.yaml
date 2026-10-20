@@ -7,3 +7,4 @@ packages:
   - tests/*
   - frontend-react
   - frontend-angular
+  - frontend-svelte

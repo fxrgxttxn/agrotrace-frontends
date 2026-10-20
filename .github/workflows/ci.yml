@@ -125,7 +125,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+<<<<<<< HEAD
         front: [react, angular]
+=======
+        front: [react, svelte]
+>>>>>>> feat/plan-6-svelte
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/pnpm-store-restore
@@ -142,6 +146,16 @@ jobs:
         run: |
           ./at.sh fe:build angular
           ./at.sh fe:build angular --mock
+<<<<<<< HEAD
+=======
+      # The Svelte stand (compose project agrotrace-svelte, network agrotrace_svelte) serves both builds: build-mock at
+      # svelte-mock.localhost and build (the public budget is checked by its own e2e) at svelte-express.localhost; the
+      # shared suite runs through playwright-svelte on that network (./at.sh e2e svelte).
+      - if: matrix.front == 'svelte'
+        run: |
+          ./at.sh fe:build svelte
+          ./at.sh fe:build svelte --mock
+>>>>>>> feat/plan-6-svelte
       - run: ./at.sh fe:gateway ${{ matrix.front }}
       - run: ./at.sh e2e ${{ matrix.front }} mock
       - uses: actions/upload-artifact@v4
