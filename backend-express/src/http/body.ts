@@ -16,12 +16,14 @@ export type MassPath = string | readonly [string, string];
 
 export interface ParseOptions {
   /**
-   * Array fields whose `validation.duplicate` (the shared schemas' noDuplicate refinement) the operation reports at a
-   * later step of its own check order (createWaybill: with the references, step 2; acceptWaybill: as
-   * `items.mismatch`, step 6). When duplicates there are the only schema errors, the body passes as is — every other
-   * constraint held, and with the wire mass check the values equal the schema's output.
+   * Array fields whose `validation.duplicate` (the shared schemas' noDuplicate refinement) the operation reports only
+   * at its own later step (P36: createWaybill — with the references, step 2; acceptWaybill — as `items.mismatch`,
+   * step 6). Those issues are always dropped from the schema-stage errors; when nothing else is wrong the body passes
+   * as is — every other constraint held, and with the wire mass check the values equal the schema's output.
    */
   deferDuplicates?: readonly string[];
+  /** Errors of the request's other parameters (e.g. `If-Match`), reported in the same 400 (P36). */
+  extraErrors?: Record<string, string[]>;
 }
 
 export function parseBody<S extends z.ZodTypeAny>(
@@ -32,13 +34,15 @@ export function parseBody<S extends z.ZodTypeAny>(
 ): z.output<S> {
   const result = schema.safeParse(raw);
   const errors: Record<string, string[]> = result.success ? {} : toFieldErrors(result.error);
-  let deferredOnly = false;
   if (!result.success && opts.deferDuplicates?.length) {
     const deferred = (path: string) =>
       opts.deferDuplicates!.some((a) => new RegExp(`^${a}\\[\\d+\\]\\.[A-Za-z]+$`).test(path));
-    deferredOnly = Object.entries(errors).every(
-      ([path, keys]) => deferred(path) && keys.every((k) => k === 'validation.duplicate'),
-    );
+    for (const [path, keys] of Object.entries(errors)) {
+      if (!deferred(path)) continue;
+      const rest = keys.filter((k) => k !== 'validation.duplicate');
+      if (rest.length > 0) errors[path] = rest;
+      else delete errors[path];
+    }
   }
   const add = (path: string) => {
     if (!errors[path]) errors[path] = ['validation.mass.format'];
@@ -60,8 +64,8 @@ export function parseBody<S extends z.ZodTypeAny>(
       });
     }
   }
-  const wireErrors = Object.entries(errors).some(([, keys]) => keys.includes('validation.mass.format'));
-  if (deferredOnly && !wireErrors) return raw as z.output<S>;
+  for (const [path, keys] of Object.entries(opts.extraErrors ?? {})) (errors[path] ??= []).push(...keys);
   if (Object.keys(errors).length > 0) throw validationProblem(errors);
-  return (result as { data: z.output<S> }).data;
+  // Only deferred duplicates failed the schema: the raw body is otherwise valid (see deferDuplicates).
+  return (result.success ? result.data : raw) as z.output<S>;
 }

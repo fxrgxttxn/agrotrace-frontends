@@ -24,7 +24,7 @@ import { lockBatches, lockRecallTasks, lockWaybill } from '../../db/locks.js';
 import { withTx } from '../../db/tx.js';
 import type { DB } from '../../db/types.generated.js';
 import { parseBody } from '../../http/body.js';
-import { checkVersion } from '../../http/if-match.js';
+import { checkVersion, type IfMatch } from '../../http/if-match.js';
 import { dayAfter, QueryReader } from '../../http/params.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
 import type { Principal } from '../../security/jwt.js';
@@ -515,11 +515,13 @@ export function waybillsService(c: Container) {
      * per item: BR-06, INVALID_TRANSITION (not InTransit), BR-07 (act required above 2%). Result: ACCEPTED, items keep
      * massActualKg/discrepancyAct, batches Accepted with the receiver as holder and the actual mass.
      */
-    async accept(p: Principal, id: string, version: number, body: unknown): Promise<WaybillView> {
+    async accept(p: Principal, id: string, ifMatch: IfMatch, body: unknown): Promise<WaybillView> {
       // A repeated batch is step 6 (items.mismatch, after 404/403/409), not a schema error.
       const input = parseBody(WaybillAcceptSchema, body, [['items', 'massActualKg']], {
         deferDuplicates: ['items'],
+        extraErrors: ifMatch.errors,
       });
+      const version = ifMatch.version!;
       const codes = await withTx(
         db,
         async (tx) => {
@@ -596,8 +598,9 @@ export function waybillsService(c: Container) {
      * recalled in transit: its OPEN/OVERDUE task held by the receiver goes to the sender (dueAt kept, version + 1) with
      * RECALL_TASK {event: REASSIGNED} to the sender (R50).
      */
-    async reject(p: Principal, id: string, version: number, body: unknown): Promise<WaybillView> {
-      const input = parseBody(WaybillRejectSchema, body);
+    async reject(p: Principal, id: string, ifMatch: IfMatch, body: unknown): Promise<WaybillView> {
+      const input = parseBody(WaybillRejectSchema, body, [], { extraErrors: ifMatch.errors });
+      const version = ifMatch.version!;
       const codes = await withTx(
         db,
         async (tx) => {

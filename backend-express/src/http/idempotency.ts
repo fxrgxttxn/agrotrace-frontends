@@ -9,8 +9,9 @@
  *   IDEMPOTENCY_KEY_REUSED; same and pending → 409 IDEMPOTENCY_KEY_IN_PROGRESS + `Retry-After: 1`; same and done → the
  *   stored response again (status, `body` re-serialized as application/json, `Idempotent-Replayed: true`);
  * - the owner's response decides before it is sent: 2xx → the Lua compare-and-set stores
- *   `{"fingerprint", "state": "done", "status", "body"}` for 86400 s; anything else (a 4xx/5xx problem, a request that
- *   ends without a response) → the Lua compare-and-delete frees the key. Both scripts touch only the owner's own
+ *   `{"fingerprint", "state": "done", "status", "body"}` for 86400 s; a 4xx/5xx answer of the owner (a problem or a
+ *   crash rendered as 500) → the Lua compare-and-delete frees the key. A client disconnect settles nothing: the owner
+ *   finishes and settles; until then a retry is 409 IN_PROGRESS; an owner that never answers leaves pending to its TTL. Both scripts touch only the owner's own
  *   pending record (fingerprint + state compared after `cjson.decode`), never a finished or foreign one.
  */
 import { createHash } from 'node:crypto';
@@ -139,12 +140,10 @@ function settleBeforeSend(
     void settle(status, json).then(() => send(body as never));
     return res;
   }) as Response['send'];
-  // A response sent without res.send (e.g. end()): settled after the fact. A request that ends without any response
-  // (client gone, crash after the headers): the key is freed.
+  // A response sent without res.send (e.g. end()): settled after the fact. A client that goes away does NOT settle
+  // anything: the operation keeps running and settles when its handler answers (2xx stored, 4xx/5xx released); a
+  // retry meanwhile gets 409 IN_PROGRESS. If the owner never answers, the pending record expires after 60 s (R48).
   res.on('finish', () => void settle(res.statusCode, null));
-  res.on('close', () => {
-    if (!res.writableFinished) void settle(500, null);
-  });
 }
 
 export function idempotency(c: Container, store: IdemStore = redisIdemStore(c.redis)): RequestHandler {

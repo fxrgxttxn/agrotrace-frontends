@@ -8,7 +8,7 @@ import type { Container } from '../../container.js';
 import { ah } from '../../http/async.js';
 import { guard, principalOf } from '../../http/auth.js';
 import { idempotency } from '../../http/idempotency.js';
-import { ifMatchVersion } from '../../http/if-match.js';
+import { ifMatchVersion, readIfMatch } from '../../http/if-match.js';
 import { idParam } from '../../http/params.js';
 import { waybillsService } from './service.js';
 
@@ -64,8 +64,8 @@ export function waybillsRouter(c: Container): Router {
     idempotency(c),
     ah(async (req, res) => {
       const id = idParam(req);
-      const version = ifMatchVersion(req);
-      res.status(200).json(await svc.accept(principalOf(res), id, version, req.body));
+      // If-Match and body errors in one 400 (P36).
+      res.status(200).json(await svc.accept(principalOf(res), id, readIfMatch(req), req.body));
     }),
   );
   r.post(
@@ -73,8 +73,7 @@ export function waybillsRouter(c: Container): Router {
     guard(c, 'rejectWaybill'),
     ah(async (req, res) => {
       const id = idParam(req);
-      const version = ifMatchVersion(req);
-      res.status(200).json(await svc.reject(principalOf(res), id, version, req.body));
+      res.status(200).json(await svc.reject(principalOf(res), id, readIfMatch(req), req.body));
     }),
   );
   return r;

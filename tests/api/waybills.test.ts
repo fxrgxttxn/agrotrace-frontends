@@ -120,6 +120,17 @@ describe('createWaybill', () => {
       }),
       { receiverOrgId: ['validation.notFound'], 'items[1].batchId': ['validation.duplicate'] },
     );
+    // P36: a schema error elsewhere is reported alone (step 1) — the duplicate waits for step 2.
+    expectErrors(
+      await createWaybill(farm.client, {
+        receiverOrgId: processor.orgId,
+        items: [
+          { batchId: b.id, massDeclaredKg: '0.000' },
+          { batchId: b.id, massDeclaredKg: '1.000' },
+        ],
+      }),
+      { 'items[0].massDeclaredKg': ['validation.positive'] },
+    );
   });
 
   it('references in one 400: receiver not ACTIVE/type/self, invisible batch, mass above the batch; then NOT_HOLDER by request order', async () => {
@@ -410,6 +421,22 @@ describe('acceptWaybill / rejectWaybill', () => {
     expectErrors(await acceptWaybill(processor.client, sent, twice), {
       items: ['validation.items.mismatch'],
     });
+    // P36: with another schema error the 400 lists that one only — never the duplicate.
+    expectErrors(
+      await acceptWaybill(processor.client, sent, [
+        { batchId: b.id, massActualKg: '1000' },
+        { batchId: b.id, massActualKg: '1000.000' },
+      ]),
+      { 'items[0].massActualKg': ['validation.mass.format'] },
+    );
+    // P36: If-Match errors and body errors in one 400.
+    const both = await processor.client.post(
+      `/waybills/${sent.id}/accept`,
+      { items: [{ batchId: b.id, massActualKg: '0.000' }] },
+      { headers: { 'Idempotency-Key': idemKey(), 'If-Match': 'W/"2"' } },
+    );
+    await expectContract(both, 'acceptWaybill');
+    expectErrors(both, { 'If-Match': ['validation.type'], 'items[0].massActualKg': ['validation.positive'] });
     expectProblem(
       await acceptWaybill(processor.client, { id: sent.id, version: 1 }, twice),
       409,
@@ -469,6 +496,9 @@ describe('acceptWaybill / rejectWaybill', () => {
     const b = await approvedBatch(farm);
     const sent = await sentWaybill(farm.client, processor.orgId, [b]);
     expectErrors(await rejectWaybill(processor.client, sent, ''), { reason: ['validation.required'] });
+    const noHeader = await processor.client.post(`/waybills/${sent.id}/reject`, { reason: '' });
+    await expectContract(noHeader, 'rejectWaybill');
+    expectErrors(noHeader, { 'If-Match': ['validation.required'], reason: ['validation.required'] });
     expectErrors(await rejectWaybill(processor.client, sent, '   '), { reason: ['validation.pattern'] });
     expectProblem(await rejectWaybill(farm.client, sent, 'Не то'), 403, 'FORBIDDEN', null);
     const res = await rejectWaybill(processor.client, sent, 'Влажность выше нормы');
