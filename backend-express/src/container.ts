@@ -12,6 +12,7 @@ import { Amqp } from './infra/amqp.js';
 import { createDaData, type DaData } from './infra/dadata.js';
 import { createFileUrls, type FileUrls } from './infra/file-urls.js';
 import { createMailer, type Mailer } from './infra/mailer.js';
+import { createOutboxRelay, type OutboxRelay } from './infra/relay.js';
 import { createRedis } from './infra/redis.js';
 import { createS3, type S3 } from './infra/s3.js';
 
@@ -26,6 +27,8 @@ export interface Container {
   mailer: Mailer;
   dadata: DaData;
   fileUrls: FileUrls;
+  /** Outbox relay + sweeper (publishing side, R55/R56); started by the API process only. */
+  relay: OutboxRelay;
   /** The bundled contract (API process only). */
   contract: { doc: OpenApiDoc; raw: string } | null;
   close(): Promise<void>;
@@ -49,6 +52,7 @@ export function createContainer(
     { host: config.SMTP_HOST, port: config.SMTP_PORT, from: config.SMTP_FROM },
     logger,
   );
+  const relay = createOutboxRelay({ db, amqp, logger });
   const dadata = createDaData(
     { apiKey: config.DADATA_API_KEY, url: config.DADATA_URL, timeoutMs: config.DADATA_TIMEOUT_MS },
     logger,
@@ -64,10 +68,12 @@ export function createContainer(
     mailer,
     dadata,
     fileUrls: createFileUrls(config.JWT_SECRET),
+    relay,
     contract: opts.contract ?? null,
     async close() {
       // quit() waits for pending replies — only on a live connection; a reconnecting client is just dropped.
       const redisDone = redis.status === 'ready' ? redis.quit() : Promise.resolve(redis.disconnect());
+      await relay.stop();
       await Promise.allSettled([amqp.close(), redisDone, db.destroy()]);
       s3.client.destroy();
       mailer.close();

@@ -11,6 +11,7 @@ const logger = createLogger({ level: config.LOG_LEVEL, process: 'api' });
 crashOnUnhandled(logger);
 const container = createContainer(config, logger, { process: 'api', contract: loadContract() });
 container.amqp.start();
+container.relay.start();
 
 const app = createApp(container);
 const server = app.listen(config.PORT, () => logger.info({ port: config.PORT }, 'api listening'));

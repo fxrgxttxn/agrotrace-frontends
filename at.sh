@@ -213,9 +213,9 @@ api_test() (
     run $tests -e API_RATELIMITS=1 tools pnpm --filter @agrotrace/tests-api test "$@"
     return
   fi
-  restore() { run $DC up -d --no-build --wait "api-${back}"; }
+  restore() { run $DC up -d --no-build --wait "api-${back}" "worker-${back}"; }
   trap restore EXIT
-  run $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait "api-${back}"
+  run $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait "api-${back}" "worker-${back}"
   run $tests tools pnpm --filter @agrotrace/tests-api test "$@"
 )
 

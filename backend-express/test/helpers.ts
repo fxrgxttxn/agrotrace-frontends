@@ -49,6 +49,11 @@ export const testConfig = {
   DADATA_TIMEOUT_MS: 3000,
   TELEGRAM_BOT_USERNAME: 'agrotrace_bot',
   RATE_LIMIT_OVERRIDES: {},
+  MERCURY_URL: 'http://mercury.invalid',
+  MERCURY_TIMEOUT_MS: 10000,
+  MERCURY_RETRY_BASE_MS: 2000,
+  MERCURY_FAIL_PRODUCT_CODES: [] as string[],
+  MERCURY_FAIL_MODE: '500',
   HEALTH_TIMEOUT_MS: 200,
   SHUTDOWN_TIMEOUT_MS: 100,
 } satisfies Config;

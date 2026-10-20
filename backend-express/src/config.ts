@@ -85,6 +85,32 @@ const schema = z.object({
     .string()
     .regex(/^[A-Za-z0-9_]{5,32}$/, 'must be a Telegram username without @ (5-32 of A-Z a-z 0-9 _)')
     .default('agrotrace_bot'),
+  /** ФГИС «Меркурий» (dev: mercury-mock), the `vsd.import` worker (R81, contracts/events/vsd.import.schema.json). */
+  MERCURY_URL: url(['http:', 'https:'])
+    .default('http://mercury-mock:8080')
+    .transform((s) => s.replace(/\/+$/, '')),
+  /** One Mercury call's timeout (the event schema: 10 s). */
+  MERCURY_TIMEOUT_MS: z.coerce.number().int().min(100).max(60000).default(10000),
+  /**
+   * The first retry delay; the next ones double (2, 4, 8, 16, 32 s by default — the event schema). Test stand only
+   * (docker-compose.api-test.yml) shortens it so a FAILED import does not take a minute.
+   */
+  MERCURY_RETRY_BASE_MS: z.coerce.number().int().min(1).max(60000).default(2000),
+  /**
+   * Test stand only (docker-compose.api-test.yml): Mercury calls for these product codes (comma-separated
+   * `products.mercury_code` values) carry `X-Mock-Fail: <MERCURY_FAIL_MODE>`, so mercury-mock fails them on purpose
+   * and tests/api can watch an import end FAILED. Unset in operation.
+   */
+  MERCURY_FAIL_PRODUCT_CODES: z
+    .string()
+    .optional()
+    .transform((s) =>
+      (s ?? '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean),
+    ),
+  MERCURY_FAIL_MODE: z.enum(['500', 'timeout']).default('500'),
   /** Readiness checks give up after this long (each dependency). */
   HEALTH_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(2000),
   /** Graceful shutdown: in-flight requests get this long after SIGTERM. */
