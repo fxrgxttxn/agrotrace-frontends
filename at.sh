@@ -185,24 +185,28 @@ up_backend() (
   echo "$back up: http://api-${back}:8000/api/v1 inside the \`at\` network (through the gateway: ./at up <front> $back)"
 )
 
-# `./at api:test [backend] [--reset] [--ratelimits] [vitest args…]`: tests/api (HTTP contract suite, shared by the
-# three backends) against api-<backend> (default express). Starts infra and the backend's services first; --reset
-# reloads the demo data (./at reset) before the run. The suite reads the dev DB read-only (tests/api/lib/db.ts),
-# apart from the documented fixture writes.
+# `./at api:test [backend] [--reset] [--ratelimits] [--tz <zone>] [vitest args…]`: tests/api (HTTP contract suite,
+# shared by the three backends) against api-<backend> (default express). Starts infra and the backend's services
+# first; --reset reloads the demo data (./at reset) before the run. The suite reads the dev DB read-only
+# (tests/api/lib/db.ts), apart from the documented fixture writes.
 # P10: by default api-<backend> runs for the suite with the api-test overrides (docker-compose.api-test.yml:
 # RATE_LIMIT_OVERRIDES) and is restored to its plain configuration afterwards; the rate-limit tests (named
 # `[ratelimit]`) skip themselves. --ratelimits runs only those tests (API_RATELIMITS=1 → tests/api/vitest.config.ts
-# testNamePattern), against the plain backend (no overrides).
+# testNamePattern), against the plain backend (no overrides). The api-test profile covers all three processes (the
+# scheduler ticks every second, SCHEDULER_TICK_MS); --tz <zone> runs them with TZ=<zone> (Review Focus 4: every date
+# rule is UTC, so the suite must pass in any zone).
 api_test() (
   set -euo pipefail
   back="express"
   case "${1:-}" in express|django|laravel) back="$1"; shift ;; esac
   reset=0
   ratelimits=0
+  tz=""
   while :; do
     case "${1:-}" in
       --reset) reset=1; shift ;;
       --ratelimits) ratelimits=1; shift ;;
+      --tz) tz="${2:?--tz needs a zone, e.g. Europe/Moscow}"; shift 2 ;;
       *) break ;;
     esac
   done
@@ -213,9 +217,10 @@ api_test() (
     run $tests -e API_RATELIMITS=1 tools pnpm --filter @agrotrace/tests-api test "$@"
     return
   fi
-  restore() { run $DC up -d --no-build --wait "api-${back}" "worker-${back}"; }
+  procs="$(backend_services "$back")"
+  restore() { run $DC up -d --no-build --wait $procs; }
   trap restore EXIT
-  run $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait "api-${back}" "worker-${back}"
+  API_TEST_TZ="${tz:-UTC}" run $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait $procs
   run $tests tools pnpm --filter @agrotrace/tests-api test "$@"
 )
 

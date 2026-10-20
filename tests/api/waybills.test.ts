@@ -3,7 +3,7 @@
  * Idempotency-Key protocol (R48, R53): DRAFT → SENT → ACCEPTED | REJECTED, deletion of drafts only, the check orders
  * of send (D6: NOT_HOLDER → BR-06 → INVALID_TRANSITION → BR-01) and accept (BR-06 → INVALID_TRANSITION → BR-07),
  * holder and mass change on acceptance, WAYBILL_INCOMING and RECALL_TASK REASSIGNED in the outbox, recall task
- * reassignment on rejection (R50c — seeded recall tasks; the recall engine comes with Task 10), visibility,
+ * reassignment on rejection (R50c — a batch recalled in transit by a failed lab test, Task 9), visibility,
  * idempotent replays (same answer + `Idempotent-Replayed: true`), REUSED, IN_PROGRESS + Retry-After, re-execution
  * after a 4xx, and the race of two sends over one batch (Review Focus 1: exactly one wins).
  *
@@ -526,55 +526,53 @@ describe('acceptWaybill / rejectWaybill', () => {
   });
 
   it("reject of a waybill whose batch was recalled in transit: the receiver's open task goes to the sender (R50c), RECALL_TASK REASSIGNED", async () => {
-    // Seeded: a SENT waybill with a Recalled batch whose OPEN/OVERDUE task is held by the receiver (./at reset).
-    const [seed] = await query<{
-      waybill: string;
-      receiver_email: string;
-      task: string;
-      sender: string;
-      due_at: Date;
-      version: number;
-    }>(
-      `SELECT w.id AS waybill, u.email AS receiver_email, t.id AS task, w.sender_org_id AS sender, t.due_at, t.version
-         FROM waybills w JOIN waybill_items wi ON wi.waybill_id = w.id
-         JOIN batches b ON b.id = wi.batch_id AND b.status = 'Recalled'
-         JOIN recall_tasks t ON t.batch_id = b.id AND t.holder_org_id = w.receiver_org_id AND t.status IN ('OPEN','OVERDUE')
-         JOIN users u ON u.organization_id = w.receiver_org_id AND u.is_org_admin AND u.deleted_at IS NULL
-        WHERE w.status = 'SENT' AND w.deleted_at IS NULL
-        ORDER BY w.number LIMIT 1`,
+    // Built through the API: a batch in transit to a retailer is recalled by a failed unplanned lab test (the recall
+    // engine gives the task to the receiver of the SENT waybill, T9 note c).
+    const retailer = await freshOrg('RETAILER');
+    const b = await approvedBatch(farm);
+    const wb = await sentWaybill(farm.client, retailer.orgId, [b]);
+    const inspector = await loginAs('INSPECTOR');
+    const lab = await loginAs('LAB', { key: 'vetlab.head' });
+    const labOrgId = (await lab.get('/me')).body.organization.id as string;
+    const test = await inspector.post('/lab-tests', { batchId: b.id, labOrgId });
+    expect(test.status, test.text).toBe(201);
+    const failed = await lab.post(
+      `/lab-tests/${test.body.id}/results`,
+      {
+        results: (test.body.norms as { indicatorId: string }[]).map((n) => ({
+          indicatorId: n.indicatorId,
+          value: '99999',
+        })),
+      },
+      { headers: { 'If-Match': '1' } },
     );
-    expect(
-      seed,
-      'the seed has a SENT waybill with a batch recalled in transit (run with --reset)',
-    ).toBeDefined();
-    const receiver = await loginAs('RETAILER', { key: seed!.receiver_email.split('@')[0] });
-    const wb = (await getWaybill(receiver, seed!.waybill)).body;
+    await expectContract(failed, 'submitLabResults');
+    expect(failed.status, failed.text).toBe(200);
+    const [seed] = await query<{ task: string; due_at: Date; version: number; holder_org_id: string }>(
+      // Task 10's listRecallTasks will show this through the API.
+      `SELECT id AS task, due_at, version, holder_org_id FROM recall_tasks WHERE recall_id = $1 AND batch_id = $2`,
+      [failed.body.recallId, b.id],
+    );
+    expect(seed!.holder_org_id).toBe(retailer.orgId);
+    const current = (await getWaybill(retailer.client, wb.id)).body;
     // BR-06 blocks the acceptance, the rejection is always possible.
-    const acc = await acceptWaybill(
-      receiver,
-      wb,
-      wb.items.map((i: { batch: { id: string }; massDeclaredKg: string }) => ({
-        batchId: i.batch.id,
-        massActualKg: i.massDeclaredKg,
-      })),
-    );
+    const acc = await acceptWaybill(retailer.client, current, [{ batchId: b.id, massActualKg: b.massKg }]);
     expectProblem(acc, 422, 'BUSINESS_RULE');
     expect(acc.body.rule).toBe('BR-06');
     const since = await dbNow();
-    const res = await rejectWaybill(receiver, wb, 'Партия отозвана в пути');
+    const res = await rejectWaybill(retailer.client, current, 'Партия отозвана в пути');
     expect(res.status, res.text).toBe(200);
     const [task] = await query<{ holder_org_id: string; due_at: Date; version: number }>(
-      // Task 10's listRecallTasks will show this through the API.
       `SELECT holder_org_id, due_at, version FROM recall_tasks WHERE id = $1`,
       [seed!.task],
     );
-    expect(task).toEqual({ holder_org_id: seed!.sender, due_at: seed!.due_at, version: seed!.version + 1 });
+    expect(task).toEqual({ holder_org_id: farm.orgId, due_at: seed!.due_at, version: seed!.version + 1 });
     const ev = (await outboxEvents({ backend: BACKEND, type: 'notification.dispatch', since })).filter(
       (e) =>
         e.payload.data.notificationType === 'RECALL_TASK' && e.payload.data.payload.taskId === seed!.task,
     );
     expect(ev.length).toBe(1);
-    expect(ev[0]!.payload.data.recipients.orgIds).toEqual([seed!.sender]);
+    expect(ev[0]!.payload.data.recipients.orgIds).toEqual([farm.orgId]);
     expect(ev[0]!.payload.data.payload).toMatchObject({
       event: 'REASSIGNED',
       dueAt: new Date(seed!.due_at).toISOString(),

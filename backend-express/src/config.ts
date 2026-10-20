@@ -111,6 +111,11 @@ const schema = z.object({
         .filter(Boolean),
     ),
   MERCURY_FAIL_MODE: z.enum(['500', 'timeout']).default('500'),
+  /**
+   * Period of every scheduler job (lab-escalation; recall-task-overdue with Task 10) — 5 minutes (spec 8.2). Test stand
+   * only (`api-test`, contract info.description): 1000, so tests/api see a job act within seconds.
+   */
+  SCHEDULER_TICK_MS: z.coerce.number().int().min(100).max(3_600_000).default(300_000),
   /** Readiness checks give up after this long (each dependency). */
   HEALTH_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(2000),
   /** Graceful shutdown: in-flight requests get this long after SIGTERM. */

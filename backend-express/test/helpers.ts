@@ -54,6 +54,7 @@ export const testConfig = {
   MERCURY_RETRY_BASE_MS: 2000,
   MERCURY_FAIL_PRODUCT_CODES: [] as string[],
   MERCURY_FAIL_MODE: '500',
+  SCHEDULER_TICK_MS: 300_000,
   HEALTH_TIMEOUT_MS: 200,
   SHUTDOWN_TIMEOUT_MS: 100,
 } satisfies Config;
