@@ -20,6 +20,7 @@ export interface Product {
   id: string;
   name: string;
   category: string;
+  lossNormPercent: string;
   mercuryCode: string | null;
 }
 
@@ -51,7 +52,8 @@ export async function productOf(pred: (p: Product) => boolean): Promise<Product>
   return p;
 }
 
-export const wheat = () => productOf((p) => p.category === 'GRAIN');
+/** The seeded wheat (db/seed/data/products.json; other suites add GRAIN products of their own). */
+export const wheat = () => productOf((p) => p.category === 'GRAIN' && p.name === 'Пшеница мягкая');
 export const beef = () => productOf((p) => p.category === 'MEAT' && p.mercuryCode === '10.11.11');
 
 /** createField on `farm` (a fresh field: no treatments). */
@@ -221,3 +223,37 @@ export async function eventually<T>(
     await new Promise((r) => setTimeout(r, stepMs));
   }
 }
+
+export const flour = () =>
+  productOf((p) => p.category === 'PROCESSED' && p.name === 'Мука пшеничная высшего сорта');
+
+/** processBatches (POST /processing). */
+export async function processBatches(
+  processor: ApiClient,
+  inputs: { batchId: string; massUsedKg: string }[],
+  outputs: { productId: string; massKg: string }[],
+) {
+  const res = await processor.post('/processing', { inputs, outputs });
+  await expectContract(res, 'processBatches');
+  return res;
+}
+
+/** A batch of `farm` delivered to `processor` (Accepted, held by the processor). */
+export async function acceptedAt(
+  farm: Farm,
+  processor: { client: ApiClient; orgId: string },
+  over: { productId?: string; massKg?: string } = {},
+) {
+  const b = await approvedBatch(farm, over);
+  await deliver(farm.client, processor, b);
+  const card = await getBatch(processor.client, b.id);
+  expect(card.body.status).toBe('Accepted');
+  return card.body as { id: string; publicCode: string; massKg: string; version: number; status: string };
+}
+
+/** Exact masses in grams (BigInt), as the contract computes BR-04. */
+export const grams = (kg: string): bigint => {
+  const [i, f = ''] = kg.split('.');
+  return BigInt(i!) * 1000n + BigInt(f.padEnd(3, '0').slice(0, 3));
+};
+export const kg = (g: bigint): string => `${g / 1000n}.${String(g % 1000n).padStart(3, '0')}`;
