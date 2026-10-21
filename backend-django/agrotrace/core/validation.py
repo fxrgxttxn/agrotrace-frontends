@@ -457,14 +457,20 @@ class ContractSerializer(Field, metaclass=_ObjectMeta):
             status = DIRTY
         return (ABORTED if aborted else status), out
 
+    #: `atLeastOneKey` (JSON Schema `minProperties: 1`): an object without any known field → `_root
+    #: validation.minProperties` (a refinement: it runs unless a member ABORTED).
+    min_properties: ClassVar[bool] = False
+
     @classmethod
     def schema(cls) -> Field:
+        if cls.min_properties:
+            return cls().refine(lambda obj: len(obj) > 0, "validation.minProperties")
         return cls()
 
     @classmethod
     def validate(cls, data: Any, schema: Field | None = None) -> tuple[bool, Any, dict[str, list[str]]]:
         ctx = Ctx()
-        status, value = (schema or cls()).parse(data, (), ctx)
+        status, value = (schema or cls.schema()).parse(data, (), ctx)
         return status == VALID, value, ctx.errors
 
     @classmethod

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from functools import cache
 
 from agrotrace.core import config
+from agrotrace.core.middleware import client_ip  # noqa: F401 - the subject of the IP scopes (P9), re-exported
 from agrotrace.core.problem import AppProblem
 
 

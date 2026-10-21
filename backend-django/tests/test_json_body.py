@@ -33,9 +33,10 @@ def test_a_foreign_charset_is_root_invalid():
 
 
 def test_utf8_charset_and_problem_json_type_are_read():
-    # A readable body reaches routing: /auth/login is not implemented in Task 1 → 404.
-    assert post(b'{"a": 1}', {"content-type": "application/json; charset=UTF-8"}).status == 404
-    assert post(b'{"a": 1}', {"content-type": "application/merge-patch+json"}).status == 404
+    # A readable body reaches the view: login's schema reports the unknown key `a` (and the missing fields).
+    for ct in ("application/json; charset=UTF-8", "application/merge-patch+json"):
+        r = post(b'{"a": 1}', {"content-type": ct})
+        assert r.status == 400 and r.json()["errors"]["a"] == ["validation.unknownField"]
 
 
 def test_a_body_over_12_mib_is_413_with_max_bytes():

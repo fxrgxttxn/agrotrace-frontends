@@ -43,6 +43,8 @@ def is_uuid(v: Any) -> bool:
 class ContractView(APIView):
     #: The contract's operationId this view implements (x-roles, x-rate-limit, x-idempotent are read from it).
     operation_id: ClassVar[str] = ""
+    #: One path, several operations (GET /me + PATCH /me): HTTP method → operationId (HEAD counts as GET).
+    operation_ids: ClassVar[dict[str, str]] = {}
     principal: Principal | None = None
     _idem: idempotency.Claim | None = None
 
@@ -53,8 +55,14 @@ class ContractView(APIView):
             connections.close_all()
 
     @property
+    def current_operation_id(self) -> str:
+        method = getattr(getattr(self, "request", None), "method", None) or "GET"
+        method = "GET" if method == "HEAD" else method
+        return self.operation_ids.get(method) or self.operation_id
+
+    @property
     def operation(self) -> dict[str, Any]:
-        return contract.operation(self.operation_id)
+        return contract.operation(self.current_operation_id)
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -68,7 +76,7 @@ class ContractView(APIView):
             if ratelimit.limit_of(scope).subject == "ip":
                 ratelimit.hit(scope, client_ip(request) or "unknown")
         if op.get("x-idempotent") is True:
-            assert self.principal is not None, f"{self.operation_id}: x-idempotent needs a Bearer principal"
+            assert self.principal is not None, f"{self.current_operation_id}: x-idempotent needs a Bearer principal"
             self._idem = idempotency.begin(
                 self.principal.user_id,
                 request.META.get("HTTP_IDEMPOTENCY_KEY"),

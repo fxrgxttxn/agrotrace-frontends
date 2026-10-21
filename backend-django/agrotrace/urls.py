@@ -9,6 +9,8 @@ from django.urls import include, path
 urlpatterns = [
     path("api/v1/", include("agrotrace.modules.health.urls")),
     path("api/v1/", include("agrotrace.modules.docs.urls")),
+    path("api/v1/", include("agrotrace.modules.auth.urls")),
+    path("api/v1/", include("agrotrace.modules.admin.urls")),
 ]
 
 handler400 = "agrotrace.core.problem.handler400"

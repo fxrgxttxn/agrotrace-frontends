@@ -55,7 +55,9 @@ def record(
     diff: AuditDiff,
     actor: Principal | None,
     request=None,
+    actor_id: str | None = None,
 ) -> None:
+    """`actor_id` names the actor when there is no Principal (registration, acceptInvite, resetPassword)."""
     if entity_type not in ENTITY_TYPES:
         raise ValueError(f"unknown audit entity type {entity_type}")
     ip = context.client_ip()
@@ -66,6 +68,6 @@ def record(
     tx.execute(
         "INSERT INTO audit_log (actor_id, action, entity_type, entity_id, diff, ip, backend, request_id) "
         "VALUES (%s, %s, %s, %s, %s::jsonb, %s::inet, 'django', %s)",
-        [actor.user_id if actor else None, action, entity_type, entity_id, json_dumps(diff), ip,
+        [actor.user_id if actor else actor_id, action, entity_type, entity_id, json_dumps(diff), ip,
          context.request_id()],
     )

@@ -6,6 +6,7 @@ belong to its transaction.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from django.db import connection
@@ -30,6 +31,11 @@ def all(query: str, params: Any = None) -> list[dict[str, Any]]:  # noqa: A001
 def one(query: str, params: Any = None) -> dict[str, Any] | None:
     rows = all(query, params)
     return rows[0] if rows else None
+
+
+def jsonb(value: Any) -> Any:
+    """A `jsonb` column as Python data: Django's psycopg setup loads jsonb as TEXT (for JSONField), `json` as data."""
+    return json.loads(value) if isinstance(value, str) else value
 
 
 def scalar(query: str, params: Any = None) -> Any:
