@@ -52,6 +52,7 @@ export function createApp(c: Container): Express {
   app.set('trust proxy', 1);
 
   app.use(requestId());
+  if (c.metrics) app.use(c.metrics.http);
   app.use(publishAfterResponse(c.relay));
   app.use(backendHeader('express'));
   app.use(accessLog(c.logger));

@@ -30,6 +30,7 @@ export function memoryLogger() {
 export const testConfig = {
   NODE_ENV: 'test',
   PORT: 8000,
+  METRICS_PORT: 9464,
   LOG_LEVEL: 'debug',
   APP_DATABASE_URL: 'postgres://u:p@localhost:5432/x',
   DB_POOL_MAX: 1,

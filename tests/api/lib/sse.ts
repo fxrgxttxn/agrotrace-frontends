@@ -5,7 +5,7 @@
  */
 import type { ApiResponse } from './client.js';
 import { API_URL } from './env.js';
-import { recordCall } from './registry.js';
+import { markReal, recordCall } from './registry.js';
 
 export interface SseEvent {
   id?: string;
@@ -93,7 +93,7 @@ export async function openStream(opts: {
   return {
     status: res.status,
     headers: res.headers,
-    response: {
+    response: markReal({
       method: 'GET',
       path: '/events/stream',
       status: res.status,
@@ -102,7 +102,7 @@ export async function openStream(opts: {
       body: null,
       text: '',
       bytes: Buffer.alloc(0),
-    },
+    }),
     events,
     ended,
     async next(type, timeoutMs = 15000) {

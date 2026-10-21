@@ -127,6 +127,31 @@ describe('./at wrapper (R88 M6)', () => {
     expect(readFileSync(`${REPO}docker-compose.api-test.yml`, 'utf8')).toMatch(/REPORT_MAX_ROWS: '13'/);
   });
 
+  it('cross:test [a] [b] starts both backends, then tests/cross with CROSS_API_URLS (default: the express pair)', () => {
+    const plain = sh(['./at', 'cross:test'], { AT_DRY_RUN: '1' })
+      .out.split('\n')
+      .filter((l) => l.startsWith('+ '));
+    expect(plain.at(-1)).toBe(
+      '+ docker compose run --rm -e CROSS_API_URLS=http://api-express:8000/api/v1,http://api-express:8000/api/v1 tools pnpm --filter @agrotrace/tests-cross test',
+    );
+    expect(
+      plain.filter((l) => l.includes('--wait api-express worker-express scheduler-express')),
+    ).toHaveLength(1);
+    const pair = sh(['./at', 'cross:test', 'express', 'django', 'session'], { AT_DRY_RUN: '1' })
+      .out.split('\n')
+      .filter((l) => l.startsWith('+ '));
+    expect(pair).toContain(
+      '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
+    );
+    expect(pair).toContain('+ docker compose up -d --build --wait api-django worker-django beat-django');
+    expect(pair.at(-1)).toBe(
+      '+ docker compose run --rm -e CROSS_API_URLS=http://api-express:8000/api/v1,http://api-django:8000/api/v1 tools pnpm --filter @agrotrace/tests-cross test session',
+    );
+    expect(readFileSync(`${REPO}at.sh`, 'utf8')).toMatch(
+      /"\$0" api:test express --ratelimits\n {4}"\$0" cross:test\n/,
+    );
+  });
+
   it('docs:test [back] starts the backend and the gateway, then the Playwright Swagger UI check (P5)', () => {
     const cmds = sh(['./at', 'docs:test'], { AT_DRY_RUN: '1' })
       .out.split('\n')

@@ -11,7 +11,7 @@ import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import type { ApiResponse } from './client.js';
 import { API_BACKEND } from './env.js';
-import { recordChecked } from './registry.js';
+import { isReal, recordChecked } from './registry.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped OpenAPI JSON
 type Json = Record<string, any>;
@@ -156,7 +156,7 @@ export async function expectContract(res: ApiResponse, operationId: string): Pro
   const base = refPtr ?? [...op.pointer, 'responses', code];
   const problems = responseProblems(c, res, response, base);
   if (problems.length) throw new ContractViolation(res, where, problems);
-  recordChecked({ operationId, status: res.status });
+  if (isReal(res)) recordChecked({ operationId, status: res.status });
   return response;
 }
 

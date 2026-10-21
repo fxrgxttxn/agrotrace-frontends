@@ -1,0 +1,15 @@
+{
+  "name": "@agrotrace/tests-cross",
+  "private": true,
+  "type": "module",
+  "description": "Cross-backend scenarios (spec 15.2): an entity created through one backend is used through another; CROSS_API_URLS, HTTP only.",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

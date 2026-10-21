@@ -8,7 +8,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 export interface RequestContext {
-  requestId: string;
+  /** The X-Request-Id of the request (audit `request_id`, outbox `requestId`); null in the worker (system entries). */
+  requestId: string | null;
+  /** Worker: the handled event's `requestId` — for log lines only (audit entries of the worker stay system: null). */
+  eventRequestId?: string | null;
   /** Client IP as the backend sees it behind the gateway (the last `X-Forwarded-For` hop); null if unknown. */
   ip: string | null;
   /** Outbox event ids written while handling the request (published after the response). */

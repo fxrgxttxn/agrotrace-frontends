@@ -13,6 +13,7 @@
  * (the relay publishes only registered types until then, infra/relay.ts).
  */
 import type { Channel, ConsumeMessage } from 'amqplib';
+import { runWithContext } from '../context.js';
 import type { Logger } from '../logger.js';
 import { JOBS_QUEUE, type Amqp } from './amqp.js';
 import type { EventEnvelope, EventType } from './outbox.js';
@@ -45,15 +46,28 @@ export function startConsumer(deps: {
   async function runHandler(handler: EventHandler, event: EventEnvelope): Promise<boolean> {
     for (let attempt = 0; ; attempt++) {
       try {
-        await handler(event);
+        // The handled event's requestId tags the handler's log lines (correlation with the API request, spec 14.5);
+        // audit entries stay system (request_id null) and handlers copy it into the events they enqueue themselves.
+        await runWithContext({ requestId: null, ip: null, eventRequestId: event.requestId }, () =>
+          handler(event),
+        );
         return true;
       } catch (err) {
         if (attempt >= delays.length || stopping) {
-          logger.error({ err, eventId: event.id, type: event.type }, 'event handler failed; dead-lettering');
+          logger.error(
+            { err, eventId: event.id, type: event.type, requestId: event.requestId },
+            'event handler failed; dead-lettering',
+          );
           return false;
         }
         logger.warn(
-          { err: (err as Error).message, eventId: event.id, type: event.type, attempt: attempt + 1 },
+          {
+            err: (err as Error).message,
+            eventId: event.id,
+            type: event.type,
+            attempt: attempt + 1,
+            requestId: event.requestId,
+          },
           'event handler failed; retrying',
         );
         await sleep(delays[attempt]!);

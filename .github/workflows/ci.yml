@@ -85,16 +85,27 @@ jobs:
   api-express:
     name: api (tests/api against Express)
     runs-on: ubuntu-latest
+    # Pinned so every run sees the same demo data (`./at.sh reset` → db/seed with SEED_NOW).
     env:
       SEED_NOW: '2026-09-24T12:00:00Z'
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/pnpm-store-restore
       - run: ./at.sh install
-      - run: ./at.sh api:test express --reset
+      - run: ./at.sh up infra
+      - run: ./at.sh reset
+      # api-express, worker-express, scheduler-express (built from this commit).
+      - run: ./at.sh up express
+      # The parity suite (P10 api-test profile) incl. the permission matrix and the contract coverage check, which
+      # is enforced on this full run (tests/api/contract-coverage.test.ts).
+      - run: ./at.sh api:test express
       # Review Focus 4: the same suite with the backend's processes in Moscow time — every date rule is UTC.
       - run: ./at.sh api:test express --reset --tz Europe/Moscow
+      # P10: the [ratelimit] tests against the plain backend (no RATE_LIMIT_OVERRIDES).
+      - run: ./at.sh api:test express --ratelimits
       - run: ./at.sh docs:test express
+      - if: failure()
+        run: docker compose logs --no-color --tail 500 api-express worker-express scheduler-express
       - uses: ./.github/actions/pnpm-store-save
         if: always()
 
@@ -127,11 +138,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-<<<<<<< HEAD
-        front: [react, angular]
-=======
-        front: [react, svelte]
->>>>>>> feat/plan-6-svelte
+        front: [react, angular, svelte]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/pnpm-store-restore
@@ -148,8 +155,6 @@ jobs:
         run: |
           ./at.sh fe:build angular
           ./at.sh fe:build angular --mock
-<<<<<<< HEAD
-=======
       # The Svelte stand (compose project agrotrace-svelte, network agrotrace_svelte) serves both builds: build-mock at
       # svelte-mock.localhost and build (the public budget is checked by its own e2e) at svelte-express.localhost; the
       # shared suite runs through playwright-svelte on that network (./at.sh e2e svelte).
@@ -157,7 +162,6 @@ jobs:
         run: |
           ./at.sh fe:build svelte
           ./at.sh fe:build svelte --mock
->>>>>>> feat/plan-6-svelte
       - run: ./at.sh fe:gateway ${{ matrix.front }}
       - run: ./at.sh e2e ${{ matrix.front }} mock
       - uses: actions/upload-artifact@v4

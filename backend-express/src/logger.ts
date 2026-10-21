@@ -1,6 +1,6 @@
 /** pino JSON logs to stdout; every line of a request carries its `requestId` (context.ts). */
 import { pino, type DestinationStream, type Logger } from 'pino';
-import { currentRequestId } from './context.js';
+import { currentContext } from './context.js';
 
 export type { Logger };
 
@@ -48,7 +48,8 @@ export function createLogger(
       // Secrets never reach the logs, whatever a caller passes in, however deeply nested.
       redact: { paths: redactPaths(), censor: '***' },
       mixin() {
-        const requestId = currentRequestId();
+        const ctx = currentContext();
+        const requestId = ctx?.requestId ?? ctx?.eventRequestId;
         return requestId ? { requestId } : {};
       },
     },

@@ -98,6 +98,9 @@ services:
     command: ["node", "--enable-source-maps", "dist/main-api.js"]
     env_file: [.env]
     environment: { PORT: "8000", NODE_ENV: production }
+    # Prometheus /metrics (METRICS_PORT, spec 14.5): inside the `at` network only — never published, never behind the
+    # gateway (which proxies /api/ of port 8000).
+    expose: ["9464"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/api/v1/health/live"]
       interval: 3s

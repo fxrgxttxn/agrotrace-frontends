@@ -7,6 +7,7 @@ import type { Redis } from 'ioredis';
 import type { Config } from './config.js';
 import type { OpenApiDoc } from './contract.js';
 import type { Logger } from './logger.js';
+import type { Metrics } from './infra/metrics.js';
 import { createDb, type Db } from './db/db.js';
 import { Amqp } from './infra/amqp.js';
 import { createDaData, type DaData } from './infra/dadata.js';
@@ -32,6 +33,8 @@ export interface Container {
   relay: OutboxRelay;
   /** SSE hub (LISTEN notifications, R33); the API process sets it before createApp, others leave null. */
   sse: SseHub | null;
+  /** Prometheus metrics (API process only, set by main-api before createApp; infra/metrics.ts). */
+  metrics: Metrics | null;
   /** The bundled contract (API process only). */
   contract: { doc: OpenApiDoc; raw: string } | null;
   close(): Promise<void>;
@@ -73,6 +76,7 @@ export function createContainer(
     fileUrls: createFileUrls(config.JWT_SECRET),
     relay,
     sse: null,
+    metrics: null,
     contract: opts.contract ?? null,
     async close() {
       // quit() waits for pending replies — only on a live connection; a reconnecting client is just dropped.

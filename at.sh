@@ -226,6 +226,19 @@ api_test() (
   run $tests tools pnpm --filter @agrotrace/tests-api test "$@"
 )
 
+# `./at cross:test [a] [b] [vitest args…]`: tests/cross — cross-backend scenarios (spec 15.2) against api-<a> and api-<b>
+# (CROSS_API_URLS), both started first. Default pair express express: the stub until Plan 3 adds Django and Laravel.
+cross_test() (
+  set -euo pipefail
+  a="express"; b="express"
+  case "${1:-}" in express|django|laravel) a="$1"; shift ;; esac
+  case "${1:-}" in express|django|laravel) b="$1"; shift ;; esac
+  up_backend "$a"
+  if [ "$b" != "$a" ]; then up_backend "$b"; fi
+  run $DC run --rm -e "CROSS_API_URLS=http://api-${a}:8000/api/v1,http://api-${b}:8000/api/v1" tools \
+    pnpm --filter @agrotrace/tests-cross test "$@"
+)
+
 # Number of migrations applied to the dev DB (0 when schema_migrations does not exist).
 applied_migrations() {
   local q="$DC exec -T postgres psql -tA -v ON_ERROR_STOP=1 -U agrotrace_owner -d agrotrace -c"
@@ -412,7 +425,8 @@ case "$cmd" in
   # The command wrappers (at, at.sh, at.cmd, at.ps1; `up` in AT_DRY_RUN mode) — tests/at.
   at:test)   $T pnpm --filter @agrotrace/tests-at test "$@" ;;
   # Everything, in dependency order: unit → wrappers → tests/db (throwaway agrotrace_test) → dev DB migrated and
-  # seed checked → tests/api against Express (after a reset; then its rate-limit tests, P10) → gateway up + gw:test → Swagger UI through the gateway → design-system showcase.
+  # seed checked → tests/api against Express (after a reset; then its rate-limit tests, P10) → tests/cross (stub pair
+  # until Plan 3) → gateway up + gw:test → Swagger UI through the gateway → design-system showcase.
   test:all)
     "$0" test
     "$0" at:test
@@ -422,6 +436,7 @@ case "$cmd" in
     "$0" seed:test
     "$0" api:test express --reset
     "$0" api:test express --ratelimits
+    "$0" cross:test
     "$0" up gateway
     "$0" gw:test
     "$0" docs:test express
@@ -502,6 +517,7 @@ case "$cmd" in
   # Gateway must already be up (./at.sh up gateway). See gw_test() above for what this checks.
   gw:test)     gw_test ;;
   api:test)    api_test "$@" ;;
+  cross:test)  cross_test "$@" ;;
   psql)        $DC exec postgres psql -U agrotrace_owner agrotrace ;;
   check)
     $DC exec -T postgres pg_isready -U agrotrace_owner && \

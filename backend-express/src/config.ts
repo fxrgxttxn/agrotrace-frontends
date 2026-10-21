@@ -26,6 +26,8 @@ const url = (protocols: string[]) =>
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('production'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8000),
+  /** Prometheus `/metrics` of the api process (infra/metrics.ts): a port of its own, never proxied by the gateway. */
+  METRICS_PORT: z.coerce.number().int().min(1).max(65535).default(9464),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /** Least-privilege role `agrotrace_app` (infra/postgres/init). */
   APP_DATABASE_URL: url(['postgres:', 'postgresql:']),

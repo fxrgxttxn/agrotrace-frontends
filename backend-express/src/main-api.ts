@@ -1,10 +1,11 @@
-/** api process: HTTP on PORT (8000). */
+/** api process: HTTP on PORT (8000); Prometheus /metrics on METRICS_PORT (9464, infra/metrics.ts). */
 import type { Socket } from 'node:net';
 import { createApp } from './app.js';
 import { createContainer } from './container.js';
 import { loadContract } from './contract.js';
 import { configOrExit, crashOnUnhandled, onShutdown } from './lifecycle.js';
 import { createLogger } from './logger.js';
+import { createMetrics } from './infra/metrics.js';
 import { createSseHub } from './sse/hub.js';
 
 const config = configOrExit();
@@ -15,6 +16,14 @@ container.amqp.start();
 container.relay.start();
 container.sse = createSseHub({ db: container.db, databaseUrl: config.APP_DATABASE_URL, logger });
 container.sse.start();
+container.metrics = createMetrics({
+  db: container.db,
+  amqp: container.amqp,
+  logger,
+  routes: Object.keys(container.contract!.doc.paths),
+});
+const metricsServer = await container.metrics.listen(config.METRICS_PORT);
+logger.info({ port: config.METRICS_PORT }, 'metrics listening');
 
 const app = createApp(container);
 const server = app.listen(config.PORT, () => logger.info({ port: config.PORT }, 'api listening'));
@@ -33,6 +42,7 @@ onShutdown(logger, config.SHUTDOWN_TIMEOUT_MS, async () => {
   const closed = new Promise<void>((resolve) => server.close(() => resolve()));
   // SSE streams never end on their own: close them first (clients reconnect to another instance).
   await container.sse?.close();
+  metricsServer.close();
   server.closeIdleConnections();
   const deadline = setTimeout(() => {
     for (const s of sockets) s.destroy();
