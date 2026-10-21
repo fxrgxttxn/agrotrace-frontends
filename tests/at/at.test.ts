@@ -295,6 +295,52 @@ describe('./at wrapper (R88 M6)', () => {
     expect(testAll()).toMatch(/"\$0" gw:test\n[\s\S]*"\$0" docs:test express\n/);
   });
 
+  it.each([
+    ['django', 'pytest -k tx'],
+    ['laravel', 'tests/Unit'],
+  ])(
+    'SP2: %s:test creates + migrates agrotrace_test_<back> (never drops it), then runs the backend hook',
+    (back, args) => {
+      const db = `agrotrace_test_${back}`;
+      const r = sh(['./at', `${back}:test`, ...args.split(' ')], { AT_DRY_RUN: '1' });
+      const cmds = r.out.split('\n').filter((l) => l.startsWith('+ '));
+      const psql = '+ docker compose exec -T postgres psql -U agrotrace_owner -v ON_ERROR_STOP=1';
+      expect(cmds).toEqual([
+        '+ docker compose up -d --wait postgres',
+        `${psql} -d postgres -c CREATE DATABASE ${db} OWNER agrotrace_owner;`,
+        `${psql} -d ${db} -f //docker-entrypoint-initdb.d/01-roles.sql`,
+        expect.stringMatching(
+          new RegExp(
+            `^\\+ docker compose run --rm dbmate --url postgres://\\S+/${db}\\?sslmode=disable --no-dump-schema --wait up$`,
+          ),
+        ),
+      ]);
+      expect(r.out).not.toMatch(/DROP DATABASE/);
+      // The stub hook until the plan fills it.
+      expect(r.code).toBe(1);
+      expect(r.err).toContain(`${back}:test: added by Plan ${back === 'django' ? 3 : 5}`);
+      const at = readFileSync(`${REPO}at.sh`, 'utf8');
+      expect(at).toMatch(
+        new RegExp(`^ {2}${back}:test\\) prepare_test_db ${db}; ${back}_test_hook "\\$@" ;;$`, 'm'),
+      );
+      expect(at).toMatch(new RegExp(`^ {2}${back}:test\\) lock_acquire "\\$cmd \\$\\*" ;;$`, 'm'));
+      expect(sh(['./at', 'help']).out.trim().split('\n')).toContain(`${back}:test`);
+    },
+  );
+
+  it('SP2: db:test and gen:db-types keep agrotrace_test; only the per-backend names reach prepare_test_db', () => {
+    const at = readFileSync(`${REPO}at.sh`, 'utf8');
+    for (const c of ['db:test', 'gen:db-types'])
+      expect(at).toMatch(new RegExp(`^ {2}${c}\\)\\n.*\\n {4}TDB=agrotrace_test\\n`, 'm'));
+    expect(at).toMatch(/^TEST_DBS="agrotrace_test_django agrotrace_test_laravel"$/m);
+    const bad = sh([
+      '-c',
+      'AT_DRY_RUN=1; source <(sed -n "/^prepare_test_db()/,/^}/p" at.sh); TEST_DBS="agrotrace_test_django agrotrace_test_laravel"; prepare_test_db agrotrace_test',
+    ]);
+    expect(bad.code).toBe(2);
+    expect(bad.err).toMatch(/not a per-backend test DB/);
+  });
+
   it('fmt formats explicit paths only; no arguments or a flag is refused before prettier runs (P13)', () => {
     const ok = sh(['./at', 'fmt', 'backend-express/src', 'at.sh'], { AT_DRY_RUN: '1' });
     expect(ok.code, ok.err).toBe(0);
@@ -642,6 +688,10 @@ describe('shared-stand mutex (parallel backend worktrees)', () => {
       ...fast,
     });
     expect(held.code).toBe(75);
+    for (const unit of ['django:test', 'laravel:test']) {
+      const r = sh(['./at.sh', unit], { AT_DRY_RUN: '1', AT_LOCK_DIR: dir, AT_LOCK_TIMEOUT: '1', ...fast });
+      expect(r.code, unit).toBe(75);
+    }
     const mock = sh(['./at.sh', 'e2e', 'react', 'mock'], {
       AT_DRY_RUN: '1',
       AT_LOCK_DIR: dir,

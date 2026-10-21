@@ -96,6 +96,31 @@ recreate_db() {
   $DC exec -T postgres psql -U agrotrace_owner -d "${dbname}" -v ON_ERROR_STOP=1 -f //docker-entrypoint-initdb.d/01-roles.sql
 }
 
+# SP2: the unit-test DB of one backend port — agrotrace_test_django (django:test) or agrotrace_test_laravel
+# (laravel:test); agrotrace_test stays tests/db's and gen:db-types' (recreated by them). Creates the DB when it is
+# missing (owned by agrotrace_owner, the re-runnable role grants of 01-roles.sql applied every time) and migrates it
+# with dbmate from db/migrations — the same migrations as every other DB. Never drops it: a port's suite cleans up
+# its own rows. Runs under the stand lock (django:test and laravel:test are in the lock list). Exports, for the
+# backend's hook: TEST_DATABASE_URL (owner, ?sslmode=disable) and TEST_APP_DATABASE_URL (agrotrace_app) of that DB.
+TEST_DBS="agrotrace_test_django agrotrace_test_laravel"
+prepare_test_db() {
+  local db="$1" psql="$DC exec -T postgres psql -U agrotrace_owner -v ON_ERROR_STOP=1"
+  case " $TEST_DBS " in
+    *" $db "*) ;;
+    *) echo "prepare_test_db: '$db' is not a per-backend test DB ($TEST_DBS)" >&2; return 2 ;;
+  esac
+  set -a; . ./.env; set +a
+  export TEST_DATABASE_URL="${DATABASE_URL%/*}/${db}?sslmode=disable"
+  export TEST_APP_DATABASE_URL="${APP_DATABASE_URL%/*}/${db}"
+  run $DC up -d --wait postgres
+  if [ "${AT_DRY_RUN:-}" = "1" ] \
+    || [ "$($psql -d postgres -tA -c "SELECT 1 FROM pg_database WHERE datname = '${db}'" | tr -d '\r')" != "1" ]; then
+    run $psql -d postgres -c "CREATE DATABASE ${db} OWNER agrotrace_owner;"
+  fi
+  run $psql -d "$db" -f //docker-entrypoint-initdb.d/01-roles.sql
+  run $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
+}
+
 # schema.sql must reflect exactly what the migration files produce — never the
 # long-lived dev DB, whose extensions/state can drift from the migrations (e.g.
 # an extension a migration stopped creating but that stayed installed there).
@@ -547,13 +572,20 @@ e2e() (
 
 # ── Per-backend helpers (the hooks the per-backend commands call) ───────────────────────────────────────────────────
 # --- django (plan 3) ---
+# django_test_hook [pytest args…]: the body of `django:test`, run after `prepare_test_db agrotrace_test_django`
+# (TEST_DATABASE_URL / TEST_APP_DATABASE_URL exported, stand lock held). Plan 3 Task 1 replaces this stub.
+django_test_hook() { echo "django:test: added by Plan 3 (Task 1 fills django_test_hook in at.sh)" >&2; return 1; }
 # --- end django ---
 # --- laravel (plan 5) ---
+# laravel_test_hook [pest args…]: the body of `laravel:test`, run after `prepare_test_db agrotrace_test_laravel`
+# (TEST_DATABASE_URL / TEST_APP_DATABASE_URL exported, stand lock held). Plan 5 Task 1 replaces this stub.
+laravel_test_hook() { echo "laravel:test: added by Plan 5 (Task 1 fills laravel_test_hook in at.sh)" >&2; return 1; }
 # --- end laravel ---
 
 
 # Commands that mutate the shared stand (DB reset/seed/migrate, test-profile recreation of backend containers, real
-# backend e2e, benchmark) take the lock; everything else (build, unit tests, mock e2e, psql, check…) does not.
+# backend e2e, benchmark, the ports' unit suites on their own migrated DBs — SP2) take the lock; everything else
+# (build, `test`, mock e2e, psql, check…) does not.
 case "$cmd" in
   api:test|cross:test|docs:test|gw:test|test:all|db:migrate|db:rollback|db:test|gen:db-types|seed|seed:test|reset|bench|down)
     lock_acquire "$cmd $*" ;;
@@ -562,8 +594,10 @@ case "$cmd" in
     case " $* " in *" express "*|*" django "*|*" laravel "*) lock_acquire "$cmd $*" ;; esac ;;
   lock:run) lock_acquire "$*" ;;
   # --- django (plan 3) ---
+  django:test) lock_acquire "$cmd $*" ;;
   # --- end django ---
   # --- laravel (plan 5) ---
+  laravel:test) lock_acquire "$cmd $*" ;;
   # --- end laravel ---
 esac
 
@@ -721,8 +755,12 @@ case "$cmd" in
   e2e) e2e "$@" ;;
   # Per-backend commands (unit suites, linters, package managers):
   # --- django (plan 3) ---
+  # `django:test [pytest args…]` (locked): Django's unit suite on its own DB agrotrace_test_django (SP2).
+  django:test) prepare_test_db agrotrace_test_django; django_test_hook "$@" ;;
   # --- end django ---
   # --- laravel (plan 5) ---
+  # `laravel:test [pest args…]` (locked): Laravel's unit suite on its own DB agrotrace_test_laravel (SP2).
+  laravel:test) prepare_test_db agrotrace_test_laravel; laravel_test_hook "$@" ;;
   # --- end laravel ---
   # Top-level commands only (two-space indented case labels).
   help|*)  grep -E '^  [a-z0-9:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
