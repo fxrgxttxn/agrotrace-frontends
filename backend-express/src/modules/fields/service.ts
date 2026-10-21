@@ -17,7 +17,7 @@ import {
 } from '@agrotrace/validation';
 import type { Container } from '../../container.js';
 import type { DB } from '../../db/types.generated.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import { dayAfter, QueryReader } from '../../http/params.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
 import { publicFileUrl } from '../../infra/file-urls.js';
@@ -197,17 +197,28 @@ export function fieldsService(c: Container) {
     if (!(await q.executeTakeFirst())) throw new AppProblem(404, 'NOT_FOUND');
   }
 
-  /** The own farm's non-deleted field, locked (writes are FARMER-only, own fields only), else 404. */
-  async function ownFieldForUpdate(tx: Transaction<DB>, p: Principal, id: string) {
-    const f = await tx
+  /**
+   * The own farm's non-deleted field, locked (writes are FARMER-only, own fields only), else 404. Lock strength (P57):
+   * `FOR NO KEY UPDATE` for changes that keep the key (updateField, createTreatment — a parallel createBatch on the
+   * field, which locks it FOR KEY SHARE, does not wait); `FOR UPDATE` for deleteField only. The soft delete conflicts
+   * with every reference lock (createBatch and updateTreatment read the field FOR KEY SHARE, createTreatment FOR NO KEY
+   * UPDATE, each with `deleted_at IS NULL`): it waits for running references, and a reference that waited for it
+   * re-checks the condition on the deleted row and fails (createBatch 400 fieldId notFound, treatments 404).
+   */
+  async function ownFieldForUpdate(
+    tx: Transaction<DB>,
+    p: Principal,
+    id: string,
+    purpose: 'update' | 'delete',
+  ) {
+    const q = tx
       .selectFrom('fields as f')
       .innerJoin('regions as r', 'r.id', 'f.region_id')
       .select(['f.id', 'f.name', 'f.area_ha', 'f.geometry', 'r.code as region_code'])
       .where('f.id', '=', id)
       .where('f.organization_id', '=', p.orgId)
-      .where('f.deleted_at', 'is', null)
-      .forUpdate('f')
-      .executeTakeFirst();
+      .where('f.deleted_at', 'is', null);
+    const f = await (purpose === 'delete' ? q.forUpdate('f') : q.forNoKeyUpdate('f')).executeTakeFirst();
     if (!f) throw new AppProblem(404, 'NOT_FOUND');
     return f;
   }
@@ -332,7 +343,7 @@ export function fieldsService(c: Container) {
     async update(p: Principal, id: string, body: unknown): Promise<FieldView> {
       const input = parseFieldInput(body);
       await withTx(db, async (tx) => {
-        const f = await ownFieldForUpdate(tx, p, id);
+        const f = await ownFieldForUpdate(tx, p, id, 'update');
         const region = await regionId(tx, input.regionCode);
         const before = {
           name: f.name,
@@ -358,7 +369,7 @@ export function fieldsService(c: Container) {
             area_ha: input.areaHa,
             region_id: region,
             geometry: input.geometry ? JSON.stringify(input.geometry) : null,
-            updated_at: new Date(),
+            updated_at: sql`now()`,
           })
           .where('id', '=', id)
           .returning(['area_ha', 'geometry'])
@@ -384,8 +395,8 @@ export function fieldsService(c: Container) {
     /** deleteField — soft; treatments stay (BR-01 of existing batches), new ones are refused (404). */
     async remove(p: Principal, id: string): Promise<void> {
       await withTx(db, async (tx) => {
-        await ownFieldForUpdate(tx, p, id);
-        const now = new Date();
+        await ownFieldForUpdate(tx, p, id, 'delete');
+        const now = await txNow(tx);
         await tx.updateTable('fields').set({ deleted_at: now }).where('id', '=', id).execute();
         await auditService.record(tx, {
           actorId: p.userId,
@@ -446,8 +457,8 @@ export function fieldsService(c: Container) {
     async createTreatment(p: Principal, fieldId: string, body: unknown): Promise<TreatmentView> {
       const input = TreatmentInputSchema.parse(body);
       const id = await withTx(db, async (tx) => {
-        await ownFieldForUpdate(tx, p, fieldId);
-        const now = new Date();
+        await ownFieldForUpdate(tx, p, fieldId, 'update');
+        const now = await txNow(tx);
         await checkTreatmentRefs(tx, input, now);
         const t = await tx
           .insertInto('treatments')
@@ -516,10 +527,10 @@ export function fieldsService(c: Container) {
           .where('t.deleted_at', 'is', null)
           .where('f.deleted_at', 'is', null)
           .where('f.organization_id', '=', p.orgId)
-          .forUpdate('t')
+          .forNoKeyUpdate('t')
           .executeTakeFirst();
         if (!t) throw new AppProblem(404, 'NOT_FOUND');
-        const now = new Date();
+        const now = await txNow(tx);
         const createdAt = iso(t.created_at);
         if (!canEditTreatment({ createdAt, now: now.toISOString() }).allowed)
           throw new AppProblem(403, 'FORBIDDEN', {

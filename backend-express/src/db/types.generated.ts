@@ -194,6 +194,7 @@ export interface Norms {
 export interface Notifications {
   attempts: Generated<number>;
   channel: Generated<string>;
+  claimed_at: Timestamp | null;
   created_at: Generated<Timestamp>;
   delivery_status: Generated<string>;
   id: Generated<string>;

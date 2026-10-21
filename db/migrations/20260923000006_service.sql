@@ -9,6 +9,9 @@ CREATE TABLE notifications (
   delivery_status varchar(16) NOT NULL DEFAULT 'DELIVERED' CHECK (delivery_status IN ('PENDING','DELIVERED','FAILED','NOT_CONFIGURED')),
   attempts integer NOT NULL DEFAULT 0,
   is_read boolean NOT NULL DEFAULT false,
+  -- P49: when a sender took the PENDING EMAIL/TELEGRAM row; a row PENDING with claimed_at (or created_at) older than
+  -- 5 minutes is taken again by the delivery sweeper (its sender died).
+  claimed_at timestamptz,
   seq bigserial UNIQUE,
   created_at timestamptz NOT NULL DEFAULT now()
 );

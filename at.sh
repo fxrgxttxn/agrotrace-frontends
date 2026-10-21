@@ -185,24 +185,28 @@ up_backend() (
   echo "$back up: http://api-${back}:8000/api/v1 inside the \`at\` network (through the gateway: ./at up <front> $back)"
 )
 
-# `./at api:test [backend] [--reset] [--ratelimits] [vitest args…]`: tests/api (HTTP contract suite, shared by the
-# three backends) against api-<backend> (default express). Starts infra and the backend's services first; --reset
-# reloads the demo data (./at reset) before the run. The suite reads the dev DB read-only (tests/api/lib/db.ts),
-# apart from the documented fixture writes.
+# `./at api:test [backend] [--reset] [--ratelimits] [--tz <zone>] [vitest args…]`: tests/api (HTTP contract suite,
+# shared by the three backends) against api-<backend> (default express). Starts infra and the backend's services
+# first; --reset reloads the demo data (./at reset) before the run. The suite reads the dev DB read-only
+# (tests/api/lib/db.ts), apart from the documented fixture writes.
 # P10: by default api-<backend> runs for the suite with the api-test overrides (docker-compose.api-test.yml:
 # RATE_LIMIT_OVERRIDES) and is restored to its plain configuration afterwards; the rate-limit tests (named
 # `[ratelimit]`) skip themselves. --ratelimits runs only those tests (API_RATELIMITS=1 → tests/api/vitest.config.ts
-# testNamePattern), against the plain backend (no overrides).
+# testNamePattern), against the plain backend (no overrides). The api-test profile covers all three processes (the
+# scheduler ticks every second, SCHEDULER_TICK_MS); --tz <zone> runs them with TZ=<zone> (Review Focus 4: every date
+# rule is UTC, so the suite must pass in any zone).
 api_test() (
   set -euo pipefail
   back="express"
   case "${1:-}" in express|django|laravel) back="$1"; shift ;; esac
   reset=0
   ratelimits=0
+  tz=""
   while :; do
     case "${1:-}" in
       --reset) reset=1; shift ;;
       --ratelimits) ratelimits=1; shift ;;
+      --tz) tz="${2:?--tz needs a zone, e.g. Europe/Moscow}"; shift 2 ;;
       *) break ;;
     esac
   done
@@ -213,10 +217,29 @@ api_test() (
     run $tests -e API_RATELIMITS=1 tools pnpm --filter @agrotrace/tests-api test "$@"
     return
   fi
-  restore() { run $DC up -d --no-build --wait "api-${back}"; }
+  procs="$(backend_services "$back")"
+  restore() { run $DC up -d --no-build --wait $procs; }
   trap restore EXIT
-  run $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait "api-${back}"
+  # `env` makes the zone visible in a dry run (tests/at); without --tz the profile defaults TZ to UTC.
+  zone=(); if [ -n "$tz" ]; then zone=(env "API_TEST_TZ=$tz"); fi
+  run "${zone[@]}" $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait $procs
+  # A run without vitest arguments is a full run: the contract coverage gate (tests/api/contract-coverage.test.ts) must
+  # then run and pass — it fails instead of skipping (review M2).
+  if [ $# -eq 0 ]; then tests="$tests -e API_COVERAGE_REQUIRED=1"; fi
   run $tests tools pnpm --filter @agrotrace/tests-api test "$@"
+)
+
+# `./at cross:test [a] [b] [vitest args…]`: tests/cross — cross-backend scenarios (spec 15.2) against api-<a> and api-<b>
+# (CROSS_API_URLS), both started first. Default pair express express: the stub until Plan 3 adds Django and Laravel.
+cross_test() (
+  set -euo pipefail
+  a="express"; b="express"
+  case "${1:-}" in express|django|laravel) a="$1"; shift ;; esac
+  case "${1:-}" in express|django|laravel) b="$1"; shift ;; esac
+  up_backend "$a"
+  if [ "$b" != "$a" ]; then up_backend "$b"; fi
+  run $DC run --rm -e "CROSS_API_URLS=http://api-${a}:8000/api/v1,http://api-${b}:8000/api/v1" tools \
+    pnpm --filter @agrotrace/tests-cross test "$@"
 )
 
 # Number of migrations applied to the dev DB (0 when schema_migrations does not exist).
@@ -405,7 +428,8 @@ case "$cmd" in
   # The command wrappers (at, at.sh, at.cmd, at.ps1; `up` in AT_DRY_RUN mode) — tests/at.
   at:test)   $T pnpm --filter @agrotrace/tests-at test "$@" ;;
   # Everything, in dependency order: unit → wrappers → tests/db (throwaway agrotrace_test) → dev DB migrated and
-  # seed checked → tests/api against Express (after a reset; then its rate-limit tests, P10) → gateway up + gw:test → Swagger UI through the gateway → design-system showcase.
+  # seed checked → tests/api against Express (after a reset; then its rate-limit tests, P10) → tests/cross (stub pair
+  # until Plan 3) → gateway up + gw:test → Swagger UI through the gateway → design-system showcase.
   test:all)
     "$0" test
     "$0" at:test
@@ -415,6 +439,7 @@ case "$cmd" in
     "$0" seed:test
     "$0" api:test express --reset
     "$0" api:test express --ratelimits
+    "$0" cross:test
     "$0" up gateway
     "$0" gw:test
     "$0" docs:test express
@@ -495,6 +520,7 @@ case "$cmd" in
   # Gateway must already be up (./at.sh up gateway). See gw_test() above for what this checks.
   gw:test)     gw_test ;;
   api:test)    api_test "$@" ;;
+  cross:test)  cross_test "$@" ;;
   psql)        $DC exec postgres psql -U agrotrace_owner agrotrace ;;
   check)
     $DC exec -T postgres pg_isready -U agrotrace_owner && \
@@ -502,6 +528,8 @@ case "$cmd" in
     $DC exec -T rabbitmq rabbitmq-diagnostics -q check_running && \
     { [ "$($DC exec -T rabbitmq rabbitmqctl -q list_queues name arguments | grep -cE '\.jobs[[:space:]].*x-delivery-limit')" = "3" ] \
       || { echo "rabbitmq: the three jobs queues (x-delivery-limit) did not load from definitions.json"; false; }; } && \
+    { [ "$($DC exec -T rabbitmq rabbitmqctl -q list_queues name arguments | grep -cE '\.jobs\.delay[[:space:]].*x-message-ttl')" = "3" ] \
+      || { echo "rabbitmq: the three delay queues (P56) did not load from definitions.json — restart rabbitmq"; false; }; } && \
     $T sh -c 'curl -fsS http://minio:9000/minio/health/live && curl -fsS http://mailpit:8025/livez && curl -fsS http://mercury-mock:8080/health' && echo "infra ok" ;;
   # Demo data (db/seed): replaces all data of the dev DB (except roles, regions, schema_migrations),
   # its MinIO objects and Redis. Timestamps end at SEED_NOW (env, ISO minute; default: now).

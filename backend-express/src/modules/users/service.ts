@@ -9,7 +9,7 @@ import { createT } from '@agrotrace/i18n';
 import { UserInviteSchema, UserPatchSchema } from '@agrotrace/validation';
 import type { Request } from 'express';
 import type { Container } from '../../container.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import { QueryReader } from '../../http/params.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
 import type { Principal, RoleCode } from '../../security/jwt.js';
@@ -210,7 +210,7 @@ export function usersService(c: Container) {
           .select(['u.id', 'u.organization_id', 'u.status', 'u.is_org_admin', 'o.type as org_type'])
           .where('u.id', '=', id)
           .where('u.deleted_at', 'is', null)
-          .forUpdate('u')
+          .forNoKeyUpdate('u')
           .executeTakeFirst();
         if (!u || (!isAdmin(p) && u.organization_id !== p.orgId)) throw new AppProblem(404, 'NOT_FOUND');
         if (input.status !== undefined && u.status === 'INVITED')
@@ -240,7 +240,7 @@ export function usersService(c: Container) {
         };
         const diff = auditDiff(before, after);
         if (Object.keys(diff).length === 0) return;
-        const now = new Date();
+        const now = await txNow(tx);
         if (diff.roles) {
           await tx.deleteFrom('user_roles').where('user_id', '=', id).execute();
           await tx

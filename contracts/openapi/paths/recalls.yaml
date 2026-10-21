@@ -77,7 +77,7 @@
       2. Партия `sourceBatchId` не существует или удалена — 400 `errors.sourceBatchId: [validation.notFound]`.
       Статус исходной партии не ограничен.
 
-      Блокировки (R47): исходная и все найденные обходом партии одним запросом `FOR UPDATE ORDER BY id` (движок,
+      Блокировки (R47): исходная и все найденные обходом партии одним запросом `FOR NO KEY UPDATE ORDER BY id` (движок,
       шаг 3); транзакция REPEATABLE READ.
 
       Результат — движок отзыва (описание тега Recalls) с `trigger` INSPECTOR, `reason` и `blockUpstream` из тела,

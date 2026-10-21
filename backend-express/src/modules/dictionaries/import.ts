@@ -21,7 +21,7 @@ import { validationProblem } from '../../http/problem.js';
 import type { Principal } from '../../security/jwt.js';
 import { auditDiff, auditService } from '../audit/service.js';
 import { dropPublicPages, productPageCodes } from '../public/cache.js';
-import { INVALID, readSheet, type Cell } from './sheet.js';
+import { INVALID, readSheet, TOO_LONG, type Cell } from './sheet.js';
 import {
   auditView,
   ENTITY_TYPE,
@@ -188,8 +188,9 @@ export async function importDictionary(
   p: Principal,
   name: DictName,
   bytes: Buffer,
+  signal?: AbortSignal,
 ): Promise<ImportReport> {
-  const sheet = await readSheet(bytes);
+  const sheet = await readSheet(bytes, { signal });
   const columns = IMPORT_COLUMNS[name];
   const header = sheet.header;
   if (!header || header.length !== columns.length || header.some((h, i) => h !== columns[i]))
@@ -215,7 +216,12 @@ export async function importDictionary(
       }
       const errs: { col: number; message: string }[] = [];
       cells.forEach((cell, col) => {
-        const message = cell === INVALID ? 'validation.pattern' : RULES[name][col]!(cell);
+        const message =
+          cell === INVALID
+            ? 'validation.pattern'
+            : cell === TOO_LONG
+              ? 'validation.maxLength' // P25: an XLSX cell over 1 000 characters
+              : RULES[name][col]!(cell);
         if (message) errs.push({ col, message });
       });
       if (name === 'norms') {

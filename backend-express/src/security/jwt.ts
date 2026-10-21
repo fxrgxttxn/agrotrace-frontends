@@ -39,6 +39,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * HS256 only; an unknown `crit` header parameter is rejected (jose).
  */
 export async function verifyAccessToken(secret: string, token: string): Promise<Principal | null> {
+  return (await verifyAccessTokenExp(secret, token))?.principal ?? null;
+}
+
+/** Like `verifyAccessToken`, with the token's `exp` (seconds) — the SSE stream ends with `reauth` at it. */
+export async function verifyAccessTokenExp(
+  secret: string,
+  token: string,
+): Promise<{ principal: Principal; exp: number } | null> {
   try {
     const { payload } = await jwtVerify(token, key(secret), {
       algorithms: ['HS256'],
@@ -54,7 +62,10 @@ export async function verifyAccessToken(secret: string, token: string): Promise<
       !roles.every((r) => typeof r === 'string' && ROLES.has(r))
     )
       return null;
-    return { userId: sub, orgId: org, roles: roles as RoleCode[], orgAdmin };
+    return {
+      principal: { userId: sub, orgId: org, roles: roles as RoleCode[], orgAdmin },
+      exp: exp as number,
+    };
   } catch (err) {
     if (err instanceof errors.JOSEError || err instanceof TypeError) return null;
     throw err;

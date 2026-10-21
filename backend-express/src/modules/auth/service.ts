@@ -17,7 +17,7 @@ import {
 import { createT } from '@agrotrace/i18n';
 import trustRating from '../../../../contracts/rules/trust-rating.json' with { type: 'json' };
 import type { Container } from '../../container.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
 import { hitRateLimit } from '../../http/rate-limit.js';
 import { issueAccessToken, ACCESS_TTL_SEC, type Principal } from '../../security/jwt.js';
@@ -109,6 +109,8 @@ export function authService(c: Container) {
         'u.totp_enabled',
         'u.totp_secret',
         'o.status as org_status',
+        // P43: the lock is compared with the DB clock that wrote it (now()), not the process clock.
+        sql<boolean>`u.locked_until IS NOT NULL AND u.locked_until > now()`.as('is_locked'),
         'o.deleted_at as org_deleted_at',
       ])
       .where('u.deleted_at', 'is', null);
@@ -147,7 +149,7 @@ export function authService(c: Container) {
         await dummyVerify(input.password);
         throw new AppProblem(401, 'INVALID_CREDENTIALS');
       }
-      if (u.locked_until && u.locked_until.getTime() > Date.now())
+      if (u.is_locked && u.locked_until)
         throw new AppProblem(401, 'ACCOUNT_LOCKED', { params: { lockedUntil: iso(u.locked_until) } });
 
       if (!(await verifyPassword(u.password_hash, input.password))) {
@@ -265,7 +267,7 @@ export function authService(c: Container) {
         const updated = await withTx(db, async (tx) => {
           const r = await tx
             .updateTable('users')
-            .set({ totp_secret: secret, updated_at: new Date() })
+            .set({ totp_secret: secret, updated_at: sql`now()` })
             .where('id', '=', u.id)
             .where('totp_enabled', '=', false)
             .executeTakeFirst();
@@ -291,7 +293,7 @@ export function authService(c: Container) {
       const outcome = await withTx(db, async (tx) => {
         const r = await tx
           .updateTable('users')
-          .set({ totp_enabled: true, updated_at: new Date() })
+          .set({ totp_enabled: true, updated_at: sql`now()` })
           .where('id', '=', u.id)
           .where('totp_enabled', '=', false)
           .where('totp_secret', '=', secret)
@@ -369,7 +371,7 @@ export function authService(c: Container) {
       if (!entry) throw tokenExpired(400);
       const hash = await hashPassword(input.password);
       await withTx(db, async (tx) => {
-        const now = new Date();
+        const now = await txNow(tx);
         const r = await tx
           .updateTable('users')
           .set({ password_hash: hash, failed_logins: 0, locked_until: null, updated_at: now })
@@ -516,7 +518,7 @@ export function authService(c: Container) {
           .select(['id', 'full_name', 'status'])
           .where('id', '=', entry.userId)
           .where('deleted_at', 'is', null)
-          .forUpdate()
+          .forNoKeyUpdate()
           .executeTakeFirst();
         if (!u || u.status !== 'INVITED') throw tokenExpired(400);
         await tx
@@ -527,7 +529,7 @@ export function authService(c: Container) {
             status: 'ACTIVE',
             failed_logins: 0,
             locked_until: null,
-            updated_at: new Date(),
+            updated_at: sql`now()`,
           })
           .where('id', '=', u.id)
           .execute();

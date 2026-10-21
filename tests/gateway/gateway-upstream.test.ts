@@ -43,6 +43,14 @@ describe('gateway-upstream: real backend responses pass through unchanged', () =
     expect(res.headers.getAll('x-content-type-options')).toHaveLength(1);
   });
 
+  it('/metrics is never proxied to a backend (spec 14.5: Prometheus scrapes METRICS_PORT inside the network)', async () => {
+    // Only /api/ reaches api-$back:8000; /metrics falls to the SPA shell like any client route.
+    const res = await fetchAs(HOST, '/metrics');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-frontend')).toBe('react');
+    expect(res.headers.get('content-type')).toMatch(/^text\/html/);
+  });
+
   it('/_health/express (start page polling) sees the stub as live, status:ok — not the synthesized 503', async () => {
     const res = await fetchAs('localhost', '/_health/express');
     expect(res.status).toBe(200);

@@ -6,7 +6,7 @@
  */
 import { sql, type Kysely, type Transaction } from 'kysely';
 import type { DB } from '../../db/types.generated.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import { newOpaqueToken, sha256hex } from '../../security/tokens.js';
 
 export const REFRESH_TTL_SEC = 14 * 24 * 3600;
@@ -35,7 +35,6 @@ export function refreshCookieOf(header: string | undefined): string | null {
 export async function createRefreshToken(
   db: Kysely<DB> | Transaction<DB>,
   userId: string,
-  now = new Date(),
 ): Promise<{ id: string; token: string }> {
   const token = newOpaqueToken();
   const row = await db
@@ -43,7 +42,8 @@ export async function createRefreshToken(
     .values({
       user_id: userId,
       token_hash: sha256hex(token),
-      expires_at: new Date(now.getTime() + REFRESH_TTL_SEC * 1000),
+      // P43: derived from the statement's transaction instant, like created_at (DEFAULT now()).
+      expires_at: sql`now() + ${REFRESH_TTL_SEC} * interval '1 second'`,
     })
     .returning('id')
     .executeTakeFirstOrThrow();
@@ -89,7 +89,7 @@ export type RefreshOutcome =
 
 /**
  * refreshToken (contract): the owner is looked up by the token hash without a lock, then the user's advisory lock
- * (P12) is taken and only then the presented row is read `FOR UPDATE` — so two parallel refreshes with one token
+ * (P12) is taken and only then the presented row is read `FOR NO KEY UPDATE` — so two parallel refreshes with one token
  * rotate once (the second sees the row revoked by rotation just now: grace → 401 without cookie deletion), and
  * parallel stale tokens of one chain are handled one at a time (all 401, the chain revoked once).
  */
@@ -105,12 +105,12 @@ export function rotateRefreshToken(db: Kysely<DB>, token: string | null): Promis
       .executeTakeFirst();
     if (!owner) return { kind: 'expired', clearCookie: true };
     await lockUserRefresh(tx, owner.user_id);
-    const now = new Date();
+    const now = await txNow(tx);
     const row = await tx
       .selectFrom('refresh_tokens')
       .select(['id', 'user_id', 'expires_at', 'revoked_at', 'replaced_by'])
       .where('token_hash', '=', hash)
-      .forUpdate()
+      .forNoKeyUpdate()
       .executeTakeFirst();
     if (!row) return { kind: 'expired', clearCookie: true };
     if (row.revoked_at) {
@@ -143,7 +143,7 @@ export function rotateRefreshToken(db: Kysely<DB>, token: string | null): Promis
       await revoke();
       return { kind: 'forbidden', reason: 'ORGANIZATION_NOT_ACTIVE' };
     }
-    const next = await createRefreshToken(tx, row.user_id, now);
+    const next = await createRefreshToken(tx, row.user_id);
     await tx
       .updateTable('refresh_tokens')
       .set({ revoked_at: now, replaced_by: next.id })
@@ -158,18 +158,14 @@ export async function revokeRefreshToken(db: Kysely<DB>, token: string | null): 
   if (token === null || !/^[A-Za-z0-9_-]{16,256}$/.test(token)) return;
   await db
     .updateTable('refresh_tokens')
-    .set({ revoked_at: new Date() })
+    .set({ revoked_at: sql`now()` })
     .where('token_hash', '=', sha256hex(token))
     .where('revoked_at', 'is', null)
     .execute();
 }
 
 /** Every live refresh token of the user (password reset). */
-export async function revokeAllRefreshTokens(
-  tx: Transaction<DB>,
-  userId: string,
-  now = new Date(),
-): Promise<void> {
+export async function revokeAllRefreshTokens(tx: Transaction<DB>, userId: string, now: Date): Promise<void> {
   await lockUserRefresh(tx, userId);
   await tx
     .updateTable('refresh_tokens')

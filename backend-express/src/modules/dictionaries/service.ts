@@ -14,7 +14,7 @@ import {
 } from '@agrotrace/validation';
 import type { Container } from '../../container.js';
 import type { DB } from '../../db/types.generated.js';
-import { withTx } from '../../db/tx.js';
+import { txNow, withTx } from '../../db/tx.js';
 import type { UploadedFile } from '../../http/multipart.js';
 import { QueryReader } from '../../http/params.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
@@ -265,7 +265,7 @@ export function dictionariesService(c: Container) {
           throw new AppProblem(404, 'NOT_FOUND');
         let diff;
         if (SOFT_DELETE[name]) {
-          const now = new Date();
+          const now = await txNow(tx);
           await sql`UPDATE ${sql.table(name)} SET deleted_at = ${now} WHERE id = ${id}`.execute(tx);
           diff = { deletedAt: [null, now.toISOString()] as [unknown, unknown] };
         } else {
@@ -315,7 +315,7 @@ export function dictionariesService(c: Container) {
       const { row, codes } = await withTx(db, async (tx) => {
         const current = await selectRow(tx, 'products', id, 'update');
         if (!current || current.deleted_at !== null) throw new AppProblem(404, 'NOT_FOUND');
-        const now = new Date();
+        const now = await txNow(tx);
         await insertFile(tx, file);
         const after = await updateRow(tx, 'products', id, { image_file_id: file.row.id });
         await auditService.record(tx, {

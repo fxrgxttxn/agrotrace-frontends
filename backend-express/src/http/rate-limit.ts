@@ -3,7 +3,7 @@
  * `rl:{scope}:{subject}:{windowStartEpochSec}`, EXPIRE windowSec when the result is 1 (one MULTI, so a counter never
  * lives without a TTL); over the limit → 429 RATE_LIMITED, `Retry-After` = seconds to the window end (≥ 1),
  * `params {scope, limit, windowSec}`. The `user` scope applies to every Bearer-authenticated request (http/auth.ts);
- * the others to the operations listing them in `x-rate-limit` (login-ip, forgot here; complaint-ip in Task 11).
+ * the others to the operations listing them in `x-rate-limit` (login-ip, forgot — auth; complaint-ip — createPublicComplaint).
  */
 import type { Redis } from 'ioredis';
 import rules from '../../../contracts/rules/rate-limits.json' with { type: 'json' };

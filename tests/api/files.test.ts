@@ -6,7 +6,7 @@
  * product photos), everything else → 404 there.
  */
 import { afterAll, describe, expect, it } from 'vitest';
-import { loginAs } from './lib/auth.js';
+import { DEMO_EMAILS, loginAs } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
 import { closeDb, query } from './lib/db.js';
@@ -33,14 +33,19 @@ const UUID0 = '00000000-0000-4000-8000-000000000000';
 const PRIVATE = 'private, max-age=0, must-revalidate';
 const PUBLIC = 'public, max-age=86400';
 
-/** The file id of a seeded product photo, from listDictionary (products.imageUrl). */
+/**
+ * The file id of a seeded product photo, from listDictionary (products.imageUrl) — every page: other suites add
+ * products without photos, which may sort first.
+ */
 async function productPhoto(client: ApiClient): Promise<{ id: string }> {
-  const res = await client.get('/dictionaries/products', { query: { size: 100 } });
-  await expectContract(res, 'listDictionary');
-  expect(res.status, res.text).toBe(200);
-  const withImage = (res.body.items as { imageUrl: string | null }[]).find((p) => p.imageUrl !== null);
-  if (!withImage) throw new Error('no seeded product has a photo');
-  return { id: fileIdOf(withImage.imageUrl!) };
+  for (let page = 1; ; page++) {
+    const res = await client.get('/dictionaries/products', { query: { size: 100, page } });
+    await expectContract(res, 'listDictionary');
+    expect(res.status, res.text).toBe(200);
+    const withImage = (res.body.items as { imageUrl: string | null }[]).find((p) => p.imageUrl !== null);
+    if (withImage) return { id: fileIdOf(withImage.imageUrl!) };
+    if (page * 100 >= res.body.total) throw new Error('no seeded product has a photo');
+  }
 }
 
 /** A fresh head with an uploaded avatar: { client, fileId, url (signed), originalName }. */
@@ -97,7 +102,9 @@ describe('downloadFile — Bearer', () => {
     // TODO(Task 9): the protocol URL and its laboratory through the lab API once it exists.
     const [row] = await query<{ id: string; email: string }>(
       `SELECT t.protocol_file_id AS id, u.email FROM lab_tests t JOIN users u ON u.organization_id = t.lab_org_id
-        WHERE t.protocol_file_id IS NOT NULL AND u.status = 'ACTIVE' ORDER BY t.id LIMIT 1`,
+        WHERE t.protocol_file_id IS NOT NULL AND u.status = 'ACTIVE' AND u.email = ANY($1::text[])
+        ORDER BY t.id LIMIT 1`,
+      [DEMO_EMAILS],
     );
     const labUser = api();
     expect((await login(labUser, row!.email, DEMO_PASSWORD)).status).toBe(200);

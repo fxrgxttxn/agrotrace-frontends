@@ -420,6 +420,7 @@ CREATE TABLE public.notifications (
     delivery_status character varying(16) DEFAULT 'DELIVERED'::character varying NOT NULL,
     attempts integer DEFAULT 0 NOT NULL,
     is_read boolean DEFAULT false NOT NULL,
+    claimed_at timestamp with time zone,
     seq bigint NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT notifications_channel_check CHECK (((channel)::text = ANY ((ARRAY['IN_APP'::character varying, 'EMAIL'::character varying, 'TELEGRAM'::character varying])::text[]))),

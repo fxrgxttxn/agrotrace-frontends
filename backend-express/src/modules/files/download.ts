@@ -75,6 +75,8 @@ export async function sendFile(
   file: FileRow,
   variant: 96 | 480,
   cacheControl: string,
+  /** Overrides the default `Content-Disposition` (downloadBatchQr: exactly `inline; filename="{publicCode}.png"`). */
+  disposition?: string,
 ): Promise<void> {
   const served = servedRepresentation(file, variant);
   const etag = `"${served.sha256}"`;
@@ -91,7 +93,7 @@ export async function sendFile(
   res.setHeader('Content-Length', String(served.size));
   res.setHeader(
     'Content-Disposition',
-    contentDisposition(file.original_name, EXTENSION[served.mime] ?? 'bin'),
+    disposition ?? contentDisposition(file.original_name, EXTENSION[served.mime] ?? 'bin'),
   );
   res.setHeader('ETag', etag);
   res.setHeader('Cache-Control', cacheControl);

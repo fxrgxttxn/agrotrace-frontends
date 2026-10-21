@@ -6,6 +6,8 @@
  * URL: TESTS_DATABASE_URL, else APP_DATABASE_URL (the tools container gets .env).
  */
 import pg from 'pg';
+import { assertEvent } from './events.js';
+import { assertRead, assertSanctioned } from './sanctioned.js';
 
 let pool: pg.Pool | null = null;
 
@@ -22,6 +24,7 @@ function db(): pg.Pool {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows of ad-hoc queries
 export async function query<T = Record<string, any>>(sql: string, params: unknown[] = []): Promise<T[]> {
+  assertRead(sql); // P59: never a write or a session switch through the read-only pool
   return (await db().query(sql, params)).rows as T[];
 }
 
@@ -44,12 +47,15 @@ export async function outboxEvents(opts: {
   type?: string;
   since?: Date;
 }): Promise<OutboxRow[]> {
-  return query<OutboxRow>(
+  const rows = await query<OutboxRow>(
     `SELECT id, backend, type, payload, created_at, published_at FROM outbox_events
       WHERE backend = $1 AND ($2::text IS NULL OR type = $2) AND ($3::timestamptz IS NULL OR created_at >= $3)
       ORDER BY created_at, id`,
     [opts.backend, opts.type ?? null, opts.since ?? null],
   );
+  // Every row read is a valid queue document of its type (contracts/events, R55).
+  for (const r of rows) assertEvent(r.payload);
+  return rows;
 }
 
 /** The DB clock (outbox `created_at` is DB time; use it as `since`, not the test process clock). */
@@ -71,8 +77,45 @@ export async function fixtureWrite<T = Record<string, any>>(
 ): Promise<T[]> {
   const url = process.env.TESTS_DATABASE_URL ?? process.env.APP_DATABASE_URL;
   if (!url) throw new Error('lib/db: set TESTS_DATABASE_URL or APP_DATABASE_URL');
+  assertSanctioned(sql); // P59: only the contract's list (lib/sanctioned.ts)
   writePool ??= new pg.Pool({ connectionString: url, max: 1, options: '-c TimeZone=UTC' });
   return (await writePool.query(sql, params)).rows as T[];
+}
+
+/**
+ * A row lock held by the test in a session of its own (sanctioned fixture, contract P59): runs `lockSql` (a
+ * `SELECT … FOR UPDATE`) inside an open transaction and keeps it until `release()` (ROLLBACK — nothing is written).
+ * It makes the interleaving of two parallel requests deterministic: a request that needs the row waits at a known
+ * statement, observable through `blockedBy(pid)`.
+ */
+export async function holdRowLock(
+  lockSql: string,
+  params: unknown[] = [],
+): Promise<{ pid: number; release(): Promise<void> }> {
+  assertSanctioned(lockSql); // P59: only the contract's list (lib/sanctioned.ts)
+  const url = process.env.TESTS_DATABASE_URL ?? process.env.APP_DATABASE_URL;
+  if (!url) throw new Error('lib/db: set TESTS_DATABASE_URL or APP_DATABASE_URL');
+  const client = new pg.Client({ connectionString: url, options: '-c TimeZone=UTC' });
+  await client.connect();
+  const pid = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+  await client.query('BEGIN');
+  await client.query(lockSql, params);
+  return {
+    pid,
+    async release() {
+      await client.query('ROLLBACK');
+      await client.end();
+    },
+  };
+}
+
+/** Sessions waiting for a lock that session `pid` holds (pg_blocking_pids; read-only). */
+export async function blockedBy(pid: number): Promise<number[]> {
+  const rows = await query<{ pid: number }>(
+    'SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
+    [pid],
+  );
+  return rows.map((r) => r.pid);
 }
 
 export async function closeDb(): Promise<void> {

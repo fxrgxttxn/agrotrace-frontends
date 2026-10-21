@@ -184,7 +184,8 @@ TooManyRequests:
 ServiceUnavailable:
   description: >-
     Зависимость недоступна: EXTERNAL_UNAVAILABLE — внешний сервис (DaData, Telegram, SMTP),
-    BACKEND_UNAVAILABLE — инфраструктура (БД, Redis, RabbitMQ, MinIO).
+    BACKEND_UNAVAILABLE — инфраструктура (БД, Redis, RabbitMQ, MinIO) или занятая очередь формирования отчётов
+    (`downloadReport`, `params.reason = report-busy`).
   headers:
     X-Request-Id:
       $ref: './headers.yaml#/XRequestId'

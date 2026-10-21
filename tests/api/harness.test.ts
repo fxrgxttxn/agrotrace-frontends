@@ -2,6 +2,8 @@
  * Meta-tests of the harness itself (no backend needed): the contract validator must reject what the contract
  * forbids, otherwise every other suite would pass vacuously.
  */
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CookieJar, type ApiResponse } from './lib/client.js';
 import { contract, expectContract, expectProblem, expectSharedResponse } from './lib/contract.js';
@@ -271,5 +273,22 @@ describe('demo users (meta)', () => {
     expect(demoUser('FARMER', { head: false }).isOrgAdmin).toBe(false);
     expect(demoUser('INSPECTOR').roles).toContain('INSPECTOR');
     expect(() => demoUser('ADMIN', { key: 'petrov' })).toThrow(/no demo user/);
+  });
+});
+
+describe('backend-neutral suite (P58)', () => {
+  it('no test pins a backend name: the expected one comes from lib/env.ts (API_BACKEND)', () => {
+    const root = import.meta.dirname;
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((n) => {
+        const p = join(dir, n);
+        if (n === 'node_modules') return [];
+        return statSync(p).isDirectory() ? walk(p) : p.endsWith('.ts') ? [p] : [];
+      });
+    const pinned = walk(root)
+      .map((f) => relative(root, f).replaceAll('\\', '/'))
+      .filter((f) => f !== 'lib/env.ts' && f !== 'harness.test.ts')
+      .filter((f) => /['"`](express|django|laravel)['"`]/.test(readFileSync(join(root, f), 'utf8')));
+    expect(pinned).toEqual([]);
   });
 });

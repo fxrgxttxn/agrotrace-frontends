@@ -84,9 +84,10 @@ describe('./at wrapper (R88 M6)', () => {
       .filter((l) => l.startsWith('+ '));
     // P10: the suite runs against the api-test overrides, then the plain backend is restored.
     expect(plain.slice(-3)).toEqual([
-      '+ docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait api-express',
-      '+ docker compose run --rm -e API_URL=http://api-express:8000/api/v1 -e API_BACKEND=express tools pnpm --filter @agrotrace/tests-api test',
-      '+ docker compose up -d --no-build --wait api-express',
+      '+ docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait api-express worker-express scheduler-express',
+      // Review M2: a run without vitest arguments is a full run — the coverage gate must run (fails, never skips).
+      '+ docker compose run --rm -e API_URL=http://api-express:8000/api/v1 -e API_BACKEND=express -e API_COVERAGE_REQUIRED=1 tools pnpm --filter @agrotrace/tests-api test',
+      '+ docker compose up -d --no-build --wait api-express worker-express scheduler-express',
     ]);
     expect(plain).toContain(
       '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
@@ -95,6 +96,21 @@ describe('./at wrapper (R88 M6)', () => {
     const cmds = r.out.split('\n').filter((l) => l.startsWith('+ '));
     expect(cmds.at(-4)).toMatch(/^\+ \S*at\.sh reset$/);
     expect(cmds.at(-2)).toMatch(/pnpm --filter @agrotrace\/tests-api test health$/);
+  });
+
+  it('api:test [back] --tz <zone> runs api, worker and scheduler in that zone (Review Focus 4), then restores them', () => {
+    const cmds = sh(['./at', 'api:test', 'express', '--tz', 'Europe/Moscow', 'lab'], { AT_DRY_RUN: '1' })
+      .out.split('\n')
+      .filter((l) => l.startsWith('+ '));
+    expect(cmds.slice(-3)).toEqual([
+      '+ env API_TEST_TZ=Europe/Moscow docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait api-express worker-express scheduler-express',
+      '+ docker compose run --rm -e API_URL=http://api-express:8000/api/v1 -e API_BACKEND=express tools pnpm --filter @agrotrace/tests-api test lab',
+      '+ docker compose up -d --no-build --wait api-express worker-express scheduler-express',
+    ]);
+    // The profile passes the zone to all three processes (UTC without --tz).
+    const profile = readFileSync(`${REPO}docker-compose.api-test.yml`, 'utf8');
+    expect(profile.match(/TZ: '\$\{API_TEST_TZ:-UTC\}'/g)?.length).toBe(3);
+    expect(sh(['./at', 'api:test', 'express', '--tz'], { AT_DRY_RUN: '1' }).code).not.toBe(0);
   });
 
   it('api:test [back] --ratelimits runs only the [ratelimit] tests against the plain backend (P10)', () => {
@@ -106,7 +122,34 @@ describe('./at wrapper (R88 M6)', () => {
     );
     expect(cmds.some((l) => l.includes('docker-compose.api-test.yml'))).toBe(false);
     expect(readFileSync(`${REPO}docker-compose.api-test.yml`, 'utf8')).toMatch(
-      /RATE_LIMIT_OVERRIDES: '\{"user":100000,"login-ip":100000\}'/,
+      /RATE_LIMIT_OVERRIDES: '\{"user":100000,"login-ip":100000,"complaint-ip":100000}'/,
+    );
+    // P50: the report row limit of the stand (tests/api reports boundary).
+    expect(readFileSync(`${REPO}docker-compose.api-test.yml`, 'utf8')).toMatch(/REPORT_MAX_ROWS: '13'/);
+  });
+
+  it('cross:test [a] [b] starts both backends, then tests/cross with CROSS_API_URLS (default: the express pair)', () => {
+    const plain = sh(['./at', 'cross:test'], { AT_DRY_RUN: '1' })
+      .out.split('\n')
+      .filter((l) => l.startsWith('+ '));
+    expect(plain.at(-1)).toBe(
+      '+ docker compose run --rm -e CROSS_API_URLS=http://api-express:8000/api/v1,http://api-express:8000/api/v1 tools pnpm --filter @agrotrace/tests-cross test',
+    );
+    expect(
+      plain.filter((l) => l.includes('--wait api-express worker-express scheduler-express')),
+    ).toHaveLength(1);
+    const pair = sh(['./at', 'cross:test', 'express', 'django', 'session'], { AT_DRY_RUN: '1' })
+      .out.split('\n')
+      .filter((l) => l.startsWith('+ '));
+    expect(pair).toContain(
+      '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
+    );
+    expect(pair).toContain('+ docker compose up -d --build --wait api-django worker-django beat-django');
+    expect(pair.at(-1)).toBe(
+      '+ docker compose run --rm -e CROSS_API_URLS=http://api-express:8000/api/v1,http://api-django:8000/api/v1 tools pnpm --filter @agrotrace/tests-cross test session',
+    );
+    expect(readFileSync(`${REPO}at.sh`, 'utf8')).toMatch(
+      /"\$0" api:test express --ratelimits\n {4}"\$0" cross:test\n/,
     );
   });
 

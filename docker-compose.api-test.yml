@@ -8,7 +8,33 @@
 services:
   api-express:
     environment:
-      RATE_LIMIT_OVERRIDES: '{"user":100000,"login-ip":100000}'
+      RATE_LIMIT_OVERRIDES: '{"user":100000,"login-ip":100000,"complaint-ip":100000}'
       DADATA_API_KEY: ''
       TELEGRAM_BOT_TOKEN: 'api-test-token'
       TELEGRAM_BOT_USERNAME: 'agrotrace_test_bot'
+      # P50: report sheets hold at most 13 data rows on the stand (contract default 50 000), so tests/api can show the
+      # boundary — 13 rows → 200, 14 → 400 validation.report.tooManyRows — with data it builds itself. 13 is the
+      # smallest value under which every report has a valid instance (the recall's «Отзыв» sheet always has 13 rows).
+      REPORT_MAX_ROWS: '13'
+      # Review Focus 4: `./at api:test <back> --tz Europe/Moscow` runs the backend's processes in another zone; every
+      # date rule of the contract is UTC, so the suite must pass unchanged.
+      TZ: '${API_TEST_TZ:-UTC}'
+  # The vsd.import worker (R81) for tests/api/documents.test.ts: Mercury calls for the test-only product code 99.99.99
+  # carry `X-Mock-Fail: 500` (mercury-mock fails them on purpose) and the retry delays start at 50 ms instead of 2 s,
+  # so a FAILED import (6 calls) takes about 2 s. No real product has this code.
+  worker-express:
+    environment:
+      MERCURY_FAIL_PRODUCT_CODES: '99.99.99'
+      MERCURY_FAIL_MODE: '500'
+      MERCURY_RETRY_BASE_MS: '50'
+      # Contract P14/P51: no bot token in the worker (its Telegram sends are NOT_CONFIGURED), whatever .env holds.
+      TELEGRAM_BOT_TOKEN: ''
+      TZ: '${API_TEST_TZ:-UTC}'
+  # The scheduler (lab-escalation; recall-task-overdue with Task 10) ticks every second instead of every 5 minutes
+  # (SCHEDULER_TICK_MS, test-stand configuration in the contract): tests make a deadline pass by moving `due_at` in
+  # the DB (a documented fixture write) and see the job act within seconds — no clock override in the backend.
+  scheduler-express:
+    environment:
+      SCHEDULER_TICK_MS: '1000'
+      TELEGRAM_BOT_TOKEN: ''
+      TZ: '${API_TEST_TZ:-UTC}'

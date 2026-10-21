@@ -4,7 +4,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { API_URL } from './env.js';
-import { recordCall } from './registry.js';
+import { markReal, recordCall } from './registry.js';
 
 export interface ApiResponse {
   method: string;
@@ -133,7 +133,7 @@ export class ApiClient {
     }
     const rel = url.pathname.slice(new URL(this.baseUrl).pathname.length) + url.search;
     recordCall({ method, path: rel, status: res.status });
-    return {
+    return markReal({
       method,
       path: rel,
       status: res.status,
@@ -142,7 +142,7 @@ export class ApiClient {
       body: parsed,
       text,
       bytes,
-    };
+    });
   }
 
   get = (path: string, opts?: RequestOptions) => this.request('GET', path, opts);

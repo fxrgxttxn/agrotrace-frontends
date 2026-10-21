@@ -791,6 +791,30 @@ describe('openapi contract: operations', () => {
     expect(doc.info.description).toMatch(/40P01/);
   });
 
+  it('lock strengths (P57): explicit locks are FOR NO KEY UPDATE; FOR UPDATE only for deletes that exclude references', () => {
+    const info: string = doc.info.description;
+    expect(info).toMatch(/Сила блокировок \(P57\)/);
+    expect(info).toMatch(/`FOR KEY SHARE` конфликтует с\s+`FOR UPDATE`, но не с `FOR NO KEY UPDATE`/);
+    // FOR UPDATE is named only by the two deliberate exceptions (and by the P57 paragraph explaining them).
+    const texts: string[] = [];
+    for (const [, item] of Object.entries(doc.paths as Json))
+      for (const m of METHODS) if ((item as Json)[m]) texts.push((item as Json)[m].description ?? '');
+    for (const f of readdirSync(new URL('../events/', import.meta.url)).filter((x) => x.endsWith('.json')))
+      texts.push(readFileSync(new URL(`../events/${f}`, import.meta.url), 'utf8'));
+    expect(texts.filter((t) => /FOR UPDATE/.test(t))).toEqual([]);
+  });
+
+  it('connection budget (P61): ≤ 20 per backend, timeouts, 503; the stand sizes max_connections for 3 backends', () => {
+    const info: string = doc.info.description.replace(/\s+/g, ' ');
+    expect(info).toMatch(/Бюджет соединений с PostgreSQL \(P61\)/);
+    expect(info).toMatch(/не больше 20 соединений/);
+    expect(info).toMatch(/`statement_timeout` = 30 с и `lock_timeout` = 10 с/);
+    expect(info).toMatch(/503 BACKEND_UNAVAILABLE/);
+    const compose = readFileSync(new URL('../../docker-compose.yml', import.meta.url), 'utf8');
+    const max = Number(/max_connections=(\d+)/.exec(compose)?.[1]);
+    expect(max).toBeGreaterThanOrEqual(3 * 20 + 30 + 3);
+  });
+
   it('idempotent operations document 409 IDEMPOTENCY_KEY_REUSED and IN_PROGRESS with Retry-After (R48)', () => {
     const bad: string[] = [];
     for (const { id, op } of ops.filter(({ op }) => op['x-idempotent'] === true)) {

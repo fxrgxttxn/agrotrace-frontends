@@ -6,7 +6,7 @@ import { Router } from 'express';
 import type { Container } from '../../container.js';
 import { ah } from '../../http/async.js';
 import { guard, principalOf } from '../../http/auth.js';
-import { readFileUpload } from '../../http/multipart.js';
+import { clientGone, readFileUpload } from '../../http/multipart.js';
 import { idParam } from '../../http/params.js';
 import { IMPORT_MAX_BYTES, importDictionary } from './import.js';
 import { dictionariesService, PRODUCT_IMAGE_MAX_BYTES } from './service.js';
@@ -47,7 +47,7 @@ export function dictionariesRouter(c: Container): Router {
     ah(async (req, res) => {
       const name = dictNameParam(req);
       const upload = await readFileUpload(req, IMPORT_MAX_BYTES);
-      res.status(200).json(await importDictionary(c, principalOf(res), name, upload.bytes));
+      res.status(200).json(await importDictionary(c, principalOf(res), name, upload.bytes, clientGone(res)));
     }),
   );
   r.put(

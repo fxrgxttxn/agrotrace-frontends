@@ -18,6 +18,10 @@ await build({
     ...['main-api', 'main-worker', 'main-scheduler'].map((n) => ({ in: `${root}src/${n}.ts`, out: n })),
     // P15: the SVG sanitizer's worker thread (src/infra/svg.ts loads dist/svg-worker.js next to the bundle).
     { in: `${root}src/infra/svg-worker.ts`, out: 'svg-worker' },
+    // P24: the XLSX import reader's worker thread (dictionaries/sheet.ts loads dist/xlsx-worker.js next to the bundle).
+    { in: `${root}src/modules/dictionaries/xlsx-worker.ts`, out: 'xlsx-worker' },
+    // P52: report rendering (modules/reports/render.ts loads dist/report-worker.js next to the bundle).
+    { in: `${root}src/infra/report-worker.ts`, out: 'report-worker' },
   ],
   outdir: `${root}dist`,
   bundle: true,

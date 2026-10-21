@@ -1,0 +1,113 @@
+{
+  "description": "ALTCHA v1 test vector (contract getCaptchaChallenge / createPublicComplaint, P40): every backend must derive the same key from jwtSecret and give each case the same verdict at nowMs. key = hex(HMAC-SHA256(jwtSecret, \"agrotrace:altcha:v1\")); challenge = sha256hex(salt + decimal number); signature = hex(HMAC-SHA256(key as UTF-8, challenge)); payload = standard base64 (RFC 4648 section 4, padded) of a JSON object.",
+  "jwtSecret": "agrotrace-altcha-vector-secret-0123456789",
+  "key": "2915c36ad1c1d8c5ddc8c0313ff72ab6730631e70f300d33c45901fbd240ce57",
+  "salt": "3f9a1c7e5b2d8f4a6c0e1b3d?expires=1790244000",
+  "number": 12345,
+  "challenge": "3a0ff28fc314204c899556adb1503d5b8fec2f05844661b50f83a21f151d3a44",
+  "signature": "1e3717419977929e1feef09b4b1f36ce7a8e985e6560b7dcbe00330e3b079de4",
+  "cases": [
+    {
+      "name": "valid solution",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MTIzNDUsInNhbHQiOiIzZjlhMWM3ZTViMmQ4ZjRhNmMwZTFiM2Q/ZXhwaXJlcz0xNzkwMjQ0MDAwIiwic2lnbmF0dXJlIjoiMWUzNzE3NDE5OTc3OTI5ZTFmZWVmMDliNGIxZjM2Y2U3YThlOTg1ZTY1NjBiN2RjYmUwMDMzMGUzYjA3OWRlNCJ9",
+      "nowMs": 1790243700000,
+      "valid": true
+    },
+    {
+      "name": "valid at the expiry second",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MTIzNDUsInNhbHQiOiIzZjlhMWM3ZTViMmQ4ZjRhNmMwZTFiM2Q/ZXhwaXJlcz0xNzkwMjQ0MDAwIiwic2lnbmF0dXJlIjoiMWUzNzE3NDE5OTc3OTI5ZTFmZWVmMDliNGIxZjM2Y2U3YThlOTg1ZTY1NjBiN2RjYmUwMDMzMGUzYjA3OWRlNCJ9",
+      "nowMs": 1790244000000,
+      "valid": true
+    },
+    {
+      "name": "expired one millisecond later",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MTIzNDUsInNhbHQiOiIzZjlhMWM3ZTViMmQ4ZjRhNmMwZTFiM2Q/ZXhwaXJlcz0xNzkwMjQ0MDAwIiwic2lnbmF0dXJlIjoiMWUzNzE3NDE5OTc3OTI5ZTFmZWVmMDliNGIxZjM2Y2U3YThlOTg1ZTY1NjBiN2RjYmUwMDMzMGUzYjA3OWRlNCJ9",
+      "nowMs": 1790244000001,
+      "valid": false
+    },
+    {
+      "name": "extra widget fields are allowed",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MTIzNDUsInNhbHQiOiIzZjlhMWM3ZTViMmQ4ZjRhNmMwZTFiM2Q/ZXhwaXJlcz0xNzkwMjQ0MDAwIiwic2lnbmF0dXJlIjoiMWUzNzE3NDE5OTc3OTI5ZTFmZWVmMDliNGIxZjM2Y2U3YThlOTg1ZTY1NjBiN2RjYmUwMDMzMGUzYjA3OWRlNCIsInRvb2siOjQxMn0=",
+      "nowMs": 1790243700000,
+      "valid": true
+    },
+    {
+      "name": "wrong number",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MTIzNDYsInNhbHQiOiIzZjlhMWM3ZTViMmQ4ZjRhNmMwZTFiM2Q/ZXhwaXJlcz0xNzkwMjQ0MDAwIiwic2lnbmF0dXJlIjoiMWUzNzE3NDE5OTc3OTI5ZTFmZWVmMDliNGIxZjM2Y2U3YThlOTg1ZTY1NjBiN2RjYmUwMDMzMGUzYjA3OWRlNCJ9",
+      "nowMs": 1790243700000,
+      "valid": false
+    },
+    {
+      "name": "number as a string",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6IjEyMzQ1Iiwic2FsdCI6IjNmOWExYzdlNWIyZDhmNGE2YzBlMWIzZD9leHBpcmVzPTE3OTAyNDQwMDAiLCJzaWduYXR1cmUiOiIxZTM3MTc0MTk5Nzc5MjllMWZlZWYwOWI0YjFmMzZjZTdhOGU5ODVlNjU2MGI3ZGNiZTAwMzMwZTNiMDc5ZGU0In0=",
+      "nowMs": 1790243700000,
+      "valid": false
+    },
+    {
+      "name": "number with an exponent",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MS4yMzQ1ZTQsInNhbHQiOiIzZjlhMWM3ZTViMmQ4ZjRhNmMwZTFiM2Q/ZXhwaXJlcz0xNzkwMjQ0MDAwIiwic2lnbmF0dXJlIjoiMWUzNzE3NDE5OTc3OTI5ZTFmZWVmMDliNGIxZjM2Y2U3YThlOTg1ZTY1NjBiN2RjYmUwMDMzMGUzYjA3OWRlNCJ9",
+      "nowMs": 1790243700000,
+      "valid": false
+    },
+    {
+      "name": "number with a fraction",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MTIzNDUuMCwic2FsdCI6IjNmOWExYzdlNWIyZDhmNGE2YzBlMWIzZD9leHBpcmVzPTE3OTAyNDQwMDAiLCJzaWduYXR1cmUiOiIxZTM3MTc0MTk5Nzc5MjllMWZlZWYwOWI0YjFmMzZjZTdhOGU5ODVlNjU2MGI3ZGNiZTAwMzMwZTNiMDc5ZGU0In0=",
+      "nowMs": 1790243700000,
+      "valid": false
+    },
+    {
+      "name": "tampered signature",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MTIzNDUsInNhbHQiOiIzZjlhMWM3ZTViMmQ4ZjRhNmMwZTFiM2Q/ZXhwaXJlcz0xNzkwMjQ0MDAwIiwic2lnbmF0dXJlIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSJ9",
+      "nowMs": 1790243700000,
+      "valid": false
+    },
+    {
+      "name": "uppercase hex signature",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MTIzNDUsInNhbHQiOiIzZjlhMWM3ZTViMmQ4ZjRhNmMwZTFiM2Q/ZXhwaXJlcz0xNzkwMjQ0MDAwIiwic2lnbmF0dXJlIjoiMUUzNzE3NDE5OTc3OTI5RTFGRUVGMDlCNEIxRjM2Q0U3QThFOTg1RTY1NjBCN0RDQkUwMDMzMEUzQjA3OURFNCJ9",
+      "nowMs": 1790243700000,
+      "valid": false
+    },
+    {
+      "name": "signature with another key",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MTIzNDUsInNhbHQiOiIzZjlhMWM3ZTViMmQ4ZjRhNmMwZTFiM2Q/ZXhwaXJlcz0xNzkwMjQ0MDAwIiwic2lnbmF0dXJlIjoiMDJiNDU3MmMxMTg3YTYwYTdlMzhkOWQ4OWI5YzZiMjdmNmM0YWIyNmMzNjMwMzhiNTY3NjhlNGZiMWFlZTY0OSJ9",
+      "nowMs": 1790243700000,
+      "valid": false
+    },
+    {
+      "name": "algorithm SHA-1",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMSIsImNoYWxsZW5nZSI6IjNhMGZmMjhmYzMxNDIwNGM4OTk1NTZhZGIxNTAzZDViOGZlYzJmMDU4NDQ2NjFiNTBmODNhMjFmMTUxZDNhNDQiLCJudW1iZXIiOjEyMzQ1LCJzYWx0IjoiM2Y5YTFjN2U1YjJkOGY0YTZjMGUxYjNkP2V4cGlyZXM9MTc5MDI0NDAwMCIsInNpZ25hdHVyZSI6IjFlMzcxNzQxOTk3NzkyOWUxZmVlZjA5YjRiMWYzNmNlN2E4ZTk4NWU2NTYwYjdkY2JlMDAzMzBlM2IwNzlkZTQifQ==",
+      "nowMs": 1790243700000,
+      "valid": false
+    },
+    {
+      "name": "salt without expires",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiZDE5NmE4NGFmYThmM2E2ZjE1ZTRjN2JlOGNiMGI5MDg3ODNmZmEyZDhkYTVjYmY1MGJkMTBmZGIwNTM3YmE4NyIsIm51bWJlciI6MTIzNDUsInNhbHQiOiJkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWYiLCJzaWduYXR1cmUiOiJjZmJiNDliNmFiNjE2MmJjMzFiOGFkYTdjYTJmMTU4YWRlZDVmMTYwMjliZjE4MTE0ZDk2MWM5ZTc3N2QxNzE4In0=",
+      "nowMs": 1790243700000,
+      "valid": false
+    },
+    {
+      "name": "base64url (not standard base64)",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MTIzNDUsInNhbHQiOiIzZjlhMWM3ZTViMmQ4ZjRhNmMwZTFiM2Q_ZXhwaXJlcz0xNzkwMjQ0MDAwIiwic2lnbmF0dXJlIjoiMWUzNzE3NDE5OTc3OTI5ZTFmZWVmMDliNGIxZjM2Y2U3YThlOTg1ZTY1NjBiN2RjYmUwMDMzMGUzYjA3OWRlNCJ9",
+      "nowMs": 1790243700000,
+      "valid": false
+    },
+    {
+      "name": "base64 without padding",
+      "payload": "eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY2hhbGxlbmdlIjoiM2EwZmYyOGZjMzE0MjA0Yzg5OTU1NmFkYjE1MDNkNWI4ZmVjMmYwNTg0NDY2MWI1MGY4M2EyMWYxNTFkM2E0NCIsIm51bWJlciI6MTIzNDUsInNhbHQiOiIzZjlhMWM3ZTViMmQ4ZjRhNmMwZTFiM2Q/ZXhwaXJlcz0xNzkwMjQ0MDAwIiwic2lnbmF0dXJlIjoiMWUzNzE3NDE5OTc3OTI5ZTFmZWVmMDliNGIxZjM2Y2U3YThlOTg1ZTY1NjBiN2RjYmUwMDMzMGUzYjA3OWRlNCJ9",
+      "nowMs": 1790243700000,
+      "valid": true
+    },
+    {
+      "name": "not base64 JSON",
+      "payload": "not-base64-json",
+      "nowMs": 1790243700000,
+      "valid": false
+    },
+    {
+      "name": "JSON array",
+      "payload": "WzEsMl0=",
+      "nowMs": 1790243700000,
+      "valid": false
+    }
+  ]
+}

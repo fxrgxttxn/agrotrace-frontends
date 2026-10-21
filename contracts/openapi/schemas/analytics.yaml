@@ -64,7 +64,8 @@ InspectorDashboard:
     - `batchesTotal` — партии, созданные в окне (`created_at`);
     - `rejectedShare.byProduct` / `byFarm` — `RejectedShareItem` по продукту партии (`key` = id продукта) и по
       хозяйству-создателю сырьевой партии (`key` = id организации типа FARM; производные партии в `byFarm` не входят);
-      не более 10 строк каждый, порядок — `share` по убыванию, затем `tested` по убыванию, затем `name`;
+      не более 10 строк каждый, порядок — `share` по убыванию (значение строки `share`, т. е. после округления), затем `tested` по убыванию, затем
+      `name` (по кодовым точкам);
     - `activeRecalls` — отзывы в статусе OPEN на момент запроса (не зависит от окна);
     - `avgRecallHours` — средняя длительность (`closedAt` − `openedAt`) отзывов, закрытых в окне; null — таких нет;
     - `violationsByRegion` — все регионы справочника (в том числе с нулём), `count` — анализы с FAIL, завершённые в
@@ -152,7 +153,8 @@ OrgDashboard:
     - `byStatus` — все 11 статусов в порядке `contracts/rules/state-machine.json` (в том числе с нулём), `count` —
       партии, держатель которых — организация, на момент запроса (не зависит от окна);
     - `labResults` — анализы, завершённые в окне, по партиям, созданным организацией (`origin`): `pass` / `fail`;
-    - `openTasks` — задачи отзыва организации в статусе OPEN или OVERDUE на момент запроса; `overdueTasks` — из них
+    - `openTasks` — задачи отзыва организации в статусе OPEN или OVERDUE на момент запроса (задачи удалённых отзывов и
+      партий не учитываются, как в `listRecallTasks`); `overdueTasks` — из них
       с now > `dueAt`.
   required: [scope, period, organization, byStatus, labResults, openTasks, overdueTasks]
   additionalProperties: false

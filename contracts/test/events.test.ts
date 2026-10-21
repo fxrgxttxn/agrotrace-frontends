@@ -50,7 +50,25 @@ describe('queue events', () => {
     expect(d).toMatch(/Worker concurrency \(R92\)/);
     expect(d).toMatch(/two channels, each with basic\.qos prefetch 1/);
     expect(d).toMatch(/at most ONE `vsd\.import` handler at a time/);
-    expect(d).toMatch(/basic\.nack requeue=true/);
+    // P56: a busy vsd.import is re-scheduled through the delay queue (tail), never requeued to the head.
+    expect(d).toMatch(/re-scheduled with a delay \(P56/);
+    expect(d).toMatch(/`agrotrace\.\{backend\}\.jobs\.delay`/);
+    expect(d).toMatch(/NEVER returned with basic\.nack requeue=true/);
+    // Final re-review m1: an unroutable copy (basic.return) is a failure, never acknowledged.
+    expect(d).toMatch(/published with `mandatory` = true/);
+    expect(d).toMatch(/basic\.return/);
+    const defs = JSON.parse(
+      readFileSync(new URL('../../infra/rabbitmq/definitions.json', import.meta.url), 'utf8'),
+    );
+    for (const b of read('envelope.schema.json').properties.backend.enum as string[]) {
+      const q = defs.queues.find((x: Json) => x.name === `agrotrace.${b}.jobs.delay`);
+      expect(q?.arguments, b).toEqual({
+        'x-queue-type': 'classic',
+        'x-message-ttl': 5000,
+        'x-dead-letter-exchange': '',
+        'x-dead-letter-routing-key': `agrotrace.${b}.jobs`,
+      });
+    }
     expect(read('vsd.import.schema.json').description).toMatch(
       /At most one vsd\.import handler runs per worker process[^.]*R92/,
     );

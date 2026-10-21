@@ -16,8 +16,10 @@ import {
   rejectEmptySegments,
 } from './http/problem.js';
 import { backendHeader, requestId } from './http/request-id.js';
+import { publishAfterResponse } from './infra/relay.js';
 import { adminRouter } from './modules/admin/routes.js';
 import { auditRouter } from './modules/audit/routes.js';
+import { batchesRouter } from './modules/batches/routes.js';
 import { authRouter } from './modules/auth/routes.js';
 import { dictionariesRouter } from './modules/dictionaries/routes.js';
 import { docsRouter } from './modules/docs/routes.js';
@@ -25,8 +27,16 @@ import { filesRouter, publicFilesRouter } from './modules/files/routes.js';
 import { fieldsRouter } from './modules/fields/routes.js';
 import { healthRouter } from './modules/health/routes.js';
 import { meRouter } from './modules/me/routes.js';
+import { notificationsRouter } from './modules/notifications/routes.js';
+import { analyticsRouter } from './modules/reports/routes.js';
 import { organizationsRouter } from './modules/organizations/routes.js';
 import { usersRouter } from './modules/users/routes.js';
+import { labRouter } from './modules/lab/routes.js';
+import { processingRouter } from './modules/processing/routes.js';
+import { waybillsRouter } from './modules/waybills/routes.js';
+import { recallsRouter } from './modules/recalls/routes.js';
+import { complaintsRouter } from './modules/complaints/routes.js';
+import { publicRouter } from './modules/public/routes.js';
 
 export const ROUTER_OPTIONS = { caseSensitive: true, strict: true } as const;
 
@@ -42,6 +52,8 @@ export function createApp(c: Container): Express {
   app.set('trust proxy', 1);
 
   app.use(requestId());
+  if (c.metrics) app.use(c.metrics.http);
+  app.use(publishAfterResponse(c.relay));
   app.use(backendHeader('express'));
   app.use(accessLog(c.logger));
   app.use(rejectEmptySegments());
@@ -53,6 +65,10 @@ export function createApp(c: Container): Express {
       limit: JSON_BODY_LIMIT_BYTES,
       strict: true,
       type: ['application/json', 'application/*+json'],
+      // The raw bytes feed the Idempotency-Key fingerprint (http/idempotency.ts, R48).
+      verify: (req, _res, buf) => {
+        (req as typeof req & { rawBody?: Buffer }).rawBody = buf;
+      },
     }),
   );
 
@@ -70,6 +86,15 @@ export function createApp(c: Container): Express {
   api.use(adminRouter(c));
   api.use(auditRouter(c));
   api.use(fieldsRouter(c));
+  api.use(batchesRouter(c));
+  api.use(waybillsRouter(c));
+  api.use(processingRouter(c));
+  api.use(labRouter(c));
+  api.use(recallsRouter(c));
+  api.use(complaintsRouter(c));
+  api.use(publicRouter(c));
+  api.use(notificationsRouter(c));
+  api.use(analyticsRouter(c));
   app.use('/api/v1', api);
 
   app.use(notFoundHandler());

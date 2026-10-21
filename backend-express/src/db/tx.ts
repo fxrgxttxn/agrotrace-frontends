@@ -7,7 +7,7 @@
  * publishing, no email, no in-memory state that survives a failed attempt. Side effects that must follow the commit
  * go to the outbox (`enqueue(tx, …)`) or run after `withTx` resolves (e.g. `pub:batch` cache deletion).
  */
-import type { IsolationLevel, Kysely, Transaction } from 'kysely';
+import { sql, type IsolationLevel, type Kysely, type Transaction } from 'kysely';
 import { AppProblem } from '../http/problem.js';
 
 export type TxIsolation = Extract<IsolationLevel, 'read committed' | 'repeatable read' | 'serializable'>;
@@ -16,6 +16,11 @@ export interface TxOptions {
   isolation?: TxIsolation;
   /** Retry once on 40P01/40001 (default true). */
   retryOnce?: boolean;
+  /**
+   * Further errors that re-run the transaction once (same budget as 40P01/40001) — e.g. the recall engine's
+   * `ux_recalls_open_source` unique violation (tag Recalls, step 1): the repeat finds the recall the other one created.
+   */
+  retryIf?: (err: unknown) => boolean;
   /** `params` of the 409 after the retry also failed (e.g. `{currentVersion}`), read outside the failed tx. */
   conflictParams?: () => Promise<Record<string, unknown> | undefined>;
 }
@@ -38,10 +43,20 @@ export async function withTx<DB, T>(
         .setIsolationLevel(opts.isolation ?? 'read committed')
         .execute(fn);
     } catch (err) {
-      if (!isRetryableTxError(err)) throw err;
+      if (!isRetryableTxError(err) && !opts.retryIf?.(err)) throw err;
       if (attempt < attempts) continue;
       const params = opts.conflictParams ? await opts.conflictParams() : undefined;
       throw new AppProblem(409, 'VERSION_CONFLICT', params ? { params } : {});
     }
   }
+}
+
+/**
+ * P43: every "current time" an operation writes is ONE instant — the transaction's `now()` (PostgreSQL transaction
+ * start time, the same value for every statement and for the `touch_updated_at` triggers of the transaction). Code
+ * that needs the instant as a value reads it here instead of the process clock.
+ */
+export async function txNow<DB>(tx: Transaction<DB>): Promise<Date> {
+  const r = await sql<{ now: Date }>`SELECT now() AS now`.execute(tx);
+  return r.rows[0]!.now;
 }

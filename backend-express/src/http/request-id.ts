@@ -31,7 +31,10 @@ export function requestId(): RequestHandler {
     const id = acceptRequestId(req.headers['x-request-id']);
     res.locals.requestId = id;
     res.setHeader('X-Request-Id', id);
-    runWithContext({ requestId: id, ip: clientIp(req.ip) ?? clientIp(req.socket.remoteAddress) }, next);
+    runWithContext(
+      { requestId: id, ip: clientIp(req.ip) ?? clientIp(req.socket.remoteAddress), events: [] },
+      next,
+    );
   };
 }
 

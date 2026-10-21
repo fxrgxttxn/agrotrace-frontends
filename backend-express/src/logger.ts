@@ -1,6 +1,6 @@
 /** pino JSON logs to stdout; every line of a request carries its `requestId` (context.ts). */
 import { pino, type DestinationStream, type Logger } from 'pino';
-import { currentRequestId } from './context.js';
+import { currentContext } from './context.js';
 
 export type { Logger };
 
@@ -19,6 +19,11 @@ export const SECRET_KEYS = [
   'cookie',
   'set-cookie',
   'idempotencyKey',
+  // Review M12 (defence in depth; none is logged today): refresh cookie value, TOTP code, ALTCHA payload, URL signature.
+  'refresh',
+  'totp',
+  'altcha',
+  'sig',
 ];
 const REDACT_DEPTH = 4;
 
@@ -48,7 +53,8 @@ export function createLogger(
       // Secrets never reach the logs, whatever a caller passes in, however deeply nested.
       redact: { paths: redactPaths(), censor: '***' },
       mixin() {
-        const requestId = currentRequestId();
+        const ctx = currentContext();
+        const requestId = ctx?.requestId ?? ctx?.eventRequestId;
         return requestId ? { requestId } : {};
       },
     },

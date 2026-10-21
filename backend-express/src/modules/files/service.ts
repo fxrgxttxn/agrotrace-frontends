@@ -14,6 +14,7 @@ import type { Insertable, Selectable, Transaction } from 'kysely';
 import type { DB, Files } from '../../db/types.generated.js';
 import { AppProblem } from '../../http/problem.js';
 import type { UploadedFile } from '../../http/multipart.js';
+import { txNow } from '../../db/tx.js';
 import { publicFileUrl, type FileUrls } from '../../infra/file-urls.js';
 import { RASTER_TYPES, rasterVariants, sha256hex, sniff, type SniffedType } from '../../infra/images.js';
 import type { S3 } from '../../infra/s3.js';
@@ -161,7 +162,9 @@ export async function storeObjects(s3: S3, file: PreparedFile): Promise<void> {
   await Promise.all(file.objects.map((o) => s3.put(o.key, o.body, o.contentType)));
 }
 
+/** Inserts the file row; `created_at` = the transaction's instant (P43; the object key keeps the prepare-time month). */
 export async function insertFile(tx: Transaction<DB>, file: PreparedFile): Promise<void> {
+  file.row.created_at = await txNow(tx);
   await tx.insertInto('files').values(file.row).execute();
 }
 

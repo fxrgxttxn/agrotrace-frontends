@@ -26,10 +26,21 @@ const url = (protocols: string[]) =>
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('production'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8000),
+  /** Prometheus `/metrics` of the api process (infra/metrics.ts): a port of its own, never proxied by the gateway. */
+  METRICS_PORT: z.coerce.number().int().min(1).max(65535).default(9464),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /** Least-privilege role `agrotrace_app` (infra/postgres/init). */
   APP_DATABASE_URL: url(['postgres:', 'postgresql:']),
-  DB_POOL_MAX: z.coerce.number().int().min(1).max(200).default(20),
+  /**
+   * Connection budget (P61, contract «Бюджет соединений»): at most 20 PostgreSQL connections per backend. Unset, the
+   * pool size depends on the process (db/db.ts POOL_DEFAULTS: api 11 + its LISTEN session, worker 4, scheduler 4).
+   */
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(200).optional(),
+  /** Waiting longer than this for a pool connection fails the request with 503 BACKEND_UNAVAILABLE (P61). */
+  DB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(100).max(60000).default(5000),
+  /** Session `statement_timeout` / `lock_timeout` of every pool connection (P61); exceeded → 503 BACKEND_UNAVAILABLE. */
+  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(100).max(600000).default(30000),
+  DB_LOCK_TIMEOUT_MS: z.coerce.number().int().min(100).max(600000).default(10000),
   REDIS_URL: url(['redis:', 'rediss:']),
   RABBITMQ_URL: url(['amqp:', 'amqps:']),
   S3_ENDPOINT: url(['http:', 'https:']),
@@ -41,7 +52,8 @@ const schema = z.object({
   /** Links in letters: `${PUBLIC_BASE_URL}/password/reset/{token}`, `${PUBLIC_BASE_URL}/invite/{token}` (R82). */
   PUBLIC_BASE_URL: url(['http:', 'https:']).transform((s) => s.replace(/\/+$/, '')),
   /** Outgoing mail (dev: Mailpit). */
-  SMTP_HOST: z.string().min(1).default('mailpit'),
+  /** Unset → mail is not configured: letters are logged as not sent, EMAIL notifications end NOT_CONFIGURED. */
+  SMTP_HOST: z.string().min(1).optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
   SMTP_FROM: z.string().min(3).default('AgroTrace <noreply@agrotrace.local>'),
   /** DaData (organization lookup by INN). Unset → registration goes to MANUAL_CHECK without calling it. */
@@ -85,6 +97,46 @@ const schema = z.object({
     .string()
     .regex(/^[A-Za-z0-9_]{5,32}$/, 'must be a Telegram username without @ (5-32 of A-Z a-z 0-9 _)')
     .default('agrotrace_bot'),
+  /** Bot API base (the worker's sendMessage / getUpdates); overridable for tests. */
+  TELEGRAM_API_URL: url(['http:', 'https:'])
+    .default('https://api.telegram.org')
+    .transform((s) => s.replace(/\/+$/, '')),
+  /** ФГИС «Меркурий» (dev: mercury-mock), the `vsd.import` worker (R81, contracts/events/vsd.import.schema.json). */
+  MERCURY_URL: url(['http:', 'https:'])
+    .default('http://mercury-mock:8080')
+    .transform((s) => s.replace(/\/+$/, '')),
+  /** One Mercury call's timeout (the event schema: 10 s). */
+  MERCURY_TIMEOUT_MS: z.coerce.number().int().min(100).max(60000).default(10000),
+  /**
+   * The first retry delay; the next ones double (2, 4, 8, 16, 32 s by default — the event schema). Test stand only
+   * (docker-compose.api-test.yml) shortens it so a FAILED import does not take a minute.
+   */
+  MERCURY_RETRY_BASE_MS: z.coerce.number().int().min(1).max(60000).default(2000),
+  /**
+   * Test stand only (docker-compose.api-test.yml): Mercury calls for these product codes (comma-separated
+   * `products.mercury_code` values) carry `X-Mock-Fail: <MERCURY_FAIL_MODE>`, so mercury-mock fails them on purpose
+   * and tests/api can watch an import end FAILED. Unset in operation.
+   */
+  MERCURY_FAIL_PRODUCT_CODES: z
+    .string()
+    .optional()
+    .transform((s) =>
+      (s ?? '')
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean),
+    ),
+  MERCURY_FAIL_MODE: z.enum(['500', 'timeout']).default('500'),
+  /**
+   * Period of every scheduler job (lab-escalation; recall-task-overdue with Task 10) — 5 minutes (spec 8.2). Test stand
+   * only (`api-test`, contract info.description): 1000, so tests/api see a job act within seconds.
+   */
+  SCHEDULER_TICK_MS: z.coerce.number().int().min(100).max(3_600_000).default(300_000),
+  /**
+   * The most data rows of one report sheet (downloadReport: more → 400 validation.report.tooManyRows), 50 000 by the
+   * contract. Test stand only (`api-test`, contract info.description) lowers it so the boundary can be tested.
+   */
+  REPORT_MAX_ROWS: z.coerce.number().int().min(1).max(50_000).default(50_000),
   /** Readiness checks give up after this long (each dependency). */
   HEALTH_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(2000),
   /** Graceful shutdown: in-flight requests get this long after SIGTERM. */
