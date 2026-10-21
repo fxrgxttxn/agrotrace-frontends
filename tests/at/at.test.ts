@@ -112,7 +112,8 @@ describe('./at wrapper (R88 M6)', () => {
       const r = sh(['./at', 'up', front, back], { AT_DRY_RUN: '1' });
       expect(r.code, r.err).toBe(0);
       expect(r.out.split('\n').filter((l) => l.startsWith('+ '))).toEqual([
-        '+ docker compose up -d --build --wait postgres redis rabbitmq minio mailpit mercury-mock',
+        '+ docker compose up -d --no-recreate --wait postgres rabbitmq',
+        '+ docker compose up -d --build --wait redis minio mailpit mercury-mock',
         '+ docker compose up --build minio-init',
         `+ docker compose up -d --build --wait ${services} gateway`,
       ]);
@@ -136,7 +137,8 @@ describe('./at wrapper (R88 M6)', () => {
     const r = sh(['./at', 'up', 'express'], { AT_DRY_RUN: '1' });
     expect(r.code, r.err).toBe(0);
     expect(r.out.split('\n').filter((l) => l.startsWith('+ '))).toEqual([
-      '+ docker compose up -d --build --wait postgres redis rabbitmq minio mailpit mercury-mock',
+      '+ docker compose up -d --no-recreate --wait postgres rabbitmq',
+      '+ docker compose up -d --build --wait redis minio mailpit mercury-mock',
       '+ docker compose up --build minio-init',
       '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
     ]);
@@ -305,8 +307,8 @@ describe('./at wrapper (R88 M6)', () => {
       const r = sh(['./at', `${back}:test`, ...args.split(' ')], { AT_DRY_RUN: '1' });
       const cmds = r.out.split('\n').filter((l) => l.startsWith('+ '));
       const psql = '+ docker compose exec -T postgres psql -U agrotrace_owner -v ON_ERROR_STOP=1';
-      expect(cmds).toEqual([
-        '+ docker compose up -d --wait postgres',
+      expect(cmds.slice(0, 4)).toEqual([
+        '+ docker compose up -d --no-recreate --wait postgres',
         `${psql} -d postgres -c CREATE DATABASE ${db} OWNER agrotrace_owner;`,
         `${psql} -d ${db} -f //docker-entrypoint-initdb.d/01-roles.sql`,
         expect.stringMatching(
@@ -316,10 +318,16 @@ describe('./at wrapper (R88 M6)', () => {
         ),
       ]);
       expect(r.out).not.toMatch(/DROP DATABASE/);
-      // The stub hook until the plan fills it.
-      expect(r.code).toBe(1);
-      expect(r.err).toContain(`${back}:test: added by Plan ${back === 'django' ? 3 : 5}`);
       const at = readFileSync(`${REPO}at.sh`, 'utf8');
+      const stub = new RegExp(`^${back}_test_hook\\(\\) \\{ echo "${back}:test: added by Plan`, 'm');
+      if (stub.test(at)) {
+        expect(cmds).toHaveLength(4);
+        expect(r.code).toBe(1);
+        expect(r.err).toContain(`${back}:test: added by Plan ${back === 'django' ? 3 : 5}`);
+      } else {
+        expect(r.code, r.err).toBe(0);
+        expect(cmds.length).toBeGreaterThan(4);
+      }
       expect(at).toMatch(
         new RegExp(`^ {2}${back}:test\\) prepare_test_db ${db}; ${back}_test_hook "\\$@" ;;$`, 'm'),
       );
@@ -357,9 +365,16 @@ describe('./at wrapper (R88 M6)', () => {
 
   it('up infra starts mercury-mock too (R88 M4)', () => {
     const r = sh(['./at', 'up', 'infra'], { AT_DRY_RUN: '1' });
-    expect(r.out).toContain(
-      '+ docker compose up -d --build --wait postgres redis rabbitmq minio mailpit mercury-mock',
-    );
+    expect(r.out).toContain('+ docker compose up -d --build --wait redis minio mailpit mercury-mock');
+  });
+
+  it('infra bound to checkout files is never recreated from another worktree unless AT_RECREATE=1', () => {
+    const lines = (env: Record<string, string>) =>
+      sh(['./at', 'up', 'infra'], { AT_DRY_RUN: '1', ...env }).out.split('\n').filter((l) => l.startsWith('+ '));
+    expect(lines({})[0]).toBe('+ docker compose up -d --no-recreate --wait postgres rabbitmq');
+    expect(lines({ AT_RECREATE: '1' })[0]).toBe('+ docker compose up -d --wait postgres rabbitmq');
+    const at = readFileSync(`${REPO}at.sh`, 'utf8');
+    expect(at).not.toMatch(/up -d (--build )?--wait (\$INFRA_SERVICES|postgres)/);
   });
 });
 
