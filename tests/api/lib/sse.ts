@@ -70,6 +70,8 @@ export async function openStream(opts: {
             else if (field === 'event') e.event = value;
             else if (field === 'data') data.push(value);
           }
+          // A block without `data:` (a comment such as `: ok`, a lone `retry:`) dispatches no event (WHATWG SSE).
+          if (data.length === 0) continue;
           const text = data.join('\n');
           try {
             e.data = JSON.parse(text);

@@ -12,20 +12,17 @@ import type { Container } from '../../container.js';
 import { operationById } from '../../contract.js';
 import { QueryReader } from '../../http/params.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
-import { reportPdf } from '../../infra/pdf.js';
-import { writeXlsx } from '../../infra/xlsx.js';
+import { renderInWorker } from './render.js';
 import type { Principal } from '../../security/jwt.js';
 import { resolveWindow, snapshot, tooLong, type Window } from '../analytics/window.js';
 import {
   batchesReport,
   complaintsReport,
   labTestsReport,
-  MAX_ROWS,
   minute,
   orgReport,
   recallReport,
   recallsReport,
-  type Cell,
   type Report,
 } from './sheets.js';
 
@@ -43,8 +40,6 @@ interface Access {
   headRoles: string[];
 }
 
-const cellText = (c: Cell): string => (c.v === null ? '' : String(c.v));
-
 export interface ReportFile {
   bytes: Buffer;
   contentType: string;
@@ -59,7 +54,8 @@ export function reportsService(c: Container) {
   >;
 
   return {
-    async download(p: Principal, req: Request): Promise<ReportFile> {
+    async download(p: Principal, req: Request, signal?: AbortSignal): Promise<ReportFile> {
+      const maxRows = c.config.REPORT_MAX_ROWS;
       const type = req.params.type as ReportType;
       if (!(TYPES as readonly string[]).includes(type))
         throw validationProblem({ type: ['validation.enum'] });
@@ -92,32 +88,31 @@ export function reportsService(c: Container) {
         const w: Window = resolveWindow(range.from, range.to, now.toISOString().slice(0, 10));
         const headOrg = head ? p.orgId : null;
         let r: Report | undefined;
-        if (type === 'batches') r = await batchesReport(tx, w, headOrg);
-        else if (type === 'recalls') r = await recallsReport(tx, w);
+        if (type === 'batches') r = await batchesReport(tx, w, headOrg, maxRows);
+        else if (type === 'recalls') r = await recallsReport(tx, w, maxRows);
         else if (type === 'recall') r = await recallReport(tx, c.fileUrls, id!);
-        else if (type === 'lab-tests') r = await labTestsReport(tx, w, headOrg);
-        else if (type === 'complaints') r = await complaintsReport(tx, w);
-        else r = await orgReport(tx, w, id!);
+        else if (type === 'lab-tests') r = await labTestsReport(tx, w, headOrg, maxRows);
+        else if (type === 'complaints') r = await complaintsReport(tx, w, maxRows);
+        else r = await orgReport(tx, w, id!, maxRows);
         if (!r) throw new AppProblem(404, 'NOT_FOUND');
         return { report: r, at: now };
       });
-      if (report.sheets.some((s) => s.rows.length > MAX_ROWS))
+      if (report.sheets.some((s) => s.rows.length > maxRows))
         throw validationProblem({ type: ['validation.report.tooManyRows'] });
 
-      const bytes =
-        format === 'pdf'
-          ? await reportPdf({
-              title: report.title,
-              periodLine: report.periodLine,
-              generatedLine: `Сформирован: ${minute(at)} UTC`,
-              generatedAt: at,
-              sheets: report.sheets.map((s) => ({
-                name: s.name,
-                header: s.header,
-                rows: s.rows.map((r) => r.map(cellText)),
-              })),
-            })
-          : await writeXlsx(report.sheets, at);
+      const bytes = await renderInWorker(
+        {
+          format: format!,
+          report: {
+            title: report.title,
+            periodLine: report.periodLine,
+            generatedLine: `Сформирован: ${minute(at)} UTC`,
+            generatedAt: at.toISOString(),
+            sheets: report.sheets,
+          },
+        },
+        signal,
+      );
       return { bytes, contentType: MIME[format!], fileName: `${report.fileBase}.${format}` };
     },
   };

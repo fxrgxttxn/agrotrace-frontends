@@ -77,7 +77,7 @@ export interface TelegramPoller {
   stop(): Promise<void>;
 }
 
-/** Links a chat: `GETDEL tgcode:{code}` → `users.telegram_chat_id`. Exported for tests. */
+/** Links a chat: `GETDEL tgcode:{code}` (contract, one-time) → `users.telegram_chat_id`. Exported for tests. */
 export async function linkByCode(
   deps: { db: Db; redis: Redis; logger: Logger },
   code: string,
@@ -147,13 +147,17 @@ export function startTelegramPoller(deps: {
       while (!stopping && owner) {
         abort = new AbortController();
         try {
+          const started = Date.now();
           const updates = await telegram.getUpdates(offset, 25, abort.signal);
           for (const u of updates) {
-            offset = u.update_id + 1;
             const m = START.exec(u.message?.text ?? '');
             const chat = u.message?.chat?.id;
+            // The offset moves past an update only once it was handled (a failed link is seen again).
             if (m && chat !== undefined) await link(m[1]!, String(chat));
+            offset = u.update_id + 1;
           }
+          // A Bot API (or stub) answering an empty long poll at once must not spin the loop.
+          if (updates.length === 0 && Date.now() - started < 1000) await sleep(1000);
         } catch (err) {
           if (stopping || !owner) break;
           logger.warn({ err: (err as Error).message }, 'telegram poll failed');

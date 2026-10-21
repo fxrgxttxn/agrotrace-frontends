@@ -29,6 +29,7 @@ import { EXCHANGE, type Amqp } from './amqp.js';
 
 const SWEEP_INTERVAL_MS = 5000;
 const SWEEP_BATCH = 100;
+const CONFIRM_TIMEOUT_MS = 10_000;
 
 export interface OutboxRelay {
   start(): void;
@@ -70,12 +71,22 @@ export function createOutboxRelay(deps: { db: Db; amqp: Amqp; logger: Logger }):
   async function publishRow(ch: ConfirmChannel, row: Row): Promise<void> {
     const body = Buffer.from(typeof row.payload === 'string' ? row.payload : JSON.stringify(row.payload));
     await new Promise<void>((resolve, reject) => {
+      // A broker that never confirms (memory alarm) must not hold the sweeper lock and the row locks forever: the
+      // transaction rolls back and the rows are retried by a later pass.
+      const timer = setTimeout(() => {
+        reject(new Error('publisher confirm timed out'));
+        void ch.close().catch(() => undefined); // a fresh channel for the next pass
+      }, CONFIRM_TIMEOUT_MS);
       ch.publish(
         EXCHANGE,
         row.type,
         body,
         { persistent: true, contentType: 'application/json', messageId: row.id },
-        (err) => (err ? reject(err) : resolve()),
+        (err) => {
+          clearTimeout(timer);
+          if (err) reject(err);
+          else resolve();
+        },
       );
     });
   }

@@ -40,7 +40,7 @@ describe('sendRow', () => {
   it('TELEGRAM without a bot token → NOT_CONFIGURED without an attempt', async () => {
     const sendMessage = vi.fn();
     const out = await sendRow(row({ channel: 'TELEGRAM', telegram_chat_id: '42' }), {
-      mailer: { sendOnce: vi.fn() },
+      mailer: { configured: true, sendOnce: vi.fn() },
       telegram: { configured: false, sendMessage },
       logger: memoryLogger().logger,
     });
@@ -51,7 +51,7 @@ describe('sendRow', () => {
   it('EMAIL: the i18n letter, first attempt → DELIVERED, attempts 1', async () => {
     const sendOnce = vi.fn().mockResolvedValue(undefined);
     const out = await sendRow(row(), {
-      mailer: { sendOnce },
+      mailer: { configured: true, sendOnce },
       telegram: offTelegram,
       logger: memoryLogger().logger,
     });
@@ -73,7 +73,7 @@ describe('sendRow', () => {
       .mockResolvedValue(undefined);
     expect(
       await sendRow(row(), {
-        mailer: { sendOnce: flaky },
+        mailer: { configured: true, sendOnce: flaky },
         telegram: offTelegram,
         logger: memoryLogger().logger,
         sleep,
@@ -84,7 +84,7 @@ describe('sendRow', () => {
     const down = vi.fn().mockRejectedValue(new Error('smtp down'));
     expect(
       await sendRow(row(), {
-        mailer: { sendOnce: down },
+        mailer: { configured: true, sendOnce: down },
         telegram: offTelegram,
         logger: memoryLogger().logger,
         sleep,
@@ -97,7 +97,7 @@ describe('sendRow', () => {
   it('TELEGRAM with a token: sendMessage(chat, text); an unlinked user (chat id gone) → FAILED without an attempt', async () => {
     const sendMessage = vi.fn().mockResolvedValue(undefined);
     const telegram = { configured: true, sendMessage };
-    const deps = { mailer: { sendOnce: vi.fn() }, telegram, logger: memoryLogger().logger };
+    const deps = { mailer: { configured: true, sendOnce: vi.fn() }, telegram, logger: memoryLogger().logger };
     expect(await sendRow(row({ channel: 'TELEGRAM', telegram_chat_id: '42' }), deps)).toEqual({
       status: 'DELIVERED',
       attempts: 1,
@@ -105,6 +105,37 @@ describe('sendRow', () => {
     expect(sendMessage.mock.calls[0]![0]).toBe('42');
     expect(sendMessage.mock.calls[0]![1]).toContain('AT-2026-000123');
     expect(await sendRow(row({ channel: 'TELEGRAM' }), deps)).toEqual({ status: 'FAILED', attempts: 0 });
+  });
+});
+
+describe('sendRow: configuration and a taken-over budget (P49)', () => {
+  it('EMAIL without SMTP_HOST → NOT_CONFIGURED without an attempt', async () => {
+    const sendOnce = vi.fn();
+    expect(
+      await sendRow(row(), {
+        mailer: { configured: false, sendOnce },
+        telegram: offTelegram,
+        logger: memoryLogger().logger,
+      }),
+    ).toEqual({ status: 'NOT_CONFIGURED', attempts: 0 });
+    expect(sendOnce).not.toHaveBeenCalled();
+  });
+
+  it('a row taken over after 2 attempts gets one more; progress is stored after each failure but the last', async () => {
+    const progress: number[] = [];
+    const down = vi.fn().mockRejectedValue(new Error('down'));
+    const deps = {
+      mailer: { configured: true, sendOnce: down },
+      telegram: offTelegram,
+      logger: memoryLogger().logger,
+      sleep: async () => undefined,
+      onFailure: async (n: number) => void progress.push(n),
+    };
+    expect(await sendRow(row({ attempts: 2 }), deps)).toEqual({ status: 'FAILED', attempts: 3 });
+    expect(down).toHaveBeenCalledTimes(1);
+    expect(await sendRow(row({ attempts: 0 }), deps)).toEqual({ status: 'FAILED', attempts: 3 });
+    expect(progress).toEqual([1, 2]);
+    expect(await sendRow(row({ attempts: 3 }), deps)).toEqual({ status: 'FAILED', attempts: 3 });
   });
 });
 

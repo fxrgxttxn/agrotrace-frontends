@@ -5,19 +5,25 @@
  * emits `{"user_id", "unread": true}`.
  *
  * - payload with `id`: the row is read once and every stream of the user gets `notification` (`id:` = seq) then
- *   `unread`;
- * - payload without `id`: `unread` only;
+ *   `unread`; payload without `id`: `unread` only;
  * - payloads are handled one after another (a serial queue), so a user's events keep the commit order of NOTIFY;
  * - a stream never sends the same notification twice (per-stream set of sent ids; a stream lives ≤ 15 minutes);
- * - the LISTEN session reconnects with back-off; after a reconnect every stream is re-synchronised (rows with a seq
- *   above the stream's highest sent seq, then `unread`), since NOTIFY sent while disconnected are lost.
+ * - every stream has a watermark W: at connect the higher of L (`Last-Event-ID`) and the user's highest IN_APP seq at
+ *   that moment, raised by every notification sent. After a LISTEN reconnect (NOTIFY sent meanwhile are lost) each
+ *   stream gets the rows with seq > W, plus unread rows with seq < W created no earlier than 60 s before the session
+ *   was lost (late commits), then `unread` — never the user's history (contract text).
+ * - the session is kept alive (TCP keepalive) and probed every 30 s by re-issuing `LISTEN notifications` (a no-op that
+ *   also keeps it recognisable in pg_stat_activity); a failed probe counts as a lost session;
+ * - a client that does not read (more than 1 MiB buffered) loses its stream.
  *
- * Connect (streamEvents): register the stream first (live events are buffered), replay the missed rows, flush the
- * buffer, send `unread`; `ping` every 25 s; `reauth` at the token's `exp`, then the stream ends.
+ * Connect (streamEvents): a response already closed by the client is dropped at once; otherwise register the stream
+ * (live events are buffered), read the watermark, replay the missed rows, flush the buffer, send `unread`; `ping`
+ * every 25 s; `reauth` at the token's `exp`, then the stream ends. A stream leaves the hub on every end (client gone,
+ * reauth, back-pressure, shutdown).
  *
- * Replay for `Last-Event-ID` / `lastEventId` = L (contract text): the user's IN_APP rows with `seq > L`, plus unread
- * rows with `seq < L` created at most 60 s before row L — `seq` is taken at INSERT, so a transaction that inserted
- * earlier but committed after row L was sent has a lower seq (the T3-5 note for SSE); ordered by seq.
+ * Replay for L (contract text): the user's IN_APP rows with `seq > L`, plus unread rows with `seq < L` created at most
+ * 60 s before row L — `seq` is taken at INSERT, so a transaction that inserted earlier but committed after row L was
+ * sent has a lower seq (the T3-5 note for SSE); ordered by seq.
  */
 import { sql } from 'kysely';
 import pg from 'pg';
@@ -28,14 +34,19 @@ import { notificationView, unreadCount, type NotificationView } from '../modules
 
 export const PING_MS = 25_000;
 export const LATE_COMMIT_WINDOW_SEC = 60;
+export const PROBE_MS = 30_000;
 const SENT_CAP = 10_000;
+const MAX_BUFFERED_BYTES = 1024 * 1024;
 
 const isoSec = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
+type Row = Parameters<typeof notificationView>[0];
+
 class Stream {
   private readonly sent = new Set<string>();
-  maxSeq = 0;
-  /** Live notifications that arrived while the connect replay was running. */
+  /** Highest seq this stream is known to be up to (see the module header). */
+  watermark = 0n;
+  /** Live notifications that arrived while the connect sequence was running. */
   buffer: NotificationView[] | null = [];
   closed = false;
   private timers: NodeJS.Timeout[] = [];
@@ -43,10 +54,13 @@ class Stream {
   constructor(
     readonly userId: string,
     private readonly res: Response,
+    private readonly gone: (s: Stream) => void,
   ) {}
 
   write(chunk: string): void {
-    if (!this.closed) this.res.write(chunk);
+    if (this.closed) return;
+    this.res.write(chunk);
+    if (this.res.writableLength > MAX_BUFFERED_BYTES) this.end();
   }
 
   notification(n: NotificationView): void {
@@ -54,15 +68,15 @@ class Stream {
       this.buffer.push(n);
       return;
     }
-    this.replay(n);
+    this.send(n);
   }
 
-  /** Sends now, also during the connect replay (deduplicated). */
-  replay(n: NotificationView): void {
+  /** Sends now, also during the connect sequence (deduplicated). */
+  send(n: NotificationView): void {
     if (this.sent.has(n.id)) return;
     if (this.sent.size >= SENT_CAP) this.sent.clear();
     this.sent.add(n.id);
-    this.maxSeq = Math.max(this.maxSeq, n.seq);
+    if (BigInt(n.seq) > this.watermark) this.watermark = BigInt(n.seq);
     this.write(`id: ${n.seq}\nevent: notification\ndata: ${JSON.stringify(n)}\n\n`);
   }
 
@@ -71,29 +85,30 @@ class Stream {
     this.write(`event: unread\ndata: ${JSON.stringify({ count })}\n\n`);
   }
 
-  /** Ends the replay phase: buffered live notifications go out (deduplicated). */
+  /** Ends the connect phase: buffered live notifications go out (deduplicated). */
   flush(): void {
     const buffered = this.buffer ?? [];
     this.buffer = null;
-    for (const n of buffered.sort((a, b) => a.seq - b.seq)) this.notification(n);
+    for (const n of buffered.sort((a, b) => a.seq - b.seq)) this.send(n);
   }
 
   timer(t: NodeJS.Timeout): void {
     this.timers.push(t);
   }
 
+  /** The server ends the stream (reauth, back-pressure, shutdown). */
   end(): void {
     if (this.closed) return;
-    this.closed = true;
-    for (const t of this.timers) clearTimeout(t);
-    this.timers = [];
+    this.dispose();
     this.res.end();
   }
 
+  /** The stream is over (client gone or ended): timers stop and it leaves the hub. */
   dispose(): void {
     this.closed = true;
     for (const t of this.timers) clearTimeout(t);
     this.timers = [];
+    this.gone(this);
   }
 }
 
@@ -106,19 +121,32 @@ export interface SseHub {
   close(): Promise<void>;
 }
 
-type Row = Parameters<typeof notificationView>[0];
-
-export function createSseHub(deps: { db: Db; databaseUrl: string; logger: Logger; pingMs?: number }): SseHub {
+export function createSseHub(deps: {
+  db: Db;
+  databaseUrl: string;
+  logger: Logger;
+  pingMs?: number;
+  probeMs?: number;
+}): SseHub {
   const { db, logger } = deps;
   const pingMs = deps.pingMs ?? PING_MS;
+  const probeMs = deps.probeMs ?? PROBE_MS;
   const streams = new Map<string, Set<Stream>>();
   let client: pg.Client | null = null;
   let stopped = false;
   let attempt = 0;
+  let lostAt: Date | null = null;
   let reconnectTimer: NodeJS.Timeout | null = null;
+  let probeTimer: NodeJS.Timeout | null = null;
   let queue: Promise<void> = Promise.resolve();
 
   const userStreams = (userId: string) => [...(streams.get(userId) ?? [])].filter((s) => !s.closed);
+  const forget = (s: Stream) => {
+    const set = streams.get(s.userId);
+    if (!set) return;
+    set.delete(s);
+    if (set.size === 0) streams.delete(s.userId);
+  };
 
   async function rowById(id: string): Promise<NotificationView | null> {
     const r = await db
@@ -148,20 +176,19 @@ export function createSseHub(deps: { db: Db; databaseUrl: string; logger: Logger
     for (const s of userStreams(msg.user_id)) s.unread(count);
   }
 
-  /** After a LISTEN reconnect: rows above each stream's highest seq, then `unread`. */
-  async function resync(): Promise<void> {
-    for (const [userId, set] of streams) {
-      for (const s of set) {
+  /** After a LISTEN reconnect: rows above each stream's watermark (+ late commits since the loss), then `unread`. */
+  async function resync(since: Date): Promise<void> {
+    for (const [userId, set] of [...streams]) {
+      for (const s of [...set]) {
         if (s.closed || s.buffer) continue;
-        const rows = await db
-          .selectFrom('notifications')
-          .select(['id', 'seq', 'type', 'payload', 'is_read', 'created_at'])
-          .where('user_id', '=', userId)
-          .where('channel', '=', 'IN_APP')
-          .where('seq', '>', String(s.maxSeq))
-          .orderBy('seq')
-          .execute();
-        for (const r of rows) s.notification(notificationView(r as Row));
+        const rows = await sql<Row>`
+          SELECT id, seq, type, payload, is_read, created_at FROM notifications
+           WHERE user_id = ${userId} AND channel = 'IN_APP'
+             AND (seq > ${s.watermark.toString()}::bigint
+                  OR (seq < ${s.watermark.toString()}::bigint AND NOT is_read
+                      AND created_at >= ${since}::timestamptz - make_interval(secs => ${LATE_COMMIT_WINDOW_SEC})))
+           ORDER BY seq`.execute(db);
+        for (const r of rows.rows) s.send(notificationView(r));
       }
       const count = await unreadCount(db, userId);
       for (const s of userStreams(userId)) s.unread(count);
@@ -180,6 +207,8 @@ export function createSseHub(deps: { db: Db; databaseUrl: string; logger: Logger
       connectionString: deps.databaseUrl,
       application_name: 'agrotrace-express-sse',
       options: '-c TimeZone=UTC',
+      keepAlive: true,
+      query_timeout: 10_000,
     });
     c.on('notification', (m) => {
       if (m.channel === 'notifications') enqueue(() => handle(m.payload));
@@ -187,6 +216,9 @@ export function createSseHub(deps: { db: Db; databaseUrl: string; logger: Logger
     const lost = (err?: Error) => {
       if (client !== c) return;
       client = null;
+      lostAt ??= new Date();
+      if (probeTimer) clearInterval(probeTimer);
+      probeTimer = null;
       c.removeAllListeners('notification');
       void c.end().catch(() => undefined);
       if (!stopped) {
@@ -204,12 +236,20 @@ export function createSseHub(deps: { db: Db; databaseUrl: string; logger: Logger
         return;
       }
       client = c;
-      const reconnected = attempt > 0;
       attempt = 0;
-      if (reconnected) enqueue(resync);
+      probeTimer = setInterval(() => {
+        c.query('LISTEN notifications').catch((err: Error) => lost(err));
+      }, probeMs);
+      probeTimer.unref();
+      if (lostAt) {
+        const since = lostAt;
+        lostAt = null;
+        enqueue(() => resync(since));
+      }
     } catch (err) {
       await c.end().catch(() => undefined);
       if (attempt === 0) logger.warn({ err: (err as Error).message }, 'sse listen unavailable; retrying');
+      lostAt ??= new Date();
       schedule();
     }
   }
@@ -224,6 +264,8 @@ export function createSseHub(deps: { db: Db; databaseUrl: string; logger: Logger
     }, delay);
   }
 
+  const isGone = (res: Response) => res.destroyed || res.writableEnded || res.socket?.destroyed !== false;
+
   return {
     start() {
       void connect();
@@ -234,16 +276,12 @@ export function createSseHub(deps: { db: Db; databaseUrl: string; logger: Logger
       return n;
     },
     async open(res, { userId, exp, lastSeq }) {
-      const s = new Stream(userId, res);
+      if (stopped || isGone(res)) return;
+      const s = new Stream(userId, res, forget);
       let set = streams.get(userId);
       if (!set) streams.set(userId, (set = new Set()));
       set.add(s);
-      const remove = () => {
-        s.dispose();
-        set.delete(s);
-        if (set.size === 0 && streams.get(userId) === set) streams.delete(userId);
-      };
-      res.on('close', remove);
+      res.on('close', () => s.dispose());
       s.timer(
         setInterval(
           () => s.write(`event: ping\ndata: ${JSON.stringify({ ts: isoSec(new Date()) })}\n\n`),
@@ -260,6 +298,11 @@ export function createSseHub(deps: { db: Db; databaseUrl: string; logger: Logger
         ),
       );
       try {
+        const top = await sql<{ max: string }>`
+          SELECT coalesce(max(seq), 0)::text AS max FROM notifications
+           WHERE user_id = ${userId} AND channel = 'IN_APP'`.execute(db);
+        const current = BigInt(top.rows[0]!.max);
+        const given = lastSeq !== null ? BigInt(lastSeq) : 0n;
         if (lastSeq !== null) {
           const rows = await sql<Row>`
             SELECT n.id, n.seq, n.type, n.payload, n.is_read, n.created_at
@@ -271,17 +314,21 @@ export function createSseHub(deps: { db: Db; databaseUrl: string; logger: Logger
                                                FROM notifications l
                                               WHERE l.seq = ${lastSeq}::bigint AND l.user_id = ${userId})))
              ORDER BY n.seq`.execute(db);
-          for (const r of rows.rows) s.replay(notificationView(r));
+          for (const r of rows.rows) s.send(notificationView(r));
         }
+        const floor = given > current ? given : current;
+        if (floor > s.watermark) s.watermark = floor;
       } finally {
         s.flush();
       }
+      if (s.closed) return;
       s.unread(await unreadCount(db, userId));
     },
     async close() {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      for (const set of streams.values()) for (const s of set) s.end();
+      if (probeTimer) clearInterval(probeTimer);
+      for (const set of [...streams.values()]) for (const s of [...set]) s.end();
       streams.clear();
       const c = client;
       client = null;

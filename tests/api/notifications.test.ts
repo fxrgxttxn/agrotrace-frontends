@@ -10,6 +10,7 @@
  * every second on the stand) and `outbox_events.published_at = NULL` (makes the relay publish an event a second time —
  * the at-least-once redelivery the consumer must absorb; no API re-publishes an event).
  */
+import { randomUUID } from 'node:crypto';
 import { beforeAll, describe, expect, it } from 'vitest';
 import rules from '../../contracts/rules/notifications.json' with { type: 'json' };
 import { loginAs } from './lib/auth.js';
@@ -129,6 +130,14 @@ describe('notification matrix (contracts/rules/notifications.json)', () => {
     await absent(farm.client, 'WAYBILL_INCOMING', (p) => p.waybillId === wb.id);
     const acc = await acceptWaybill(processor.client, wb, [{ batchId: b.id, massActualKg: b.massKg }]);
     expect(acc.status, acc.text).toBe(200);
+  });
+
+  it('LAB_RESULT → batchHolder too, when it is not the origin', async () => {
+    const t = await inspectorTest(b.id); // b is held by the processor now
+    await submitAll(t, '0');
+    const mine = (p: Payload) => p.labTestId === t.id;
+    await arrives(processor.client, 'LAB_RESULT', mine);
+    await arrives(farm.client, 'LAB_RESULT', mine);
   });
 
   it('RECALL OPENED → inspectors + taskHolders + sourceOrigin; RECALL_TASK CREATED → taskHolder; OVERDUE → taskHolder + inspectors; RECALL CLOSED → inspectors only', async () => {
@@ -278,6 +287,32 @@ describe('notification matrix (contracts/rules/notifications.json)', () => {
 });
 
 describe('channel settings (FR-NOTIF-03)', () => {
+  it('TELEGRAM without a bot token on the server → NOT_CONFIGURED, 0 attempts (forced RECALL to a linked user)', async () => {
+    const farm = await freshFarm();
+    const user = await me(farm.client);
+    // P51 fixture write: a linked Telegram account (linking needs a real bot; the stand has no token).
+    await fixtureWrite(`UPDATE users SET telegram_chat_id = 4242 WHERE id = $1`, [user.id]);
+    const b = await rawBatch(farm);
+    const res = await createRecall(await inspector(), {
+      sourceBatchId: b.id,
+      reason: 'Telegram',
+      blockUpstream: false,
+    });
+    expect(res.status, res.text).toBe(201);
+    const rows = await eventually(async () => {
+      const r = await query<{ type: string; delivery_status: string; attempts: number }>(
+        `SELECT type, delivery_status, attempts FROM notifications
+          WHERE user_id = $1 AND channel = 'TELEGRAM' AND payload->>'recallId' = $2 ORDER BY type`,
+        [user.id, res.body.id],
+      );
+      return r.length === 2 && r.every((x) => x.delivery_status !== 'PENDING') ? r : undefined;
+    });
+    expect(rows).toEqual([
+      { type: 'RECALL', delivery_status: 'NOT_CONFIGURED', attempts: 0 },
+      { type: 'RECALL_TASK', delivery_status: 'NOT_CONFIGURED', attempts: 0 },
+    ]);
+  });
+
   it('email off: no EMAIL row for LAB_ASSIGNED; forced RECALL / RECALL_TASK still go by email', async () => {
     const farm = await freshFarm();
     const user = await me(farm.client);
@@ -301,6 +336,50 @@ describe('channel settings (FR-NOTIF-03)', () => {
     expect(rows.map((r) => r.type)).toEqual(['RECALL', 'RECALL_TASK']);
     const mails = await waitForMails(user.email, 2);
     expect(mails.every((m) => m.subject.includes(b.publicCode))).toBe(true);
+  });
+});
+
+describe('delivery sweeper (P49)', () => {
+  it('a PENDING EMAIL row abandoned more than 5 minutes ago is sent; a freshly claimed one is left to its sender', async () => {
+    const farm = await freshFarm();
+    const user = await me(farm.client);
+    const payload = (code: string) =>
+      JSON.stringify({
+        complaintId: randomUUID(),
+        batchId: randomUUID(),
+        publicCode: code,
+        productName: 'Свип',
+      });
+    // Fixture writes (P48: a notification row as another implementation's worker leaves it after a crash).
+    const [stale] = await fixtureWrite<{ id: string }>(
+      `INSERT INTO notifications (user_id, type, payload, channel, delivery_status, attempts, created_at, claimed_at)
+       VALUES ($1, 'COMPLAINT', $2, 'EMAIL', 'PENDING', 1, now() - interval '10 minutes', now() - interval '6 minutes')
+       RETURNING id`,
+      [user.id, payload('AT-2026-900001')],
+    );
+    const [busy] = await fixtureWrite<{ id: string }>(
+      `INSERT INTO notifications (user_id, type, payload, channel, delivery_status, created_at, claimed_at)
+       VALUES ($1, 'COMPLAINT', $2, 'EMAIL', 'PENDING', now() - interval '10 minutes', now()) RETURNING id`,
+      [user.id, payload('AT-2026-900002')],
+    );
+    const row = async (id: string) =>
+      (
+        await query<{ delivery_status: string; attempts: number }>(
+          `SELECT delivery_status, attempts FROM notifications WHERE id = $1`,
+          [id],
+        )
+      )[0]!;
+    // The budget continues: one attempt was made before the crash.
+    expect(
+      await eventually(async () => {
+        const r = await row(stale!.id);
+        return r.delivery_status === 'PENDING' ? undefined : r;
+      }),
+    ).toEqual({ delivery_status: 'DELIVERED', attempts: 2 });
+    const mails = await waitForMails(user.email);
+    expect(mails.some((m) => m.subject.includes('AT-2026-900001'))).toBe(true);
+    await new Promise((r) => setTimeout(r, 2500)); // ≥ 2 sweeper ticks
+    expect(await row(busy!.id)).toEqual({ delivery_status: 'PENDING', attempts: 0 });
   });
 });
 

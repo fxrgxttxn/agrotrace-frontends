@@ -7,7 +7,7 @@
  * `Hours` (format `0.00`); moments — text `YYYY-MM-DD HH:MM` in UTC, truncated to the minute (never rounded, R59);
  * booleans — `да`/`нет`; enum codes as in the API; null — an empty cell.
  *
- * Every data query reads at most MAX_ROWS + 1 rows: more than MAX_ROWS in any sheet is `errors.type:
+ * Every data query reads at most `maxRows` + 1 rows (REPORT_MAX_ROWS, default 50 000): more than `maxRows` in any sheet is `errors.type:
  * [validation.report.tooManyRows]` (checked by the caller).
  */
 import { sql, type Transaction } from 'kysely';
@@ -21,7 +21,6 @@ import { loadRecall } from '../recalls/view.js';
 type Tx = Transaction<DB>;
 
 export const MAX_ROWS = 50_000;
-const LIMIT = MAX_ROWS + 1;
 
 export type Cell =
   | { t: 'text'; v: string | null }
@@ -63,7 +62,12 @@ const LAB_OPEN = sql`('QUEUED', 'SAMPLED', 'ESCALATED')`;
 
 // ── batches ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export async function batchesReport(tx: Tx, w: Window, headOrg: string | null): Promise<Report> {
+export async function batchesReport(
+  tx: Tx,
+  w: Window,
+  headOrg: string | null,
+  maxRows: number,
+): Promise<Report> {
   const b = bounds(w);
   const rows = await sql<{
     public_code: string;
@@ -90,7 +94,7 @@ export async function batchesReport(tx: Tx, w: Window, headOrg: string | null): 
        AND coalesce(b.harvested_at, b.produced_at) >= ${b.start} AND coalesce(b.harvested_at, b.produced_at) < ${b.end}
        AND (${headOrg}::uuid IS NULL OR b.origin_org_id = ${headOrg}::uuid OR b.holder_org_id = ${headOrg}::uuid)
      ORDER BY b.public_code COLLATE "C"
-     LIMIT ${LIMIT}`.execute(tx);
+     LIMIT ${maxRows + 1}`.execute(tx);
   return {
     title: 'Реестр партий',
     fileBase: `agrotrace-batches_${w.from}_${w.to}`,
@@ -133,7 +137,7 @@ export async function batchesReport(tx: Tx, w: Window, headOrg: string | null): 
 
 // ── recalls (registry) ──────────────────────────────────────────────────────────────────────────────────────────
 
-export async function recallsReport(tx: Tx, w: Window): Promise<Report> {
+export async function recallsReport(tx: Tx, w: Window, maxRows: number): Promise<Report> {
   const b = bounds(w);
   const rows = await sql<{
     id: string;
@@ -162,7 +166,7 @@ export async function recallsReport(tx: Tx, w: Window): Promise<Report> {
       JOIN products p ON p.id = b.product_id
      WHERE r.deleted_at IS NULL AND r.opened_at >= ${b.start} AND r.opened_at < ${b.end}
      ORDER BY r.opened_at, r.id::text COLLATE "C"
-     LIMIT ${LIMIT}`.execute(tx);
+     LIMIT ${maxRows + 1}`.execute(tx);
   return {
     title: 'Реестр отзывов',
     fileBase: `agrotrace-recalls_${w.from}_${w.to}`,
@@ -325,7 +329,12 @@ export async function recallReport(tx: Tx, urls: FileUrls, id: string): Promise<
 
 // ── lab tests ───────────────────────────────────────────────────────────────────────────────────────────────────
 
-export async function labTestsReport(tx: Tx, w: Window, headOrg: string | null): Promise<Report> {
+export async function labTestsReport(
+  tx: Tx,
+  w: Window,
+  headOrg: string | null,
+  maxRows: number,
+): Promise<Report> {
   const b = bounds(w);
   const rows = await sql<{
     public_code: string;
@@ -355,7 +364,7 @@ export async function labTestsReport(tx: Tx, w: Window, headOrg: string | null):
        AND lt.created_at >= ${b.start} AND lt.created_at < ${b.end}
        AND (${headOrg}::uuid IS NULL OR lt.lab_org_id = ${headOrg}::uuid)
      ORDER BY lt.created_at, lt.id::text COLLATE "C"
-     LIMIT ${LIMIT}`.execute(tx);
+     LIMIT ${maxRows + 1}`.execute(tx);
   return {
     title: 'Лабораторные анализы',
     fileBase: `agrotrace-lab-tests_${w.from}_${w.to}`,
@@ -398,7 +407,7 @@ export async function labTestsReport(tx: Tx, w: Window, headOrg: string | null):
 
 // ── complaints ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-export async function complaintsReport(tx: Tx, w: Window): Promise<Report> {
+export async function complaintsReport(tx: Tx, w: Window, maxRows: number): Promise<Report> {
   const b = bounds(w);
   const rows = await sql<{
     created_at: Date;
@@ -419,7 +428,7 @@ export async function complaintsReport(tx: Tx, w: Window): Promise<Report> {
       LEFT JOIN users u ON u.id = c.inspector_id
      WHERE c.deleted_at IS NULL AND c.created_at >= ${b.start} AND c.created_at < ${b.end}
      ORDER BY c.created_at, c.id::text COLLATE "C"
-     LIMIT ${LIMIT}`.execute(tx);
+     LIMIT ${maxRows + 1}`.execute(tx);
   return {
     title: 'Жалобы',
     fileBase: `agrotrace-complaints_${w.from}_${w.to}`,
@@ -457,7 +466,12 @@ export async function complaintsReport(tx: Tx, w: Window): Promise<Report> {
 // ── org ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The organization summary, or undefined when the organization does not exist or is deleted. */
-export async function orgReport(tx: Tx, w: Window, orgId: string): Promise<Report | undefined> {
+export async function orgReport(
+  tx: Tx,
+  w: Window,
+  orgId: string,
+  maxRows: number,
+): Promise<Report | undefined> {
   const o = await sql<{
     name: string;
     inn: string;
@@ -493,7 +507,7 @@ export async function orgReport(tx: Tx, w: Window, orgId: string): Promise<Repor
        AND lt.completed_at >= ${b.start} AND lt.completed_at < ${b.end}
        AND ${isLab ? sql`lt.lab_org_id = ${orgId}` : sql`b.origin_org_id = ${orgId}`}
      ORDER BY lt.completed_at, lt.id::text COLLATE "C"
-     LIMIT ${LIMIT}`.execute(tx);
+     LIMIT ${maxRows + 1}`.execute(tx);
   const tasks = await sql<{
     public_code: string;
     recall_id: string;
@@ -508,7 +522,7 @@ export async function orgReport(tx: Tx, w: Window, orgId: string): Promise<Repor
      WHERE t.holder_org_id = ${orgId} AND r.deleted_at IS NULL AND b.deleted_at IS NULL
        AND t.created_at >= ${b.start} AND t.created_at < ${b.end}
      ORDER BY t.due_at, t.id::text COLLATE "C"
-     LIMIT ${LIMIT}`.execute(tx);
+     LIMIT ${maxRows + 1}`.execute(tx);
   return {
     title: 'Сводка по организации',
     fileBase: `agrotrace-org_${org.inn}_${w.from}_${w.to}`,

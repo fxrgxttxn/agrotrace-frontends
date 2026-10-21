@@ -7,15 +7,17 @@
  * Expected rows come from read-only SQL over the shared DB or from data built here, so the suite holds on any backend.
  * PDF: media type, file name and a PDF signature (the bytes differ between implementations).
  *
- * Not covered over HTTP: more than 50 000 rows in a sheet (`validation.report.tooManyRows`) — the stand's data is far
- * smaller and building 50 001 rows through the API is out of proportion.
+ * The row limit (P50): the test stand runs with REPORT_MAX_ROWS = 13 (docker-compose.api-test.yml; the contract's
+ * default is 50 000), so the boundary is tested with data built here — 13 rows → 200, 14 → 400 — in the first sheet and
+ * in a later one. Reports over the whole system therefore use a window chosen by SQL (a past day with 1…13 rows, see
+ * `quietDay`); a head's reports use fresh organizations.
  */
 import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import { loginAs, type Role } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
-import { dbNow, query } from './lib/db.js';
+import { dbNow, fixtureWrite, query } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
 import { acceptWaybill, freshOrg, sentWaybill } from './lib/production.js';
 import {
@@ -32,6 +34,9 @@ import {
 import { randomUUID } from 'node:crypto';
 
 type V = string | number | null;
+
+/** REPORT_MAX_ROWS of the api-test profile (docker-compose.api-test.yml, P50). */
+const STAND_MAX_ROWS = 13;
 
 const DAY = 86_400_000;
 const shift = (d: string, days: number) =>
@@ -100,7 +105,9 @@ async function xlsx(client: ApiClient, type: string, q: Record<string, string>, 
     `attachment; filename="${fileName}.xlsx"; filename*=UTF-8''${fileName}.xlsx`,
   );
   expect(res.headers.get('cache-control')).toBe('no-store');
-  expect(Number(res.headers.get('content-length'))).toBe(res.bytes.length);
+  // Content-Length is optional in the contract (a streamed response has none); when sent it must be exact.
+  const length = res.headers.get('content-length');
+  if (length !== null) expect(Number(length)).toBe(res.bytes.length);
   return readXlsx(res.bytes);
 }
 
@@ -131,6 +138,27 @@ async function stable(
   }
 }
 
+/**
+ * A past UTC day (older than 2 days, so tests running now do not touch it) whose rows by `dayExpr` number 1…13 —
+ * a window every backend reports in full under the stand's row limit. `extra` narrows the rows (SQL over the same
+ * FROM). Prefers the fullest day.
+ */
+async function quietDay(
+  from: string,
+  dayExpr: string,
+  extra = 'TRUE',
+  params: unknown[] = [],
+): Promise<string> {
+  const rows = await query<{ day: string; n: number }>(
+    `SELECT to_char(${dayExpr}, 'YYYY-MM-DD') AS day, count(*)::int AS n FROM ${from}
+      WHERE ${dayExpr} < now() - interval '2 days' AND ${extra}
+      GROUP BY 1 HAVING count(*) BETWEEN 1 AND ${STAND_MAX_ROWS} ORDER BY n DESC, day DESC LIMIT 1`,
+    params,
+  );
+  if (!rows[0]) throw new Error(`no quiet day in ${from}`);
+  return rows[0].day;
+}
+
 const orgOf = async (client: ApiClient): Promise<{ id: string; inn: string }> => {
   const me = await client.get('/me');
   await expectContract(me, 'getMe');
@@ -142,16 +170,23 @@ const orgOf = async (client: ApiClient): Promise<{ id: string; inn: string }> =>
 
 describe('downloadReport: access and parameters', () => {
   it('x-report-access: roles see the whole system, headRoles only as organization heads, others 403 without params', async () => {
+    // A recall whose sheets stay under the stand's row limit; the other reports over an empty past day.
     const recallId = (
-      await query<{ id: string }>(`SELECT id FROM recalls WHERE deleted_at IS NULL LIMIT 1`)
+      await query<{ id: string }>(
+        `SELECT r.id FROM recalls r WHERE r.deleted_at IS NULL
+            AND (SELECT count(*) FROM recall_batches rb WHERE rb.recall_id = r.id) <= ${STAND_MAX_ROWS}
+            AND (SELECT count(*) FROM recall_tasks t WHERE t.recall_id = r.id) <= 3
+          ORDER BY r.opened_at LIMIT 1`,
+      )
     )[0]!.id;
+    const empty = { from: '2020-01-01', to: '2020-01-01' };
     const params: Record<string, Record<string, string>> = {
-      batches: {},
-      recalls: {},
+      batches: empty,
+      recalls: empty,
       recall: { id: recallId },
-      'lab-tests': {},
-      complaints: {},
-      org: {},
+      'lab-tests': empty,
+      complaints: empty,
+      org: empty,
     };
     const matrix: [Role, { key?: string; head?: boolean }, string[]][] = [
       ['INSPECTOR', {}, ['batches', 'recalls', 'recall', 'lab-tests', 'complaints', 'org']],
@@ -202,7 +237,7 @@ describe('downloadReport: access and parameters', () => {
       from: ['validation.range.tooLong'],
     });
     expect(
-      (await report(insp, 'complaints', { format: 'xlsx', from: '2025-03-01', to: '2026-03-01' })).status,
+      (await report(insp, 'complaints', { format: 'xlsx', from: '2019-01-02', to: '2020-01-02' })).status,
     ).toBe(200);
     const head = await loginAs('FARMER', { key: 'zarya.head' });
     expectErrors(await report(head, 'org', { format: 'xlsx', id: randomUUID() }), {
@@ -217,8 +252,8 @@ describe('downloadReport: contents', () => {
   it('batches: «Партии», columns, publicCode order, cell types; a head sees origin/holder batches of its organization', async () => {
     const insp = await inspector();
     const t = await today();
-    const from = shift(t, -365);
-    const [s, e] = bounds(from, t);
+    const day = await quietDay('batches', 'coalesce(harvested_at, produced_at)', 'deleted_at IS NULL');
+    const [s, e] = bounds(day, day);
     const header = [
       'Код партии',
       'Продукт',
@@ -267,7 +302,7 @@ describe('downloadReport: contents', () => {
     await stable(
       () => expected(null),
       async () => {
-        sheets = await xlsx(insp, 'batches', { from, to: t }, `agrotrace-batches_${from}_${t}`);
+        sheets = await xlsx(insp, 'batches', { from: day, to: day }, `agrotrace-batches_${day}_${day}`);
         return sheets[0]!.rows;
       },
     );
@@ -402,10 +437,9 @@ describe('downloadReport: contents', () => {
     ]);
     await pdf(insp, 'recall', { id }, `agrotrace-recall_${id}`);
 
-    // The registry: every non-deleted recall opened in the window, by openedAt then id.
-    const t = await today();
-    const from = shift(t, -365);
-    const [s, e] = bounds(from, t);
+    // The registry: every non-deleted recall opened in the window, by openedAt then id (a past day under the limit).
+    const day = await quietDay('recalls', 'opened_at', 'deleted_at IS NULL');
+    const [s, e] = bounds(day, day);
     const expected = async () =>
       (
         await query<Record<string, V>>(
@@ -439,7 +473,7 @@ describe('downloadReport: contents', () => {
       ]);
     let reg: ReadSheet[] = [];
     await stable(expected, async () => {
-      reg = await xlsx(insp, 'recalls', { from, to: t }, `agrotrace-recalls_${from}_${t}`);
+      reg = await xlsx(insp, 'recalls', { from: day, to: day }, `agrotrace-recalls_${day}_${day}`);
       return reg[0]!.rows;
     });
     expect(reg[0]!.name).toBe('Отзывы');
@@ -458,21 +492,15 @@ describe('downloadReport: contents', () => {
       'Подтверждено',
       'Просрочено',
     ]);
-    expect(reg[0]!.rows.some((x) => x[0] === id)).toBe(true);
-    await pdf(insp, 'recalls', { from, to: t }, `agrotrace-recalls_${from}_${t}`);
+    expect(reg[0]!.rows.length).toBeGreaterThan(0);
+    await pdf(insp, 'recalls', { from: day, to: day }, `agrotrace-recalls_${day}_${day}`);
   });
 
-  it('lab-tests (a lab head: own laboratory) with exceeded indicators; complaints without the buyer contact', async () => {
+  it('lab-tests (all / a lab head: own laboratory) with exceeded indicators; complaints without the buyer contact', async () => {
     const lab = await vetlab();
-    const t = await today();
-    const from = shift(t, -29);
-    const [s, e] = bounds(from, t);
-    const farm = await freshFarm();
-    const b = await rawBatch(farm);
-    const failed = await inspectorTest(b.id);
-    await submitAll(failed, '99999');
-    const expected = async (labOrg: string | null) =>
-      (
+    const expected = async (labOrg: string | null, day: string) => {
+      const [s, e] = bounds(day, day);
+      return (
         await query<Record<string, V>>(
           `SELECT b.public_code, p.name AS product, l.name AS lab, lt.reason, lt.status, lt.conclusion,
                   to_char(lt.created_at, ${MINUTE}) AS c, to_char(lt.due_at, ${MINUTE}) AS d,
@@ -488,16 +516,33 @@ describe('downloadReport: contents', () => {
           [s, e, labOrg],
         )
       ).map((x) => Object.values(x));
-    let sheets: ReadSheet[] = [];
+    };
+    // All laboratories: a past day under the limit with a FAIL whose exceeded indicators are listed.
+    const [withFail] = await query<{ day: string }>(
+      `SELECT to_char(lt.created_at, 'YYYY-MM-DD') AS day FROM lab_tests lt
+        WHERE lt.created_at < now() - interval '2 days' AND lt.deleted_at IS NULL
+        GROUP BY 1
+       HAVING count(*) <= ${STAND_MAX_ROWS}
+          AND bool_or(lt.conclusion = 'FAIL' AND EXISTS (SELECT 1 FROM lab_results lr
+                                                          WHERE lr.lab_test_id = lt.id AND lr.is_exceeded))
+        ORDER BY 1 DESC LIMIT 1`,
+    );
+    const day = withFail?.day ?? (await quietDay('lab_tests', 'created_at', 'deleted_at IS NULL'));
+    let all: ReadSheet[] = [];
     await stable(
-      () => expected(lab.orgId),
+      () => expected(null, day),
       async () => {
-        sheets = await xlsx(lab.client, 'lab-tests', {}, `agrotrace-lab-tests_${from}_${t}`);
-        return sheets[0]!.rows;
+        all = await xlsx(
+          await inspector(),
+          'lab-tests',
+          { from: day, to: day },
+          `agrotrace-lab-tests_${day}_${day}`,
+        );
+        return all[0]!.rows;
       },
     );
-    expect(sheets[0]!.name).toBe('Анализы');
-    expect(sheets[0]!.header).toEqual([
+    expect(all[0]!.name).toBe('Анализы');
+    expect(all[0]!.header).toEqual([
       'Код партии',
       'Продукт',
       'Лаборатория',
@@ -511,17 +556,22 @@ describe('downloadReport: contents', () => {
       'Просрочен',
       'Превышенные показатели',
     ]);
-    const mine = sheets[0]!.rows.filter((x) => x[0] === b.publicCode && x[5] === 'FAIL');
-    expect(mine).toHaveLength(1);
-    expect(String(mine[0]![11])).not.toBe('');
+    if (withFail) expect(all[0]!.rows.some((x) => x[5] === 'FAIL' && typeof x[11] === 'string')).toBe(true);
+    // A laboratory head: its own tests only.
+    const own = await quietDay('lab_tests', 'created_at', 'deleted_at IS NULL AND lab_org_id = $1', [
+      lab.orgId,
+    ]);
     await stable(
-      () => expected(null),
+      () => expected(lab.orgId, own),
       async () =>
-        (await xlsx(await inspector(), 'lab-tests', {}, `agrotrace-lab-tests_${from}_${t}`))[0]!.rows,
+        (await xlsx(lab.client, 'lab-tests', { from: own, to: own }, `agrotrace-lab-tests_${own}_${own}`))[0]!
+          .rows,
     );
-    await pdf(lab.client, 'lab-tests', {}, `agrotrace-lab-tests_${from}_${t}`);
+    await pdf(lab.client, 'lab-tests', { from: own, to: own }, `agrotrace-lab-tests_${own}_${own}`);
 
     const insp = await inspector();
+    const cday = await quietDay('complaints', 'created_at', 'deleted_at IS NULL');
+    const [s, e] = bounds(cday, cday);
     const expectedComplaints = async () =>
       (
         await query<Record<string, V>>(
@@ -536,7 +586,7 @@ describe('downloadReport: contents', () => {
       ).map((x) => Object.values(x));
     let comp: ReadSheet[] = [];
     await stable(expectedComplaints, async () => {
-      comp = await xlsx(insp, 'complaints', {}, `agrotrace-complaints_${from}_${t}`);
+      comp = await xlsx(insp, 'complaints', { from: cday, to: cday }, `agrotrace-complaints_${cday}_${cday}`);
       return comp[0]!.rows;
     });
     expect(comp[0]!.name).toBe('Жалобы');
@@ -551,7 +601,8 @@ describe('downloadReport: contents', () => {
       'Инспектор',
       'Решение принято (UTC)',
     ]);
-    await pdf(insp, 'complaints', {}, `agrotrace-complaints_${from}_${t}`);
+    expect(comp[0]!.rows.length).toBeGreaterThan(0);
+    await pdf(insp, 'complaints', { from: cday, to: cday }, `agrotrace-complaints_${cday}_${cday}`);
   });
 
   it('org: «Организация», «Партии по статусам», «Анализы», «Задачи отзыва»; a head without id gets its own', async () => {
@@ -618,11 +669,87 @@ describe('downloadReport: contents', () => {
     expect(own[0]!.rows).toEqual(info.rows);
     expect((await xlsx(farm.client, 'org', { id: farm.orgId }, file))[1]!.rows).toEqual(statuses.rows);
     await pdf(farm.client, 'org', {}, file);
-    // A laboratory: «Анализы» are the tests it performed.
+    // A laboratory: «Анализы» are the tests it performed (a past day under the limit).
     const lab = await vetlab();
     const labOrg = await orgOf(lab.client);
-    const labSheets = await xlsx(lab.client, 'org', {}, `agrotrace-org_${labOrg.inn}_${from}_${t}`);
+    const day = await quietDay(
+      'lab_tests',
+      'completed_at',
+      "deleted_at IS NULL AND status = 'DONE' AND lab_org_id = $1",
+      [lab.orgId],
+    );
+    const [ls, le] = bounds(day, day);
+    const labSheets = await xlsx(
+      lab.client,
+      'org',
+      { from: day, to: day },
+      `agrotrace-org_${labOrg.inn}_${day}_${day}`,
+    );
     expect(labSheets[0]!.rows[5]).toEqual(['Рейтинг доверия', null]);
-    expect(labSheets[2]!.rows.some((r) => r[0] === b.publicCode && r[3] === 'PASS')).toBe(true);
+    const done = await query<{ code: string }>(
+      `SELECT b.public_code AS code FROM lab_tests lt JOIN batches b ON b.id = lt.batch_id
+        WHERE lt.lab_org_id = $1 AND lt.status = 'DONE' AND lt.deleted_at IS NULL AND b.deleted_at IS NULL
+          AND lt.completed_at >= $2 AND lt.completed_at < $3 ORDER BY lt.completed_at, lt.id::text COLLATE "C"`,
+      [lab.orgId, ls, le],
+    );
+    expect(labSheets[2]!.rows.map((r) => r[0])).toEqual(done.map((d) => d.code));
+  });
+});
+
+describe('downloadReport: the row limit (REPORT_MAX_ROWS, P50)', () => {
+  it('13 rows in a sheet → 200, 14 → 400 validation.report.tooManyRows — the first sheet and a later one', async () => {
+    const t = await today();
+    const win = `${shift(t, -29)}_${t}`;
+    const farm = await freshFarm();
+    for (let i = 0; i < STAND_MAX_ROWS; i++) await rawBatch(farm);
+    const full = await xlsx(farm.client, 'batches', {}, `agrotrace-batches_${win}`);
+    expect(full[0]!.rows).toHaveLength(STAND_MAX_ROWS);
+    await rawBatch(farm);
+    for (const format of ['xlsx', 'pdf'])
+      expectErrors(await report(farm.client, 'batches', { format }), {
+        type: ['validation.report.tooManyRows'],
+      });
+
+    // «Анализы», the third sheet of the org report: DONE tests of the farm's batches.
+    const farm2 = await freshFarm();
+    const b = await rawBatch(farm2);
+    for (let i = 0; i < STAND_MAX_ROWS; i++) await submitAll(await inspectorTest(b.id), '0');
+    const { inn } = await orgOf(farm2.client);
+    const org = await xlsx(farm2.client, 'org', {}, `agrotrace-org_${inn}_${win}`);
+    expect(org[2]!.rows).toHaveLength(STAND_MAX_ROWS);
+    await submitAll(await inspectorTest(b.id), '0');
+    expectErrors(await report(farm2.client, 'org', { format: 'xlsx' }), {
+      type: ['validation.report.tooManyRows'],
+    });
+  });
+});
+
+describe('analytics: soft-deleted batches', () => {
+  it('their lab tests and recall tasks count nowhere (dashboard org, report org)', async () => {
+    const t = await today();
+    const farm = await freshFarm();
+    const b1 = await rawBatch(farm);
+    await submitAll(await inspectorTest(b1.id), '0');
+    const b2 = await rawBatch(farm);
+    const rec = await createRecall(await inspector(), {
+      sourceBatchId: b2.id,
+      reason: 'Удалённые',
+      blockUpstream: false,
+    });
+    expect(rec.status, rec.text).toBe(201);
+    // Documented fixture write (precedent of Task 10): no operation deletes a batch.
+    await fixtureWrite(`UPDATE batches SET deleted_at = now() WHERE id = ANY($1::uuid[])`, [[b1.id, b2.id]]);
+    const dash = await farm.client.get('/analytics/dashboard', { query: { scope: 'org' } });
+    await expectContract(dash, 'getDashboard');
+    expect(dash.body.labResults).toEqual({ pass: 0, fail: 0 });
+    expect(dash.body.openTasks).toBe(0);
+    expect(dash.body.byStatus.every((s: { count: number }) => s.count === 0)).toBe(true);
+    const { inn } = await orgOf(farm.client);
+    const sheets = await xlsx(farm.client, 'org', {}, `agrotrace-org_${inn}_${shift(t, -29)}_${t}`);
+    expect(sheets[2]!.rows).toEqual([]);
+    expect(sheets[3]!.rows).toEqual([]);
+    expect(
+      (await xlsx(farm.client, 'batches', {}, `agrotrace-batches_${shift(t, -29)}_${t}`))[0]!.rows,
+    ).toEqual([]);
   });
 });

@@ -179,6 +179,33 @@ describe('GET /events/stream', () => {
     expect((await s.next('unread')).data).toEqual({ count: before + 1 });
   });
 
+  it('a lost LISTEN session: after the reconnect the stream gets what it missed, never the history', async () => {
+    // The receiver has a history by now (notifications of the tests above). Marked read, so the contract's late-commit
+    // window (unread rows created ≤ 60 s before the loss) has nothing to re-send either.
+    const top = await receiver.client.get('/notifications', { query: { size: 1 } });
+    const mark = await receiver.client.post('/notifications/read', { upToSeq: top.body.items[0].seq });
+    expect(mark.status, mark.text).toBe(200);
+    const s = await stream({ token: receiver.client.accessToken! });
+    await s.next('unread');
+    // Sanctioned test-stand action (P48): every implementation's LISTEN session is the one whose statement is
+    // `LISTEN notifications` (Express probes with it too); terminating it is a DB restart in small.
+    const killed = await fixtureWrite<{ ok: boolean }>(
+      `SELECT pg_terminate_backend(pid) AS ok FROM pg_stat_activity
+        WHERE datname = current_database() AND query = 'LISTEN notifications' AND pid <> pg_backend_pid()`,
+    );
+    expect(killed.length).toBeGreaterThan(0);
+    // A notification created while (or right after) the session is down still arrives — and nothing else.
+    const wb = await incoming();
+    const n = await s.next('notification', 30000);
+    expect(n.data.payload.waybillId).toBe(wb.id);
+    await new Promise((r) => setTimeout(r, 3000));
+    const notes = s.events.filter((e) => e.event === 'notification');
+    expect(notes.map((e) => e.data.payload.waybillId)).toEqual([wb.id]);
+    // The stream still runs live after the reconnect.
+    const wb2 = await incoming();
+    expect((await s.next('notification', 15000)).data.payload.waybillId).toBe(wb2.id);
+  });
+
   it('reauth when the access token expires, then the stream ends', async () => {
     const s = await stream({ token: tokenExpiringIn(receiver.client.accessToken!, 3) });
     await s.next('unread');

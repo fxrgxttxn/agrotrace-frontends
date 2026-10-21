@@ -12,6 +12,10 @@ services:
       DADATA_API_KEY: ''
       TELEGRAM_BOT_TOKEN: 'api-test-token'
       TELEGRAM_BOT_USERNAME: 'agrotrace_test_bot'
+      # P50: report sheets hold at most 13 data rows on the stand (contract default 50 000), so tests/api can show the
+      # boundary — 13 rows → 200, 14 → 400 validation.report.tooManyRows — with data it builds itself. 13 is the
+      # smallest value under which every report has a valid instance (the recall's «Отзыв» sheet always has 13 rows).
+      REPORT_MAX_ROWS: '13'
       # Review Focus 4: `./at api:test <back> --tz Europe/Moscow` runs the backend's processes in another zone; every
       # date rule of the contract is UTC, so the suite must pass unchanged.
       TZ: '${API_TEST_TZ:-UTC}'

@@ -123,6 +123,8 @@ describe('./at wrapper (R88 M6)', () => {
     expect(readFileSync(`${REPO}docker-compose.api-test.yml`, 'utf8')).toMatch(
       /RATE_LIMIT_OVERRIDES: '\{"user":100000,"login-ip":100000,"complaint-ip":100000}'/,
     );
+    // P50: the report row limit of the stand (tests/api reports boundary).
+    expect(readFileSync(`${REPO}docker-compose.api-test.yml`, 'utf8')).toMatch(/REPORT_MAX_ROWS: '13'/);
   });
 
   it('docs:test [back] starts the backend and the gateway, then the Playwright Swagger UI check (P5)', () => {

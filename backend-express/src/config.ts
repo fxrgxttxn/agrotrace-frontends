@@ -41,7 +41,8 @@ const schema = z.object({
   /** Links in letters: `${PUBLIC_BASE_URL}/password/reset/{token}`, `${PUBLIC_BASE_URL}/invite/{token}` (R82). */
   PUBLIC_BASE_URL: url(['http:', 'https:']).transform((s) => s.replace(/\/+$/, '')),
   /** Outgoing mail (dev: Mailpit). */
-  SMTP_HOST: z.string().min(1).default('mailpit'),
+  /** Unset → mail is not configured: letters are logged as not sent, EMAIL notifications end NOT_CONFIGURED. */
+  SMTP_HOST: z.string().min(1).optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
   SMTP_FROM: z.string().min(3).default('AgroTrace <noreply@agrotrace.local>'),
   /** DaData (organization lookup by INN). Unset → registration goes to MANUAL_CHECK without calling it. */
@@ -120,6 +121,11 @@ const schema = z.object({
    * only (`api-test`, contract info.description): 1000, so tests/api see a job act within seconds.
    */
   SCHEDULER_TICK_MS: z.coerce.number().int().min(100).max(3_600_000).default(300_000),
+  /**
+   * The most data rows of one report sheet (downloadReport: more → 400 validation.report.tooManyRows), 50 000 by the
+   * contract. Test stand only (`api-test`, contract info.description) lowers it so the boundary can be tested.
+   */
+  REPORT_MAX_ROWS: z.coerce.number().int().min(1).max(50_000).default(50_000),
   /** Readiness checks give up after this long (each dependency). */
   HEALTH_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(2000),
   /** Graceful shutdown: in-flight requests get this long after SIGTERM. */
