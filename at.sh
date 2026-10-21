@@ -266,6 +266,46 @@ up_backend() (
   echo "$back up: http://api-${back}:8000/api/v1 inside the \`at\` network (through the gateway: ./at up <front> $back)"
 )
 
+# SP1: while tests run against one backend (or a cross pair), the scheduler processes of every OTHER implementation
+# are stopped — their ticks (lab-escalation, recall-task-overdue, notification-delivery) act on the shared DB and would
+# write audit/outbox/notification rows with their own `backend`, which tests/api asserts (API_BACKEND). The containers
+# are found by docker label (compose project `agrotrace` + compose service), never by compose service name, so this
+# works from a worktree whose compose file does not define them. The caller's EXIT trap starts them again
+# (wake_schedulers, best effort). Dry run (tests/at): AT_DRY_SCHEDULERS lists the scheduler services to treat as running.
+AT_PROJECT=agrotrace
+scheduler_service() { case "$1" in django) echo beat-django ;; *) echo "scheduler-$1" ;; esac; }
+QUIETED=""
+# quiet_schedulers <backend…>: stops the running schedulers of every backend not named.
+quiet_schedulers() {
+  local keep=" $* " b svc names n
+  QUIETED=""
+  for b in express django laravel; do
+    case "$keep" in *" $b "*) continue ;; esac
+    svc="$(scheduler_service "$b")"
+    if [ "${AT_DRY_RUN:-}" = "1" ]; then
+      case " ${AT_DRY_SCHEDULERS:-} " in *" $svc "*) names="${AT_PROJECT}-${svc}-1" ;; *) names="" ;; esac
+    else
+      names="$(docker ps --filter "label=com.docker.compose.project=${AT_PROJECT}" \
+        --filter "label=com.docker.compose.service=${svc}" --filter status=running --format '{{.Names}}' | tr -d '\r')"
+    fi
+    for n in $names; do
+      if [ "${AT_DRY_RUN:-}" = "1" ]; then echo "+ docker stop $n"; else docker stop "$n" >/dev/null; fi
+      QUIETED="$QUIETED $n"
+    done
+  done
+  if [ -n "$QUIETED" ] && [ "${AT_DRY_RUN:-}" != "1" ]; then
+    echo "at: stopped the schedulers of the other backends for this run:$QUIETED (started again on exit)" >&2
+  fi
+}
+wake_schedulers() {
+  local n
+  for n in $QUIETED; do
+    if [ "${AT_DRY_RUN:-}" = "1" ]; then echo "+ docker start $n"
+    else docker start "$n" >/dev/null 2>&1 || echo "at: could not start $n again — start it by hand (docker start $n)" >&2; fi
+  done
+  QUIETED=""
+}
+
 # `./at api:test [backend] [--reset] [--ratelimits] [--tz <zone>] [vitest args…]`: tests/api (HTTP contract suite,
 # shared by the three backends) against api-<backend> (default express). Starts infra and the backend's services
 # first; --reset reloads the demo data (./at reset) before the run. The suite reads the dev DB read-only
@@ -292,6 +332,8 @@ api_test() (
     esac
   done
   up_backend "$back"
+  quiet_schedulers "$back"
+  trap wake_schedulers EXIT
   if [ "$reset" = "1" ]; then run "$0" reset; fi
   tests="$DC run --rm -e API_URL=http://api-${back}:8000/api/v1 -e API_BACKEND=${back}"
   if [ "$ratelimits" = "1" ]; then
@@ -299,7 +341,8 @@ api_test() (
     return
   fi
   procs="$(backend_services "$back")"
-  restore() { run $DC up -d --no-build --wait $procs; }
+  # Own processes back to the plain configuration first, then the other backends' schedulers (SP1).
+  restore() { local rc=0; run $DC up -d --no-build --wait $procs || rc=$?; wake_schedulers; return "$rc"; }
   trap restore EXIT
   # `env` makes the zone visible in a dry run (tests/at); without --tz the profile defaults TZ to UTC.
   zone=(); if [ -n "$tz" ]; then zone=(env "API_TEST_TZ=$tz"); fi
@@ -319,6 +362,8 @@ cross_test() (
   case "${1:-}" in express|django|laravel) b="$1"; shift ;; esac
   up_backend "$a"
   if [ "$b" != "$a" ]; then up_backend "$b"; fi
+  quiet_schedulers "$a" "$b"
+  trap wake_schedulers EXIT
   run $DC run --rm -e "CROSS_API_URLS=http://api-${a}:8000/api/v1,http://api-${b}:8000/api/v1" tools \
     pnpm --filter @agrotrace/tests-cross test "$@"
 )
@@ -494,6 +539,8 @@ e2e() (
   if [ "$front" = svelte ]; then compose="$DCS"; service=playwright-svelte
   elif [ "$gw" = gateway-angular ]; then compose="$DCA"; service=playwright-angular
   else compose="$DC"; service=playwright; fi
+  # A real backend: the other implementations' schedulers are stopped for the run (SP1); mock needs nothing.
+  if [ "$back" != mock ]; then quiet_schedulers "$back"; trap wake_schedulers EXIT; fi
   run $compose run --rm -e FRONT="$front" -e BACK="$back" -e GATEWAY_HOST="$gw" -e GATEWAY_PORT=80 \
     -w //repo/tests/e2e $service npx --no-install playwright test "$@"
 )

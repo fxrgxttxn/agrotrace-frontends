@@ -46,7 +46,9 @@ function profileBlocks(): Record<string, Record<string, string>> {
 
 /** SP3: the marker pairs of a shared file, in order (`#` or `//` comments). */
 function markers(file: string): string[] {
-  return [...readFileSync(`${REPO}${file}`, 'utf8').matchAll(/^\s*(?:#|\/\/) --- (.+?) ---$/gm)].map((m) => m[1]!);
+  return [...readFileSync(`${REPO}${file}`, 'utf8').matchAll(/^\s*(?:#|\/\/) --- (.+?) ---$/gm)].map(
+    (m) => m[1]!,
+  );
 }
 
 describe('merge-proof shared files (SP3)', () => {
@@ -58,14 +60,17 @@ describe('merge-proof shared files (SP3)', () => {
     '.github/workflows/ci.yml',
     '.env.example',
     'tests/at/at.test.ts',
-  ])('%s states the convention at the top and holds the django and laravel sections, each opened and closed', (file) => {
-    const text = readFileSync(`${REPO}${file}`, 'utf8');
-    expect(text.split('\n').slice(0, 3).join('\n')).toMatch(/Merge convention \(SP3\)/);
-    const found = markers(file).filter((m) => !m.includes('express'));
-    expect(found.length).toBeGreaterThanOrEqual(4);
-    expect(found.length % 4).toBe(0);
-    for (let i = 0; i < found.length; i += 4) expect(found.slice(i, i + 4)).toEqual(pairs);
-  });
+  ])(
+    '%s states the convention at the top and holds the django and laravel sections, each opened and closed',
+    (file) => {
+      const text = readFileSync(`${REPO}${file}`, 'utf8');
+      expect(text.split('\n').slice(0, 3).join('\n')).toMatch(/Merge convention \(SP3\)/);
+      const found = markers(file).filter((m) => !m.includes('express'));
+      expect(found.length).toBeGreaterThanOrEqual(4);
+      expect(found.length % 4).toBe(0);
+      for (let i = 0; i < found.length; i += 4) expect(found.slice(i, i + 4)).toEqual(pairs);
+    },
+  );
 
   it('test:all has one section per backend, in order, with the shared lines around them', () => {
     const body = testAll();
@@ -157,6 +162,63 @@ describe('./at wrapper (R88 M6)', () => {
     expect(cmds.at(-2)).toMatch(/pnpm --filter @agrotrace\/tests-api test health$/);
   });
 
+  it("SP1: api:test / cross:test / e2e <real back> stop the other backends' running schedulers by label, start them on exit", () => {
+    const all = 'scheduler-express beat-django scheduler-laravel';
+    const dry = (args: string[], running = all) =>
+      sh(['./at', ...args], { AT_DRY_RUN: '1', AT_DRY_SCHEDULERS: running })
+        .out.split('\n')
+        .filter((l) => l.startsWith('+ '));
+    const stops = (cmds: string[]) => cmds.filter((l) => / docker (stop|start) /.test(` ${l}`));
+    // api:test express: Django's beat and Laravel's scheduler stop after the backend is up and before the suite (and
+    // before --reset); they start again after the own processes are restored to the plain configuration.
+    const full = dry(['api:test', 'express', '--reset']);
+    const iStop = full.indexOf('+ docker stop agrotrace-beat-django-1');
+    expect(iStop).toBeGreaterThan(
+      full.indexOf('+ docker compose up -d --build --wait api-express worker-express scheduler-express'),
+    );
+    expect(iStop).toBeLessThan(full.findIndex((l) => /at\.sh reset$/.test(l)));
+    expect(stops(full)).toEqual([
+      '+ docker stop agrotrace-beat-django-1',
+      '+ docker stop agrotrace-scheduler-laravel-1',
+      '+ docker start agrotrace-beat-django-1',
+      '+ docker start agrotrace-scheduler-laravel-1',
+    ]);
+    expect(full.slice(-3)).toEqual([
+      '+ docker compose up -d --no-build --wait api-express worker-express scheduler-express',
+      '+ docker start agrotrace-beat-django-1',
+      '+ docker start agrotrace-scheduler-laravel-1',
+    ]);
+    // Another backend under test quiets Express's scheduler; only running ones are touched.
+    expect(stops(dry(['api:test', 'laravel', 'health'], 'scheduler-express scheduler-laravel'))).toEqual([
+      '+ docker stop agrotrace-scheduler-express-1',
+      '+ docker start agrotrace-scheduler-express-1',
+    ]);
+    expect(stops(dry(['api:test', 'django', '--ratelimits']))).toEqual([
+      '+ docker stop agrotrace-scheduler-express-1',
+      '+ docker stop agrotrace-scheduler-laravel-1',
+      '+ docker start agrotrace-scheduler-express-1',
+      '+ docker start agrotrace-scheduler-laravel-1',
+    ]);
+    // cross:test keeps both sides' schedulers; e2e against a real backend keeps that one; mock touches nothing.
+    expect(stops(dry(['cross:test', 'express', 'django']))).toEqual([
+      '+ docker stop agrotrace-scheduler-laravel-1',
+      '+ docker start agrotrace-scheduler-laravel-1',
+    ]);
+    expect(stops(dry(['e2e', 'react', 'django']))).toEqual([
+      '+ docker stop agrotrace-scheduler-express-1',
+      '+ docker stop agrotrace-scheduler-laravel-1',
+      '+ docker start agrotrace-scheduler-express-1',
+      '+ docker start agrotrace-scheduler-laravel-1',
+    ]);
+    expect(stops(dry(['e2e', 'react', 'mock']))).toEqual([]);
+    expect(stops(dry(['api:test', 'express'], ''))).toEqual([]);
+    // By label (works from a worktree whose compose file lacks the other backends' services), never by service name.
+    const at = readFileSync(`${REPO}at.sh`, 'utf8');
+    expect(at).toMatch(/--filter "label=com\.docker\.compose\.project=\$\{AT_PROJECT\}"/);
+    expect(at).toMatch(/--filter "label=com\.docker\.compose\.service=\$\{svc\}"/);
+    expect(at).not.toMatch(/\$DC (stop|start) (scheduler|beat)-/);
+  });
+
   it('api:test [back] --tz <zone> runs api, worker and scheduler in that zone (Review Focus 4), then restores them', () => {
     const cmds = sh(['./at', 'api:test', 'express', '--tz', 'Europe/Moscow', 'lab'], { AT_DRY_RUN: '1' })
       .out.split('\n')
@@ -214,7 +276,9 @@ describe('./at wrapper (R88 M6)', () => {
       '+ docker compose run --rm -e CROSS_API_URLS=http://api-express:8000/api/v1,http://api-django:8000/api/v1 tools pnpm --filter @agrotrace/tests-cross test session',
     );
     // SP3: test:all runs the default cross pair after every backend section (loose order, not adjacency).
-    expect(testAll()).toMatch(/"\$0" api:test express --ratelimits\n[\s\S]*# --- end laravel ---\n[\s\S]*"\$0" cross:test\n/);
+    expect(testAll()).toMatch(
+      /"\$0" api:test express --ratelimits\n[\s\S]*# --- end laravel ---\n[\s\S]*"\$0" cross:test\n/,
+    );
   });
 
   it('docs:test [back] starts the backend and the gateway, then the Playwright Swagger UI check (P5)', () => {
@@ -496,7 +560,10 @@ describe('shared-stand mutex (parallel backend worktrees)', () => {
   it('times out with exit 75 while the owner is alive', () => {
     const { base, dir } = fresh();
     mkdirSync(dir);
-    writeFileSync(join(dir, 'owner'), `token=x\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`);
+    writeFileSync(
+      join(dir, 'owner'),
+      `token=x\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`,
+    );
     const r = runLocked(dir, 'echo ran', { AT_LOCK_TIMEOUT: '1' });
     expect(r.code).toBe(75);
     expect(r.out).not.toContain('ran');
@@ -508,7 +575,10 @@ describe('shared-stand mutex (parallel backend worktrees)', () => {
   it('takes over a stale lock whose PID is gone, with a warning', () => {
     const { base, dir } = fresh();
     mkdirSync(dir);
-    writeFileSync(join(dir, 'owner'), `token=x\npid=2147483000\nhost=${hostname()}\nworktree=/wt/dead\ncmd=seed\nstarted=then\n`);
+    writeFileSync(
+      join(dir, 'owner'),
+      `token=x\npid=2147483000\nhost=${hostname()}\nworktree=/wt/dead\ncmd=seed\nstarted=then\n`,
+    );
     const r = runLocked(dir, 'echo ran');
     expect(r.code, r.err).toBe(0);
     expect(r.out).toContain('ran');
@@ -520,7 +590,10 @@ describe('shared-stand mutex (parallel backend worktrees)', () => {
   it('AT_NO_LOCK=1 bypasses a held lock', () => {
     const { base, dir } = fresh();
     mkdirSync(dir);
-    writeFileSync(join(dir, 'owner'), `token=x\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`);
+    writeFileSync(
+      join(dir, 'owner'),
+      `token=x\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`,
+    );
     const r = runLocked(dir, 'echo ran', { AT_NO_LOCK: '1', AT_LOCK_TIMEOUT: '1' });
     expect(r.code, r.err).toBe(0);
     expect(r.out).toContain('ran');
@@ -530,7 +603,9 @@ describe('shared-stand mutex (parallel backend worktrees)', () => {
 
   it('a nested at.sh call inside a locked command does not deadlock', () => {
     const { base, dir } = fresh();
-    const r = runLocked(dir, `echo "held=$AT_LOCK_HELD"; bash ./at.sh lock:run echo inner-ok`, { AT_LOCK_TIMEOUT: '3' });
+    const r = runLocked(dir, `echo "held=$AT_LOCK_HELD"; bash ./at.sh lock:run echo inner-ok`, {
+      AT_LOCK_TIMEOUT: '3',
+    });
     expect(r.code, r.err).toBe(0);
     expect(r.out).toMatch(/held=\S+/);
     expect(r.out).toContain('inner-ok');
@@ -542,7 +617,10 @@ describe('shared-stand mutex (parallel backend worktrees)', () => {
   it('a leaked AT_LOCK_HELD that does not match the lock owner is ignored', () => {
     const { base, dir } = fresh();
     mkdirSync(dir);
-    writeFileSync(join(dir, 'owner'), `token=real\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`);
+    writeFileSync(
+      join(dir, 'owner'),
+      `token=real\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`,
+    );
     const r = runLocked(dir, 'echo ran', { AT_LOCK_HELD: 'bogus', AT_LOCK_TIMEOUT: '1' });
     expect(r.code).toBe(75);
     rmSync(base, { recursive: true });
@@ -551,16 +629,37 @@ describe('shared-stand mutex (parallel backend worktrees)', () => {
   it('dry-run commands skip the lock unless AT_LOCK_DIR is set; locked commands take it when it is', () => {
     const { base, dir } = fresh();
     mkdirSync(dir);
-    writeFileSync(join(dir, 'owner'), `token=x\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`);
+    writeFileSync(
+      join(dir, 'owner'),
+      `token=x\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`,
+    );
     const free = sh(['./at.sh', 'up', 'express'], { AT_DRY_RUN: '1' });
     expect(free.code, free.err).toBe(0);
-    const held = sh(['./at.sh', 'api:test', 'express'], { AT_DRY_RUN: '1', AT_LOCK_DIR: dir, AT_LOCK_TIMEOUT: '1', ...fast });
+    const held = sh(['./at.sh', 'api:test', 'express'], {
+      AT_DRY_RUN: '1',
+      AT_LOCK_DIR: dir,
+      AT_LOCK_TIMEOUT: '1',
+      ...fast,
+    });
     expect(held.code).toBe(75);
-    const mock = sh(['./at.sh', 'e2e', 'react', 'mock'], { AT_DRY_RUN: '1', AT_LOCK_DIR: dir, AT_LOCK_TIMEOUT: '1', ...fast });
+    const mock = sh(['./at.sh', 'e2e', 'react', 'mock'], {
+      AT_DRY_RUN: '1',
+      AT_LOCK_DIR: dir,
+      AT_LOCK_TIMEOUT: '1',
+      ...fast,
+    });
     expect(mock.code, mock.err).toBe(0);
-    const real = sh(['./at.sh', 'e2e', 'react', 'express'], { AT_DRY_RUN: '1', AT_LOCK_DIR: dir, AT_LOCK_TIMEOUT: '1', ...fast });
+    const real = sh(['./at.sh', 'e2e', 'react', 'express'], {
+      AT_DRY_RUN: '1',
+      AT_LOCK_DIR: dir,
+      AT_LOCK_TIMEOUT: '1',
+      ...fast,
+    });
     expect(real.code).toBe(75);
-    const done = sh(['./at.sh', 'api:test', 'express'], { AT_DRY_RUN: '1', AT_LOCK_DIR: join(base, 'other.lock') });
+    const done = sh(['./at.sh', 'api:test', 'express'], {
+      AT_DRY_RUN: '1',
+      AT_LOCK_DIR: join(base, 'other.lock'),
+    });
     expect(done.code, done.err).toBe(0);
     expect(existsSync(join(base, 'other.lock'))).toBe(false);
     rmSync(base, { recursive: true });
