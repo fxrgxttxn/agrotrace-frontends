@@ -810,6 +810,17 @@ describe('openapi contract: operations', () => {
     expect(info).toMatch(/не больше 20 соединений/);
     expect(info).toMatch(/`statement_timeout` = 30 с и `lock_timeout` = 10 с/);
     expect(info).toMatch(/503 BACKEND_UNAVAILABLE/);
+    // SP4: every port's allocation is stated (Django one uvicorn process 7 + 2 + 1, worker 6, beat 4; Laravel Octane
+    // workers decoupled by DB_SLOTS), all processes connect as the application role, and the stand-wide sum fits.
+    expect(info).toMatch(/подключаются ролью приложения \(`APP_DATABASE_URL`, `agrotrace_app`\)/);
+    expect(info).toMatch(
+      /Django: api — один процесс uvicorn .* с пулом 7 .* пулом SSE 2 .* одним сеансом LISTEN; воркер Celery .* — пул 6; beat — пул 4,.*итого 20\. Laravel/,
+    );
+    expect(info).toMatch(
+      /Laravel: число Octane-воркеров \(`OCTANE_WORKERS`\) отвязано от соединений счётным семафором `DB_SLOTS`/,
+    );
+    expect(info).not.toMatch(/процессы gunicorn × потоки|pm\.max_children/);
+    expect(info).toMatch(/итого не больше 90 ≤ 97/);
     const compose = readFileSync(new URL('../../docker-compose.yml', import.meta.url), 'utf8');
     const max = Number(/max_connections=(\d+)/.exec(compose)?.[1]);
     expect(max).toBeGreaterThanOrEqual(3 * 20 + 30 + 3);
