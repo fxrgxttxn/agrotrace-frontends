@@ -7,6 +7,7 @@
  */
 import pg from 'pg';
 import { assertEvent } from './events.js';
+import { assertRead, assertSanctioned } from './sanctioned.js';
 
 let pool: pg.Pool | null = null;
 
@@ -23,6 +24,7 @@ function db(): pg.Pool {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- rows of ad-hoc queries
 export async function query<T = Record<string, any>>(sql: string, params: unknown[] = []): Promise<T[]> {
+  assertRead(sql); // P59: never a write or a session switch through the read-only pool
   return (await db().query(sql, params)).rows as T[];
 }
 
@@ -75,6 +77,7 @@ export async function fixtureWrite<T = Record<string, any>>(
 ): Promise<T[]> {
   const url = process.env.TESTS_DATABASE_URL ?? process.env.APP_DATABASE_URL;
   if (!url) throw new Error('lib/db: set TESTS_DATABASE_URL or APP_DATABASE_URL');
+  assertSanctioned(sql); // P59: only the contract's list (lib/sanctioned.ts)
   writePool ??= new pg.Pool({ connectionString: url, max: 1, options: '-c TimeZone=UTC' });
   return (await writePool.query(sql, params)).rows as T[];
 }
@@ -89,6 +92,7 @@ export async function holdRowLock(
   lockSql: string,
   params: unknown[] = [],
 ): Promise<{ pid: number; release(): Promise<void> }> {
+  assertSanctioned(lockSql); // P59: only the contract's list (lib/sanctioned.ts)
   const url = process.env.TESTS_DATABASE_URL ?? process.env.APP_DATABASE_URL;
   if (!url) throw new Error('lib/db: set TESTS_DATABASE_URL or APP_DATABASE_URL');
   const client = new pg.Client({ connectionString: url, options: '-c TimeZone=UTC' });

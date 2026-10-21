@@ -6,8 +6,9 @@
  * - At most ONE `vsd.import` handler runs per process (it may hold its delivery for about two minutes during a Mercury
  *   outage). A `vsd.import` delivered while the other channel handles one is re-scheduled (P56): the same message is
  *   published to `agrotrace.express.jobs.delay` (infra/rabbitmq/definitions.json: queue TTL 5 s, then it dead-letters
- *   to the TAIL of the jobs queue) with a publisher confirm, and only then acknowledged. The channel is free at once,
- *   so the events behind it keep flowing. A requeue (basic.nack requeue=true) is never used: it puts the message back
+ *   to the TAIL of the jobs queue) as `mandatory` with a publisher confirm, and only then acknowledged (a basic.return
+ *   or a negative confirm: not acked, logged, nack-requeued after 1 s as the last resort). The channel is free at once,
+ *   so the events behind it keep flowing. A requeue (basic.nack requeue=true) is never the busy path: it puts the message back
  *   at the head, where the only channel with credit receives it again and again (final review I1).
  *   Without the delay queue (a broker that did not load the current definitions) the message is republished to the
  *   tail of the jobs queue after a 1 s pause instead — still never at the head.
@@ -58,6 +59,9 @@ export function republishOptions(msg: Pick<ConsumeMessage, 'properties'>): Optio
     headers: p.headers,
   };
 }
+
+/** Per channel: message ids the broker returned (basic.return) — a mandatory copy that reached no queue. */
+const returnedBy = new WeakMap<ConfirmChannel, Set<string>>();
 
 function confirmed(send: (cb: (err: unknown) => void) => void): Promise<void> {
   return new Promise((resolve, reject) => send((err) => (err ? reject(err) : resolve())));
@@ -130,13 +134,17 @@ export function startConsumer(deps: {
 
   /** P56: the busy `vsd.import` leaves this channel at once and comes back at the tail of the queue later. */
   async function reschedule(ch: ConfirmChannel, msg: ConsumeMessage, event: EventEnvelope): Promise<void> {
-    const opts = republishOptions(msg);
+    // mandatory (final re-review m1): a copy that reaches no queue (delay queue deleted, binding missing) comes back
+    // as basic.return before its confirm — a failure, never acknowledged as re-scheduled.
+    const messageId = (msg.properties.messageId as string | undefined) ?? event.id;
+    const opts = { ...republishOptions(msg), messageId, mandatory: true };
     if (delayQueue) {
       await confirmed((cb) => ch.sendToQueue(JOBS_DELAY_QUEUE, msg.content, opts, cb));
     } else {
       await sleep(VSD_FALLBACK_PAUSE_MS);
       await confirmed((cb) => ch.publish(EXCHANGE, event.type, msg.content, opts, cb));
     }
+    if (returnedBy.get(ch)?.delete(messageId)) throw new Error('copy unroutable (basic.return)');
     // Acknowledged only after the broker confirmed the copy: a crash in between leaves a duplicate, never a loss
     // (the handler's processed_events claim absorbs it).
     ch.ack(msg);
@@ -164,10 +172,18 @@ export function startConsumer(deps: {
       try {
         await reschedule(ch, msg, event);
       } catch (err) {
-        // The broker refused the copy (a rare broker-side failure): the channel is closed so the unacknowledged
-        // delivery goes back to the queue and the channel reopens after 1 s, instead of holding the prefetch slot.
-        logger.warn({ err: (err as Error).message, eventId: event.id }, 'vsd.import re-schedule failed');
-        await ch.close().catch(() => undefined);
+        // The copy was refused (nack) or returned unroutable: the delivery is not acknowledged. Last resort (a
+        // broker-side failure only): after a 1 s pause it is nack-requeued.
+        logger.error(
+          { err: (err as Error).message, eventId: event.id },
+          'vsd.import re-schedule failed; requeueing',
+        );
+        await sleep(VSD_FALLBACK_PAUSE_MS);
+        try {
+          ch.nack(msg, false, true);
+        } catch {
+          // The channel is gone: the broker requeues the unacknowledged delivery itself.
+        }
       }
       return;
     }
@@ -191,6 +207,12 @@ export function startConsumer(deps: {
     try {
       const ch = await conn.createConfirmChannel();
       const slot: Slot = { ch, tag: null };
+      const returned = new Set<string>();
+      returnedBy.set(ch, returned);
+      ch.on('return', (m: ConsumeMessage) => {
+        const id = m.properties.messageId as string | undefined;
+        if (id) returned.add(id);
+      });
       ch.on('error', (err: Error) => logger.warn({ err: err.message, channel: n }, 'consumer channel error'));
       ch.on('close', () => {
         slots.delete(slot);

@@ -230,12 +230,15 @@ export function batchesService(c: Container) {
       const productId = input.productId.toLowerCase();
       const { id, events } = await withTx(db, async (tx) => {
         const errors: Record<string, string[]> = {};
+        // FOR KEY SHARE (P57): a parallel deleteField (FOR UPDATE) either waits for this batch or commits first, and
+        // then the re-checked row is gone (deleted_at set) → 400 validation.notFound — never a batch on a deleted field.
         const field = await tx
           .selectFrom('fields')
           .select(['id', 'region_id'])
           .where('id', '=', fieldId)
           .where('organization_id', '=', p.orgId)
           .where('deleted_at', 'is', null)
+          .forKeyShare()
           .executeTakeFirst();
         if (!field) errors.fieldId = ['validation.notFound'];
         const product = await tx

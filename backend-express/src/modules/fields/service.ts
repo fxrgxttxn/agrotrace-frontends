@@ -200,8 +200,10 @@ export function fieldsService(c: Container) {
   /**
    * The own farm's non-deleted field, locked (writes are FARMER-only, own fields only), else 404. Lock strength (P57):
    * `FOR NO KEY UPDATE` for changes that keep the key (updateField, createTreatment — a parallel createBatch on the
-   * field, which takes it FOR KEY SHARE, does not wait); `FOR UPDATE` for deleteField only: the soft delete must
-   * conflict with those FOR KEY SHARE references, so it waits for them and no new one slips in.
+   * field, which locks it FOR KEY SHARE, does not wait); `FOR UPDATE` for deleteField only. The soft delete conflicts
+   * with every reference lock (createBatch and updateTreatment read the field FOR KEY SHARE, createTreatment FOR NO KEY
+   * UPDATE, each with `deleted_at IS NULL`): it waits for running references, and a reference that waited for it
+   * re-checks the condition on the deleted row and fails (createBatch 400 fieldId notFound, treatments 404).
    */
   async function ownFieldForUpdate(
     tx: Transaction<DB>,

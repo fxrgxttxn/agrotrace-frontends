@@ -16,7 +16,7 @@ const ALLOWED: Record<string, { count: number; why: string }> = {
   'modules/dictionaries/store.ts': { count: 1, why: 'hard delete of a dictionary row (P23)' },
   'modules/fields/service.ts': {
     count: 1,
-    why: 'deleteField: the soft delete must wait for and exclude FOR KEY SHARE references (createBatch, treatments)',
+    why: 'deleteField: waits for running references and excludes new ones (createBatch/updateTreatment FOR KEY SHARE, createTreatment FOR NO KEY UPDATE, all re-checking deleted_at)',
   },
 };
 
@@ -38,7 +38,8 @@ describe('lock strengths (P57)', () => {
     const found: Record<string, number> = {};
     for (const f of files(SRC)) {
       const src = code(readFileSync(f, 'utf8'));
-      const n = (src.match(/\.forUpdate\(/g)?.length ?? 0) + (src.match(/\bFOR UPDATE\b/g)?.length ?? 0);
+      // Case-insensitive and any whitespace (`for   update`, a line break); FOR NO KEY UPDATE does not match.
+      const n = (src.match(/\.forUpdate\(/g)?.length ?? 0) + (src.match(/\bfor\s+update\b/gi)?.length ?? 0);
       if (n > 0) found[relative(SRC, f).replaceAll('\\', '/')] = n;
     }
     expect(found).toEqual(Object.fromEntries(Object.entries(ALLOWED).map(([k, v]) => [k, v.count])));

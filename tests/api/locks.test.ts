@@ -15,7 +15,8 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { expectContract } from './lib/contract.js';
 import { blockedBy, closeDb, holdRowLock } from './lib/db.js';
-import { eventually } from './lib/production.js';
+import { expectErrors } from './lib/expect.js';
+import { createBatch, daysAgo, eventually, wheat } from './lib/production.js';
 import {
   confirmTask,
   createRecall,
@@ -88,6 +89,41 @@ describe('lock strengths (R52, P57)', () => {
         submitWaitedForConfirm,
         'the submit waited for the confirm (KEY SHARE on the recall against FOR UPDATE)',
       ).toBe(false);
+    } finally {
+      if (!released) await hold.release();
+    }
+  });
+
+  it('createBatch ∥ deleteField: the batch waits for the delete and is refused (FOR KEY SHARE on the field) — never a batch on a deleted field', async () => {
+    const farm = await freshFarm();
+    const fieldId = farm.field.id;
+    // The test holds the field row (sanctioned fixture, P59) so both requests queue on it in a known order.
+    const hold = await holdRowLock('SELECT id FROM fields WHERE id = $1 FOR UPDATE', [fieldId]);
+    let released = false;
+    try {
+      const del = farm.client.delete(`/fields/${fieldId}`);
+      const delPid = await eventually(async () => (await blockedBy(hold.pid))[0], 15000, 20);
+      const create = createBatch(farm.client, {
+        fieldId,
+        productId: (await wheat()).id,
+        massKg: '10.000',
+        harvestedAt: daysAgo(1),
+      });
+      // createBatch reads the field FOR KEY SHARE, so it waits too — queued behind the delete (blocked by it or by us).
+      await eventually(
+        async () =>
+          [...(await blockedBy(hold.pid)), ...(await blockedBy(delPid))].some((x) => x !== delPid)
+            ? true
+            : undefined,
+        15000,
+        20,
+      );
+      await hold.release();
+      released = true;
+      const [d, c] = await Promise.all([del, create]);
+      await expectContract(d, 'deleteField');
+      expect(d.status, d.text).toBe(204);
+      expectErrors(c, { fieldId: ['validation.notFound'] });
     } finally {
       if (!released) await hold.release();
     }

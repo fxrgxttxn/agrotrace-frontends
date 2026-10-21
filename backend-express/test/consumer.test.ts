@@ -27,16 +27,16 @@ function envelope(id: string, type: string): Msg {
 }
 
 /** A fake connection: every channel records what the consumer does with it. */
-function fakeBroker(opts: { delayQueue?: boolean } = {}) {
+function fakeBroker(opts: { delayQueue?: boolean; unroutable?: boolean } = {}) {
   const log: string[] = [];
   const channels: ReturnType<typeof channel>[] = [];
   function channel(n: number) {
-    const handlers: Record<string, (() => void)[]> = {};
+    const handlers: Record<string, ((arg?: unknown) => void)[]> = {};
     const ch = {
       n,
       deliver: null as ((m: Msg) => void) | null,
-      on: (ev: string, fn: () => void) => void (handlers[ev] ??= []).push(fn),
-      emit: (ev: string) => handlers[ev]?.forEach((fn) => fn()),
+      on: (ev: string, fn: (arg?: unknown) => void) => void (handlers[ev] ??= []).push(fn),
+      emit: (ev: string, arg?: unknown) => handlers[ev]?.forEach((fn) => fn(arg)),
       prefetch: async () => undefined,
       consume: async (_q: string, cb: (m: Msg) => void) => {
         ch.deliver = cb;
@@ -48,7 +48,12 @@ function fakeBroker(opts: { delayQueue?: boolean } = {}) {
       },
       sendToQueue: (q: string, _c: Buffer, o: { messageId?: string }, cb: (e: unknown) => void) => {
         log.push(`ch${n} sendToQueue ${q} ${o.messageId}`);
-        setImmediate(() => cb(null));
+        setImmediate(() => {
+          // basic.return comes before the confirm of a mandatory copy that reached no queue.
+          if (opts.unroutable)
+            ch.emit('return', { content: Buffer.alloc(0), properties: { messageId: o.messageId } });
+          cb(null);
+        });
         return true;
       },
       publish: (ex: string, rk: string, _c: Buffer, o: { messageId?: string }, cb: (e: unknown) => void) => {
@@ -131,6 +136,24 @@ describe('worker consumer (R92, P56)', () => {
     b!.deliver!(envelope('vsd-2', 'vsd.import'));
     await tick(1200);
     expect(broker.log).toEqual(['ch2 publish agrotrace.express vsd.import vsd-2', 'ch2 ack vsd-2']);
+  });
+
+  it('a copy returned as unroutable (mandatory, basic.return) is never acked: logged, nack-requeued after 1 s', async () => {
+    const broker = fakeBroker({ delayQueue: true, unroutable: true });
+    startConsumer({
+      amqp: broker.amqp,
+      logger,
+      handlers: { 'vsd.import': () => new Promise<void>(() => undefined) },
+    });
+    await tick();
+    const [a, b] = broker.channels;
+    a!.deliver!(envelope('vsd-1', 'vsd.import'));
+    await tick();
+    b!.deliver!(envelope('vsd-2', 'vsd.import'));
+    await tick(50);
+    expect(broker.log).toEqual(['ch2 sendToQueue agrotrace.express.jobs.delay vsd-2']);
+    await tick(1100);
+    expect(broker.log).toEqual(['ch2 sendToQueue agrotrace.express.jobs.delay vsd-2', 'ch2 nack vsd-2']);
   });
 
   it('a channel closed by the broker is reopened; stop() cancels, waits for the running handler, then closes', async () => {
