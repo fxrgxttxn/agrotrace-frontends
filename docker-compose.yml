@@ -20,6 +20,10 @@ services:
     networks: [at]
   postgres:
     image: postgres:16-alpine
+    # Connection budget (P61, contract «Бюджет соединений с PostgreSQL»): 3 backends × 20 (api, worker, scheduler) = 60,
+    # plus up to 30 for tools (tests/api ≤ 5, tests/db pools ≤ 20, seed, dbmate, psql), plus 3 superuser slots — set
+    # explicitly so it never depends on the image default.
+    command: ["postgres", "-c", "max_connections=100", "-c", "superuser_reserved_connections=3"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
