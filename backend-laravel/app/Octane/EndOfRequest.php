@@ -1,0 +1,41 @@
+<?php
+
+namespace App\Octane;
+
+use App\Infrastructure\Db\DbSlots;
+use App\Support\RequestContext;
+use Illuminate\Contracts\Container\Container;
+use Laravel\Octane\Events\RequestTerminated;
+use Throwable;
+
+/**
+ * The end of a request, after the response was sent (L4 order): the after-response callbacks (the relay, Task 12;
+ * metrics, Task 14) → DB::disconnect() → the DbSlots slot freed. RequestContext itself is scoped and dies with the
+ * request sandbox. Runs as the terminable part of RequestContextMw (Kernel::terminate, also outside Octane) and as the
+ * Octane RequestTerminated listener (config/octane.php) — idempotent, the second run finds nothing to do.
+ */
+final class EndOfRequest
+{
+    public function handle(RequestTerminated $event): void
+    {
+        self::finish($event->sandbox);
+    }
+
+    public static function finish(Container $app): void
+    {
+        if ($app->bound(RequestContext::class)) {
+            foreach ($app->make(RequestContext::class)->takeAfterResponse() as $callback) {
+                try {
+                    $callback();
+                } catch (Throwable $e) {
+                    report($e);
+                }
+            }
+        }
+        try {
+            $app->make('db')->disconnect();
+        } finally {
+            $app->make(DbSlots::class)->release();
+        }
+    }
+}

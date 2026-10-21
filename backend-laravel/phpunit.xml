@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ./at.sh laravel:test [pest args…] (php-tools). Tests of the `integration` group use the per-backend unit-test DB
+  agrotrace_test_laravel of SP2: TEST_APP_DATABASE_URL as agrotrace_app, TEST_DATABASE_URL as its owner).
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         failOnWarning="true"
+         failOnRisky="true">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="APP_DEBUG" value="false" force="true"/>
+        <env name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" force="true"/>
+        <env name="AGROTRACE_PROCESS" value="test" force="true"/>
+        <env name="LOG_LEVEL" value="warning" force="true"/>
+        <env name="LOG_STREAM" value="/dev/null" force="true"/>
+    </php>
+</phpunit>

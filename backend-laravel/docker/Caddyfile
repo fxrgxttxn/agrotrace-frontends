@@ -1,0 +1,60 @@
+# api-laravel: FrankenPHP with the Octane worker (L3, L4, L15). Started as `frankenphp run --config` (supervisord-api.conf):
+# `artisan octane:frankenphp` would drop the workers' stdout (the JSON log lines) and reformat stderr.
+#   127.0.0.1:8080 — the API, behind the HAProxy front on :8000 (docker/haproxy-api.cfg: Go refuses malformed
+#                    %-escapes with its own 400 before PHP runs) — the gateway proxies <front>-laravel.localhost/api/ to :8000;
+#   :9464 — Prometheus /metrics only (METRICS_PORT, P54/L15; implemented in Task 14), never behind the gateway.
+# :8000 and :9464 are `expose`d inside the `at` network only (docker-compose.yml), never published.
+{
+	admin off
+	auto_https off
+	skip_install_trust
+	log {
+		output stderr
+		format json
+		level WARN
+	}
+	frankenphp {
+		# FrankenPHP needs more threads than workers: docker/entrypoint.sh sets OCTANE_WORKERS + 2.
+		num_threads {$FRANKENPHP_NUM_THREADS:34}
+		worker {
+			file /app/public/frankenphp-worker.php
+			num {$OCTANE_WORKERS:32}
+			env APP_BASE_PATH /app
+			env APP_PUBLIC_PATH /app/public
+			env LARAVEL_OCTANE 1
+			env MAX_REQUESTS 500
+			env REQUEST_MAX_EXECUTION_TIME 0
+		}
+	}
+}
+
+(app) {
+	root * /app/public
+	# The JSON body limit (12 582 912 bytes) is the application's: Caddy's own 413 would not be problem+json.
+	request_body {
+		max_size 16MiB
+	}
+	# Every request goes to the worker (REQUEST_URI stays the raw original); no static files, no compression (SSE).
+	route {
+		rewrite * /frankenphp-worker.php
+		php
+	}
+}
+
+http://:8080 {
+	bind 127.0.0.1
+	import app
+}
+
+http://:9464 {
+	@metrics {
+		method GET
+		path /metrics
+	}
+	handle @metrics {
+		import app
+	}
+	handle {
+		respond 404
+	}
+}
