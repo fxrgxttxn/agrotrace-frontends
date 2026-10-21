@@ -1,0 +1,17 @@
+"""
+Routes under /api/v1 — strict and case-sensitive (P8): APPEND_SLASH is off and `path()` matches exactly, so
+`/health/live/` and `/Health/live` are not the contract path. Ids are captured as plain `<str:…>` segments (never
+`<uuid:…>`): a non-uuid id is the view's 400 `validation.uuid`, not a 404. Anything unmatched is the 404 problem.
+"""
+
+from django.urls import include, path
+
+urlpatterns = [
+    path("api/v1/", include("agrotrace.modules.health.urls")),
+    path("api/v1/", include("agrotrace.modules.docs.urls")),
+]
+
+handler400 = "agrotrace.core.problem.handler400"
+handler403 = "agrotrace.core.problem.handler403"
+handler404 = "agrotrace.core.problem.handler404"
+handler500 = "agrotrace.core.problem.handler500"

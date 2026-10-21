@@ -1,0 +1,96 @@
+"""
+The Celery application of worker-django and beat-django (plan 3, «Очередь, воркер и планировщик»). Tasks arrive with
+Task 6 (events.tasks: one task per event `type`, the envelope as the single argument, task_id = event id).
+
+The topology is the one of infra/rabbitmq/definitions.json and is never declared by Celery:
+- queue `agrotrace.django.jobs` on the topic exchange `agrotrace.django` (`#`), both `no_declare`, with exactly the
+  definitions' queue arguments (quorum, DLX → `agrotrace.django.jobs.dlq`, delivery limit);
+- default queue/exchange/type point there (send_task would otherwise go to `celery`), missing queues are never
+  created, no remote control (`celery.pidbox`, reply queues), no task events, no gossip/mingle/heartbeat (the worker
+  command), no result backend;
+- the DelayedDelivery bootstep of Celery 5.5 (it declares `celery_delayed_*` once it sees a quorum queue) is removed
+  from the consumer blueprint (`Consumer` below);
+- quorum queues need per-consumer QoS (`worker_detect_quorum_queues`); late ack + reject on a lost worker; prefetch 1
+  per thread (`-P threads -c 2 --prefetch-multiplier 1`).
+Publishing happens only from the outbox (relay after commit, sweeper) with publisher confirms; business code never
+calls delay()/apply_async()/retry() (test_static_guards.py).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "agrotrace.settings")
+
+import django  # noqa: E402
+from celery import Celery  # noqa: E402
+from celery.worker.consumer.consumer import Consumer as _CeleryConsumer  # noqa: E402
+from kombu import Exchange, Queue  # noqa: E402
+
+django.setup()
+
+from agrotrace.core import config  # noqa: E402
+
+EXCHANGE = "agrotrace.django"
+QUEUE = "agrotrace.django.jobs"
+DLQ = "agrotrace.django.jobs.dlq"
+DELAY_QUEUE = "agrotrace.django.jobs.delay"
+
+
+def _definitions() -> dict:
+    return json.loads((config.ROOT / "infra" / "rabbitmq" / "definitions.json").read_text("utf-8"))
+
+
+def queue_arguments(name: str = QUEUE) -> dict:
+    """The arguments definitions.json gives the queue (a declaration with others would be refused by the broker)."""
+    for q in _definitions()["queues"]:
+        if q["name"] == name:
+            return dict(q["arguments"])
+    raise KeyError(name)
+
+
+class Consumer(_CeleryConsumer):
+    """Celery's consumer without the DelayedDelivery bootstep (no `celery_delayed_*` topology, ever)."""
+
+    class Blueprint(_CeleryConsumer.Blueprint):
+        default_steps = [s for s in _CeleryConsumer.Blueprint.default_steps if "delayed_delivery" not in s]
+
+
+app = Celery("agrotrace", set_as_current=True)
+
+_exchange = Exchange(EXCHANGE, type="topic", durable=True, no_declare=True)
+
+app.conf.update(
+    broker_url=config.get().RABBITMQ_URL,
+    broker_connection_retry_on_startup=True,
+    broker_transport_options={"confirm_publish": True, "confirm_timeout": 10.0},
+    broker_heartbeat=0,
+    task_queues=[
+        Queue(QUEUE, _exchange, routing_key="#", durable=True, queue_arguments=queue_arguments(), no_declare=True)
+    ],
+    task_default_queue=QUEUE,
+    task_default_exchange=EXCHANGE,
+    task_default_exchange_type="topic",
+    task_default_routing_key="#",
+    task_create_missing_queues=False,
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    task_ignore_result=True,
+    task_send_sent_event=False,
+    task_serializer="json",
+    accept_content=["json"],
+    result_backend=None,
+    result_expires=None,
+    worker_enable_remote_control=False,
+    worker_send_task_events=False,
+    worker_detect_quorum_queues=True,
+    worker_prefetch_multiplier=1,
+    worker_hijack_root_logger=False,
+    worker_redirect_stdouts=False,
+    worker_consumer="agrotrace.celery_app:Consumer",
+    beat_max_loop_interval=1,
+    beat_schedule={},
+    timezone="UTC",
+    enable_utc=True,
+)
