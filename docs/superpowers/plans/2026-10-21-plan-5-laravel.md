@@ -13,7 +13,7 @@
 Один образ, три контейнера:
 - `api-laravel` — Octane/FrankenPHP и процесс `agrotrace:sse-hub` (единственный сеанс LISTEN);
 - `worker-laravel` — два процесса-потребителя на php-amqplib и поллер Telegram;
-- `scheduler-laravel` — Laravel Scheduler.
+- `scheduler-laravel` — реестр Laravel Scheduler; каждое задание выполняется в своём фоновом процессе `agrotrace:job` (L5).
 
 Поведение задают контракт и правила; эталон поведения — завершённый Express (`backend-express/`, HEAD 7dd3858).
 
@@ -46,22 +46,23 @@
 - Локальный `.env` worktree — копия `C:/project/.env`, не `.env.example`. Иначе `GATEWAY_PORT` и прочие локальные значения разойдутся, и общий стенд пересоздастся с другими портами.
 - Стенд один на все worktree: проект compose `name: agrotrace`, один postgres/redis/rabbitmq/minio, контейнеры `agrotrace-*`.
   - Команды, меняющие стенд (`reset`, `seed`, `api:test`, `cross:test`, e2e против backend), сериализует host-мьютекс в `at.sh`.
-  - Express-контейнеры не останавливать: `cross:test` и e2e используют их.
-- Django портируется параллельно в другом worktree и правит те же общие файлы. Правки общих файлов в этом плане минимальны и только добавляют: каждая — отдельным блоком с комментарием `# --- laravel ---`, без переформатирования и переименования соседнего. Общие файлы:
-  - `at.sh`;
-  - `docker-compose.yml`, `docker-compose.api-test.yml`;
-  - `.github/workflows/ci.yml`;
-  - `tests/at/at.test.ts`;
-  - `.env.example`;
-  - шлюз — изменений не ожидается: `gateway/nginx.conf.template` уже проксирует `api-laravel:8000` и `/_health/laravel`;
-  - `contracts/**` — одна фраза в Task 14.
+  - Express-контейнеры не останавливать: `cross:test` и e2e используют их. Инфраструктурные сервисы compose (postgres, redis, rabbitmq, minio, mailpit, mercury-mock, gateway) не правятся; `down` и `--remove-orphans` не применяются (SP7).
+- **Общая подготовка SP1–SP7 уже на main** (отчёт `C:/project/.superpowers/shared-prep-report.md`, глобальные правила портов — `docs/superpowers/plans/port-globals.md`). Этот план на неё опирается и не повторяет её:
+  - SP1 — `api:test <back>` сам глушит планировщики других реализаций по docker-метке и возвращает их в EXIT-ловушке;
+  - SP2 — отдельная БД `agrotrace_test_laravel` через общий помощник «создать и мигрировать» и заблокированная заглушка `laravel:test`, вызывающая хук backend'а;
+  - SP3 — `at.sh`, `tests/at/at.test.ts`, `docker-compose.yml`, `docker-compose.api-test.yml`, `ci.yml` уже содержат пустые помеченные секции `# --- laravel (plan 5) ---` … `# --- end laravel ---`; утверждения `tests/at` (число строк TZ, соседство строк `test:all`) уже не зависят от числа backend'ов;
+  - SP4 — абзац P61 контракта уже описывает Laravel (Octane-воркеры, `DB_SLOTS`, LISTEN хаба, потребители, поллер, планировщик);
+  - SP5 — `tests/cross/interop.test.ts` (Argon2-вход, подписанные ссылки и ETag, повтор `Idempotency-Key`, SSE через реализации) уже на main;
+  - SP6 — RabbitMQ перезапущен с очередями `.delay`; `LARAVEL_APP_KEY`, `OCTANE_WORKERS`, `DB_SLOTS` есть в `.env.example` и в `C:/project/.env`;
+  - SP7 — `APP_DATABASE_URL`, без префикса ключей Redis, порядок исправления дефектов тестов, сумма бюджетов стенда.
 
-  При слиянии конфликты в этих файлах разрешаются объединением блоков.
-- `tests/api` и `tests/cross` не меняются. Единственное исключение — подлинный дефект теста, нейтральный к контракту (тест опирается на поведение Express, которого контракт не требует). Порядок для такого случая:
+  Точные имена команд, хуков и меток брать из отчёта SP; где он ещё не написан — ссылаться на номер SP.
+- Django портируется параллельно в другом worktree. Этот план пишет в общие файлы только внутри секций `# --- laravel (plan 5) ---` … `# --- end laravel ---`, без правок вне них. Шлюз не меняется: `gateway/nginx.conf.template` уже проксирует `api-laravel:8000` и `/_health/laravel`. `contracts/**` план не правит. При слиянии конфликтов в секциях быть не должно; если они есть — объединить секции.
+- `tests/api` и `tests/cross` не меняются. Единственное исключение — подлинный дефект теста, нейтральный к контракту (тест опирается на поведение Express, которого контракт не требует). Порядок (SP7):
   1. Остановиться.
   2. Описать дефект в отчёте задачи с доказательством: строка теста, текст контракта, ответ Express.
   3. Дождаться решения контроллера.
-  4. Исправление делается backend-нейтральным, отдельным коммитом `test(api): …`. О нём сообщают Django-потоку.
+  4. Исправление делается backend-нейтральным коммитом `test(api): …` на main (Express зелёный); ветка забирает его через `git merge main` в начале следующей задачи.
 
 ## Global Constraints
 
@@ -86,12 +87,13 @@
 
   | Процесс | Соединений |
   |---|---|
-  | api: `DB_SLOTS` | 12 |
+  | api: `DB_SLOTS` (и HTTP, и метрики, и relay после ответа) | 11 |
   | api: sse-hub (LISTEN) | 1 |
   | worker: 2 потребителя + поллер Telegram | 3 |
-  | scheduler (смена минутных процессов `schedule:run`) | ≤ 2 |
-  | **Итого** | **18** |
+  | scheduler: 4 процесса-цикла заданий (L5), по одному соединению | 4 |
+  | **Итого** | **19** |
 
+  - Все процессы подключаются ролью `agrotrace_app` из `APP_DATABASE_URL` (как Express, SP7); `DATABASE_URL` (владелец, суперпользователь) использует только хук `laravel:test` для создания своей БД (SP2).
   - Каждое соединение задаёт `statement_timeout=30s`, `lock_timeout=10s`, `connect_timeout=5`.
   - Нет слота или соединения за 5 с, 57014 или 55P03 → 503 BACKEND_UNAVAILABLE.
   - `max_connections` стенда не меняется.
@@ -117,7 +119,8 @@
   - значения JSON пишутся компактно и читаются разбором;
   - `pub:batch:*` отдаётся побайтово;
   - ссылки в письмах строятся от `PUBLIC_BASE_URL`;
-  - собственные каналы pub/sub этой реализации — только с префиксом `agrotrace:laravel:` (это каналы, а не ключи).
+  - собственные каналы pub/sub этой реализации — только с префиксом `agrotrace:laravel:` (это каналы, а не ключи);
+  - префикс ключей Laravel выключен (SP7): `REDIS_PREFIX=''`, `options.prefix=''`, без сериализатора и сжатия phpredis; иначе `laravel_database_` раздвоит каждый общий ключ (`idem:`, `rl:`, `pub:batch:`, `pwreset:`, `invite:`, `tgcode:`, `totp-used:`, `2fa:`, `altcha-used:`, `tg:poller`). Закрепляет Pest `RedisPrefixTest` (Task 1).
 - Файлы:
   - подписанные ссылки (R28, R39, R88): ключ = HMAC-SHA256(JWT_SECRET, "agrotrace:file-url:v1"), сообщение `"{id}:{exp}"`, TTL 3600;
   - ETag = `"sha256"` отдаваемых байт (R34);
@@ -128,7 +131,8 @@
   - пароли — Argon2id PHC `$argon2id$v=19$m=65536,t=3,p=1$…` (читаются и пишутся совместимо с Express);
   - JWT HS256 с общим `JWT_SECRET`, claims строго по P12;
   - refresh — cookie `at_refresh` (HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age 1209600, при очистке 0), ровно один `Set-Cookie`; хеш хранится в общей `refresh_tokens`.
-- Строки (R36, R24): ничего не обрезается; `TrimStrings` и `ConvertEmptyStringsToNull` выключены; длины считаются в кодовых точках (`mb_strlen`); все `preg_match` с якорем `$` пишутся с модификатором `D` (или через `\z`); сортировка строк — `COLLATE "C"`, сравнения в PHP — `strcmp` по UTF-8.
+- Строки (R36, R24): ничего не обрезается; `TrimStrings` и `ConvertEmptyStringsToNull` выключены; длины считаются в кодовых точках (`mb_strlen`); сортировка строк — `COLLATE "C"`, сравнения в PHP — `strcmp` по UTF-8.
+- Регулярные выражения контракта и `packages/validation` исполняются с семантикой ECMA, а не PCRE: единственный помощник `App\Http\Validation\Ecma::compile(string $pattern): string` даёт флаги `u` и `D`, заменяет `\s`/`\S` явным классом пробельных символов JS (ASCII-пробелы, U+00A0, U+1680, U+2000–U+200A, U+2028, U+2029, U+202F, U+205F, U+3000, U+FEFF), `\d` → `[0-9]`, `\w` → `[A-Za-z0-9_]`, `.` → `[^\n\r  ]`; `pattern` схемы — поиск без якорей (`preg_match`, не полное совпадение). Прямые `preg_match` по входным данным вне `Ecma` запрещены (статическая проверка в Task 14).
 - Заголовки и журналы:
   - `X-Backend: laravel` на каждом ответе (404 шлюза маршрутов, 405, 413, 500, SSE, файлы);
   - `X-Request-Id` принимается, если соответствует `^[A-Za-z0-9._-]{1,64}$`, иначе генерируется;
@@ -169,20 +173,17 @@
   - Поток подписывается собственным минимальным RESP-клиентом (`stream_select` с таймаутом, без блокирующего `subscribe` phpredis).
   - Между событиями поток не держит соединение PG (отдаёт слот DbSlots).
 - **L4. Бюджет соединений.** ТЗ §8.4 требует Octane, а текст контракта P61 называет для Laravel «`pm.max_children` php-fpm».
-  - Решение: число Octane-воркеров (`OCTANE_WORKERS`, по умолчанию 32 — потоки SSE занимают воркеры) отвязано от числа соединений PG счётным семафором `DbSlots` (flock-слоты на контейнер, `DB_SLOTS=12`).
+  - Решение: число Octane-воркеров (`OCTANE_WORKERS`, по умолчанию 32 — потоки SSE занимают воркеры) отвязано от числа соединений PG счётным семафором `DbSlots` (flock-слоты на контейнер, `DB_SLOTS=11`). Каждый поток FrankenPHP (ZTS) открывает файл слота своим `fopen` — `flock` действует на описание открытого файла, поэтому разделяет потоки одного процесса.
   - Соединение открывается лениво через собственный `PgConnector` (сначала берётся слот, ожидание ≤ 5 с, иначе 503) и закрывается вместе с освобождением слота в конце запроса (Octane `RequestTerminated`), а в SSE — сразу после повтора.
-  - Итог 18 ≤ 20. Фраза P61 для Laravel уточняется в Task 14.
-- **L5. Планировщик.**
-  - Laravel Scheduler (`routes/console.php`, `schedule:work`) с суб-минутными частотами Laravel 11.
-  - `SCHEDULER_TICK_MS` переводится в частоту:
-    - делители 60 000 мс (1, 2, 5, 10, 15, 20, 30 с) → `everySecond()` … `everyThirtySeconds()`;
-    - кратные 60 000 → cron `*/N`;
-    - иное → выход с кодом 78.
-  - По умолчанию 300 000 → `everyFiveMinutes()`; стенд задаёт 1000 → `everySecond()`.
-  - Команда контейнера `agrotrace:schedule` сначала один раз выполняет все задания («сразу при старте процесса», контракт), затем запускает `schedule:work`.
-  - Каждое задание идёт под сеансовой `pg_try_advisory_lock(hashtext('agrotrace.scheduler.<job>'))` на том же соединении и с `pg_advisory_unlock` в `finally`; занято — тик пропускается.
-  - Суб-минутные события выполняются последовательно, поэтому перекрытия тиков нет.
-  - Sweeper outbox (каждые 5 с, `agrotrace.outbox.laravel`) живёт в планировщике: в Octane нет фоновых циклов. Контракт место sweeper не фиксирует.
+  - Порядок слушателей в конце запроса фиксирован: ответ отправлен → relay публикует события и делает `UPDATE published_at` (берёт слот заново, если он уже отдан; нет слота за 5 с — строки остаются sweeper'у) → замер метрик → `DB::disconnect()` и освобождение слота → сброс контекста.
+  - Итог 19 ≤ 20 (таблица Global Constraints). Абзац P61 контракта уже описывает эту схему (SP4); Task 14 только сверяет его с L4.
+- **L5. Планировщик: каждое задание — свой фоновый процесс (решение контроллера по L-I4).**
+  - `schedule:work` не используется: Laravel 11 выполняет суб-минутные события одного `schedule:run` последовательно, и `notification-delivery` (до 3 × 30 с на строку) задерживал бы эскалацию, просрочку и sweeper; затянувшийся `schedule:run` к тому же перекрывается со следующим.
+  - Реестр заданий — Laravel Scheduler в `routes/console.php`: `Schedule::call(...)` с классом задания (`->call()`, не `->command()`, L-M8), именем и частотой; `schedule:list` показывает расписание.
+  - Исполнение — `scheduler-laravel` (supervisord) запускает четыре долгоживущих процесса `agrotrace:job <name>`: `lab-escalation`, `recall-task-overdue`, `notification-delivery`, `outbox-sweep`. Каждый берёт из реестра своё задание и частоту, выполняет задание сразу при старте («сразу при старте процесса», контракт), затем — собственным таймером. Каждый процесс загружает Laravel один раз и держит одно соединение PG (4 соединения в бюджете L4). Медленная доставка поэтому не задерживает другие задания больше чем на их собственный тик.
+  - Каждый тик идёт под сеансовой `pg_try_advisory_lock(hashtext('agrotrace.scheduler.<job>'))` (для sweeper — `agrotrace.outbox.laravel`) на соединении этого процесса и с `pg_advisory_unlock` в `finally`; занято — тик пропускается. Таймер одного процесса не перекрывает свои тики.
+  - Sweeper outbox (каждые 5 с, не зависит от `SCHEDULER_TICK_MS`) живёт в планировщике: в Octane нет фоновых циклов. Контракт место sweeper не фиксирует.
+  - **Отступление порта (решение контроллера):** `SCHEDULER_TICK_MS` отображается на фиксированные частоты Scheduler — делители 60 000 мс (1, 2, 5, 10, 15, 20, 30 с → `everySecond()` … `everyThirtySeconds()`) и кратные 60 000 (cron `*/N`); иное значение → выход с кодом 78. По умолчанию 300 000 → `everyFiveMinutes()`, стенд задаёт 1000 → `everySecond()`. Express принимает любое значение 100–3 600 000; стенд и CI используют только 1000 и 300 000, так что отступление на тесты не влияет. Контроллер записывает его в журнал как решение порта.
 - **L6. Работа вне пути запроса** (P15, P18, P21, P24, P25, P52) — дочерние PHP-процессы вместо `worker_threads`. Механизм `App\Infrastructure\Sandbox`:
   - `proc_open` автономного скрипта `resources/sandbox/*.php` без загрузки Laravel;
   - `memory_limit` на процесс, SIGKILL по сроку;
@@ -216,12 +217,12 @@
   - Нет неявной привязки моделей к маршрутам (иначе 404 прозвучит раньше 400 `validation.uuid`).
 - **L10. Swagger UI.** `/api/v1/docs` отдаёт swagger-ui-dist и `init.js` над рукописным бандлом контракта `openapi.json`, как Express.
   - Scribe не используется: схема, выведенная из FormRequest, расходилась бы с рукописным контрактом по построению.
-  - Сравнение «сгенерированная схема ↔ контракт» из §8.3 заменено двумя проверками: `docs.test.ts` (отдаваемый контракт = бандл) и Ajv-валидацией каждого ответа в tests/api.
+  - Сравнение «сгенерированная схема ↔ контракт» из §8.3 заменяет Pest `RouteTableTest` (Task 14): таблица маршрутов Laravel обязана совпасть с 92 операциями контракта (метод, путь, имя = operationId). Дополнительно `docs.test.ts` проверяет, что отдаётся сам бандл, а tests/api валидирует каждый ответ Ajv.
 - **L11. ALTCHA — нативная реализация** по рецепту P40/M7 (вектор `contracts/rules/altcha.json`). Библиотека `altcha-org/altcha` не используется: побайтовые правила (каноничный base64, `number` строго цифрами в исходном тексте JSON, `expires` обязателен) библиотека не гарантирует.
 - **L12. Безопасность.**
   - TOTP — `pragmarx/google2fa` `verifyKeyNewer` (возвращает шаг совпадения для `totp-used`), окно ±1.
   - JWT — `firebase/php-jwt` с ключом HS256, плюс ручная проверка заголовка до декодирования (`alg` ровно HS256, отказ при `crit`) и типов claims по P12.
-  - Argon2id — `Hash::driver('argon2id')` с `memory=65536, time=3, threads=1`. Если в сборке PHP нет `PASSWORD_ARGON2ID`, используется `sodium_crypto_pwhash_str` с теми же параметрами (тот же PHC).
+  - Argon2id — `Hash::driver('argon2id')` с `memory=65536, time=3, threads=1` (соль 16 байт, хеш 32 байта, как у Express). Если в сборке PHP нет `PASSWORD_ARGON2ID`, используется `sodium_crypto_pwhash_str` с теми же параметрами (тот же PHC). `Passwords::verify` возвращает false для любой строки, которая не PHC `$argon2id$` (например `'!'` приглашённого пользователя), и не вызывает `Hash::check`: при `hashing.argon.verify = true` он бросил бы `RuntimeException`.
 - **L13. Импорт XLSX.**
   - Чтение — собственный читатель на `XMLReader` в песочнице. Он работает после ZIP-проверок и линейного предразбора (порт `xlsx-scan.ts`) и воспроизводит семантику exceljs из `xlsx-read.ts`: rich text склеивается; формула → её сохранённый результат; boolean, дата (форматы дат exceljs), ошибка → INVALID; число → `numberText` (JS ToString без экспоненты).
   - PhpSpreadsheet (§8.7) — только запись отчётов: при чтении он строит весь лист в памяти и иначе толкует ячейки.
@@ -229,7 +230,7 @@
 - **L15. Метрики (P54).**
   - Гистограмма и счётчик — `prometheus_client_php` с хранилищем APCng (общая память потоков FrankenPHP в одном процессе).
   - Gauge `queue_messages` и `recalls_open` вычисляются при опросе и дописываются к тексту экспозиции собственным кодом (точное `NaN`, единственная метка `backend` у `recalls_open`).
-  - Порт `METRICS_PORT` 9464 — отдельный блок Caddyfile, пропускающий только `GET /metrics`; на 8000 `/metrics` → 404.
+  - Порт `METRICS_PORT` 9464 — отдельный блок Caddyfile, пропускающий только `GET /metrics`; на 8000 `/metrics` → 404. Запросы блока 9464 (опросы метрик) в `http_request_duration_seconds` и `http_request_errors_total` не записываются. Порты 8000 и 9464 в compose — только `expose`, никогда `ports:`.
 - **Прочие уточнения ТЗ контрактом:**
   - QR PDF — этикетка A6 (контракт createBatchQr), а не «A4 3×8» из §8.6;
   - TOTP, JWT и S3 — как в таблице §8.7.
@@ -240,7 +241,8 @@
 
 | Решение | Обязательство | Task |
 |---|---|---|
-| R24 note, R21, R26 | `D`/`\z` в PCRE (вектор BR-11 с переводом строки); tie-break по кодовым точкам; kg↔g ≤ 9 целых и ≤ 3 знаков | 1 |
+| R24 note, R21, R26 | `Ecma::compile` (`D`, `u`, классы JS; вектор BR-11 с переводом строки); tie-break по кодовым точкам; kg↔g ≤ 9 целых и ≤ 3 знаков | 1 |
+| SP1, SP2, SP7 | Чужие планировщики глушит `api:test` (SP1); модульные тесты — в `agrotrace_test_laravel` (SP2); роль `agrotrace_app`, без префикса Redis (SP7) | 1 |
 | M2 (T8-9) | Векторы `working-days.json`, `BR-08*.json` (срок задачи отзыва) и все остальные векторы `contracts/rules/vectors` — Pest-тесты домена | 1 |
 | P3, P7, P8 | 405 METHOD_NOT_ALLOWED + `Allow` (OPTIONS тоже, HEAD = GET); `_root`; регистрозависимая строгая маршрутизация, `//` и битые `%`-escape → 404; X-Request-Id по R79 | 1 |
 | P61 | Слоты, тайм-ауты, 503; проверка суммарного бюджета при старте каждого процесса (выход 78) | 1 |
@@ -278,8 +280,8 @@
    - Риск: principal, requestId, ids событий, слот БД, открытый поток Redis прошлого запроса виден следующему.
    - Закрепление: Pest `OctaneIsolationTest` — два запроса в одном экземпляре приложения, второй не видит контекста первого, слот освобождён (Task 1); `StaticStateTest` — изменяемые `static` запрещены (Task 14); полный прогон дважды подряд (Task 14).
 5. **Планировщик против advisory lock и `SCHEDULER_TICK_MS`.**
-   - Риск: минутная гранулярность Laravel; `onOneServer()` использует кеш-блокировку вместо `pg_try_advisory_lock`; задание не выполняется при старте.
-   - Закрепление: Pest `TickTest` (сопоставление частот, выход 78; блокировка занята → пропуск) (Task 9); тесты эскалации и overdue в `lab.test.ts`/`recalls.test.ts` ждут тик в 1 с.
+   - Риск: минутная гранулярность Laravel; последовательные суб-минутные события одного `schedule:run` (медленная доставка задерживает эскалацию, просрочку и sweeper); `onOneServer()` использует кеш-блокировку вместо `pg_try_advisory_lock`; задание не выполняется при старте.
+   - Закрепление: Pest `TickTest` (сопоставление частот, выход 78; блокировка занята → пропуск; медленное задание доставки не задерживает тик эскалации больше чем на 1 тик) (Task 9); тесты эскалации и overdue в `lab.test.ts`/`recalls.test.ts` и повторной публикации (`published_at = NULL`) ждут тик в 1 с.
 6. **Формат ошибок.**
    - Риск: HTML/JSON Laravel по умолчанию; ответ `HandleCors` на OPTIONS; 404/405 Symfony; `PostTooLargeException`; `ModelNotFound` до 400; ошибки валидатора текстом; `TrimStrings`.
    - Закрепление: `contract-shape.test.ts`, `health.test.ts`, `harness.test.ts` (Task 1); `expectContract` на каждом ответе всех наборов; Pest `ProblemRendererTest` (каждый тип исключения → problem+json с `X-Backend`).
@@ -303,10 +305,11 @@ backend-laravel/
   Dockerfile Dockerfile.dockerignore
   docker/                 Caddyfile (:8000 api, :9464 только /metrics), php.ini (enable_post_data_reading=Off,
                           date.timezone=UTC, memory_limit), supervisord-api.conf (octane + sse-hub),
-                          supervisord-worker.conf (2× agrotrace:consume + agrotrace:telegram-poll)
+                          supervisord-worker.conf (2× agrotrace:consume + agrotrace:telegram-poll),
+                          supervisord-scheduler.conf (4× agrotrace:job <name>, L5)
   bootstrap/app.php       middleware (стек заменён целиком), исключения → Problem\Renderer, маршруты
   config/                 app, database (pgsql + PgConnector), octane (flush/listeners), logging (Monolog JSON), agrotrace.php (env)
-  routes/api.php          92 операции контракта ->name(operationId); routes/console.php — расписание (L5)
+  routes/api.php          92 операции контракта ->name(operationId); routes/console.php — реестр заданий (L5, Schedule::call)
   resources/sandbox/      svg-sanitize.php xlsx-read.php report-render.php (без загрузки Laravel)
   resources/swagger/      init.js; swagger-ui-dist и openapi.json копируются в образ
   app/
@@ -316,7 +319,7 @@ backend-laravel/
       Middleware/         RequestContextMw BackendHeader AccessLog ContractGate JsonBody Operation (401→лимит user→403)
                           Idempotency IfMatch Metrics
       Problem/            Problem ProblemCode Renderer
-      Validation/         Schema-DSL (S, Validator, Errors) + схемы модулей (порт packages/validation/src/*)
+      Validation/         Ecma.php (L-I3) + Schema-DSL (S, Validator, Errors) + схемы модулей (порт packages/validation/src/*)
       Requests/           FormRequest на операцию
       Query/QueryReader.php  Multipart/MultipartReader.php
       Controllers/<Module>/  Sse/StreamController.php Sse/RespSubscriber.php
@@ -333,9 +336,9 @@ backend-laravel/
                           Svg/{SvgScanner,SvgSanitizer} Xlsx/{Zip,XlsxScanner,XlsxReader,JsNumber} Csv/CsvReader.php
                           Sandbox/{Sandbox,Lane} Mail/Mailer.php Telegram/Telegram.php Dadata/Dadata.php Mercury/Mercury.php
                           Qr/Qr.php Pdf/Pdf.php Reports/XlsxWriter.php Metrics/Metrics.php
-    Console/Commands/     Consume SseHub TelegramPoll Schedule
+    Console/Commands/     Consume SseHub TelegramPoll Job
     Support/              RequestContext Json Iso
-  tests/                  Pest.php Unit/** (без БД) Integration/** (БД agrotrace_test, R15)
+  tests/                  Pest.php Unit/** (без БД) Integration/** (БД agrotrace_test_laravel из SP2, TEST_DATABASE_URL, R15)
 ```
 
 Рекомендуемые пары для SDD (как P29): T1, T2, T3, T4+T5, T6+T7, T8+T9, T10+T11, T12+T13, T14. Одна реализация и одна независимая проверка на пару.
@@ -347,27 +350,28 @@ backend-laravel/
 ### Task 1: Каркас Laravel, инфраструктура запросов, домен, стенд
 
 **Files:**
-- Create: `backend-laravel/**` (каркас по карте), `backend-laravel/tests/Unit/{Domain/VectorsTest,JsonTest,TxTest,ProblemRendererTest,OctaneIsolationTest,ContractGateTest}.php`.
-- Modify (только добавления):
+- Create: `backend-laravel/**` (каркас по карте), `backend-laravel/tests/Unit/{Domain/VectorsTest,JsonTest,TxTest,ProblemRendererTest,OctaneIsolationTest,ContractGateTest,EcmaTest,RedisPrefixTest}.php`.
+- Modify — только внутри секций `# --- laravel (plan 5) ---` … `# --- end laravel ---`, подготовленных SP3:
   - `docker-compose.yml`:
-    - `api-laravel` — порт 8000 и `expose 9464` в сети `at`, healthcheck `/api/v1/health/live`;
+    - `api-laravel` — `expose: [8000, 9464]` в сети `at` (никогда `ports:`), healthcheck `/api/v1/health/live`;
     - `worker-laravel`, `scheduler-laravel`;
+    - у всех трёх один образ `image: agrotrace/backend-laravel:dev` (одна сборка, не три);
+    - переменные Laravel — через `${VAR:-default}` в `environment:` (`APP_KEY: ${LARAVEL_APP_KEY:-…}`, `OCTANE_WORKERS: ${OCTANE_WORKERS:-32}`, `DB_SLOTS: ${DB_SLOTS:-11}`, `REDIS_PREFIX: ''`), чтобы контейнер стартовал и со старым `.env`;
     - `php-tools` (profile `tools`, build target `dev`, том `laravel-vendor` для `backend-laravel/vendor`, монтирование репозитория);
-    - все — с `depends_on` здоровых postgres/redis/rabbitmq/minio.
+    - все — с `depends_on` здоровых postgres/redis/rabbitmq/minio; определения инфраструктурных сервисов не трогать (SP7).
   - `docker-compose.api-test.yml` — блоки Laravel, значения как у Express:
     - `api-laravel`: `RATE_LIMIT_OVERRIDES='{"user":100000,"login-ip":100000,"complaint-ip":100000}'`, `DADATA_API_KEY=''`, `TELEGRAM_BOT_TOKEN='api-test-token'`, `TELEGRAM_BOT_USERNAME='agrotrace_test_bot'`, `REPORT_MAX_ROWS='13'`, `TZ`;
     - `worker-laravel`: `MERCURY_FAIL_PRODUCT_CODES='99.99.99'`, `MERCURY_FAIL_MODE='500'`, `MERCURY_RETRY_BASE_MS='50'`, `TELEGRAM_BOT_TOKEN=''`, `TZ`;
     - `scheduler-laravel`: `SCHEDULER_TICK_MS='1000'`, `TELEGRAM_BOT_TOKEN=''`, `TZ`.
-  - `at.sh` — команды и строки `test:all`:
-    - `laravel:test [pest args]` и `--domain-coverage` → `php-tools vendor/bin/pest`;
-    - `laravel:lint` (pint `--test` + larastan);
-    - `composer <args>`;
-    - строки `test:all`: `laravel:test`, `api:test laravel --reset`, `--ratelimits`.
+  - `at.sh`:
+    - хук backend'а для заблокированной заглушки `laravel:test` (SP2): общий помощник пересоздаёт и мигрирует `agrotrace_test_laravel` под замком стенда, затем хук запускает `php-tools vendor/bin/pest` с `TEST_DATABASE_URL` этой БД (аргументы Pest и `--domain-coverage` передаются дальше); создание и замок — уже в SP2, здесь только тело хука;
+    - `laravel:lint` (pint `--test` + larastan), `composer <args>` — не меняют стенд, без замка;
+    - строки секции laravel в `test:all`: `laravel:test`, `api:test laravel --reset`, `api:test laravel --ratelimits`, `cross:test express laravel`, `cross:test laravel express`.
 
-    `up laravel`, `up <front> laravel`, `api:test laravel`, `cross:test … laravel` и `docs:test laravel` уже поддерживаются `backend_services`.
-  - `tests/at/at.test.ts` — dry-run случаи новых команд и состава `api:test laravel` (перезапуск трёх процессов с профилем api-test).
+    `up laravel`, `up <front> laravel`, `api:test laravel` (глушение чужих планировщиков — SP1), `cross:test … laravel` и `docs:test laravel` уже поддерживаются.
+  - `tests/at/at.test.ts` — только в секции laravel: dry-run случаи хука `laravel:test`, `laravel:lint` и состава `api:test laravel` (перезапуск трёх процессов с профилем api-test). Утверждения SP1/SP3 (TZ на каждый блок, соседство `test:all`, строки глушения) не правятся.
   - `.github/workflows/ci.yml` — job `laravel-unit` (pest, домен с покрытием, pint, larastan); job `api-laravel` наполняется в Task 14.
-  - `.env.example` — `LARAVEL_APP_KEY` (dev-значение), `OCTANE_WORKERS`, `DB_SLOTS`.
+  - `.env.example` не трогается: переменные добавлены SP6.
 
 **Operations:** getHealthLive, getHealthReady; `/api/v1/docs` (страница, ассеты, `openapi.json`).
 
@@ -409,20 +413,23 @@ backend-laravel/
 - Тело JSON больше 12 582 912 байт → 413 FILE_TOO_LARGE `params.maxBytes 12582912`; за пределом сразу `Connection: close`. В Caddyfile предел тела не ниже этого: свой 413 Caddy не problem+json.
 - Документация: swagger-ui-dist той же версии, что у Express (стадия Docker на pnpm-lock). В `init.js` есть `url: '/api/v1/openapi.json'`; inline-скриптов и CDN нет; бандл собирает `pnpm --filter @agrotrace/contracts bundle` в стадии образа.
 - Health: ready проверяет db, redis, rabbitmq (passive `exchange_declare` на временном канале) и s3 (HeadBucket), каждую проверку не дольше `HEALTH_TIMEOUT_MS`=2000; любой отказ → 503 по схеме.
+- `config/database.php` разбирает `APP_DATABASE_URL` (роль `agrotrace_app`); `DATABASE_URL` приложением не читается (SP7).
+- Redis (SP7): `REDIS_PREFIX=''` и `options.prefix=''` для всех соединений, без `serializer`/`compression`; ключи пишутся ровно как в таблице контракта.
 - `PgConnector`:
   - сначала слот, затем соединение;
   - после соединения выполняется `SET statement_timeout='30s'`, `SET lock_timeout='10s'`, `SET TIME ZONE 'UTC'` и задаётся `application_name=agrotrace-laravel-<process>`;
   - Octane-слушатель `RequestTerminated` вызывает `DB::disconnect()` и освобождает слот.
 - `Tx` не использует `DB::transaction(…, $attempts)`. Вложенный вызов запрещён (assert уровня 0). Уровень изоляции задаётся первой командой транзакции. Ошибки 40P01/40001 определяются по SQLSTATE `errorInfo[0]`.
 - Outbox: `occurredAt` — часы на момент вставки (R59, ISO с мс), `requestId` из контекста (null вне запроса), id — UUIDv4.
-- Каждый процесс при старте проверяет, что заданный бюджет (`DB_SLOTS` + 1 + 3 + 2) не больше 20, иначе выход с кодом 78. Неверная конфигурация окружения → выход 78 со списком ошибок.
+- Каждый процесс при старте проверяет, что заданный бюджет (`DB_SLOTS` + 1 + 3 + 4) не больше 20, иначе выход с кодом 78. Неверная конфигурация окружения → выход 78 со списком ошибок.
+- `Ecma::compile` — единственная точка компиляции регулярных выражений из контракта и `packages/validation` (Global Constraints).
 - Домен:
   - даты через `DateTimeImmutable` в UTC, вывод `.000Z`;
-  - регулярные выражения с `D`;
+  - регулярные выражения через `Ecma::compile`;
   - `formatBatchCode` → `AT-YYYY-NNNNNN`;
   - машины состояний читаются из `contracts/rules/*state-machine*.json` (копия в образе).
 
-- [ ] **Шаг 1: worktree и окружение.** Создать worktree и ветку, скопировать `C:/project/.env`. `./at.sh check` зелёный (инфраструктура, очереди `agrotrace.laravel.*` с `x-delivery-limit` и `.delay`).
+- [ ] **Шаг 1: worktree и окружение.** Создать worktree и ветку от main с SP1–SP7, скопировать `C:/project/.env` (уже с переменными SP6). `./at.sh check` зелёный (очереди `.delay` загружены SP6; RabbitMQ из worktree не перезапускать).
 - [ ] **Шаг 2: Pest-тесты домена (RED).** `tests/Unit/Domain/VectorsTest.php`: dataset из каждого `contracts/rules/vectors/*.json`; для каждого случая `expect(Vectors::call($fn, $case['input']))->toEqual($case['expected'])`; плюс проверка, что ни один файл векторов не пропущен (по каталогу). `./at.sh laravel:test tests/Unit/Domain` → FAIL (классов нет).
 - [ ] **Шаг 3: домен.** Реализовать `app/Domain/*`. `./at.sh laravel:test --domain-coverage` → PASS, покрытие `app/Domain` ≥ 70 %. Коммит `feat(laravel): domain rules on the shared vectors`.
 - [ ] **Шаг 4: тесты каркаса (RED).** `./at.sh api:test laravel health.test.ts contract-shape.test.ts harness.test.ts docs.test.ts` → FAIL (сервиса нет). Pest:
@@ -430,13 +437,15 @@ backend-laravel/
   - `TxTest` — один повтор на 40001/40P01, затем Problem 409 с `currentVersion` из `conflictParams`; `retryIf`; `afterCommit` не выполняется после отката;
   - `ProblemRendererTest` — каждый класс исключения → problem+json с корректными `type`/`status`;
   - `ContractGateTest` — `//`, `%zz`, регистр, хвостовой `/`, OPTIONS, HEAD;
-  - `OctaneIsolationTest` — два запроса подряд в одном приложении не делят requestId, principal и eventIds.
-- [ ] **Шаг 5: каркас.** Реализовать каркас, Dockerfile (стадии `contract` (node/pnpm: бандл и swagger-ui-dist), `vendor`, `dev`, `prod` на FrankenPHP с точным тегом образа), compose-сервисы, `at.sh`, `tests/at`, CI `laravel-unit`. Проверить, что `php -r 'var_dump(defined("PASSWORD_ARGON2ID"));'` даёт true в образе, иначе включить фолбэк L12.
+  - `OctaneIsolationTest` — два запроса подряд в одном приложении не делят requestId, principal и eventIds;
+  - `EcmaTest` — `NameString` `\S`: `'ab'` проходит, `"\u{00A0}"`, `"\u{FEFF}"`, `"\u{2028}"` не проходят; `$` не совпадает перед `\n`; `\d` не совпадает с `٣`; поиск без якорей; случаи пробелов из `packages/validation/test`;
+  - `RedisPrefixTest` (Integration) — `SET` через фасад, затем `GET` голого ключа сырым RESP возвращает значение.
+- [ ] **Шаг 5: каркас.** Реализовать каркас, Dockerfile (стадии `contract` (node/pnpm: бандл и swagger-ui-dist), `vendor`, `dev`, `prod` на FrankenPHP с точным тегом образа) — в том же коммите, что и compose-блок, чтобы `./at up all` не ломался между коммитами; compose-секции, хук `laravel:test`, `tests/at`, CI `laravel-unit`. Проверить, что `php -r 'var_dump(defined("PASSWORD_ARGON2ID"));'` даёт true в образе, иначе включить фолбэк L12. Проверить в `pg_stat_activity`, что сеансы `agrotrace-laravel-*` идут от `agrotrace_app`.
 - [ ] **Шаг 6: GREEN.** Все команды и ожидаемые результаты:
   - `./at.sh api:test laravel health.test.ts contract-shape.test.ts harness.test.ts docs.test.ts` → PASS;
   - `./at.sh docs:test laravel` → 1 passed;
-  - `./at.sh laravel:test` → PASS;
-  - `./at.sh at:test` → PASS;
+  - `./at.sh laravel:test` → PASS (Integration на `agrotrace_test_laravel`; параллельный `django:test`/`db:test` ждёт замок, а не ломает прогон);
+  - `./at.sh at:test` → PASS (структура SP3 не зависит от числа backend'ов);
   - `./at.sh up react laravel` + `curl http://react-laravel.localhost:<port>/api/v1/health/live` → 200, `X-Backend: laravel`.
 - [ ] **Шаг 7: коммиты.** `feat(laravel): skeleton, problem handling, contract gate, stand wiring` и `chore(at): laravel commands and compose services`.
 
@@ -449,7 +458,7 @@ backend-laravel/
 **Interfaces — Produces:**
 - `App\Security\Principal` (readonly): `userId`, `orgId`, `roles: list<string>`, `orgAdmin: bool`, `exp: int`.
 - `Jwt::issue(Principal-данные): string`, `Jwt::verify(string): Principal` (бросает Problem 401).
-- `Passwords::hash(string): string`, `verify(string $plain, string $phc): bool`, `dummyVerify(): void`.
+- `Passwords::hash(string): string`, `verify(string $plain, string $phc): bool` (не-PHC, например `'!'`, → false без исключения, L12), `dummyVerify(): void`.
 - `Totp::verify(string $secret, string $code, int $nowSec): ?int` (шаг совпадения).
 - `OpaqueTokens::new(): string` (43 символа base64url), `hash(string): string` (sha256 hex).
 - `RateLimiter::hit(string $scope, string $subject): void` (Problem 429 с `Retry-After` и `params {scope, limit, windowSec}`).
@@ -502,7 +511,7 @@ backend-laravel/
 - [ ] **Шаг 1: RED.** `./at.sh api:test laravel auth.test.ts` → FAIL (404). Pest:
   - `TotpTest` (векторы RFC 6238 и шаг совпадения);
   - `JwtTest` (все отказные варианты выше и действительный токен);
-  - `PasswordsTest` (префикс PHC с m=65536,t=3,p=1; проверка PHC-вектора, созданного один раз `argon2` Express и сохранённого в фикстуре теста);
+  - `PasswordsTest` (префикс PHC с m=65536,t=3,p=1, соль 16 байт и хеш 32 байта после base64-декодирования; проверка PHC-вектора, созданного один раз `argon2` Express и сохранённого в фикстуре теста; `verify('x', '!')` → false без исключения);
   - `RateLimiterTest` (ключ, окно, `Retry-After`, overrides);
   - `RegistrationIdentityTest` (found, notFound, unavailable, без имени).
 - [ ] **Шаг 2: реализация.** Модули `app/Security/*`, `Actions/Auth/*`, middleware `operation`, `RateLimiter`, `Mailer`, `Dadata`, `AuditWriter`.
@@ -817,8 +826,10 @@ backend-laravel/
 - `Engine::findOpen(string $sourceBatchId): ?object`.
 - `RecallScope::of(string $sourceBatchId, bool $blockUpstream): array` (сырой `WITH RECURSIVE` по §7.6, глубина ≤ 20; SOURCE и члены по id).
 - `Engine::apply(array $req, array $members, array $lockedById): RecallOutcome` и `Engine::start(array $req): RecallOutcome`, где `RecallOutcome{recallId, created, closed, changedCodes, taskIds, eventIds}`.
-- `Scheduler\Tick::frequency(int $ms): string` (метод события Scheduler или cron; иначе исключение конфигурации → 78).
-- `Tick::locked(string $job, callable $fn): bool`.
+- `Scheduler\Tick::frequency(int $ms): string` (метод события Scheduler или cron; иначе исключение конфигурации → 78) и `Tick::intervalSec(int $ms): int` (тот же набор значений, для таймера процесса).
+- `Tick::locked(string $lockName, callable $fn): bool` (сеансовая advisory-блокировка на соединении процесса; false — тик пропущен).
+- `interface ScheduledJob { public function run(): void; }`; классы `Scheduler\Jobs\*` её реализуют.
+- Команда `agrotrace:job {name}`: находит задание в реестре `routes/console.php`, выполняет его сразу, затем по таймеру; SIGTERM — дождаться текущего тика и выйти.
 - `Lab\Assign::insertUnplanned(...)` — используется в Task 11.
 
 **Port notes:**
@@ -851,10 +862,12 @@ backend-laravel/
   - аудит batch/recallTask/recall с `action` = вызывающая операция.
 - Эскалация: `status IN (QUEUED,SAMPLED) AND due_at < now() AND deleted_at IS NULL` с неудалённой партией, `FOR NO KEY UPDATE SKIP LOCKED` → ESCALATED; `escalated_at = now()`; аудит `system.labTestEscalate` (actor null); outbox `lab.escalate` (`requestId` null).
 - Часы планировщик не подменяет: тесты переносят `due_at` (санкционированная запись) и ждут тика в 1 с.
+- Планировщик по L5: `scheduler-laravel` запускает supervisord с четырьмя процессами `agrotrace:job` (`lab-escalation`, `recall-task-overdue` — класс до Task 10 пустой, `notification-delivery` — до Task 12 пустой, `outbox-sweep` из Task 6). Реестр — `Schedule::call(...)` в `routes/console.php`; `schedule:work` и `->command()` не используются. Каждый процесс держит одно соединение PG (бюджет 4). Во время `api:test laravel` планировщики Express и Django глушит SP1.
 
 - [ ] **Шаг 1: RED.** `./at.sh api:test laravel lab.test.ts` → FAIL. Pest:
-  - `TickTest`: 1000 → `everySecond`, 5000 → `everyFiveSeconds`, 300000 → `everyFiveMinutes`, 7000 → исключение; блокировка занята в другом сеансе → тик пропущен; при старте каждое задание выполняется ровно один раз.
-- [ ] **Шаг 2: реализация.** Лаборатория, ядро отзыва, `scheduler-laravel` (`agrotrace:schedule`).
+  - `TickTest`: 1000 → `everySecond`, 5000 → `everyFiveSeconds`, 300000 → `everyFiveMinutes`, 500/3000/7000/90000 → исключение (выход 78); блокировка занята в другом сеансе → тик пропущен; при старте каждое задание выполняется ровно один раз; задание доставки, спящее 10 с, не задерживает тики задания эскалации в другом процессе больше чем на 1 тик (два процесса `agrotrace:job` с заглушками);
+  - `RegistryTest`: в реестре ровно четыре задания с `->call()`, ни одного `->command()`.
+- [ ] **Шаг 2: реализация.** Лаборатория, ядро отзыва, `scheduler-laravel` (supervisord, `agrotrace:job`).
 - [ ] **Шаг 3: GREEN.** `./at.sh api:test laravel lab.test.ts processing.test.ts waybills.test.ts` → PASS; `./at.sh api:test laravel --tz Europe/Moscow lab.test.ts` → PASS.
 - [ ] **Шаг 4: коммиты.** `feat(laravel): recall engine core` и `feat(laravel): lab tests, scheduler and escalation`.
 
@@ -1022,7 +1035,7 @@ backend-laravel/
   - `RespSubscriberTest` (фрагментированные RESP-кадры, тайм-аут);
   - `SseFrameTest` (формат `id/event/data`, JSON в одну строку);
   - `TelegramPollerTest` (Lua продления, смещение).
-- [ ] **Шаг 2: проверка потоковой отдачи.** Первое событие `unread` приходит до конца потока: `curl -N` через `api-laravel:8000`, время до первого байта < 1 с. Если Octane или FrankenPHP буферизует ответ, запасной путь — маршрут `/api/v1/events/stream` в Caddyfile на FrankenPHP в классическом режиме (`php_server` с отдельным фронт-контроллером Laravel). Решение и замеры — в отчёт.
+- [ ] **Шаг 2: проверка потоковой отдачи.** Первое событие `unread` приходит до конца потока: `curl -N` через `api-laravel:8000`, время до первого байта < 1 с. Если Octane или FrankenPHP буферизует ответ, запасной путь — маршрут `/api/v1/events/stream` в Caddyfile на FrankenPHP в классическом режиме (`php_server` с отдельным фронт-контроллером Laravel). Для него `num_threads` FrankenPHP ≥ `OCTANE_WORKERS` + число одновременных потоков SSE + классические потоки, а `max_execution_time=0` для потока. Решение и замеры — в отчёт.
 - [ ] **Шаг 3: реализация.** Уведомления, доставка, SSE, хаб, поллер Telegram.
 - [ ] **Шаг 4: GREEN.** `./at.sh api:test laravel notifications.test.ts events.test.ts documents.test.ts` → PASS. Во время прогона `SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'agrotrace-laravel%'` ≤ 20.
 - [ ] **Шаг 5: коммит.** `feat(laravel): notifications, delivery, sse`.
@@ -1068,10 +1081,9 @@ backend-laravel/
 **Files:**
 - `app/Infrastructure/Metrics/*`, `app/Http/Middleware/Metrics.php`, `docker/Caddyfile` (блок `:9464`).
 - `tests/Unit/{LockStrengthTest,StaticStateTest,RouteTableTest,BudgetTest}.php`.
-- `.github/workflows/ci.yml` (job `api-laravel`).
-- `contracts/openapi.yaml` — одна фраза P61.
+- `.github/workflows/ci.yml` (job `api-laravel`, в секции laravel из SP3).
 
-**tests/api:** весь набор, включая `permissions.test.ts`, `contract-coverage.test.ts`, `metrics.test.ts`, `fixture-writes.test.ts`. **tests/cross:** `session.test.ts` в парах express×laravel и laravel×express.
+**tests/api:** весь набор, включая `permissions.test.ts`, `contract-coverage.test.ts`, `metrics.test.ts`, `fixture-writes.test.ts`. **tests/cross:** весь набор — `session.test.ts` и `interop.test.ts` из SP5 (Argon2-вход через реализации, подписанная ссылка и ETag, повтор `Idempotency-Key`, IN_APP через SSE) — в парах express×laravel и laravel×express.
 
 **Port notes:**
 - Метрики (P54, L15):
@@ -1080,16 +1092,18 @@ backend-laravel/
   - метод вне списка → `other`; клиент ушёл до ответа (`connection_aborted()`) → 499; поток SSE даёт один длинный замер;
   - `queue_messages{queue="agrotrace.laravel.jobs"}` — passive `queue_declare` с тайм-аутом 2 с;
   - `recalls_open` — `count(*)` OPEN неудалённых; не прочитано → `NaN`;
-  - `:8000/metrics` → 404, `/api/v1/metrics` → 404 problem.
+  - `:8000/metrics` → 404, `/api/v1/metrics` → 404 problem;
+  - запросы блока `:9464` не замеряются (L15).
 - Журналы — JSON с `backend` и `requestId`. Обработчик в воркере пишет `requestId` конверта в журнал, но не в аудит и не в outbox: системные записи остаются null.
 - Статические проверки:
   - `LockStrengthTest`: `lockForUpdate(` и `/\bfor\s+update\b/i` в `app/` — только `DictionaryStore` (физическое удаление) и `deleteField`; `sharedLock()` и `for key share` разрешены;
   - `StaticStateTest`: изменяемые `static` свойства и статические кеши в `app/` — только по списку исключений с обоснованием (неизменяемые `Contract`, `RulesRepo`);
-  - `RouteTableTest`: таблица маршрутов Laravel совпадает с 92 операциями контракта (метод, путь, имя = operationId);
-  - `BudgetTest`: значения по умолчанию в сумме ≤ 20.
+  - `RouteTableTest` — замена сравнения «сгенерированная схема ↔ контракт» из §8.3 (L10): таблица маршрутов Laravel совпадает с 92 операциями контракта (метод, путь, имя = operationId);
+  - `EcmaGuardTest`: `preg_match`/`preg_replace` по входным данным в `app/` — только через `Ecma::compile` (список исключений — внутренние сканеры с явным `u`/`D`);
+  - `BudgetTest`: значения по умолчанию (`DB_SLOTS` 11 + 1 + 3 + 4) в сумме ≤ 20.
 - `permissions.test.ts` генерирует матрицу из контракта: 401, 403 без `params`, x-org-admin, 400 `validation.uuid`, 404 чужой организации. Именно здесь проявляются неточности `operation`/Policies.
 - `contract-coverage.test.ts` должен дать «operations 92/92 … 0 gaps» с тем же списком исключений (P55).
-- P61: в `info.description` фраза «Laravel: `pm.max_children` php-fpm …» заменяется формулой L4 (Octane-воркеры, `DB_SLOTS` + сеанс LISTEN хаба + процессы `agrotrace:consume` + поллер Telegram + планировщик ≤ 20). Перед правкой выполнить `git fetch` и сверить строку с main (возможный параллельный текст Django в той же строке); правка — одной строкой, отдельным коммитом `docs(contracts): P61 Laravel budget under Octane`. Перегенерировать `packages/api-client/src/schema.d.ts`, если тест актуальности схемы этого требует (только описания).
+- P61: абзац контракта переписан на main (SP4); план его не правит. Проверить, что фраза Laravel совпадает с L4 и таблицей бюджета (11 + 1 + 3 + 4). Расхождение — в отчёт контроллеру, правка только на main.
 - CI `api-laravel` (`SEED_NOW` закреплён, как у Express), шаги по порядку:
   1. `./at.sh install`;
   2. `up infra`;
@@ -1104,8 +1118,10 @@ backend-laravel/
   11. `docs:test laravel`;
   12. при неудаче — логи трёх сервисов.
 
+  Job `laravel-unit` (Task 1) запускает `./at.sh laravel:test` (БД `agrotrace_test_laravel` по SP2), домен с покрытием и `laravel:lint`.
+
 - [ ] **Шаг 1: RED.** `./at.sh api:test laravel permissions.test.ts metrics.test.ts` → FAIL (метрик нет; расхождения матрицы перечислить). Pest-тесты из списка выше → FAIL до реализации.
-- [ ] **Шаг 2: реализация.** Метрики, исправления по матрице, статические проверки, CI, фраза контракта.
+- [ ] **Шаг 2: реализация.** Метрики, исправления по матрице, статические проверки, CI; сверка абзаца P61 (SP4).
 - [ ] **Шаг 3: проверка.** Команды и ожидаемые результаты:
 
   | Команда | Ожидаемый результат |
@@ -1113,15 +1129,16 @@ backend-laravel/
   | `./at.sh api:test laravel --reset`, дважды подряд | 549 passed / 4 skipped (или фактическое число набора main), строка покрытия `operations 92/92 … 0 gaps` |
   | `./at.sh api:test laravel --reset --tz Europe/Moscow` | тот же результат |
   | `./at.sh api:test laravel --ratelimits` | 4 passed |
-  | `./at.sh cross:test express laravel` и `./at.sh cross:test laravel express` | 1 passed каждый |
+  | `./at.sh cross:test express laravel` и `./at.sh cross:test laravel express` | весь набор tests/cross зелёный в обоих направлениях (`session.test.ts` + `interop.test.ts`), 0 skipped |
   | `./at.sh docs:test laravel` | 1 passed |
   | `./at.sh laravel:test` и `./at.sh laravel:test --domain-coverage` | PASS, ≥ 70 % |
   | `./at.sh laravel:lint` | чисто |
   | `./at.sh at:test` | зелёный |
+  | `pg_stat_activity` во время полного прогона: сеансы `agrotrace-laravel-*` | ≤ 20, все от `agrotrace_app` |
   | `./at.sh api:test express` | без регрессии от общих правок |
   | `./at.sh up react laravel`, `./at.sh up svelte laravel` | health через шлюз 200, `X-Backend: laravel` |
-- [ ] **Шаг 4: коммиты.** `test(laravel): permission matrix, metrics, static guards, ci` и `docs(contracts): P61 Laravel budget under Octane`.
-- [ ] **Шаг 5: подготовка к слиянию.** `git merge main` в `feat/plan-5-laravel`; общие файлы разрешить объединением блоков `# --- laravel ---` и `# --- django ---`; повторить шаг 3 (полный прогон один раз). Ветку не публиковать и не сливать в main без решения пользователя.
+- [ ] **Шаг 4: коммит.** `test(laravel): permission matrix, metrics, static guards, ci`.
+- [ ] **Шаг 5: подготовка к слиянию.** `git merge main` в `feat/plan-5-laravel`. Правки общих файлов лежат только в секциях `# --- laravel (plan 5) ---` … `# --- end laravel ---`, поэтому конфликтов с секциями Django быть не должно; если они есть — объединить секции, ничего вне своей не меняя. Повторить шаг 3 (полный прогон один раз). Слияние в main выполняет контроллер после финального ревью (автономное исполнение по указанию пользователя); ветку не публиковать.
 
 ---
 
