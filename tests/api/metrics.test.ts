@@ -52,7 +52,7 @@ const healthCount = (text: string) =>
   )?.value ?? 0;
 
 describe('metrics (Prometheus, spec 14.5)', () => {
-  it('declares the required families, every series with backend label', async () => {
+  it('declares the required families, each of their series with the backend label', async () => {
     const text = await scrape();
     for (const [family, type] of [
       ['http_request_duration_seconds', 'histogram'],
@@ -61,7 +61,10 @@ describe('metrics (Prometheus, spec 14.5)', () => {
       ['recalls_open', 'gauge'],
     ])
       expect(text, family).toMatch(new RegExp(`^# TYPE ${family} ${type}$`, 'm'));
-    for (const line of text.split('\n').filter((l) => l && !l.startsWith('#')))
+    // Other series (process, runtime) and their labels are implementation-defined (contract «Мониторинг»).
+    const required =
+      /^(http_request_duration_seconds|http_request_errors_total|queue_messages|recalls_open)[_{ ]/;
+    for (const line of text.split('\n').filter((l) => required.test(l)))
       expect(line).toContain(`backend="${API_BACKEND}"`);
   });
 
@@ -86,14 +89,30 @@ describe('metrics (Prometheus, spec 14.5)', () => {
     );
     expect(queue, text).toBeDefined();
     expect(Number.isInteger(queue!.value) && queue!.value >= 0).toBe(true);
-    // Nothing in this file opens or closes recalls; the scheduler never does.
-    const [row] = await query<{ n: string }>(
-      `SELECT count(*) AS n FROM recalls WHERE status = 'OPEN' AND deleted_at IS NULL`,
-    );
-    const n = row!.n;
-    expect(samples(await scrape(), 'recalls_open')).toEqual([
-      { labels: { backend: API_BACKEND }, value: Number(n) },
-    ]);
+    // Nothing in this file opens or closes recalls, but the worker may still finish an event of an earlier file: the
+    // scrape and the DB count are compared up to three times (review M9).
+    const openInDb = async () =>
+      Number(
+        (
+          await query<{ n: string }>(
+            `SELECT count(*) AS n FROM recalls WHERE status = 'OPEN' AND deleted_at IS NULL`,
+          )
+        )[0]!.n,
+      );
+    let last: unknown = null;
+    for (let i = 0; i < 3; i++) {
+      const before = await openInDb();
+      const scraped = samples(await scrape(), 'recalls_open');
+      const after = await openInDb();
+      last = { before, scraped, after };
+      if (
+        before === after &&
+        JSON.stringify(scraped) === JSON.stringify([{ labels: { backend: API_BACKEND }, value: before }])
+      )
+        return;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    expect.fail(`recalls_open never matched the DB count: ${JSON.stringify(last)}`);
   });
 
   it('not exposed on the API port: /api/v1/metrics and :8000/metrics → 404 (the gateway proxies /api/ of :8000 only)', async () => {

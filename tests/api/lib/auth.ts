@@ -20,6 +20,10 @@ export interface DemoUser {
 
 export const demoUsers = users as unknown as DemoUser[];
 
+/** Emails of the demo users: SQL picks of seed rows join `users.email = ANY($n::text[])` with these, so a row that a
+ * test created (fresh organizations, fresh users) is never mistaken for seed data. */
+export const DEMO_EMAILS: readonly string[] = demoUsers.map((u) => u.email);
+
 /**
  * The first demo user (seed order) with `role`; `head: true` — an organization head, `head: false` — an employee,
  * omitted — either. `key` picks one user by its seed key instead.

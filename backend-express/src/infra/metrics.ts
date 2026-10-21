@@ -28,6 +28,8 @@ export interface Metrics {
 
 const API_PREFIX = '/api/v1';
 const SCRAPE_TIMEOUT_MS = 2000;
+/** `method` label values; anything else is `other` (bounded cardinality, review M7e). */
+const METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 
 /**
  * Route label: the contract path template a request path matches (`/api/v1/batches/<uuid>` → `/batches/{id}`), the
@@ -97,14 +99,24 @@ export function createMetrics(deps: {
     registers: [registry],
     async collect() {
       const conn = deps.amqp.connection;
-      if (!conn) return;
+      // No connection or a failed read: NaN (unknown), never the last good value presented as current (review M7a).
+      if (!conn) {
+        this.set({ queue: JOBS_QUEUE }, Number.NaN);
+        return;
+      }
       let ch: Awaited<ReturnType<typeof conn.createChannel>> | null = null;
       try {
-        ch = await conn.createChannel();
+        const opening = conn.createChannel();
+        ch = await withTimeout(opening).catch((err: unknown) => {
+          // A channel that opens after the timeout is closed at once.
+          void opening.then((late) => late.close()).catch(() => undefined);
+          throw err;
+        });
         ch.on('error', () => undefined);
         const q = await withTimeout(ch.checkQueue(JOBS_QUEUE));
         this.set({ queue: JOBS_QUEUE }, q.messageCount);
       } catch (err) {
+        this.set({ queue: JOBS_QUEUE }, Number.NaN);
         deps.logger.warn({ err: (err as Error).message }, 'metrics: queue length unavailable');
       } finally {
         await ch?.close().catch(() => undefined);
@@ -125,6 +137,7 @@ export function createMetrics(deps: {
         );
         this.set(Number(rows[0]?.n ?? 0));
       } catch (err) {
+        this.set(Number.NaN);
         deps.logger.warn({ err: (err as Error).message }, 'metrics: open recalls unavailable');
       }
     },
@@ -132,11 +145,23 @@ export function createMetrics(deps: {
 
   const http: RequestHandler = (req, res, next) => {
     const end = duration.startTimer();
-    res.on('finish', () => {
-      const labels = { method: req.method, route: routeOf(req.originalUrl), status: String(res.statusCode) };
+    let observed = false;
+    // Once per request: when the response finishes, or when the connection closes first (a client abort, an SSE
+    // stream the client leaves) — status 499 if nothing was sent yet (review M7d).
+    const observe = () => {
+      if (observed) return;
+      observed = true;
+      const status = res.writableFinished || res.headersSent ? res.statusCode : 499;
+      const labels = {
+        method: METHODS.has(req.method) ? req.method : 'other',
+        route: routeOf(req.originalUrl),
+        status: String(status),
+      };
       end(labels);
-      if (res.statusCode >= 500) errors.inc(labels);
-    });
+      if (status >= 500 && status !== 499) errors.inc(labels);
+    };
+    res.on('finish', observe);
+    res.on('close', observe);
     next();
   };
 

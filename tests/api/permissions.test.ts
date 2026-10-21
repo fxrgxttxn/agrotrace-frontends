@@ -7,6 +7,9 @@
  * - every allowed role (heads; employees too unless `x-org-admin`, where the ADMIN employee must pass) gets past the
  *   access checks: anything but 401/403;
  * - every `PUBLIC` operation answers without a token (no 401/403);
+ * - `x-access`: `downloadFile` (signed) and `streamEvents` (`access_token` query) are covered by the same 401 rule,
+ *   plus: the stream ignores an Authorization header (401 without `access_token`, events.yaml); the signed-URL path
+ *   itself is tested in files.test.ts;
  * - a resource of a foreign organization → 404 NOT_FOUND (never 403, never 200), on a representative set of
  *   operations: reads on seed data, writes on fresh fixtures.
  *
@@ -24,7 +27,15 @@ import { closeDb, query } from './lib/db.js';
 import { fixture, upload } from './lib/files.js';
 import { freshHead } from './lib/fixtures.js';
 import { createWaybill, freshOrg, idemKey, sentWaybill } from './lib/production.js';
-import { createRecall, freshFarm, inspector, inspectorTest, labApproved, rawBatch } from './lib/quality.js';
+import {
+  confirmTask,
+  createRecall,
+  freshFarm,
+  inspector,
+  inspectorTest,
+  labApproved,
+  rawBatch,
+} from './lib/quality.js';
 import { openStream } from './lib/sse.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped OpenAPI JSON
@@ -139,6 +150,14 @@ describe('permission matrix (x-roles, x-org-admin, x-access) — generated from 
             .get('/events/stream')
             .then((r) => expectDenied(r, id, 'anonymous', 401)),
         );
+        // A valid Bearer header without `access_token` is ignored: still 401 (events.yaml).
+        checks.push(
+          (async () => {
+            const token = (await session('FARMER', true)).accessToken!;
+            const r = await api().get('/events/stream', { headers: { authorization: `Bearer ${token}` } });
+            await expectDenied(r, id, 'a Bearer header without access_token', 401);
+          })(),
+        );
         for (const role of ROLES)
           checks.push(
             (async () => {
@@ -245,17 +264,32 @@ describe('PUBLIC operations answer without a token', () => {
 
 const UUID_RE = /^[0-9a-f-]{36}$/;
 
-/** One id of a seed entity matching `sql` (read-only lib/db.ts). */
+/**
+ * One id of a SEED entity matching `sql` (read-only lib/db.ts). `$1` is always the organizations of the demo users
+ * (db/seed/data/users.json): every query restricts each organization column to them, so a row created by a test —
+ * above all by the fresh organizations of this file — is never picked (review I1). Further params start at `$2`.
+ */
 async function seedId(sql: string, params: unknown[] = []): Promise<string> {
-  const [row] = await query<{ id: string }>(`${sql} ORDER BY id LIMIT 1`, params);
+  const [row] = await query<{ id: string }>(`${sql} ORDER BY id LIMIT 1`, [await demoOrgIds(), ...params]);
   if (!row || !UUID_RE.test(row.id)) throw new Error(`no seed row for: ${sql}`);
   return row.id;
 }
 
+let demoOrgs: Promise<string[]> | null = null;
+/** Organizations of the demo users (the seed's participants, P32 seed data). */
+function demoOrgIds(): Promise<string[]> {
+  demoOrgs ??= query<{ id: string }>(
+    `SELECT DISTINCT organization_id AS id FROM users WHERE email = ANY($1::text[]) AND deleted_at IS NULL`,
+    [demoUsers.map((u) => u.email)],
+  ).then((rows) => rows.map((r) => r.id));
+  return demoOrgs;
+}
+
 const orgOf = async (key: string) =>
-  seedId(`SELECT o.id FROM organizations o JOIN users u ON u.organization_id = o.id WHERE u.email = $1`, [
-    demoUsers.find((u) => u.key === key)!.email,
-  ]);
+  seedId(
+    `SELECT o.id FROM organizations o JOIN users u ON u.organization_id = o.id WHERE o.id = ANY($1) AND u.email = $2`,
+    [demoUsers.find((u) => u.key === key)!.email],
+  );
 
 async function expectNotFound(res: ApiResponse, id: string, who: string) {
   requests++;
@@ -272,6 +306,7 @@ describe('a resource of a foreign organization → 404 NOT_FOUND', () => {
   let processor: ApiClient;
   let retailer: ApiClient;
   let lab: ApiClient;
+  let farmA: ApiClient | null = null;
   const seed = {} as Record<
     'field' | 'batch' | 'waybill' | 'labTest' | 'protocolTest' | 'org' | 'logoOrg',
     string
@@ -296,19 +331,32 @@ describe('a resource of a foreign organization → 404 NOT_FOUND', () => {
       freshHead('RETAILER').then((h) => h.client),
       freshHead('LAB').then((h) => h.client),
     ]);
-    seed.field = await seedId('SELECT id FROM fields WHERE deleted_at IS NULL');
-    seed.batch = await seedId('SELECT id FROM batches WHERE deleted_at IS NULL');
-    seed.waybill = await seedId(`SELECT id FROM waybills WHERE deleted_at IS NULL AND status <> 'DRAFT'`);
-    seed.labTest = await seedId('SELECT id FROM lab_tests WHERE deleted_at IS NULL');
-    seed.protocolTest = await seedId(
-      'SELECT id FROM lab_tests WHERE deleted_at IS NULL AND protocol_file_id IS NOT NULL',
+    seed.field = await seedId('SELECT id FROM fields WHERE deleted_at IS NULL AND organization_id = ANY($1)');
+    seed.batch = await seedId(
+      'SELECT id FROM batches WHERE deleted_at IS NULL AND origin_org_id = ANY($1) AND holder_org_id = ANY($1)',
     );
-    seed.org = await seedId(`SELECT id FROM organizations WHERE deleted_at IS NULL AND status = 'ACTIVE'`);
+    seed.waybill = await seedId(
+      `SELECT id FROM waybills WHERE deleted_at IS NULL AND status <> 'DRAFT'
+         AND sender_org_id = ANY($1) AND receiver_org_id = ANY($1)`,
+    );
+    seed.labTest = await seedId(
+      `SELECT t.id FROM lab_tests t JOIN batches b ON b.id = t.batch_id
+        WHERE t.deleted_at IS NULL AND t.lab_org_id = ANY($1) AND b.origin_org_id = ANY($1) AND b.holder_org_id = ANY($1)`,
+    );
+    seed.protocolTest = await seedId(
+      `SELECT t.id FROM lab_tests t JOIN batches b ON b.id = t.batch_id
+        WHERE t.deleted_at IS NULL AND t.protocol_file_id IS NOT NULL
+          AND t.lab_org_id = ANY($1) AND b.origin_org_id = ANY($1) AND b.holder_org_id = ANY($1)`,
+    );
+    seed.org = await seedId(
+      `SELECT id FROM organizations WHERE deleted_at IS NULL AND status = 'ACTIVE' AND id = ANY($1)`,
+    );
     seed.logoOrg = await seedId(
-      'SELECT id FROM organizations WHERE deleted_at IS NULL AND logo_file_id IS NOT NULL',
+      'SELECT id FROM organizations WHERE deleted_at IS NULL AND logo_file_id IS NOT NULL AND id = ANY($1)',
     );
 
     const A = await freshFarm();
+    farmA = A.client;
     const me = await A.client.get('/me');
     await expectContract(me, 'getMe');
     a.orgId = A.orgId;
@@ -346,15 +394,26 @@ describe('a resource of a foreign organization → 404 NOT_FOUND', () => {
       blockUpstream: false,
     });
     expect(recall.status, recall.text).toBe(201);
-    const [task] = await query<{ id: string; version: number }>(
-      'SELECT id, version FROM recall_tasks WHERE recall_id = $1 ORDER BY id LIMIT 1',
+    // The source batch is held by A and in no SENT waybill: its single task belongs to A.
+    const tasks = await query<{ id: string; version: number; holder: string }>(
+      'SELECT id, version, holder_org_id AS holder FROM recall_tasks WHERE recall_id = $1',
       [recall.body.id],
     );
-    expect(task, 'the recall has a task for farm A').toBeDefined();
-    a.task = task!;
+    expect(tasks, 'the recall has exactly one task, for farm A').toEqual([
+      expect.objectContaining({ holder: A.orgId }),
+    ]);
+    a.task = tasks[0]!;
   }, 120_000);
 
-  afterAll(closeDb);
+  // Review M10: the recall of A's batch is closed again (A confirms its task), so the run-wide OPEN count and the
+  // inspectors' view do not depend on whether this file ran.
+  afterAll(async () => {
+    if (farmA && a.task) {
+      const res = await confirmTask(farmA, a.task.id, a.task.version);
+      expect(res.status, res.text).toBe(200);
+    }
+    await closeDb();
+  });
 
   it('seed reads by fresh organizations of every participant role', async () => {
     cases++;
@@ -390,20 +449,22 @@ describe('a resource of a foreign organization → 404 NOT_FOUND', () => {
     const zarya = await orgOf('zarya.head');
     const vetlab = await orgOf('vetlab.head');
     const lavka = await orgOf('lavka.head');
-    const field = await seedId('SELECT id FROM fields WHERE deleted_at IS NULL AND organization_id <> $1', [
-      zarya,
-    ]);
-    const test = await seedId('SELECT id FROM lab_tests WHERE deleted_at IS NULL AND lab_org_id <> $1', [
-      vetlab,
-    ]);
+    const field = await seedId(
+      'SELECT id FROM fields WHERE deleted_at IS NULL AND organization_id = ANY($1) AND organization_id <> $2',
+      [zarya],
+    );
+    const test = await seedId(
+      'SELECT id FROM lab_tests WHERE deleted_at IS NULL AND lab_org_id = ANY($1) AND lab_org_id <> $2',
+      [vetlab],
+    );
     const batch = await seedId(
-      `SELECT id FROM batches b WHERE deleted_at IS NULL
-         AND NOT EXISTS (SELECT 1 FROM lab_tests t WHERE t.batch_id = b.id AND t.lab_org_id = $1 AND t.deleted_at IS NULL)`,
+      `SELECT id FROM batches b WHERE deleted_at IS NULL AND origin_org_id = ANY($1) AND holder_org_id = ANY($1)
+         AND NOT EXISTS (SELECT 1 FROM lab_tests t WHERE t.batch_id = b.id AND t.lab_org_id = $2 AND t.deleted_at IS NULL)`,
       [vetlab],
     );
     const waybill = await seedId(
       `SELECT id FROM waybills WHERE deleted_at IS NULL AND status <> 'DRAFT'
-         AND sender_org_id <> $1 AND receiver_org_id <> $1`,
+         AND sender_org_id = ANY($1) AND receiver_org_id = ANY($1) AND sender_org_id <> $2 AND receiver_org_id <> $2`,
       [lavka],
     );
     const zaryaHead = await loginAs('FARMER', { key: 'zarya.head' });
@@ -437,6 +498,17 @@ describe('a resource of a foreign organization → 404 NOT_FOUND', () => {
             dose: '1.000',
             doseUnit: 'л/га',
             appliedAt: '2026-06-02T07:00:00Z',
+          }),
+      ],
+      [
+        'updateTreatment',
+        'fresh FARMER',
+        () =>
+          farm.put(`/treatments/${a.treatmentId}`, {
+            substanceId: randomUUID(),
+            dose: '2.000',
+            doseUnit: 'л/га',
+            appliedAt: '2026-06-03T07:00:00Z',
           }),
       ],
       [

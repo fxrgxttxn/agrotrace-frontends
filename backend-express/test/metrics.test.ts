@@ -121,6 +121,65 @@ describe('createMetrics', () => {
     expect(series(text, 'recalls_open')).toEqual([{ labels: { backend: 'express' }, value: 7 }]);
   });
 
+  it('a failed or impossible read gives NaN, never the last good value (review M7a)', async () => {
+    const { logger } = memoryLogger();
+    const failingDb = {
+      getExecutor: () => ({
+        transformQuery: (n: unknown) => n,
+        compileQuery: (n: unknown) => ({ sql: '', parameters: [], query: n }),
+        executeQuery: async () => {
+          throw new Error('db down');
+        },
+      }),
+    } as unknown as Db;
+    const metrics = createMetrics({
+      db: failingDb,
+      amqp: { connection: null } as unknown as Amqp,
+      logger,
+      routes: [],
+    });
+    const text = await metrics.registry.metrics();
+    expect(series(text, 'queue_messages')[0]?.value).toBeNaN();
+    expect(series(text, 'recalls_open')[0]?.value).toBeNaN();
+  });
+
+  it('an aborted request is observed once with status 499; an unknown method is "other" (review M7d, M7e)', async () => {
+    const { logger } = memoryLogger();
+    const metrics = createMetrics({
+      db: fakeDb([{ n: '0' }]),
+      amqp: fakeAmqp(0),
+      logger,
+      routes: ['/health/live'],
+    });
+    const app = express();
+    app.use(metrics.http);
+    let aborted!: () => void;
+    const closed = new Promise<void>((r) => (aborted = r));
+    app.get('/api/v1/health/live', (_req, res) => void res.on('close', () => setTimeout(aborted, 10)));
+    app.use((_req, res) => void res.status(404).end());
+    const server = app.listen(0);
+    try {
+      const port = (server.address() as AddressInfo).port;
+      const ctl = new AbortController();
+      const pending = fetch(`http://127.0.0.1:${port}/api/v1/health/live`, { signal: ctl.signal }).catch(
+        () => undefined,
+      );
+      await new Promise((r) => setTimeout(r, 50));
+      ctl.abort();
+      await pending;
+      await closed;
+      await request(app).search('/api/v1/health/live');
+    } finally {
+      server.close();
+    }
+    const count = series(await metrics.registry.metrics(), 'http_request_duration_seconds_count');
+    expect(count).toContainEqual({
+      labels: { method: 'GET', route: '/health/live', status: '499', backend: 'express' },
+      value: 1,
+    });
+    expect(count.some((s) => s.labels.method === 'other')).toBe(true);
+  });
+
   it('serves GET /metrics on its own listener; any other path or method → 404', async () => {
     const { metrics } = await scrape();
     const server = await metrics.listen(0);

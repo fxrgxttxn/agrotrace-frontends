@@ -85,7 +85,8 @@ describe('./at wrapper (R88 M6)', () => {
     // P10: the suite runs against the api-test overrides, then the plain backend is restored.
     expect(plain.slice(-3)).toEqual([
       '+ docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait api-express worker-express scheduler-express',
-      '+ docker compose run --rm -e API_URL=http://api-express:8000/api/v1 -e API_BACKEND=express tools pnpm --filter @agrotrace/tests-api test',
+      // Review M2: a run without vitest arguments is a full run — the coverage gate must run (fails, never skips).
+      '+ docker compose run --rm -e API_URL=http://api-express:8000/api/v1 -e API_BACKEND=express -e API_COVERAGE_REQUIRED=1 tools pnpm --filter @agrotrace/tests-api test',
       '+ docker compose up -d --no-build --wait api-express worker-express scheduler-express',
     ]);
     expect(plain).toContain(

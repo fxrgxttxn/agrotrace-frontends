@@ -223,6 +223,9 @@ api_test() (
   # `env` makes the zone visible in a dry run (tests/at); without --tz the profile defaults TZ to UTC.
   zone=(); if [ -n "$tz" ]; then zone=(env "API_TEST_TZ=$tz"); fi
   run "${zone[@]}" $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait $procs
+  # A run without vitest arguments is a full run: the contract coverage gate (tests/api/contract-coverage.test.ts) must
+  # then run and pass — it fails instead of skipping (review M2).
+  if [ $# -eq 0 ]; then tests="$tests -e API_COVERAGE_REQUIRED=1"; fi
   run $tests tools pnpm --filter @agrotrace/tests-api test "$@"
 )
 

@@ -19,6 +19,11 @@ export const SECRET_KEYS = [
   'cookie',
   'set-cookie',
   'idempotencyKey',
+  // Review M12 (defence in depth; none is logged today): refresh cookie value, TOTP code, ALTCHA payload, URL signature.
+  'refresh',
+  'totp',
+  'altcha',
+  'sig',
 ];
 const REDACT_DEPTH = 4;
 

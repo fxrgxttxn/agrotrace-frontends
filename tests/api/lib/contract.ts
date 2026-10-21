@@ -144,6 +144,12 @@ export async function expectContract(res: ApiResponse, operationId: string): Pro
   const op = c.ops.get(operationId);
   if (!op) throw new Error(`unknown operationId ${operationId}`);
   const where = `${operationId} (${op.method} ${op.path})`;
+  // Review M3: a real response is credited (coverage) only to the operation it came from — its method and its path
+  // must match the operation's method and path template.
+  if (isReal(res) && (res.method !== op.method || !matchesTemplate(op.path, res.path)))
+    throw new Error(
+      `expectContract(${operationId}): the response is of ${res.method} ${res.path}, not ${where}`,
+    );
   const responses = op.op.responses as Json;
   const code =
     [String(res.status), `${String(res.status)[0]}XX`, 'default'].find((k) => k in responses) ?? null;
@@ -158,6 +164,13 @@ export async function expectContract(res: ApiResponse, operationId: string): Pro
   if (problems.length) throw new ContractViolation(res, where, problems);
   if (isReal(res)) recordChecked({ operationId, status: res.status });
   return response;
+}
+
+/** `/batches/{id}/qr` matches `/batches/<any non-empty segment>/qr` (the query string is ignored). */
+function matchesTemplate(template: string, path: string): boolean {
+  const t = template.split('/');
+  const p = path.split('?')[0]!.split('/');
+  return t.length === p.length && t.every((s, i) => (s.startsWith('{') ? p[i]!.length > 0 : s === p[i]));
 }
 
 /** Body, media type and declared headers of `response` (at JSON pointer `base`), plus the common headers. */

@@ -6,7 +6,7 @@
  * (R82: `pub:batch:{publicCode}` dropped after the commit).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { loginAs, type Role } from './lib/auth.js';
+import { DEMO_EMAILS, loginAs, type Role } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { auditEntries } from './lib/audit.js';
 import { expectContract } from './lib/contract.js';
@@ -362,8 +362,9 @@ describe('visibility (tag Batches, D14) and actions', () => {
          JOIN users u ON u.organization_id = o.id AND u.is_org_admin
          JOIN batch_links l1 ON l1.child_batch_id = c.id
          JOIN batch_links l2 ON l2.child_batch_id = l1.parent_batch_id
-        WHERE c.deleted_at IS NULL
+        WHERE c.deleted_at IS NULL AND u.email = ANY($1::text[])
         ORDER BY c.public_code, u.email LIMIT 1`,
+      [DEMO_EMAILS],
     );
     const client = rows[0]
       ? await loginAs('RETAILER', { key: rows[0].email.split('@')[0] })

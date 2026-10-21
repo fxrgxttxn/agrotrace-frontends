@@ -6,7 +6,7 @@
  * product photos), everything else → 404 there.
  */
 import { afterAll, describe, expect, it } from 'vitest';
-import { loginAs } from './lib/auth.js';
+import { DEMO_EMAILS, loginAs } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
 import { closeDb, query } from './lib/db.js';
@@ -102,7 +102,9 @@ describe('downloadFile — Bearer', () => {
     // TODO(Task 9): the protocol URL and its laboratory through the lab API once it exists.
     const [row] = await query<{ id: string; email: string }>(
       `SELECT t.protocol_file_id AS id, u.email FROM lab_tests t JOIN users u ON u.organization_id = t.lab_org_id
-        WHERE t.protocol_file_id IS NOT NULL AND u.status = 'ACTIVE' ORDER BY t.id LIMIT 1`,
+        WHERE t.protocol_file_id IS NOT NULL AND u.status = 'ACTIVE' AND u.email = ANY($1::text[])
+        ORDER BY t.id LIMIT 1`,
+      [DEMO_EMAILS],
     );
     const labUser = api();
     expect((await login(labUser, row!.email, DEMO_PASSWORD)).status).toBe(200);

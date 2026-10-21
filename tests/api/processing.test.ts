@@ -7,7 +7,7 @@
  * second processing (Review Focus 1: exactly one wins).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { loginAs } from './lib/auth.js';
+import { DEMO_EMAILS, loginAs } from './lib/auth.js';
 import { auditEntries } from './lib/audit.js';
 import type { ApiClient } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
@@ -188,7 +188,9 @@ describe('processBatches: request checks', () => {
       `SELECT b.id, b.public_code, u.email FROM batches b
          JOIN organizations o ON o.id = b.holder_org_id AND o.type = 'PROCESSOR'
          JOIN users u ON u.organization_id = o.id AND u.is_org_admin AND u.deleted_at IS NULL
+          AND u.email = ANY($1::text[])
         WHERE b.status = 'Recalled' AND b.deleted_at IS NULL ORDER BY b.public_code LIMIT 1`,
+      [DEMO_EMAILS],
     );
     expect(seed, 'the seed has a Recalled batch held by a processor').toBeDefined();
     const holder = await loginAs('PROCESSOR', { key: seed!.email.split('@')[0] });

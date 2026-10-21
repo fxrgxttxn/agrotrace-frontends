@@ -4,8 +4,15 @@
  * codes in EXCLUDED below, each with its reason (no scenario on the test stand). Records come from the harness
  * registry (lib/registry.ts) of the whole run; lib/sequencer.ts runs this file last.
  *
- * Enforced only on a full run (every test file, no `-t` name filter): a single-file run (`./at api:test express
- * auth`) or the `--ratelimits` pass skips it.
+ * Enforced only on a full run (every top-level `*.test.ts` of tests/api, no `-t` name filter): a single-file run
+ * (`./at api:test express auth`) or the `--ratelimits` pass skips it. With API_COVERAGE_REQUIRED=1 (set by
+ * `./at api:test <backend>` when it passes no vitest arguments) a run that is not full FAILS instead of skipping, so
+ * the gate cannot silently disappear (a missing `run` record, a changed sequencer).
+ *
+ * Granularity (review M1): coverage is per (operation, status). The generated permission matrix alone yields 401,
+ * the role 403, a `_root` 400 and a random-id 404 for almost every operation, so this gate does not show that an
+ * operation-specific variant of a status (403 NOT_HOLDER, a field-level 400, …) has a test of its own; those stay
+ * the business suites' responsibility.
  */
 import { readdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -75,7 +82,9 @@ export const EXCLUDED: readonly Excluded[] = [
         ? 'x-roles is not ANY'
         : op.op.responses['403']?.$ref !== ROLE_ANY_FORBIDDEN
           ? 'the 403 is operation-specific'
-          : null,
+          : /403|FORBIDDEN/.test(`${op.op.summary ?? ''} ${op.op.description ?? ''}`)
+            ? 'its description names a 403 scenario (review M4)'
+            : null,
   },
   {
     ops: ['createBatchQr', 'processBatches', 'uploadLabProtocol', 'createRecall'],
@@ -113,6 +122,7 @@ const ALL_FILES = readdirSync(HERE)
 const records = readRecords();
 const run = records.find((r): r is Extract<RegistryRecord, { kind: 'run' }> => r.kind === 'run');
 const missingFiles = ALL_FILES.filter((f) => !run?.files.includes(f));
+const required = process.env.API_COVERAGE_REQUIRED === '1';
 const full = run !== undefined && run.testNamePattern === null && missingFiles.length === 0;
 const why = !run
   ? 'no run record (sequencer not used)'
@@ -124,11 +134,12 @@ const excludedFor = (op: string, code: string) =>
   EXCLUDED.find((e) => (e.ops === '*' || e.ops.includes(op)) && e.code === code);
 
 describe('contract coverage', () => {
-  (full ? it : it.skip)(
-    full
+  (full || required ? it : it.skip)(
+    full || required
       ? 'every operation and every declared response code is covered (or excluded with a reason)'
       : `not a full run (${why})`,
     async () => {
+      expect(full, `API_COVERAGE_REQUIRED=1 but ${why}`).toBe(true);
       const c = await contract();
       const seen = new Map<string, Set<string>>();
       for (const r of records)
