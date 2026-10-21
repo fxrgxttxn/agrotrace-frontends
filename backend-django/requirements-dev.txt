@@ -1,0 +1,7 @@
+# Unit-test and lint tools, installed in the same image (./at.sh django:test runs them there, D-M5).
+pytest==8.4.2
+pytest-cov==6.2.1
+ruff==0.13.3
+PyYAML==6.0.3
+jsonschema==4.25.1
+drf-spectacular==0.28.0
