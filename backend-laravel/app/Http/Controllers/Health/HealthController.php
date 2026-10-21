@@ -2,20 +2,16 @@
 
 namespace App\Http\Controllers\Health;
 
-use App\Infrastructure\Db\DbSlots;
 use App\Support\Json;
-use Aws\S3\S3Client;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Redis;
-use PhpAmqpLib\Connection\AMQPStreamConnection;
-use Throwable;
 
 /**
  * getHealthLive / getHealthReady (contracts/openapi/paths/health.yaml). Ready checks PostgreSQL, Redis, RabbitMQ
- * (a passive exchange_declare of `agrotrace.laravel` on a temporary channel) and MinIO (HeadBucket), each bounded by
- * HEALTH_TIMEOUT_MS (2 s); any `fail` → 503 with the same body shape.
+ * (a passive exchange_declare of `agrotrace.laravel` on a temporary channel) and MinIO (HeadBucket) CONCURRENTLY, each
+ * bounded by HEALTH_TIMEOUT_MS (2 s), as Express does (review I3): one `artisan agrotrace:probe <check>` child process
+ * per check — PHP has no non-blocking PDO/AMQP — and a check still running at the deadline is killed and `fail`. Any
+ * `fail` → 503 with the same body shape. The db child takes a DbSlots slot like any connection (P61).
  */
 final class HealthController
 {
@@ -24,78 +20,65 @@ final class HealthController
         return self::json(['status' => 'ok'], 200);
     }
 
-    public function ready(DbSlots $slots): Response
+    public function ready(): Response
     {
         $timeout = max(0.1, (int) config('agrotrace.health_timeout_ms', 2000) / 1000);
-        $checks = [
-            'db' => self::probe('db', function () use ($slots, $timeout) {
-                $slots->acquire($timeout);
-                DB::select('SELECT 1');
-            }),
-            'redis' => self::probe('redis', fn () => Redis::connection()->ping()),
-            'rabbitmq' => self::probe('rabbitmq', fn () => self::rabbit($timeout)),
-            's3' => self::probe('s3', fn () => self::s3($timeout)),
-        ];
+        $checks = self::runConcurrently(Probes::CHECKS, $timeout);
+        foreach ($checks as $name => $status) {
+            if ($status === 'fail') {
+                Log::warning('readiness check failed', ['check' => $name]);
+            }
+        }
         $ok = ! in_array('fail', $checks, true);
 
         return self::json(['status' => $ok ? 'ok' : 'fail', 'checks' => $checks], $ok ? 200 : 503);
+    }
+
+    /**
+     * @param  list<string>  $names
+     * @return array<string, 'ok'|'fail'>
+     */
+    public static function runConcurrently(array $names, float $timeout): array
+    {
+        $deadline = microtime(true) + $timeout;
+        $procs = [];
+        $result = [];
+        foreach ($names as $name) {
+            $result[$name] = 'fail';
+            $p = proc_open(
+                ['php', base_path('artisan'), 'agrotrace:probe', $name],
+                [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
+                $pipes,
+                base_path(),
+            );
+            if (is_resource($p)) {
+                $procs[$name] = $p;
+            }
+        }
+        while ($procs !== [] && microtime(true) < $deadline) {
+            foreach ($procs as $name => $p) {
+                $status = proc_get_status($p);
+                if (! $status['running']) {
+                    $result[$name] = $status['exitcode'] === 0 ? 'ok' : 'fail';
+                    proc_close($p);
+                    unset($procs[$name]);
+                }
+            }
+            if ($procs !== []) {
+                usleep(5_000);
+            }
+        }
+        foreach ($procs as $p) {
+            proc_terminate($p, 9);
+            proc_close($p);
+        }
+
+        return $result;
     }
 
     /** @param  array<string, mixed>  $body */
     private static function json(array $body, int $status): Response
     {
         return new Response(Json::encode(Json::obj($body)), $status, ['Content-Type' => 'application/json; charset=utf-8']);
-    }
-
-    private static function probe(string $name, callable $check): string
-    {
-        try {
-            $check();
-
-            return 'ok';
-        } catch (Throwable $e) {
-            Log::warning('readiness check failed', ['check' => $name, 'error' => $e->getMessage()]);
-
-            return 'fail';
-        }
-    }
-
-    private static function rabbit(float $timeout): void
-    {
-        $url = parse_url((string) config('agrotrace.rabbitmq_url'));
-        $vhost = isset($url['path']) && $url['path'] !== '/' && $url['path'] !== '' ? rawurldecode(substr($url['path'], 1)) : '/';
-        $conn = new AMQPStreamConnection(
-            $url['host'] ?? 'rabbitmq',
-            $url['port'] ?? 5672,
-            rawurldecode($url['user'] ?? 'guest'),
-            rawurldecode($url['pass'] ?? 'guest'),
-            $vhost,
-            connection_timeout: $timeout,
-            read_write_timeout: $timeout,
-        );
-        try {
-            $channel = $conn->channel();
-            $channel->exchange_declare((string) config('agrotrace.exchange'), 'topic', true);
-            $channel->close();
-        } finally {
-            $conn->close();
-        }
-    }
-
-    private static function s3(float $timeout): void
-    {
-        $s3 = new S3Client([
-            'version' => 'latest',
-            'region' => config('agrotrace.s3.region'),
-            'endpoint' => config('agrotrace.s3.endpoint'),
-            'use_path_style_endpoint' => true,
-            'credentials' => ['key' => config('agrotrace.s3.key'), 'secret' => config('agrotrace.s3.secret')],
-            // P4: MinIO and the AWS SDK's default checksums.
-            'request_checksum_calculation' => 'when_required',
-            'response_checksum_validation' => 'when_required',
-            'retries' => 0,
-            'http' => ['connect_timeout' => $timeout, 'timeout' => $timeout],
-        ]);
-        $s3->headBucket(['Bucket' => config('agrotrace.s3.bucket')]);
     }
 }
