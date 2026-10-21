@@ -54,6 +54,9 @@ describe('queue events', () => {
     expect(d).toMatch(/re-scheduled with a delay \(P56/);
     expect(d).toMatch(/`agrotrace\.\{backend\}\.jobs\.delay`/);
     expect(d).toMatch(/NEVER returned with basic\.nack requeue=true/);
+    // Final re-review m1: an unroutable copy (basic.return) is a failure, never acknowledged.
+    expect(d).toMatch(/published with `mandatory` = true/);
+    expect(d).toMatch(/basic\.return/);
     const defs = JSON.parse(
       readFileSync(new URL('../../infra/rabbitmq/definitions.json', import.meta.url), 'utf8'),
     );
