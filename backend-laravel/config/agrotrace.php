@@ -30,6 +30,36 @@ return [
         'region' => env('S3_REGION', 'us-east-1'),
     ],
     'health_timeout_ms' => (int) env('HEALTH_TIMEOUT_MS', 2000),
+    // Access tokens and signed file URLs (R28, R88 M2, P12): one secret shared by the three backends.
+    'jwt_secret' => (string) env('JWT_SECRET', ''),
+    // Links in letters (R82): `${PUBLIC_BASE_URL}/password/reset/{token}`, `${PUBLIC_BASE_URL}/invite/{token}`.
+    'public_base_url' => rtrim((string) env('PUBLIC_BASE_URL', 'http://localhost'), '/'),
+    // P10: {"<scope>": <limit>} replacing limits of contracts/rules/rate-limits.json (the api-test profile only).
+    'rate_limit_overrides' => env('RATE_LIMIT_OVERRIDES'),
+    // Mail (spec 8.9): unset SMTP_HOST → mail is not configured (letters are logged as not delivered).
+    'smtp' => [
+        'host' => env('SMTP_HOST'),
+        'port' => (int) env('SMTP_PORT', 1025),
+        'from' => env('SMTP_FROM', 'AgroTrace <noreply@agrotrace.local>'),
+    ],
+    // DaData findById/party (FR-IAM-01): unset key → registration goes to MANUAL_CHECK without calling it.
+    'dadata' => [
+        'key' => env('DADATA_API_KEY'),
+        'url' => env('DADATA_URL', 'https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party'),
+        'timeout_ms' => (int) env('DADATA_TIMEOUT_MS', 3000),
+    ],
+    // Telegram (FR-NOTIF-02): unset token → createTelegramCode is 503 EXTERNAL_UNAVAILABLE {service: telegram}.
+    'telegram' => [
+        'token' => env('TELEGRAM_BOT_TOKEN'),
+        'username' => env('TELEGRAM_BOT_USERNAME', 'agrotrace_bot'),
+    ],
+    // packages/i18n/locales/ru.json (the `mail.*` templates): a copy in the image, the repository's file in php-tools.
+    'i18n_path' => env('I18N_PATH'),
+    // L6: the sandbox lanes (flock slot files per container) and the PHP CLI that runs resources/sandbox/*.php.
+    'sandbox' => [
+        'dir' => env('SANDBOX_DIR', '/tmp/agrotrace-lanes'),
+        'php' => env('SANDBOX_PHP', 'php'),
+    ],
     // The bundled contract and swagger-ui-dist (Dockerfile stage `contract`); unset → resources/ of the image, then the
     // repository's contracts/dist/openapi.json (`./at.sh pnpm --filter @agrotrace/contracts bundle`).
     'contract_path' => env('CONTRACT_PATH'),

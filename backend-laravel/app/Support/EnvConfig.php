@@ -65,6 +65,14 @@ final class EnvConfig
             $p[] = 'LOG_LEVEL: must be a PSR-3 level (debug, info, warning, error, …)';
         }
         self::rateLimitOverrides($p, $get('RATE_LIMIT_OVERRIDES'));
+        $bot = $get('TELEGRAM_BOT_USERNAME');
+        if ($bot !== null && $bot !== '' && preg_match('/^[A-Za-z0-9_]{5,32}$/D', $bot) !== 1) {
+            $p[] = 'TELEGRAM_BOT_USERNAME: must be a Telegram username without @ (5-32 of A-Z a-z 0-9 _)';
+        }
+        $smtpPort = $get('SMTP_PORT');
+        if ($smtpPort !== null && $smtpPort !== '') {
+            self::int($p, 'SMTP_PORT', $smtpPort, 1025, 1, 65535);
+        }
 
         return $p;
     }

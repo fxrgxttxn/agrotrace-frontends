@@ -60,6 +60,8 @@ COPY --from=vendor /app /app
 COPY --from=contract /out/openapi.json /app/resources/contract/openapi.json
 COPY --from=contract /out/swagger /app/resources/swagger/dist
 COPY contracts/rules /app/resources/contract/rules
+# The `mail.*` templates (and the notification texts, Task 12) of packages/i18n (App\Infrastructure\I18n\Messages).
+COPY packages/i18n/locales/ru.json /app/resources/i18n/ru.json
 # An empty .env: every setting comes from the environment (compose `env_file` + `environment`).
 RUN touch .env \
  && mkdir -p storage/framework/cache storage/framework/views storage/logs bootstrap/cache /data/caddy /config/caddy \

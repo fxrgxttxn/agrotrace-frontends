@@ -27,9 +27,15 @@ final class Ecma
 
     private const DOT = '[^\n\r\x{2028}\x{2029}]';
 
-    /** A JavaScript regular expression source → a PCRE pattern with delimiters and the `uD` flags. */
-    public static function compile(string $pattern): string
+    /**
+     * A JavaScript regular expression source → a PCRE pattern with delimiters and the `uD` flags; `$flags` may add the
+     * JavaScript `i` flag (case-insensitive matching, e.g. Zod's email and uuid checks).
+     */
+    public static function compile(string $pattern, string $flags = ''): string
     {
+        if ($flags !== '' && $flags !== 'i') {
+            throw new InvalidArgumentException("unsupported flags {$flags}");
+        }
         $out = '';
         $n = strlen($pattern);
         $inClass = false;
@@ -86,7 +92,7 @@ final class Ecma
             throw new InvalidArgumentException("unterminated character class in pattern {$pattern}");
         }
 
-        return '~'.$out.'~uD';
+        return '~'.$out.'~uD'.$flags;
     }
 
     /** `preg_match` of a compiled pattern as a boolean; a subject that is not valid UTF-8 never matches. */

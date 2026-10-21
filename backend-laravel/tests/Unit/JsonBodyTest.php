@@ -17,7 +17,7 @@ it('refuses a declared JSON body over 12 MiB with 413 and Connection: close', fu
 });
 
 it('leaves non-JSON bodies to their operation (multipart, octet-stream: no JSON limit)', function (string $type) {
-    $res = $this->raw('POST', '/api/v1/auth/login', ['Content-Type' => $type, 'Content-Length' => '13000000']);
+    $res = $this->raw('POST', '/api/v1/fields', ['Content-Type' => $type, 'Content-Length' => '13000000']);
     $res->assertStatus(404); // the operation has no route yet; above all, not the JSON 413
 })->with(['multipart/form-data; boundary=x', 'application/octet-stream', 'text/plain']);
 

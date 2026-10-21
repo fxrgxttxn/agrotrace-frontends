@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\ExactHeaders;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -19,6 +20,9 @@ final class BackendHeader
         $response->headers->set('X-Backend', 'laravel');
         if (! self::hasExplicitCacheControl($response)) {
             $response->headers->remove('Cache-Control');
+        } elseif (! $response->headers instanceof ExactHeaders) {
+            // Exactly the directives set (`no-store`, not Symfony's `no-store, private`).
+            $response->headers = ExactHeaders::from($response->headers);
         }
 
         return $response;
