@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ./at.sh laravel:test with the domain-coverage flag: the domain on the shared vectors, coverage of app/Domain at least 70 % (spec 14.1). -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache"
+         failOnWarning="true">
+    <testsuites>
+        <testsuite name="Domain">
+            <directory>tests/Unit/Domain</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app/Domain</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="AGROTRACE_PROCESS" value="test" force="true"/>
+    </php>
+</phpunit>
