@@ -118,7 +118,7 @@ prepare_test_db() {
     run $psql -d postgres -c "CREATE DATABASE ${db} OWNER agrotrace_owner;"
   fi
   run $psql -d "$db" -f //docker-entrypoint-initdb.d/01-roles.sql
-  run $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
+  run $DC run --rm --no-deps dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
 }
 
 # schema.sql must reflect exactly what the migration files produce — never the
@@ -152,7 +152,7 @@ dump_schema() (
   trap cleanup EXIT
 
   recreate_db "$ddb"
-  $DC run --rm dbmate --url "$url" --no-dump-schema --wait up
+  $DC run --rm --no-deps dbmate --url "$url" --no-dump-schema --wait up
 
   $DC exec -T postgres pg_dump -U agrotrace_owner --schema-only --no-owner "${ddb}" \
     | grep -vF '\restrict' \
@@ -285,7 +285,7 @@ up_combo() (
   fi
   infra_up
   run $DC up --build minio-init
-  run $DC up -d --build --wait $services gateway
+  run $DC up -d --build --no-deps --wait $services gateway
   port="$( (set -a; . ./.env; echo "${GATEWAY_PORT:-80}") )"
   echo "$front + $back: http://${front}-${back}.localhost:${port}/"
 )
@@ -297,7 +297,7 @@ up_backend() (
   services="$(backend_services "$back")"
   infra_up
   run $DC up --build minio-init
-  run $DC up -d --build --wait $services
+  run $DC up -d --build --no-deps --wait $services
   echo "$back up: http://api-${back}:8000/api/v1 inside the \`at\` network (through the gateway: ./at up <front> $back)"
 )
 
@@ -377,11 +377,11 @@ api_test() (
   fi
   procs="$(backend_services "$back")"
   # Own processes back to the plain configuration first, then the other backends' schedulers (SP1).
-  restore() { local rc=0; run $DC up -d --no-build --wait $procs || rc=$?; wake_schedulers; return "$rc"; }
+  restore() { local rc=0; run $DC up -d --no-build --no-deps --wait $procs || rc=$?; wake_schedulers; return "$rc"; }
   trap restore EXIT
   # `env` makes the zone visible in a dry run (tests/at); without --tz the profile defaults TZ to UTC.
   zone=(); if [ -n "$tz" ]; then zone=(env "API_TEST_TZ=$tz"); fi
-  run "${zone[@]}" $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait $procs
+  run "${zone[@]}" $DC -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --no-deps --wait $procs
   # A run without vitest arguments is a full run: the contract coverage gate (tests/api/contract-coverage.test.ts) must
   # then run and pass — it fails instead of skipping (review M2).
   if [ $# -eq 0 ]; then tests="$tests -e API_COVERAGE_REQUIRED=1"; fi
@@ -682,14 +682,14 @@ case "$cmd" in
       *) echo "usage: ./at up [all|infra|gateway|<express|django|laravel>|<react|angular|svelte> <express|django|laravel>]" >&2; exit 2 ;;
     esac ;;
   down)        $DC down "$@" ;;
-  db:migrate)  $DC run --rm dbmate --no-dump-schema --wait up && dump_schema ;;
+  db:migrate)  $DC up -d $NO_RECREATE --wait postgres && $DC run --rm --no-deps dbmate --no-dump-schema --wait up && dump_schema ;;
   # schema.sql always represents ALL migrations on disk (dump_schema builds it
   # from a throwaway DB that replays every migration, regardless of dev DB
   # state) — a rollback moves the dev DB backward, not schema.sql, so it must
   # not regenerate a file that would come out byte-identical to db:migrate's
   # anyway; only db:migrate does.
-  db:rollback) $DC run --rm dbmate --no-dump-schema rollback ;;
-  db:new)      $DC run --rm dbmate new "$1" ;;
+  db:rollback) $DC up -d $NO_RECREATE --wait postgres && $DC run --rm --no-deps dbmate --no-dump-schema rollback ;;
+  db:new)      $DC run --rm --no-deps dbmate new "$1" ;;
   db:test)
     set -a; . ./.env; set +a
     TDB=agrotrace_test
@@ -697,7 +697,7 @@ case "$cmd" in
     TEST_APP_DATABASE_URL="${APP_DATABASE_URL%/*}/${TDB}"
     $DC up -d $NO_RECREATE --wait postgres
     recreate_db "$TDB"
-    $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
+    $DC run --rm --no-deps dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
     $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" -e APP_DATABASE_URL="$TEST_APP_DATABASE_URL" tools \
       pnpm --filter @agrotrace/tests-db test ;;
   # Kysely types of the Express backend (backend-express/src/db/types.generated.ts) from a freshly migrated
@@ -708,7 +708,7 @@ case "$cmd" in
     TEST_DATABASE_URL="${DATABASE_URL%/*}/${TDB}?sslmode=disable"
     $DC up -d $NO_RECREATE --wait postgres
     recreate_db "$TDB"
-    $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
+    $DC run --rm --no-deps dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
     $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" tools \
       pnpm --filter @agrotrace/backend-express gen:db-types ;;
   ds:test)     $DC run --rm playwright npx --no-install playwright test "$@" ;;
@@ -745,9 +745,9 @@ case "$cmd" in
   reset)
     $DC up -d $NO_RECREATE --wait postgres
     while [ "$(applied_migrations)" != "0" ]; do
-      $DC run --rm dbmate --no-dump-schema rollback
+      $DC run --rm --no-deps dbmate --no-dump-schema rollback
     done
-    $DC run --rm dbmate --no-dump-schema --wait up
+    $DC run --rm --no-deps dbmate --no-dump-schema --wait up
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
   bench) "$(dirname "$0")/benchmark/bench.sh" "$@" ;; # no exec: the EXIT trap releases the stand lock
   # `lock:run <command…>`: any host command under the shared-stand lock (also the nested-call test hook).
