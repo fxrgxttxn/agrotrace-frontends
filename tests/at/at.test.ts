@@ -115,7 +115,7 @@ describe('./at wrapper (R88 M6)', () => {
         '+ docker compose up -d --no-recreate --wait postgres rabbitmq',
         '+ docker compose up -d --build --wait redis minio mailpit mercury-mock',
         '+ docker compose up --build minio-init',
-        `+ docker compose up -d --build --wait ${services} gateway`,
+        `+ docker compose up -d --build --no-deps --wait ${services} gateway`,
       ]);
       expect(r.out).toMatch(new RegExp(`http://${front}-${back}\\.localhost:\\d+/`));
     }
@@ -140,7 +140,7 @@ describe('./at wrapper (R88 M6)', () => {
       '+ docker compose up -d --no-recreate --wait postgres rabbitmq',
       '+ docker compose up -d --build --wait redis minio mailpit mercury-mock',
       '+ docker compose up --build minio-init',
-      '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
+      '+ docker compose up -d --build --no-deps --wait api-express worker-express scheduler-express',
     ]);
   });
 
@@ -150,13 +150,13 @@ describe('./at wrapper (R88 M6)', () => {
       .filter((l) => l.startsWith('+ '));
     // P10: the suite runs against the api-test overrides, then the plain backend is restored.
     expect(plain.slice(-3)).toEqual([
-      '+ docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait api-express worker-express scheduler-express',
+      '+ docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --no-deps --wait api-express worker-express scheduler-express',
       // Review M2: a run without vitest arguments is a full run — the coverage gate must run (fails, never skips).
       '+ docker compose run --rm -e API_URL=http://api-express:8000/api/v1 -e API_BACKEND=express -e API_COVERAGE_REQUIRED=1 tools pnpm --filter @agrotrace/tests-api test',
-      '+ docker compose up -d --no-build --wait api-express worker-express scheduler-express',
+      '+ docker compose up -d --no-build --no-deps --wait api-express worker-express scheduler-express',
     ]);
     expect(plain).toContain(
-      '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
+      '+ docker compose up -d --build --no-deps --wait api-express worker-express scheduler-express',
     );
     const r = sh(['./at', 'api:test', 'express', '--reset', 'health'], { AT_DRY_RUN: '1' });
     const cmds = r.out.split('\n').filter((l) => l.startsWith('+ '));
@@ -176,7 +176,7 @@ describe('./at wrapper (R88 M6)', () => {
     const full = dry(['api:test', 'express', '--reset']);
     const iStop = full.indexOf('+ docker stop agrotrace-beat-django-1');
     expect(iStop).toBeGreaterThan(
-      full.indexOf('+ docker compose up -d --build --wait api-express worker-express scheduler-express'),
+      full.indexOf('+ docker compose up -d --build --no-deps --wait api-express worker-express scheduler-express'),
     );
     expect(iStop).toBeLessThan(full.findIndex((l) => /at\.sh reset$/.test(l)));
     expect(stops(full)).toEqual([
@@ -186,7 +186,7 @@ describe('./at wrapper (R88 M6)', () => {
       '+ docker start agrotrace-scheduler-laravel-1',
     ]);
     expect(full.slice(-3)).toEqual([
-      '+ docker compose up -d --no-build --wait api-express worker-express scheduler-express',
+      '+ docker compose up -d --no-build --no-deps --wait api-express worker-express scheduler-express',
       '+ docker start agrotrace-beat-django-1',
       '+ docker start agrotrace-scheduler-laravel-1',
     ]);
@@ -226,9 +226,9 @@ describe('./at wrapper (R88 M6)', () => {
       .out.split('\n')
       .filter((l) => l.startsWith('+ '));
     expect(cmds.slice(-3)).toEqual([
-      '+ env API_TEST_TZ=Europe/Moscow docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait api-express worker-express scheduler-express',
+      '+ env API_TEST_TZ=Europe/Moscow docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --no-deps --wait api-express worker-express scheduler-express',
       '+ docker compose run --rm -e API_URL=http://api-express:8000/api/v1 -e API_BACKEND=express tools pnpm --filter @agrotrace/tests-api test lab',
-      '+ docker compose up -d --no-build --wait api-express worker-express scheduler-express',
+      '+ docker compose up -d --no-build --no-deps --wait api-express worker-express scheduler-express',
     ]);
     // The profile passes the zone to all three processes of every backend it holds (UTC without --tz); SP3: counted
     // per backend, so each port's block adds its own three without touching this assertion.
@@ -271,9 +271,9 @@ describe('./at wrapper (R88 M6)', () => {
       .out.split('\n')
       .filter((l) => l.startsWith('+ '));
     expect(pair).toContain(
-      '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
+      '+ docker compose up -d --build --no-deps --wait api-express worker-express scheduler-express',
     );
-    expect(pair).toContain('+ docker compose up -d --build --wait api-django worker-django beat-django');
+    expect(pair).toContain('+ docker compose up -d --build --no-deps --wait api-django worker-django beat-django');
     expect(pair.at(-1)).toBe(
       '+ docker compose run --rm -e CROSS_API_URLS=http://api-express:8000/api/v1,http://api-django:8000/api/v1 tools pnpm --filter @agrotrace/tests-cross test session',
     );
@@ -292,7 +292,7 @@ describe('./at wrapper (R88 M6)', () => {
       '+ docker compose run --rm -e DOCS_BACKEND=express playwright npx --no-install playwright test -c api-docs/playwright.config.ts',
     ]);
     expect(cmds).toContain(
-      '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
+      '+ docker compose up -d --build --no-deps --wait api-express worker-express scheduler-express',
     );
     expect(testAll()).toMatch(/"\$0" gw:test\n[\s\S]*"\$0" docs:test express\n/);
   });
@@ -313,7 +313,7 @@ describe('./at wrapper (R88 M6)', () => {
         `${psql} -d ${db} -f //docker-entrypoint-initdb.d/01-roles.sql`,
         expect.stringMatching(
           new RegExp(
-            `^\\+ docker compose run --rm dbmate --url postgres://\\S+/${db}\\?sslmode=disable --no-dump-schema --wait up$`,
+            `^\\+ docker compose run --rm --no-deps dbmate --url postgres://\\S+/${db}\\?sslmode=disable --no-dump-schema --wait up$`,
           ),
         ),
       ]);
@@ -375,6 +375,9 @@ describe('./at wrapper (R88 M6)', () => {
     expect(lines({ AT_RECREATE: '1' })[0]).toBe('+ docker compose up -d --wait postgres rabbitmq');
     const at = readFileSync(`${REPO}at.sh`, 'utf8');
     expect(at).not.toMatch(/up -d (--build )?--wait (\$INFRA_SERVICES|postgres)/);
+    // Backend services depend on postgres/rabbitmq: starting them with their deps would recreate those.
+    expect(at).not.toMatch(/up -d --(no-)?build --wait \$(services|procs)/);
+    expect(at).not.toMatch(/run --rm dbmate/);
   });
 });
 
