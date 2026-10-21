@@ -79,3 +79,46 @@ it('applies the EXIF orientation of a JPEG (6: rotate 90° clockwise)', function
     expect(webpDims(Images::variants($oriented, 'image/jpeg')[480]['bytes']))->toBe(['image/webp', 20, 40]);
     expect(Images::exifOrientation($jpeg))->toBe(1);
 });
+
+/** A 40×20 JPEG of four quadrants (TL red, TR green, BL blue, BR white) with EXIF orientation $o. */
+function quadrantJpeg(int $o): string
+{
+    $img = imagecreatetruecolor(40, 20);
+    imagefilledrectangle($img, 0, 0, 19, 9, imagecolorallocate($img, 255, 0, 0));
+    imagefilledrectangle($img, 20, 0, 39, 9, imagecolorallocate($img, 0, 255, 0));
+    imagefilledrectangle($img, 0, 10, 19, 19, imagecolorallocate($img, 0, 0, 255));
+    imagefilledrectangle($img, 20, 10, 39, 19, imagecolorallocate($img, 255, 255, 255));
+    ob_start();
+    imagejpeg($img, null, 95);
+    $jpeg = (string) ob_get_clean();
+    $tiff = 'MM'.pack('n', 42).pack('N', 8).pack('n', 1).pack('nnN', 0x0112, 3, 1).pack('nn', $o, 0).pack('N', 0);
+    $app1 = "\xFF\xE1".pack('n', 2 + 6 + strlen($tiff))."Exif\0\0".$tiff;
+
+    return substr($jpeg, 0, 2).$app1.substr($jpeg, 2);
+}
+
+/** "WxH TL TR BL BR" of a WebP, each corner named R/G/B/W by its dominant channels (2 px in from the edge). */
+function corners(string $webp): string
+{
+    $img = imagecreatefromstring($webp);
+    $w = imagesx($img);
+    $h = imagesy($img);
+    $name = function (int $x, int $y) use ($img): string {
+        $c = imagecolorat($img, $x, $y);
+        [$r, $g] = [($c >> 16) & 0xFF, ($c >> 8) & 0xFF];
+
+        return $r > 128 ? ($g > 128 ? 'W' : 'R') : ($g > 128 ? 'G' : 'B');
+    };
+
+    return "{$w}x{$h} ".$name(2, 2).$name($w - 3, 2).$name(2, $h - 3).$name($w - 3, $h - 3);
+}
+
+// Expected corners taken once from sharp's `.rotate()` (the Express pipeline) on these same JPEGs (fix round 1, I1).
+dataset('exif orientations', [
+    [1, '40x20 RGBW'], [2, '40x20 GRWB'], [3, '40x20 WBGR'], [4, '40x20 BWRG'],
+    [5, '20x40 RBGW'], [6, '20x40 BRWG'], [7, '20x40 WGBR'], [8, '20x40 GWRB'],
+]);
+
+it('orients every EXIF value 1–8 exactly as sharp does', function (int $o, string $expected) {
+    expect(corners(Images::variants(quadrantJpeg($o), 'image/jpeg')[480]['bytes']))->toBe($expected);
+})->with('exif orientations');

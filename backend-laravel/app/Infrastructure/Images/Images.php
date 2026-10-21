@@ -255,8 +255,10 @@ final class Images
         } elseif ($o === 4) {
             imageflip($img, IMG_FLIP_VERTICAL);
         }
+        // 5 (transpose) = mirror, then 90° counter-clockwise; 7 (transverse) = mirror, then 90° clockwise — GD's
+        // imagerotate turns counter-clockwise for a positive angle (pinned against sharp in ImagesTest).
         if ($o === 5 || $o === 7) {
-            $r = imagerotate($img, $o === 5 ? -90 : 90, 0);
+            $r = imagerotate($img, $o === 5 ? 90 : -90, 0);
             if ($r instanceof GdImage) {
                 imagedestroy($img);
                 $img = $r;
