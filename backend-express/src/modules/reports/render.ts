@@ -35,8 +35,21 @@ export async function renderInWorker(job: RenderJob, signal?: AbortSignal): Prom
   const out = await queue.run(job, signal);
   if (!out.ok) {
     if (out.reason === 'aborted') throw new ReportAborted();
-    throw new AppProblem(503, 'BACKEND_UNAVAILABLE', { params: { reason: 'report-busy' } });
+    throw reportBusy();
   }
   if (out.value === null) throw new Error('report rendering failed');
   return Buffer.from(out.value);
 }
+
+/**
+ * Admission (N3): true when the queue already holds a running job and REPORT_QUEUE_WAITING waiting ones — checked
+ * before the snapshot and the sheet build, so refused requests cost no database work. A burst can still pass the check
+ * together; the queue itself stays the hard bound.
+ */
+export function reportQueueFull(): boolean {
+  return queue !== null && queue.size >= 1 + REPORT_QUEUE_WAITING;
+}
+
+/** The 503 of a full queue (also used before the snapshot). */
+export const reportBusy = () =>
+  new AppProblem(503, 'BACKEND_UNAVAILABLE', { params: { reason: 'report-busy' } });

@@ -189,18 +189,30 @@ describe('GET /events/stream', () => {
     await s.next('unread');
     // Sanctioned test-stand action (P48): every implementation's LISTEN session is the one whose statement is
     // `LISTEN notifications` (Express probes with it too); terminating it is a DB restart in small.
-    const killed = await fixtureWrite<{ ok: boolean }>(
-      `SELECT pg_terminate_backend(pid) AS ok FROM pg_stat_activity
-        WHERE datname = current_database() AND query = 'LISTEN notifications' AND pid <> pg_backend_pid()`,
+    // In ONE statement (N4): the session is terminated — `pg_terminate_backend(pid, 5000)` waits until it is gone — and
+    // only then a row is inserted, so its NOTIFY reaches no listener and only the reconnect resync can deliver it.
+    const [row] = await fixtureWrite<{ id: string; killed: number }>(
+      `WITH killed AS (
+         SELECT pg_terminate_backend(pid, 5000) AS ok FROM pg_stat_activity
+          WHERE datname = current_database() AND query = 'LISTEN notifications' AND pid <> pg_backend_pid())
+       INSERT INTO notifications (user_id, type, payload, channel, delivery_status)
+       SELECT $1, 'COMPLAINT', $2, 'IN_APP', 'DELIVERED' FROM (SELECT count(*) AS n FROM killed) k WHERE k.n > 0
+       RETURNING id, (SELECT count(*)::int FROM killed) AS killed`,
+      [
+        receiver.userId,
+        JSON.stringify({
+          complaintId: randomUUID(),
+          batchId: randomUUID(),
+          publicCode: 'AT-2026-999998',
+          productName: 'Разрыв LISTEN',
+        }),
+      ],
     );
-    expect(killed.length).toBeGreaterThan(0);
-    // A notification created while (or right after) the session is down still arrives — and nothing else.
-    const wb = await incoming();
+    expect(row, 'a LISTEN notifications session was terminated').toBeDefined();
     const n = await s.next('notification', 30000);
-    expect(n.data.payload.waybillId).toBe(wb.id);
+    expect(n.data.id).toBe(row!.id);
     await new Promise((r) => setTimeout(r, 3000));
-    const notes = s.events.filter((e) => e.event === 'notification');
-    expect(notes.map((e) => e.data.payload.waybillId)).toEqual([wb.id]);
+    expect(s.events.filter((e) => e.event === 'notification').map((e) => e.data.id)).toEqual([row!.id]);
     // The stream still runs live after the reconnect.
     const wb2 = await incoming();
     expect((await s.next('notification', 15000)).data.payload.waybillId).toBe(wb2.id);

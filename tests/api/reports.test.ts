@@ -527,7 +527,9 @@ describe('downloadReport: contents', () => {
                                                           WHERE lr.lab_test_id = lt.id AND lr.is_exceeded))
         ORDER BY 1 DESC LIMIT 1`,
     );
-    const day = withFail?.day ?? (await quietDay('lab_tests', 'created_at', 'deleted_at IS NULL'));
+    // The seed has one (a FAIL with exceeded indicators alone on its day); without it the check must not pass silently.
+    expect(withFail, 'a past day under the row limit with a FAIL that has exceeded indicators').toBeDefined();
+    const day = withFail!.day;
     let all: ReadSheet[] = [];
     await stable(
       () => expected(null, day),
@@ -556,7 +558,7 @@ describe('downloadReport: contents', () => {
       'Просрочен',
       'Превышенные показатели',
     ]);
-    if (withFail) expect(all[0]!.rows.some((x) => x[5] === 'FAIL' && typeof x[11] === 'string')).toBe(true);
+    expect(all[0]!.rows.some((x) => x[5] === 'FAIL' && typeof x[11] === 'string')).toBe(true);
     // A laboratory head: its own tests only.
     const own = await quietDay('lab_tests', 'created_at', 'deleted_at IS NULL AND lab_org_id = $1', [
       lab.orgId,

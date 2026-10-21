@@ -3,16 +3,17 @@
  * (path enum, 400) → access by `x-report-access` (read from the contract): `roles` — the whole system; `headRoles` — an
  * organization head (`is_org_admin`) of such a role, own organization only; neither — 403 FORBIDDEN without params →
  * parameters in one 400 (format required; window as the dashboard's; `recall`: from/to notAllowed, id required;
- * `org`: id required for full access, a head may omit it or pass its own; other types: id notAllowed) → 404 (recall or
- * organization missing/deleted) → contents in one READ ONLY REPEATABLE READ snapshot → more than 50 000 data rows in
- * a sheet → 400 `errors.type: [validation.report.tooManyRows]` → the file (not stored).
+ * `org`: id required for full access, a head may omit it or pass its own; other types: id notAllowed) → admission
+ * (a full render queue → 503 report-busy, before any data is read) → in one READ ONLY REPEATABLE READ snapshot: 404
+ * (recall or organization missing/deleted), the contents → more than REPORT_MAX_ROWS data rows in a sheet → 400
+ * `errors.type: [validation.report.tooManyRows]` → the file (not stored).
  */
 import type { Request } from 'express';
 import type { Container } from '../../container.js';
 import { operationById } from '../../contract.js';
 import { QueryReader } from '../../http/params.js';
 import { AppProblem, validationProblem } from '../../http/problem.js';
-import { renderInWorker } from './render.js';
+import { renderInWorker, reportBusy, reportQueueFull } from './render.js';
 import type { Principal } from '../../security/jwt.js';
 import { resolveWindow, snapshot, tooLong, type Window } from '../analytics/window.js';
 import {
@@ -83,6 +84,7 @@ export function reportsService(c: Container) {
         } else q.notAllowed('id');
       }
       q.done();
+      if (reportQueueFull()) throw reportBusy();
 
       const { report, at } = await snapshot(c.db, async (tx, now) => {
         const w: Window = resolveWindow(range.from, range.to, now.toISOString().slice(0, 10));

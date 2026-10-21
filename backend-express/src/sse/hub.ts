@@ -139,6 +139,9 @@ export function createSseHub(deps: {
   let reconnectTimer: NodeJS.Timeout | null = null;
   let probeTimer: NodeJS.Timeout | null = null;
   let queue: Promise<void> = Promise.resolve();
+  /** Resyncs so far and the loss time of the latest (a connecting stream compares them, N1). */
+  let resyncs = 0;
+  let lastLoss = new Date(0);
 
   const userStreams = (userId: string) => [...(streams.get(userId) ?? [])].filter((s) => !s.closed);
   const forget = (s: Stream) => {
@@ -177,18 +180,29 @@ export function createSseHub(deps: {
   }
 
   /** After a LISTEN reconnect: rows above each stream's watermark (+ late commits since the loss), then `unread`. */
+  /** The rows one stream may have missed while the session was down (see the module header). */
+  async function catchUp(s: Stream, since: Date): Promise<void> {
+    const rows = await sql<Row>`
+      SELECT id, seq, type, payload, is_read, created_at FROM notifications
+       WHERE user_id = ${s.userId} AND channel = 'IN_APP'
+         AND (seq > ${s.watermark.toString()}::bigint
+              OR (seq < ${s.watermark.toString()}::bigint AND NOT is_read
+                  AND created_at >= ${since}::timestamptz - make_interval(secs => ${LATE_COMMIT_WINDOW_SEC})))
+       ORDER BY seq`.execute(db);
+    for (const r of rows.rows) s.send(notificationView(r));
+  }
+
+  /**
+   * After a LISTEN reconnect. A stream still in its connect sequence is skipped here and catches up itself at the end
+   * of that sequence (`resyncs` changed meanwhile — N1).
+   */
   async function resync(since: Date): Promise<void> {
+    resyncs++;
+    lastLoss = since;
     for (const [userId, set] of [...streams]) {
       for (const s of [...set]) {
         if (s.closed || s.buffer) continue;
-        const rows = await sql<Row>`
-          SELECT id, seq, type, payload, is_read, created_at FROM notifications
-           WHERE user_id = ${userId} AND channel = 'IN_APP'
-             AND (seq > ${s.watermark.toString()}::bigint
-                  OR (seq < ${s.watermark.toString()}::bigint AND NOT is_read
-                      AND created_at >= ${since}::timestamptz - make_interval(secs => ${LATE_COMMIT_WINDOW_SEC})))
-           ORDER BY seq`.execute(db);
-        for (const r of rows.rows) s.send(notificationView(r));
+        await catchUp(s, since);
       }
       const count = await unreadCount(db, userId);
       for (const s of userStreams(userId)) s.unread(count);
@@ -297,6 +311,7 @@ export function createSseHub(deps: {
           Math.min(2 ** 31 - 1, Math.max(0, exp * 1000 - Date.now())),
         ),
       );
+      const seen = resyncs;
       try {
         const top = await sql<{ max: string }>`
           SELECT coalesce(max(seq), 0)::text AS max FROM notifications
@@ -321,6 +336,8 @@ export function createSseHub(deps: {
       } finally {
         s.flush();
       }
+      // A reconnect resync ran while this stream was connecting (it was skipped there): catch up now.
+      if (resyncs !== seen && !s.closed) await catchUp(s, lastLoss);
       if (s.closed) return;
       s.unread(await unreadCount(db, userId));
     },

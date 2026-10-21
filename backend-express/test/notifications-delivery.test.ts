@@ -109,6 +109,21 @@ describe('sendRow', () => {
 });
 
 describe('sendRow: configuration and a taken-over budget (P49)', () => {
+  it('a claim lost before an attempt stops the sender: nothing more is sent, nothing is stored (null)', async () => {
+    const down = vi.fn().mockRejectedValue(new Error('down'));
+    let renewals = 0;
+    const out = await sendRow(row(), {
+      mailer: { configured: true, sendOnce: down },
+      telegram: offTelegram,
+      logger: memoryLogger().logger,
+      sleep: async () => undefined,
+      beforeAttempt: async () => ++renewals === 1, // ours for the first attempt only
+    });
+    expect(out).toBeNull();
+    expect(down).toHaveBeenCalledTimes(1);
+    expect(renewals).toBe(2);
+  });
+
   it('EMAIL without SMTP_HOST → NOT_CONFIGURED without an attempt', async () => {
     const sendOnce = vi.fn();
     expect(
