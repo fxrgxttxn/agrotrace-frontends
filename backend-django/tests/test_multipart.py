@@ -69,6 +69,8 @@ def test_a_broken_body_is_root_invalid():
 
 def test_path_segments_are_dropped_and_quoted_strings_unescaped():
     assert read_single_file(req(part("file", b"a", raw_filename=r'"a/b\\c.png"')), max_bytes=10).name == "c.png"
+    for dots in ("..", ".", "a/..", "a\\\\."):  # busboy basename(): `.` / `..` → ''
+        assert read_single_file(req(part("file", b"a", raw_filename=f'"{dots}"')), max_bytes=10).name == ""
     assert read_single_file(req(part("file", b"a", raw_filename=r'"say \"cheese\".png"')), max_bytes=10).name == (
         'say "cheese".png')
     utf8 = part("file", b"a", filename="x").replace(b'filename="x"', 'filename="Моё фото.png"'.encode())

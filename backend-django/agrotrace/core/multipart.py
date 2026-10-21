@@ -188,7 +188,9 @@ def _parts(body: bytes, boundary: bytes) -> list[_Part]:
 
 
 def _base_name(filename: str) -> str:
-    return re.split(r"[\\/]", filename)[-1]
+    """busboy `basename()` (the part after the last `/` or `\\`; `.` and `..` become empty), as Express keeps it."""
+    base = re.split(r"[\\/]", filename)[-1]
+    return "" if base in (".", "..") else base
 
 
 def read_single_file(request, *, max_bytes: int) -> Upload:
