@@ -112,7 +112,7 @@ prepare_test_db() {
   set -a; . ./.env; set +a
   export TEST_DATABASE_URL="${DATABASE_URL%/*}/${db}?sslmode=disable"
   export TEST_APP_DATABASE_URL="${APP_DATABASE_URL%/*}/${db}"
-  run $DC up -d --wait postgres
+  run $DC up -d $NO_RECREATE --wait postgres
   if [ "${AT_DRY_RUN:-}" = "1" ] \
     || [ "$($psql -d postgres -tA -c "SELECT 1 FROM pg_database WHERE datname = '${db}'" | tr -d '\r')" != "1" ]; then
     run $psql -d postgres -c "CREATE DATABASE ${db} OWNER agrotrace_owner;"
@@ -242,6 +242,16 @@ gw_test() (
 )
 
 INFRA_SERVICES="postgres redis rabbitmq minio mailpit mercury-mock"
+# postgres and rabbitmq bind-mount files of the checkout, so from another worktree their config hash differs and a
+# plain `up` recreates them, dropping every backend's connections. They are only created when missing;
+# AT_RECREATE=1 recreates them to apply a changed infra/postgres/init or infra/rabbitmq file.
+INFRA_BOUND="postgres rabbitmq"
+INFRA_REST="redis minio mailpit mercury-mock"
+NO_RECREATE="--no-recreate"
+[ "${AT_RECREATE:-}" = "1" ] && NO_RECREATE=""
+infra_up() {
+  run $DC up -d $NO_RECREATE --wait $INFRA_BOUND && run $DC up -d --build --wait $INFRA_REST
+}
 
 # AT_DRY_RUN=1 prints the docker commands of `up` instead of running them (tests/at).
 run() {
@@ -273,7 +283,7 @@ up_combo() (
       exit 1
     fi
   fi
-  run $DC up -d --build --wait $INFRA_SERVICES
+  infra_up
   run $DC up --build minio-init
   run $DC up -d --build --wait $services gateway
   port="$( (set -a; . ./.env; echo "${GATEWAY_PORT:-80}") )"
@@ -285,7 +295,7 @@ up_backend() (
   set -euo pipefail
   back="$1"
   services="$(backend_services "$back")"
-  run $DC up -d --build --wait $INFRA_SERVICES
+  infra_up
   run $DC up --build minio-init
   run $DC up -d --build --wait $services
   echo "$back up: http://api-${back}:8000/api/v1 inside the \`at\` network (through the gateway: ./at up <front> $back)"
@@ -661,7 +671,7 @@ case "$cmd" in
   # frontend is static and served by the gateway at http://<front>-<back>.localhost:<GATEWAY_PORT>/.
   up)
     case "${1:-all}" in
-      infra)   run $DC up -d --build --wait $INFRA_SERVICES && run $DC up --build minio-init ;;
+      infra)   infra_up && run $DC up --build minio-init ;;
       gateway)
         run $DC up -d --build --wait gateway
         set -a; . ./.env; set +a
@@ -685,7 +695,7 @@ case "$cmd" in
     TDB=agrotrace_test
     TEST_DATABASE_URL="${DATABASE_URL%/*}/${TDB}?sslmode=disable"
     TEST_APP_DATABASE_URL="${APP_DATABASE_URL%/*}/${TDB}"
-    $DC up -d --wait postgres
+    $DC up -d $NO_RECREATE --wait postgres
     recreate_db "$TDB"
     $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
     $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" -e APP_DATABASE_URL="$TEST_APP_DATABASE_URL" tools \
@@ -696,7 +706,7 @@ case "$cmd" in
     set -a; . ./.env; set +a
     TDB=agrotrace_test
     TEST_DATABASE_URL="${DATABASE_URL%/*}/${TDB}?sslmode=disable"
-    $DC up -d --wait postgres
+    $DC up -d $NO_RECREATE --wait postgres
     recreate_db "$TDB"
     $DC run --rm dbmate --url "$TEST_DATABASE_URL" --no-dump-schema --wait up
     $DC run --rm -e DATABASE_URL="$TEST_DATABASE_URL" tools \
@@ -733,7 +743,7 @@ case "$cmd" in
   seed:test)   $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed test:db "$@" ;;
   # Rolls the dev DB back to zero migrations, migrates up again and seeds.
   reset)
-    $DC up -d --wait postgres
+    $DC up -d $NO_RECREATE --wait postgres
     while [ "$(applied_migrations)" != "0" ]; do
       $DC run --rm dbmate --no-dump-schema rollback
     done
