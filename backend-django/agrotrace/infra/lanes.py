@@ -9,6 +9,8 @@ backend-express/src/infra/worker-queue.ts: a child-process engine behind a bound
   of the engine the job itself runs on (its clock pauses while a new child starts — a respawn is charged to nobody);
 - a missed deadline (cause `timeout`) or a crash of the engine (cause `crashed`) terminates the engine's process — the
   work stops — and the next engine starts after a back-off (100 ms doubling to 2 s, reset after a completed job);
+  with `max_running > 1` the jobs running beside it on that engine are lost too through no fault of their own: they
+  get cause `evicted` (callers treat it as an overload, never as a bad input);
 - a client that goes away (`cancelled()`, by default `core.context.client_gone`, D-I7): a WAITING job is removed and
   never executed (`aborted`); a running one runs to completion and its result is dropped.
 """
@@ -19,7 +21,7 @@ import multiprocessing
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import CancelledError, ProcessPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
@@ -38,8 +40,9 @@ class Outcome:
     ok: bool
     value: Any = None
     reason: Literal["too-complex", "aborted"] | None = None
-    #: Why `too-complex`: the lane was full (`busy`), the deadline passed (`timeout`) or the engine died (`crashed`).
-    cause: Literal["busy", "timeout", "crashed"] | None = None
+    #: Why `too-complex`: the lane was full (`busy`), the deadline passed (`timeout`), this job's engine died under it
+    #: (`crashed`), or the engine was discarded because of ANOTHER job running beside this one (`evicted`).
+    cause: Literal["busy", "timeout", "crashed", "evicted"] | None = None
 
 
 def _limit_memory(memory_mb: int) -> None:  # pragma: no cover - runs in the child
@@ -100,17 +103,30 @@ class Lane:
 
     @staticmethod
     def _kill(ex: ProcessPoolExecutor) -> None:
-        for p in list(getattr(ex, "_processes", {}).values()):
-            p.terminate()
-        ex.shutdown(wait=False, cancel_futures=True)
+        """Terminates the engine's children. Tolerant of an engine that is already broken or shut down (its
+        `_processes` is then None) and of a child that is already gone — it may be discarded twice (review N6)."""
+        for p in list((getattr(ex, "_processes", None) or {}).values()):
+            try:
+                p.terminate()
+            except Exception:  # noqa: S110 - already exited
+                pass
+        try:
+            ex.shutdown(wait=False, cancel_futures=True)
+        except Exception:  # noqa: S110 - a broken executor may refuse a second shutdown
+            pass
 
     def _discard_engine(self, ex: ProcessPoolExecutor) -> None:
         with self._cv:
+            ex._agrotrace_discarded = True  # type: ignore[attr-defined]  # neighbours: `evicted`, not `crashed`
             if self._executor is ex:
                 self._executor = None
                 self._respawn_at = time.monotonic() + self._backoff
                 self._backoff = min(self._backoff * 2, BACKOFF_MAX_S)
         self._kill(ex)
+
+    @staticmethod
+    def _discarded(ex: ProcessPoolExecutor) -> bool:
+        return getattr(ex, "_agrotrace_discarded", False)
 
     @property
     def size(self) -> int:
@@ -150,7 +166,11 @@ class Lane:
             except FutureTimeout:
                 self._discard_engine(ex)
                 return Outcome(False, reason="too-complex", cause="timeout")
-            except (BrokenProcessPool, MemoryError):
+            except (BrokenProcessPool, CancelledError, RuntimeError, MemoryError):
+                # RuntimeError: submit() on an engine shut down meanwhile; CancelledError: queued on it when it was
+                # shut down. If another job already discarded this engine, this job is its innocent neighbour.
+                if self._discarded(ex):
+                    return Outcome(False, reason="too-complex", cause="evicted")
                 self._discard_engine(ex)
                 return Outcome(False, reason="too-complex", cause="crashed")
             with self._cv:

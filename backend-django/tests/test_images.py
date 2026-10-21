@@ -118,6 +118,7 @@ def test_a_crashed_decode_is_none_and_a_refusal_raises(monkeypatch):
 
     monkeypatch.setattr(images, "lane", lambda: FakeLane(Outcome(False, reason="too-complex", cause="crashed")))
     assert images.variants(b"x", "image/png", cancelled=lambda: False) is None
-    monkeypatch.setattr(images, "lane", lambda: FakeLane(Outcome(False, reason="too-complex", cause="busy")))
-    with pytest.raises(images.RasterBusy):
-        images.variants(b"x", "image/png", cancelled=lambda: False)
+    for cause in ("busy", "timeout", "evicted"):  # the neighbour of a missed deadline is an overload (503), not 415
+        monkeypatch.setattr(images, "lane", lambda c=cause: FakeLane(Outcome(False, reason="too-complex", cause=c)))
+        with pytest.raises(images.RasterBusy):
+            images.variants(b"x", "image/png", cancelled=lambda: False)

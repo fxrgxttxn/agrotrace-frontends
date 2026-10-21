@@ -74,3 +74,41 @@ def test_engine_start_up_is_not_charged_to_the_job():
     lane = Lane("cold", max_waiting=1, deadline_s=0.4, memory_mb=256)
     # A cold engine may take longer than 0.4 s to start; the job itself takes 0.2 s.
     assert lane.run(lane_jobs.slow, 0.2, cancelled=lambda: False).ok
+
+
+def test_the_neighbour_of_a_missed_deadline_gets_a_defined_outcome():
+    """Review N6: two jobs on one engine (max_running=2); A misses its deadline, so the engine is discarded under B.
+    B must come back as `evicted` (never an exception, never `crashed`), A as `timeout`; repeated for determinism,
+    and the lane serves again each time."""
+    lane = Lane("pair", max_waiting=4, deadline_s=1.0, memory_mb=256, max_running=2)
+    lane.run(lane_jobs.slow, 0, cancelled=lambda: False)  # warm both children
+    for _ in range(5):
+        out, errors = {}, []
+
+        def job(name, seconds, out=out, errors=errors):
+            try:
+                out[name] = lane.run(lane_jobs.slow, seconds, cancelled=lambda: False)
+            except Exception as e:  # noqa: BLE001 - the defect: an exception escaping run()
+                errors.append(e)
+
+        a = threading.Thread(target=job, args=("a", 5))
+        a.start()
+        time.sleep(0.5)
+        b = threading.Thread(target=job, args=("b", 1.0))  # still running when A's deadline kills the engine
+        b.start()
+        a.join(10)
+        b.join(10)
+        assert errors == []
+        assert (out["a"].reason, out["a"].cause) == ("too-complex", "timeout")
+        assert (out["b"].reason, out["b"].cause) == ("too-complex", "evicted")
+        assert lane.size == 0
+        assert lane.run(lane_jobs.slow, 0, cancelled=lambda: False).ok
+
+
+def test_kill_tolerates_an_engine_that_is_already_broken():
+    lane = Lane("twice", max_waiting=1, deadline_s=5, memory_mb=256)
+    ex, _ = lane._engine()
+    lane._discard_engine(ex)
+    ex._processes = None  # what a broken executor leaves behind
+    lane._discard_engine(ex)  # must not raise
+    assert lane.run(lane_jobs.slow, 0, cancelled=lambda: False).ok
