@@ -1842,7 +1842,11 @@ export interface paths {
          *     - `id` — для `recall` обязателен (id отзыва); для `org` — id организации: обязателен для INSPECTOR/ADMIN,
          *       руководитель может не передавать его или передать id своей организации (иной — `validation.id.notAllowed`);
          *       для остальных типов запрещён (`validation.id.notAllowed`). Отзыв или организация не существует (удалены) — 404;
-         *     - в любом листе больше 50 000 строк данных — `errors.type: [validation.report.tooManyRows]`.
+         *     - в любом листе больше 50 000 строк данных (`REPORT_MAX_ROWS`, описание API) — `errors.type: [validation.report.tooManyRows]`.
+         *
+         *     Формирование файла не блокирует обработку других запросов (отдельный поток или процесс, P52); очередь
+         *     формирования ограничена: переполнена или файл не сформирован за 120 с — 503 BACKEND_UNAVAILABLE
+         *     `{reason: "report-busy"}` (повторить позже).
          *
          *     Области данных: `batches` — INSPECTOR/ADMIN все неудалённые партии, руководитель — партии, у которых его
          *     организация создатель или держатель; окно — по дате производства (`harvestedAt`/`producedAt`, как `listBatches`).
@@ -1892,8 +1896,8 @@ export interface paths {
          *       `OrgDashboard.byStatus`. «Анализы»: Код партии | Продукт | Лаборатория | Заключение | Завершён (UTC) —
          *       анализы, завершённые в окне, по партиям, созданным организацией, а для LAB — выполненные ею; по `completedAt`.
          *       «Задачи отзыва»: Код партии | ID отзыва | Срок (UTC) | Статус | Подтверждена (UTC) — задачи организации,
-         *       созданные в окне; по `dueAt`. Во всех листах анализы удалённых партий и задачи удалённых отзывов или партий не
-         *       учитываются.
+         *       созданные в окне; по `dueAt`. В отчётах `lab-tests` и `org` (во всех их листах) анализы удалённых партий и задачи удалённых отзывов или
+         *       партий не учитываются; счётчики `recalls` и `recall` — как `Recall.progress` и `batchesCount`.
          */
         get: operations["downloadReport"];
         put?: never;
@@ -2291,7 +2295,13 @@ export interface paths {
          *     за 60 секунд до уведомления L (`seq` присваивается при вставке, поэтому транзакция, вставившая строку раньше,
          *     может зафиксироваться позже, чем клиент получил L; если строки L у пользователя нет — только `seq` > L).
          *     Значение, не являющееся номером (`^\d+$`, не длиннее 18 цифр), считается отсутствующим (400 нет). Одно
-         *     уведомление не отправляется в один поток дважды. Заголовки ответа: `Content-Type: text/event-stream`,
+         *     уведомление не отправляется в один поток дважды. После потери и восстановления сеанса LISTEN (уведомления NOTIFY за
+         *     это время потеряны) каждый открытый поток получает только пропущенное: строки с `seq` выше его отметки W (при
+         *     подключении — большее из L и максимального `seq` уведомлений пользователя на тот момент; далее — наибольший
+         *     отправленный `seq`) и непрочитанные строки с `seq` < W, созданные не раньше чем за 60 секунд до потери сеанса;
+         *     история пользователя повторно не отправляется. Сеанс LISTEN каждой реализации виден в `pg_stat_activity` с
+         *     последним оператором `LISTEN notifications` (проверка живости повторяет его): тестовый стенд обрывает сеанс
+         *     `pg_terminate_backend` (P48). Заголовки ответа: `Content-Type: text/event-stream`,
          *     `Cache-Control: no-cache`; `X-Accel-Buffering: no` (шлюз не буферизует поток).
          *
          *     События (поле `data:` — одна строка JSON):
@@ -6402,7 +6412,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Зависимость недоступна: EXTERNAL_UNAVAILABLE — внешний сервис (DaData, Telegram, SMTP), BACKEND_UNAVAILABLE — инфраструктура (БД, Redis, RabbitMQ, MinIO). */
+        /** @description Зависимость недоступна: EXTERNAL_UNAVAILABLE — внешний сервис (DaData, Telegram, SMTP), BACKEND_UNAVAILABLE — инфраструктура (БД, Redis, RabbitMQ, MinIO) или занятая очередь формирования отчётов (`downloadReport`, `params.reason = report-busy`). */
         ServiceUnavailable: {
             headers: {
                 "X-Request-Id": components["headers"]["XRequestId"];
@@ -10623,6 +10633,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     listAdminOrganizations: {
