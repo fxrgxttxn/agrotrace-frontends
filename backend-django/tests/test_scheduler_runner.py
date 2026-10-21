@@ -48,6 +48,40 @@ def test_the_lock_is_released_before_the_connection_goes_back_to_the_pool(db, ot
     assert locks == 0  # the pooled session keeps no advisory lock
 
 
+def _two_idle_connections_in_the_pool():
+    """Checks out two pool connections at once and returns both: the pool now rotates between ≥ 2 idle sessions,
+    so a statement that is not pinned would land on another session (psycopg_pool hands idle ones out FIFO)."""
+    barrier = threading.Barrier(2)
+
+    def hold():
+        with sql.pinned():
+            sql.scalar("SELECT 1")
+            barrier.wait(5)
+        sql.release()
+
+    threads = [threading.Thread(target=hold) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+
+
+def test_the_tick_runs_on_the_session_that_holds_the_lock(db, other_session):
+    """N2: whatever the pool's state, `run()` sees the same backend pid that holds the advisory lock."""
+    _two_idle_connections_in_the_pool()
+    seen = {}
+
+    def run():
+        seen["pid"] = sql.scalar("SELECT pg_backend_pid()")
+        seen["holders"] = [r[0] for r in other_session.execute(
+            "SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted").fetchall()]
+        seen["pid_again"] = sql.scalar("SELECT pg_backend_pid()")
+        return 0
+
+    assert guarded_tick("test-job-pid", run) is True
+    assert seen["pid"] in seen["holders"] and seen["pid_again"] == seen["pid"]
+
+
 def test_a_failing_tick_is_logged_and_the_next_one_runs(db):
     def boom():
         raise RuntimeError("tick failed")
