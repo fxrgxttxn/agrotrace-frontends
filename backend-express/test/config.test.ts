@@ -1,6 +1,7 @@
 /** Fail-fast configuration: every problem listed, empty strings treated as unset, defaults applied. */
 import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from '../src/config.js';
+import { poolMax } from '../src/db/db.js';
 import { acceptRequestId } from '../src/http/request-id.js';
 import { contractMethods } from '../src/contract.js';
 import { rateLimitOf } from '../src/http/rate-limit.js';
@@ -26,6 +27,23 @@ describe('loadConfig', () => {
     expect(c.PORT).toBe(8000);
     expect(c.LOG_LEVEL).toBe('info');
     expect(c.HEALTH_TIMEOUT_MS).toBe(2000);
+  });
+
+  it('P61: the pool size defaults per process (a backend ≤ 20 connections); DB_POOL_MAX overrides it', () => {
+    const rest = { ...env };
+    delete rest.DB_POOL_MAX;
+    const c = loadConfig(rest);
+    expect(c.DB_POOL_MAX).toBeUndefined();
+    const api = poolMax(c.DB_POOL_MAX, 'api');
+    // api + its SSE LISTEN session + worker + scheduler
+    expect(
+      api + 1 + poolMax(c.DB_POOL_MAX, 'worker') + poolMax(c.DB_POOL_MAX, 'scheduler'),
+    ).toBeLessThanOrEqual(20);
+    expect(poolMax(c.DB_POOL_MAX, 'scheduler')).toBeGreaterThanOrEqual(4);
+    expect(poolMax(7, 'api')).toBe(7);
+    expect([c.DB_CONNECT_TIMEOUT_MS, c.DB_STATEMENT_TIMEOUT_MS, c.DB_LOCK_TIMEOUT_MS]).toEqual([
+      5000, 30000, 10000,
+    ]);
   });
 
   it('lists every problem at once; an empty value counts as missing', () => {

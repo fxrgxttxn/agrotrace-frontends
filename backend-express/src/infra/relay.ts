@@ -4,7 +4,7 @@
  * application/json, message_id = id) on a confirm channel, then marked:
  * `UPDATE … SET published_at = now(), attempts = attempts + 1 WHERE id = :id AND published_at IS NULL`.
  *
- * - relay: `publish(ids)` right after the causing transaction committed (rows locked `FOR UPDATE SKIP LOCKED`, so a
+ * - relay: `publish(ids)` right after the causing transaction committed (rows locked `FOR NO KEY UPDATE SKIP LOCKED`, so a
  *   sweeper that holds one is never waited for);
  * - sweeper: every 5 s, only while `pg_try_advisory_xact_lock(hashtext('agrotrace.outbox.express'))` succeeds, the
  *   oldest 100 unpublished rows of this backend.
@@ -130,7 +130,7 @@ export function createOutboxRelay(deps: { db: Db; amqp: Amqp; logger: Logger }):
       .select(['id', 'type', 'payload'])
       .where('backend', '=', 'express')
       .where('published_at', 'is', null)
-      .forUpdate()
+      .forNoKeyUpdate()
       .skipLocked();
   }
 
@@ -170,6 +170,10 @@ export function createOutboxRelay(deps: { db: Db; amqp: Amqp; logger: Logger }):
 /**
  * Publishes the outbox rows a request wrote (`enqueue` collects their ids in the request context) once the response
  * has gone out — every transaction of the request has committed by then (handlers answer after `withTx` resolves).
+ * Note for ports (final review M5): `close` also fires when the client disconnects BEFORE the handler committed; ids
+ * the handler collects after that moment are never published by this path. That is harmless — the rows are committed
+ * unpublished and the 5 s outbox sweeper publishes them — but this fast path is best-effort, the sweeper is the
+ * guarantee.
  */
 export function publishAfterResponse(relay: OutboxRelay): RequestHandler {
   return (_req, res, next) => {

@@ -10,6 +10,7 @@ import { DEMO_EMAILS, loginAs, type Role } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { auditEntries } from './lib/audit.js';
 import { expectContract } from './lib/contract.js';
+import { API_BACKEND } from './lib/env.js';
 import { closeDb, dbNow, outboxEvents, query } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
 import { apiPath, sha256hex } from './lib/files.js';
@@ -201,7 +202,7 @@ describe('createBatch', () => {
     const audit = await auditEntries({ action: 'createBatch', entityId: b.id });
     expect(audit.length).toBe(1);
     expect(audit[0]!.diff.status).toEqual([null, 'Approved']);
-    expect(audit[0]!.backend).toBe(process.env.API_BACKEND ?? 'express');
+    expect(audit[0]!.backend).toBe(API_BACKEND);
   });
 
   it('a new farm (BR-03 NEW_FARM): OnTest, a QUEUED lab test of the least-loaded ACTIVE lab of the region (D18), LAB_ASSIGNED in the outbox', async () => {
@@ -230,7 +231,7 @@ describe('createBatch', () => {
     expect(test).toMatchObject({ reason: 'RISK', status: 'QUEUED' });
     const events = (
       await outboxEvents({
-        backend: process.env.API_BACKEND ?? 'express',
+        backend: API_BACKEND,
         type: 'notification.dispatch',
         since,
       })
@@ -439,8 +440,6 @@ describe('listBatches filters and sorting (R49, R51)', () => {
     const codes = sorted.body.items.map((x: { publicCode: string }) => x.publicCode);
     expect(codes).toEqual([...codes].sort());
     const multi = await listAll(inspector, { status: 'Sold' });
-    const multi2 = await list(inspector, { size: 100 });
-    void multi2;
     for (const x of multi as unknown as { status: string }[]) expect(x.status).toBe('Sold');
     const both = await inspector.get('/batches?status=Sold&status=OnSale&size=100');
     await expectContract(both, 'listBatches');

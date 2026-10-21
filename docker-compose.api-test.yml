@@ -27,6 +27,8 @@ services:
       MERCURY_FAIL_PRODUCT_CODES: '99.99.99'
       MERCURY_FAIL_MODE: '500'
       MERCURY_RETRY_BASE_MS: '50'
+      # Contract P14/P51: no bot token in the worker (its Telegram sends are NOT_CONFIGURED), whatever .env holds.
+      TELEGRAM_BOT_TOKEN: ''
       TZ: '${API_TEST_TZ:-UTC}'
   # The scheduler (lab-escalation; recall-task-overdue with Task 10) ticks every second instead of every 5 minutes
   # (SCHEDULER_TICK_MS, test-stand configuration in the contract): tests make a deadline pass by moving `due_at` in
@@ -34,4 +36,5 @@ services:
   scheduler-express:
     environment:
       SCHEDULER_TICK_MS: '1000'
+      TELEGRAM_BOT_TOKEN: ''
       TZ: '${API_TEST_TZ:-UTC}'

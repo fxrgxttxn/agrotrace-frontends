@@ -7,7 +7,7 @@
  *      `ux_recalls_open_source` (23505) → the whole transaction is repeated once (`RECALL_TX.retryIf`);
  *   2. `recallScope`: DOWN — all descendants, depth 1…20; UP — all ancestors (only with `blockUpstream`), depth 1…20;
  *      each batch once at its smallest depth; the walk passes through soft-deleted batches, which are not members;
- *   3. the caller locks the source and every member in ONE `FOR UPDATE ORDER BY id` (R52 `batches`) — a member
+ *   3. the caller locks the source and every member in ONE `FOR NO KEY UPDATE ORDER BY id` (R52 `batches`) — a member
  *      changed after the snapshot fails with 40001 and the transaction is repeated (R47), so a link added by a
  *      parallel processing is never missed (`startRecall` does steps 1–3 for callers with nothing else to lock);
  *   4–7. `applyRecall`: the `recalls` row, `recall_batches`, Recalled transitions (RECALLED, by the requesting user),
@@ -295,7 +295,7 @@ export async function applyRecall(
 
 /**
  * Steps 1–7 for an operation that locks nothing else of the batches (createRecall, decideComplaint RECALL): reuse →
- * scope → one `FOR UPDATE ORDER BY id` over the source and the members → apply. Run inside `withTx(db, …, RECALL_TX)`.
+ * scope → one `FOR NO KEY UPDATE ORDER BY id` over the source and the members → apply. Run inside `withTx(db, …, RECALL_TX)`.
  */
 export async function startRecall(tx: Tx, req: RecallRequest): Promise<RecallOutcome> {
   const open = await findOpenRecall(tx, req.sourceBatchId);

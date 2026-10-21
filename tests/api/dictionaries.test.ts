@@ -14,6 +14,7 @@ import { loginAs, type Role } from './lib/auth.js';
 import { api, type ApiClient } from './lib/client.js';
 import { auditEntries } from './lib/audit.js';
 import { expectContract } from './lib/contract.js';
+import { API_BACKEND } from './lib/env.js';
 import { closeDb, fixtureWrite, query } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
 import { apiPath, fileIdOf, fixture, multipart, pngOfSize, upload, webpSize } from './lib/files.js';
@@ -254,7 +255,7 @@ describe('products: create, update, soft delete, restore by name', () => {
     expect(other.status, other.text).toBe(201);
 
     const [audit] = await auditEntries({ action: 'createDictionaryEntry', entityId: p.id });
-    expect(audit).toMatchObject({ entityType: 'product', backend: 'express' });
+    expect(audit).toMatchObject({ entityType: 'product', backend: API_BACKEND });
     expect(audit!.diff).toEqual({
       name: [null, body.name],
       category: [null, 'GRAIN'],

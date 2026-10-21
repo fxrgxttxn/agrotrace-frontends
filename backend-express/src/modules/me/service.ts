@@ -72,7 +72,7 @@ export function meService(c: Container) {
           .select(['full_name', 'phone'])
           .where('id', '=', p.userId)
           .where('deleted_at', 'is', null)
-          .forUpdate()
+          .forNoKeyUpdate()
           .executeTakeFirst();
         if (!u) throw new AppProblem(401, 'UNAUTHORIZED');
         const before = { fullName: u.full_name, phone: u.phone };
@@ -113,7 +113,7 @@ export function meService(c: Container) {
           .select('avatar_file_id')
           .where('id', '=', p.userId)
           .where('deleted_at', 'is', null)
-          .forUpdate()
+          .forNoKeyUpdate()
           .executeTakeFirst();
         if (!u) throw new AppProblem(401, 'UNAUTHORIZED');
         const now = await txNow(tx);
@@ -163,7 +163,7 @@ export function meService(c: Container) {
           .select('avatar_file_id')
           .where('id', '=', p.userId)
           .where('deleted_at', 'is', null)
-          .forUpdate()
+          .forNoKeyUpdate()
           .executeTakeFirst();
         if (!u || u.avatar_file_id === null) return;
         const now = await txNow(tx);
@@ -201,7 +201,7 @@ export function meService(c: Container) {
           .select(['notification_channels', 'telegram_chat_id'])
           .where('id', '=', p.userId)
           .where('deleted_at', 'is', null)
-          .forUpdate()
+          .forNoKeyUpdate()
           .executeTakeFirst();
         if (!u) throw new AppProblem(401, 'UNAUTHORIZED');
         if (input.telegram && u.telegram_chat_id === null)

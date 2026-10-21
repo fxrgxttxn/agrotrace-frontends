@@ -31,7 +31,16 @@ const schema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /** Least-privilege role `agrotrace_app` (infra/postgres/init). */
   APP_DATABASE_URL: url(['postgres:', 'postgresql:']),
-  DB_POOL_MAX: z.coerce.number().int().min(1).max(200).default(20),
+  /**
+   * Connection budget (P61, contract «Бюджет соединений»): at most 20 PostgreSQL connections per backend. Unset, the
+   * pool size depends on the process (db/db.ts POOL_DEFAULTS: api 11 + its LISTEN session, worker 4, scheduler 4).
+   */
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(200).optional(),
+  /** Waiting longer than this for a pool connection fails the request with 503 BACKEND_UNAVAILABLE (P61). */
+  DB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(100).max(60000).default(5000),
+  /** Session `statement_timeout` / `lock_timeout` of every pool connection (P61); exceeded → 503 BACKEND_UNAVAILABLE. */
+  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(100).max(600000).default(30000),
+  DB_LOCK_TIMEOUT_MS: z.coerce.number().int().min(100).max(600000).default(10000),
   REDIS_URL: url(['redis:', 'rediss:']),
   RABBITMQ_URL: url(['amqp:', 'amqps:']),
   S3_ENDPOINT: url(['http:', 'https:']),

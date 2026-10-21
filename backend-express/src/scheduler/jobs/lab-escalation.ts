@@ -1,6 +1,6 @@
 /**
  * Scheduler job `lab-escalation` (tag Lab, БП-2; contracts/events/lab.escalate.schema.json): in ONE transaction the
- * open tests past due — `status IN ('QUEUED','SAMPLED') AND due_at < now() AND deleted_at IS NULL FOR UPDATE SKIP
+ * open tests past due — `status IN ('QUEUED','SAMPLED') AND due_at < now() AND deleted_at IS NULL FOR NO KEY UPDATE SKIP
  * LOCKED` whose batch is not soft-deleted (isOverdue: now > dueAt, the DB clock) — become ESCALATED (`escalated_at` = now(), version + 1), each with an
  * audit row `system.labTestEscalate` (actor null) and a `lab.escalate` outbox row (requestId null). The worker's
  * handler (Task 12) sends LAB_OVERDUE to the lab heads and the inspectors.
@@ -31,7 +31,7 @@ export function labEscalationJob(db: Db): Job {
           )
           .orderBy('due_at')
           .orderBy('id')
-          .forUpdate()
+          .forNoKeyUpdate()
           .skipLocked()
           .execute();
         if (due.length === 0) return 0;

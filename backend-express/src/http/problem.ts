@@ -9,6 +9,10 @@ import { ZodError } from 'zod';
 import { toFieldErrors } from '@agrotrace/validation';
 import type { Logger } from '../logger.js';
 
+/** pg-pool's error when no connection became free within `connectionTimeoutMillis` (P61). */
+const isPoolTimeout = (err: unknown): boolean =>
+  err instanceof Error && /timeout exceeded when trying to connect/i.test(err.message);
+
 /** contracts/openapi/schemas/common.yaml#/ProblemCode (R5, R42, R48, P3). */
 export type ProblemCode =
   | 'VALIDATION'
@@ -145,6 +149,11 @@ export function toProblem(err: unknown): AppProblem | null {
   // A path parameter with a malformed percent-escape (Express: URIError "Failed to decode param", status 400) — the
   // path identifies no resource (I2).
   if (err instanceof URIError) return new AppProblem(404, 'NOT_FOUND');
+  // P61: the database budget is exhausted — no pool connection in time, or a statement/lock wait past the session's
+  // statement_timeout (57014) / lock_timeout (55P03): the infrastructure is unavailable, not the request wrong.
+  const pgCode = (err as { code?: unknown } | null)?.code;
+  if (isPoolTimeout(err) || pgCode === '57014' || pgCode === '55P03')
+    return new AppProblem(503, 'BACKEND_UNAVAILABLE');
   const e = err as HttpParserError;
   switch (e?.type) {
     case 'entity.parse.failed':

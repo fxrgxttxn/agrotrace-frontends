@@ -146,6 +146,15 @@ describe('problem handler', () => {
     expect(toProblem(httpErr(400, false))).toBeNull();
     expect(toProblem(new Error('other'))).toBeNull();
   });
+
+  it('P61: an exhausted pool, statement_timeout and lock_timeout → 503 BACKEND_UNAVAILABLE', () => {
+    for (const err of [
+      new Error('timeout exceeded when trying to connect'),
+      Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' }),
+      Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }),
+    ])
+      expect(toProblem(err)?.body()).toMatchObject({ status: 503, code: 'BACKEND_UNAVAILABLE' });
+  });
 });
 
 /** A container whose contract also declares `GET /zz-unimplemented` (every real operation is implemented now). */

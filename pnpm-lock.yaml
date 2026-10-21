@@ -45,7 +45,7 @@ importers:
         specifier: workspace:*
         version: link:../packages/domain
       '@agrotrace/i18n':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../packages/i18n
       '@agrotrace/validation':
         specifier: workspace:*

@@ -219,13 +219,19 @@ describe('request id in the logs', () => {
     const channel = {
       on: () => undefined,
       prefetch: async () => undefined,
-      consume: async (_q: string, cb: (msg: unknown) => void) => void (deliver ??= cb),
+      consume: async (_q: string, cb: (msg: unknown) => void) => {
+        deliver ??= cb;
+        return { consumerTag: 'c1' };
+      },
       ack: (m: unknown) => void acked.push(m),
       reject: () => undefined,
       nack: () => undefined,
       close: async () => undefined,
+      checkQueue: async () => ({}),
+      cancel: async () => undefined,
     };
-    const amqp = { onConnect: (fn: (conn: unknown) => void) => fn({ createChannel: async () => channel }) };
+    const conn = { createChannel: async () => channel, createConfirmChannel: async () => channel };
+    const amqp = { connection: conn, onConnect: (fn: (c: unknown) => void) => fn(conn) };
     const handled = new Promise<void>((resolve) => {
       startConsumer({
         amqp: amqp as unknown as Amqp,

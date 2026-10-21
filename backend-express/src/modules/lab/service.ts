@@ -88,13 +88,13 @@ const labTestAudit = (t: {
 export function labService(c: Container) {
   const { db } = c;
 
-  /** The non-deleted test of the user's own laboratory, locked `FOR UPDATE` (R52 `labTest`); else 404. */
+  /** The non-deleted test of the user's own laboratory, locked `FOR NO KEY UPDATE` (R52 `labTest`); else 404. */
   async function lockOwnTest(tx: Tx, p: Principal, id: string) {
     const t = await tx
       .selectFrom('lab_tests')
       .selectAll()
       .where('id', '=', id)
-      .forUpdate()
+      .forNoKeyUpdate()
       .executeTakeFirst();
     if (!t || t.deleted_at !== null || !p.roles.includes('LAB') || t.lab_org_id !== p.orgId) throw notFound();
     const b = await tx

@@ -8,7 +8,7 @@ import type { Config } from './config.js';
 import type { OpenApiDoc } from './contract.js';
 import type { Logger } from './logger.js';
 import type { Metrics } from './infra/metrics.js';
-import { createDb, type Db } from './db/db.js';
+import { createDb, poolMax, type Db } from './db/db.js';
 import { Amqp } from './infra/amqp.js';
 import { createDaData, type DaData } from './infra/dadata.js';
 import { createFileUrls, type FileUrls } from './infra/file-urls.js';
@@ -47,7 +47,10 @@ export function createContainer(
 ): Container {
   const { db, pool } = createDb({
     url: config.APP_DATABASE_URL,
-    max: config.DB_POOL_MAX,
+    max: poolMax(config.DB_POOL_MAX, opts.process),
+    connectTimeoutMs: config.DB_CONNECT_TIMEOUT_MS,
+    statementTimeoutMs: config.DB_STATEMENT_TIMEOUT_MS,
+    lockTimeoutMs: config.DB_LOCK_TIMEOUT_MS,
     applicationName: `agrotrace-express-${opts.process}`,
   });
   pool.on('error', (err) => logger.warn({ err: err.message }, 'idle database client error'));

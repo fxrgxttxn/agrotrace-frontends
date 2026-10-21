@@ -4,7 +4,7 @@
  * engine.ts, at REPEATABLE READ), the tasks (their holders and INSPECTOR) and their confirmation.
  *
  * confirmRecallTask locks in the R52 order: the task is read without a lock to learn its recall and batch, then the
- * recall `FOR UPDATE`, the batch `FOR UPDATE`, the task `FOR UPDATE`; every check from 404 on runs over the locked
+ * recall `FOR NO KEY UPDATE`, the batch `FOR NO KEY UPDATE`, the task `FOR NO KEY UPDATE`; every check from 404 on runs over the locked
  * rows, `If-Match` is compare-and-set on the task. Two confirmations of one recall serialize on the recall row, so
  * exactly one of them sees every task CONFIRMED and closes it (BR-10).
  */
@@ -239,7 +239,7 @@ export function recallsService(c: Container) {
             .selectFrom('recalls')
             .selectAll()
             .where('id', '=', t0.recall_id)
-            .forUpdate()
+            .forNoKeyUpdate()
             .executeTakeFirstOrThrow();
           const [b] = await lockBatches(tx, [t0.batch_id]);
           const [t] = await lockRecallTasks(tx, [id]);

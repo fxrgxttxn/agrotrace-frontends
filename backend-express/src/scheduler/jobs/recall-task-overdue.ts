@@ -1,7 +1,7 @@
 /**
  * Scheduler job `recall-task-overdue` (tag Recalls, BR-08; entity-state-machines.json recallTask OPEN → OVERDUE,
  * `escalate`, by system): in ONE transaction the OPEN tasks past due — `status = 'OPEN' AND due_at < now()` (the DB
- * clock: now > dueAt) `FOR UPDATE SKIP LOCKED` — become OVERDUE (`escalated_at` = now(), version + 1), each with the
+ * clock: now > dueAt) `FOR NO KEY UPDATE SKIP LOCKED` — become OVERDUE (`escalated_at` = now(), version + 1), each with the
  * audit row `system.recallTaskOverdue` (actor null) and a `notification.dispatch` OVERDUE outbox row (requestId null)
  * to the task's holder and the inspectors. A task locked by a running confirmation is skipped and seen next tick.
  */
@@ -30,7 +30,7 @@ export function recallTaskOverdueJob(db: Db): Job {
           )
           .orderBy('due_at')
           .orderBy('id')
-          .forUpdate()
+          .forNoKeyUpdate()
           .skipLocked()
           .execute();
         if (due.length === 0) return 0;

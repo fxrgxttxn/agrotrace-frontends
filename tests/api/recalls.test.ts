@@ -16,6 +16,7 @@ import { loginAs, type Role } from './lib/auth.js';
 import { auditEntries } from './lib/audit.js';
 import { api, type ApiClient } from './lib/client.js';
 import { expectContract } from './lib/contract.js';
+import { API_BACKEND } from './lib/env.js';
 import { closeDb, dbNow, fixtureWrite, outboxEvents, query } from './lib/db.js';
 import { expectErrors, expectProblem } from './lib/expect.js';
 import {
@@ -52,7 +53,7 @@ afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
 });
 
-const BACKEND = process.env.API_BACKEND ?? 'express';
+const BACKEND = API_BACKEND;
 const UUID0 = '00000000-0000-4000-8000-000000000000';
 const DAY = 86_400_000;
 

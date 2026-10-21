@@ -168,7 +168,7 @@ export function documentsService(c: Container, batches: BatchesService) {
       const { view, eventId } = await withTx(db, async (tx) => {
         const b = await batches.visibleBatch(tx, p, batchId, true);
         if (b.holder_org_id !== p.orgId) throw notHolder();
-        const doc = await vsdRow(tx, batchId).forUpdate().executeTakeFirst();
+        const doc = await vsdRow(tx, batchId).forNoKeyUpdate().executeTakeFirst();
         if (!doc) throw new AppProblem(404, 'NOT_FOUND');
         if (!RETRYABLE.includes(doc.import_status))
           throw invalidTransition({ from: doc.import_status, to: 'PENDING' });

@@ -5,7 +5,7 @@
  * `labOrgId` (lab/assign.ts); RECALL — the recall engine (trigger COMPLAINT, reason = comment, complaintId; an OPEN
  * recall of the batch is reused) at REPEATABLE READ.
  *
- * Locks (R47, R52): the complaint `FOR UPDATE` first; RECALL then the batches in one `FOR UPDATE ORDER BY id` (the
+ * Locks (R47, R52): the complaint `FOR NO KEY UPDATE` first; RECALL then the batches in one `FOR NO KEY UPDATE ORDER BY id` (the
  * engine, step 3). Every check from 404 on runs over the locked complaint.
  */
 import { sql, type Transaction } from 'kysely';
@@ -150,13 +150,13 @@ export function complaintsService(c: Container) {
     return v!;
   }
 
-  /** The non-deleted complaint `FOR UPDATE` (R52 `complaint`), else 404. */
+  /** The non-deleted complaint `FOR NO KEY UPDATE` (R52 `complaint`), else 404. */
   async function lockComplaint(tx: Tx, id: string): Promise<Row> {
     const r = await tx
       .selectFrom('complaints')
       .selectAll()
       .where('id', '=', id)
-      .forUpdate()
+      .forNoKeyUpdate()
       .executeTakeFirst();
     if (!r || r.deleted_at !== null) throw notFound();
     return r as Row;

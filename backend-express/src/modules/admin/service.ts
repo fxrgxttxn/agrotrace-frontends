@@ -120,7 +120,7 @@ async function lockOrganization(tx: Transaction<DB>, id: string) {
     .select(['id', 'type', 'name', 'address', 'region_id', 'status'])
     .where('id', '=', id)
     .where('deleted_at', 'is', null)
-    .forUpdate()
+    .forNoKeyUpdate()
     .executeTakeFirst();
   if (!o) throw new AppProblem(404, 'NOT_FOUND');
   return o;

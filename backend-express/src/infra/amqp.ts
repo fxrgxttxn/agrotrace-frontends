@@ -8,6 +8,8 @@ import type { Logger } from '../logger.js';
 
 export const EXCHANGE = 'agrotrace.express';
 export const JOBS_QUEUE = 'agrotrace.express.jobs';
+/** P56: a busy `vsd.import` waits here (queue TTL 5 s), then dead-letters to the tail of JOBS_QUEUE. */
+export const JOBS_DELAY_QUEUE = 'agrotrace.express.jobs.delay';
 
 export class Amqp {
   private conn: ChannelModel | null = null;

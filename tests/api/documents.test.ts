@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loginAs } from './lib/auth.js';
 import type { ApiClient } from './lib/client.js';
 import { expectContract, schemaErrors } from './lib/contract.js';
+import { API_BACKEND } from './lib/env.js';
 import { closeDb, dbNow, outboxEvents } from './lib/db.js';
 import { expectProblem } from './lib/expect.js';
 import { platformAdmin } from './lib/fixtures.js';
@@ -20,6 +21,7 @@ import {
   approvedBatch,
   beef,
   createBatch,
+  createWaybill,
   daysAgo,
   deliver,
   eventually,
@@ -28,6 +30,7 @@ import {
   idemKey,
   petrov,
   products,
+  sendWaybill,
   wheat,
   type Farm,
 } from './lib/production.js';
@@ -40,7 +43,7 @@ afterAll(async () => {
 
 /** docker-compose.api-test.yml: MERCURY_FAIL_PRODUCT_CODES of the worker. */
 const FAIL_CODE = '99.99.99';
-const BACKEND = process.env.API_BACKEND ?? 'express';
+const BACKEND = API_BACKEND;
 
 async function documents(client: ApiClient, id: string) {
   const res = await client.get(`/batches/${id}/documents`);
@@ -64,7 +67,14 @@ async function settled(client: ApiClient, id: string, timeoutMs = 30000) {
   }, timeoutMs);
 }
 
-async function failingProduct(): Promise<string> {
+let failingProductId: Promise<string> | null = null;
+/** The test-only product with the failing Mercury code (created once per run when the dev DB lacks it). */
+function failingProduct(): Promise<string> {
+  failingProductId ??= createFailingProduct();
+  return failingProductId;
+}
+
+async function createFailingProduct(): Promise<string> {
   const existing = (await products()).find((p) => p.mercuryCode === FAIL_CODE);
   if (existing) return existing.id;
   const res = await (
@@ -218,6 +228,59 @@ describe('VSD import (R81)', () => {
     expect(r.body.attempts).toBe(0);
     expect((await settled(farm.client, res.body.id, 60000)).importStatus).toBe('FAILED');
   }, 150000);
+
+  it('worker concurrency (R92, P56): imports queued behind a running one never hold back a later notification', async () => {
+    // Eight imports that fail (6 Mercury calls each, about 1.6 s on the stand) are queued, then a waybill is sent.
+    // A busy vsd.import must be settled at once and re-scheduled (P56), so WAYBILL_INCOMING arrives within seconds
+    // while most imports still wait. The old requeue-to-head algorithm held it until all but one had run (≈ 11 s).
+    const productId = await failingProduct();
+    const processor = await freshOrg('PROCESSOR');
+    const shipped = await approvedBatch(farm);
+    const draft = await createWaybill(farm.client, {
+      receiverOrgId: processor.orgId,
+      items: [{ batchId: shipped.id, massDeclaredKg: shipped.massKg }],
+    });
+    expect(draft.status, draft.text).toBe(201);
+    const imports = await Promise.all(
+      Array.from({ length: 8 }, async () => {
+        const r = await createBatch(farm.client, {
+          fieldId: farm.field.id,
+          productId,
+          massKg: '10.000',
+          harvestedAt: daysAgo(1),
+        });
+        expect(r.status, r.text).toBe(201);
+        return r.body.id as string;
+      }),
+    );
+    const sent = await sendWaybill(farm.client, draft.body);
+    expect(sent.status, sent.text).toBe(200);
+    const t0 = Date.now();
+    await eventually(
+      async () => {
+        const res = await processor.client.get('/notifications', {
+          query: { type: 'WAYBILL_INCOMING', size: 100 },
+        });
+        await expectContract(res, 'listNotifications');
+        return (res.body.items as { payload: { waybillId: string } }[]).find(
+          (n) => n.payload.waybillId === draft.body.id,
+        );
+      },
+      30000,
+      100,
+    );
+    const elapsed = Date.now() - t0;
+    const pending = (
+      await Promise.all(imports.map(async (id) => (await documents(farm.client, id)).body.vsd.importStatus))
+    ).filter((s) => s === 'PENDING').length;
+    expect(pending, 'imports still queued or running when the notification arrived').toBeGreaterThanOrEqual(
+      3,
+    );
+    expect(elapsed, 'WAYBILL_INCOMING delivered while vsd.import was busy').toBeLessThan(5000);
+    // Every re-scheduled import still runs to its end (nothing lost, each its 6 calls).
+    for (const id of imports)
+      expect(await settled(farm.client, id, 120000)).toMatchObject({ importStatus: 'FAILED', attempts: 6 });
+  }, 240000);
 
   it('retry: x-roles FARMER/PROCESSOR, Idempotency-Key required, 403 NOT_HOLDER, 404 without VSD', async () => {
     const plain = await approvedBatch(farm, { productId: (await wheat()).id });

@@ -86,7 +86,7 @@ export function batchAudit(b: {
 export function batchesService(c: Container) {
   const { db } = c;
 
-  /** The non-deleted batch `id` if `p` sees it, else 404. `lock` — `FOR UPDATE` first (checks on the locked row). */
+  /** The non-deleted batch `id` if `p` sees it, else 404. `lock` — `FOR NO KEY UPDATE` first (checks on the locked row). */
   async function visibleBatch(q: Q, p: Principal, id: string, lock = false) {
     let query = q
       .selectFrom('batches as b')
@@ -94,7 +94,7 @@ export function batchesService(c: Container) {
       .select(batchVisibleTo(p, sql.ref('b.id')).as('visible'))
       .where('b.id', '=', id)
       .where('b.deleted_at', 'is', null);
-    if (lock) query = query.forUpdate('b');
+    if (lock) query = query.forNoKeyUpdate('b');
     const b = await query.executeTakeFirst();
     if (!b || !b.visible) throw new AppProblem(404, 'NOT_FOUND');
     return b;
@@ -248,7 +248,7 @@ export function batchesService(c: Container) {
         if (!product) errors.productId = ['validation.notFound'];
         else if (product.category === 'PROCESSED') errors.productId = ['validation.product.category'];
         const { now } = (await sql<{ now: Date }>`SELECT now() AS now`.execute(tx)).rows[0]!;
-        if (Date.parse(input.harvestedAt) > Date.now()) errors.harvestedAt = ['validation.date.future'];
+        if (Date.parse(input.harvestedAt) > now.getTime()) errors.harvestedAt = ['validation.date.future'];
         if (Object.keys(errors).length > 0) throw validationProblem(errors);
 
         const b = await tx

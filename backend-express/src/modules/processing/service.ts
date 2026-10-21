@@ -3,7 +3,7 @@
  * processor's organization become Processed, each output a new DERIVED batch (Approved, version 2), every
  * (input, output) pair a `batch_links` edge with the input's whole `massUsedKg`.
  *
- * One READ COMMITTED transaction (R47): the existing inputs are locked `FOR UPDATE ORDER BY id` right after the body
+ * One READ COMMITTED transaction (R47): the existing inputs are locked `FOR NO KEY UPDATE ORDER BY id` right after the body
  * check; references, the per-input rules and the balance run over the locked rows, so a parallel sendWaybill or
  * processing of an input waits and then sees the other's result (InTransit/Processed → BR-05, or its own 409).
  */

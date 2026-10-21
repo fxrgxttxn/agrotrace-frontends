@@ -2,7 +2,7 @@
  * BR-09 trust rating (contracts/events/rating.recalculate.schema.json, contracts/rules/trust-rating.json): a full
  * recomputation, never a delta — so any number of deliveries, in any order, yields the same rating.
  *
- * Under the organization's row lock (`FOR UPDATE`; R52 `organization`), for a FARM only: the left fold of
+ * Under the organization's row lock (`FOR NO KEY UPDATE`; R52 `organization`), for a FARM only: the left fold of
  * `nextTrustRating` (@agrotrace/domain) from `initial` over every event of the farm, ordered by time asc, then lab
  * events before recall events, then id asc (code points):
  *   - every non-deleted lab test with status DONE on a non-deleted batch the farm originated — LAB_PASS / LAB_FAIL at
@@ -52,7 +52,7 @@ export async function recalculateTrustRating(tx: Transaction<DB>, orgId: string)
     .selectFrom('organizations')
     .select(['id', 'type', 'trust_rating'])
     .where('id', '=', orgId)
-    .forUpdate()
+    .forNoKeyUpdate()
     .executeTakeFirst();
   if (!org || org.type !== 'FARM') return { before: null, after: null, changed: false };
   const rating = await foldTrustRating(tx, orgId);

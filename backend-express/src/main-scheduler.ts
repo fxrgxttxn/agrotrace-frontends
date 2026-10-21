@@ -4,6 +4,7 @@
  * (Task 9), `recall-task-overdue` (Task 10), `notification-delivery` (P49: stale PENDING deliveries).
  */
 import { createContainer } from './container.js';
+import { poolMax } from './db/db.js';
 import { configOrExit, crashOnUnhandled, onShutdown } from './lifecycle.js';
 import { createLogger } from './logger.js';
 import { labEscalationJob } from './scheduler/jobs/lab-escalation.js';
@@ -25,11 +26,9 @@ const jobs = [
   notificationDeliveryJob(delivery),
 ];
 // A tick holds one pool client for its advisory lock while the job runs on another: every job may tick at once.
-if (config.DB_POOL_MAX < jobs.length + 1) {
-  logger.fatal(
-    { DB_POOL_MAX: config.DB_POOL_MAX, jobs: jobs.length },
-    'scheduler needs DB_POOL_MAX >= jobs + 1',
-  );
+const max = poolMax(config.DB_POOL_MAX, 'scheduler');
+if (max < jobs.length + 1) {
+  logger.fatal({ DB_POOL_MAX: max, jobs: jobs.length }, 'scheduler needs DB_POOL_MAX >= jobs + 1');
   process.exit(1);
 }
 const scheduler = startScheduler({

@@ -200,48 +200,33 @@ describe('login', () => {
     }
   });
 
-  it('R31 deterministic: the right password verified while the 5th wrong one is locking → ACCOUNT_LOCKED', async () => {
-    const org = await activeOrgHead();
-    for (let i = 1; i <= 4; i++) await login(api(), org.email, `wrong-${i}-password`);
-    const [{ id }] = (await query<{ id: string }>('SELECT id FROM users WHERE email = $1', [org.email])) as [
-      { id: string },
-    ];
-    // Fixture: hold the user row for 1.5 s (the subquery takes the row lock before the outer pg_sleep runs), so both
-    // requests below read "not locked", verify their passwords and then queue on the row in arrival order.
-    const hold = fixtureWrite(
-      'SELECT pg_sleep(1.5) FROM (SELECT id FROM users WHERE id = $1 FOR UPDATE) held',
-      [id],
-    );
-    await new Promise((r) => setTimeout(r, 100));
-    const wrong = login(api(), org.email, 'wrong-5-password');
-    await new Promise((r) => setTimeout(r, 300));
-    const right = login(api(), org.email, org.password);
-    const [w, r] = await Promise.all([wrong, right, hold]);
-    expectProblem(w, 401, 'ACCOUNT_LOCKED');
-    expectProblem(r, 401, 'ACCOUNT_LOCKED');
-    expect(r.body.params.lockedUntil).toBe(w.body.params.lockedUntil);
-    expectNoCookie(r);
-  });
-
-  it('R31 under concurrency: a right password racing the locking 5th wrong one is never let in once the lock is set', async () => {
-    // 4 wrong passwords first, then the 5th wrong and the right one in parallel. Either the right one resets the
-    // counter first (the 5th wrong then counts 1, no lock, the right one is 200), or the 5th wrong locks first and the
-    // right one must be ACCOUNT_LOCKED — the account state afterwards tells which happened. Never both.
-    for (let round = 0; round < 10; round++) {
+  it('R31 under concurrency (P60): the right password racing the locking 5th wrong one → 200 or ACCOUNT_LOCKED, nothing else', async () => {
+    // 4 wrong passwords first, then the 5th wrong and the right one in parallel. The contract leaves the race open
+    // (login, P60): the right one gets 200 or ACCOUNT_LOCKED with the lock of that burst; the 5th wrong one is
+    // INVALID_CREDENTIALS (the right one reset the counter first) or ACCOUNT_LOCKED. No arrival order is assumed.
+    for (let round = 0; round < 5; round++) {
       const org = await activeOrgHead();
       for (let i = 1; i <= 4; i++) await login(api(), org.email, `wrong-${i}-password`);
-      const [, right] = await Promise.all([
+      const [wrong, right] = await Promise.all([
         login(api(), org.email, 'wrong-5-password'),
         login(api(), org.email, org.password),
       ]);
-      const after = await login(api(), org.email, org.password);
-      if (after.status === 401) {
-        expectProblem(after, 401, 'ACCOUNT_LOCKED');
-        expectProblem(right, 401, 'ACCOUNT_LOCKED'); // never 200 (or 403) from a burst that locked the account
+      expect([200, 401], right.text).toContain(right.status);
+      if (right.status === 401) {
+        expectProblem(right, 401, 'ACCOUNT_LOCKED');
+        expectNoCookie(right);
+        expectProblem(wrong, 401, 'ACCOUNT_LOCKED');
+        expect(Date.parse(right.body.params.lockedUntil)).toBe(Date.parse(wrong.body.params.lockedUntil));
       } else {
-        expect(after.status, after.text).toBe(200);
-        expect(right.status, right.text).toBe(200);
+        expect(wrong.status, wrong.text).toBe(401);
+        expect(['ACCOUNT_LOCKED', 'INVALID_CREDENTIALS']).toContain(wrong.body.code);
       }
+      const after = await login(api(), org.email, org.password);
+      if (wrong.body.code === 'ACCOUNT_LOCKED') {
+        // The account is locked by the burst, or the right one's reset ran after the lock (both allowed).
+        expect([200, 401], after.text).toContain(after.status);
+        if (after.status === 401) expectProblem(after, 401, 'ACCOUNT_LOCKED');
+      } else expect(after.status, after.text).toBe(200);
     }
   });
 

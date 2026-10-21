@@ -8,19 +8,19 @@
  * 3. Up to 6 calls: a failed call records attempts + 1 and last_error in its own short transaction (only while the
  *    row is still PENDING) and the next call follows after 2, 4, 8, 16, 32 s (MERCURY_RETRY_BASE_MS doubling).
  * 4. The final state (IMPORTED with the latest CONFIRMED document, NOT_FOUND, FAILED after the 6th failure) in ONE
- *    transaction that starts with the claim, locks the row FOR UPDATE and writes only while it is still PENDING, with
+ *    transaction that starts with the claim, locks the row FOR NO KEY UPDATE and writes only while it is still PENDING, with
  *    the audit row `system.vsdImport` (entityType batchDocument); `updated_at` comes from the touch trigger.
  *
  * Mercury being down is never a handler failure: the message is acknowledged after FAILED. The batch is never touched.
  */
-import { sql, type Transaction } from 'kysely';
+import { sql } from 'kysely';
 import { addDaysToDate, utcDate } from '@agrotrace/domain';
 import type { Db } from '../../db/db.js';
-import type { DB } from '../../db/types.generated.js';
 import type { Logger } from '../../logger.js';
 import { pickVsd, type Mercury, type Vsd } from '../../infra/mercury.js';
 import type { EventEnvelope } from '../../infra/outbox.js';
 import { auditDiff, auditService } from '../audit/service.js';
+import { claimEvent } from '../../events/claim.js';
 
 export const MERCURY_CALLS = 6;
 const LAST_ERROR_MAX = 500;
@@ -37,17 +37,6 @@ type Outcome =
   | { status: 'FAILED'; error: string; calls: number };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** Inserts the claim; false — the event was already handled (R56). */
-async function claim(tx: Transaction<DB>, eventId: string): Promise<boolean> {
-  const r = await tx
-    .insertInto('processed_events')
-    .values({ event_id: eventId, backend: 'express' })
-    .onConflict((oc) => oc.column('event_id').doNothing())
-    .returning('event_id')
-    .executeTakeFirst();
-  return r !== undefined;
-}
 
 export function vsdImportHandler(deps: {
   db: Db;
@@ -71,7 +60,7 @@ export function vsdImportHandler(deps: {
   /** The claim alone (nothing else to do). */
   async function claimOnly(eventId: string): Promise<void> {
     await db.transaction().execute(async (tx) => {
-      await claim(tx, eventId);
+      await claimEvent(tx, eventId);
     });
   }
 
@@ -86,12 +75,12 @@ export function vsdImportHandler(deps: {
 
   async function finish(event: EventEnvelope, documentId: string, outcome: Outcome): Promise<void> {
     await db.transaction().execute(async (tx) => {
-      if (!(await claim(tx, event.id))) return;
+      if (!(await claimEvent(tx, event.id))) return;
       const row = await tx
         .selectFrom('batch_documents')
         .select(['id', 'import_status', 'attempts', 'last_error'])
         .where('id', '=', documentId)
-        .forUpdate()
+        .forNoKeyUpdate()
         .executeTakeFirst();
       if (!row || row.import_status !== 'PENDING') return;
       // The calls before the last one were counted by recordFailure; the last one is counted here.

@@ -79,6 +79,41 @@ export async function fixtureWrite<T = Record<string, any>>(
   return (await writePool.query(sql, params)).rows as T[];
 }
 
+/**
+ * A row lock held by the test in a session of its own (sanctioned fixture, contract P59): runs `lockSql` (a
+ * `SELECT … FOR UPDATE`) inside an open transaction and keeps it until `release()` (ROLLBACK — nothing is written).
+ * It makes the interleaving of two parallel requests deterministic: a request that needs the row waits at a known
+ * statement, observable through `blockedBy(pid)`.
+ */
+export async function holdRowLock(
+  lockSql: string,
+  params: unknown[] = [],
+): Promise<{ pid: number; release(): Promise<void> }> {
+  const url = process.env.TESTS_DATABASE_URL ?? process.env.APP_DATABASE_URL;
+  if (!url) throw new Error('lib/db: set TESTS_DATABASE_URL or APP_DATABASE_URL');
+  const client = new pg.Client({ connectionString: url, options: '-c TimeZone=UTC' });
+  await client.connect();
+  const pid = (await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+  await client.query('BEGIN');
+  await client.query(lockSql, params);
+  return {
+    pid,
+    async release() {
+      await client.query('ROLLBACK');
+      await client.end();
+    },
+  };
+}
+
+/** Sessions waiting for a lock that session `pid` holds (pg_blocking_pids; read-only). */
+export async function blockedBy(pid: number): Promise<number[]> {
+  const rows = await query<{ pid: number }>(
+    'SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
+    [pid],
+  );
+  return rows.map((r) => r.pid);
+}
+
 export async function closeDb(): Promise<void> {
   await Promise.all([pool?.end(), writePool?.end()]);
   pool = null;

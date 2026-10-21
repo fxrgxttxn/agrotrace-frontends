@@ -89,7 +89,7 @@ export type RefreshOutcome =
 
 /**
  * refreshToken (contract): the owner is looked up by the token hash without a lock, then the user's advisory lock
- * (P12) is taken and only then the presented row is read `FOR UPDATE` — so two parallel refreshes with one token
+ * (P12) is taken and only then the presented row is read `FOR NO KEY UPDATE` — so two parallel refreshes with one token
  * rotate once (the second sees the row revoked by rotation just now: grace → 401 without cookie deletion), and
  * parallel stale tokens of one chain are handled one at a time (all 401, the chain revoked once).
  */
@@ -110,7 +110,7 @@ export function rotateRefreshToken(db: Kysely<DB>, token: string | null): Promis
       .selectFrom('refresh_tokens')
       .select(['id', 'user_id', 'expires_at', 'revoked_at', 'replaced_by'])
       .where('token_hash', '=', hash)
-      .forUpdate()
+      .forNoKeyUpdate()
       .executeTakeFirst();
     if (!row) return { kind: 'expired', clearCookie: true };
     if (row.revoked_at) {

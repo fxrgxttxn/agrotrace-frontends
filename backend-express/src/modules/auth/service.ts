@@ -109,6 +109,8 @@ export function authService(c: Container) {
         'u.totp_enabled',
         'u.totp_secret',
         'o.status as org_status',
+        // P43: the lock is compared with the DB clock that wrote it (now()), not the process clock.
+        sql<boolean>`u.locked_until IS NOT NULL AND u.locked_until > now()`.as('is_locked'),
         'o.deleted_at as org_deleted_at',
       ])
       .where('u.deleted_at', 'is', null);
@@ -147,7 +149,7 @@ export function authService(c: Container) {
         await dummyVerify(input.password);
         throw new AppProblem(401, 'INVALID_CREDENTIALS');
       }
-      if (u.locked_until && u.locked_until.getTime() > Date.now())
+      if (u.is_locked && u.locked_until)
         throw new AppProblem(401, 'ACCOUNT_LOCKED', { params: { lockedUntil: iso(u.locked_until) } });
 
       if (!(await verifyPassword(u.password_hash, input.password))) {
@@ -516,7 +518,7 @@ export function authService(c: Container) {
           .select(['id', 'full_name', 'status'])
           .where('id', '=', entry.userId)
           .where('deleted_at', 'is', null)
-          .forUpdate()
+          .forNoKeyUpdate()
           .executeTakeFirst();
         if (!u || u.status !== 'INVITED') throw tokenExpired(400);
         await tx

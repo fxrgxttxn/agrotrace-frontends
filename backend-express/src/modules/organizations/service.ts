@@ -183,7 +183,7 @@ export function organizationsService(c: Container) {
           .select('logo_file_id')
           .where('id', '=', orgId)
           .where('deleted_at', 'is', null)
-          .forUpdate()
+          .forNoKeyUpdate()
           .executeTakeFirst();
         if (!o) throw new AppProblem(404, 'NOT_FOUND');
         const now = await txNow(tx);

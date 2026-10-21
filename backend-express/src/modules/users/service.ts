@@ -210,7 +210,7 @@ export function usersService(c: Container) {
           .select(['u.id', 'u.organization_id', 'u.status', 'u.is_org_admin', 'o.type as org_type'])
           .where('u.id', '=', id)
           .where('u.deleted_at', 'is', null)
-          .forUpdate('u')
+          .forNoKeyUpdate('u')
           .executeTakeFirst();
         if (!u || (!isAdmin(p) && u.organization_id !== p.orgId)) throw new AppProblem(404, 'NOT_FOUND');
         if (input.status !== undefined && u.status === 'INVITED')
