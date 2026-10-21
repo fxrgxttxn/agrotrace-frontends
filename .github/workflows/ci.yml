@@ -116,6 +116,22 @@ jobs:
   # --- end django ---
 
   # --- laravel (plan 5) ---
+  laravel-unit:
+    name: laravel unit (Pest, domain coverage, Pint, Larastan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh up infra
+      # Pest on agrotrace_test_laravel (SP2): unit + integration groups.
+      - run: ./at.sh laravel:test
+      # The domain on the shared vectors, failing below 70 % coverage of app/Domain (spec §14.1).
+      - run: ./at.sh laravel:test --domain-coverage
+      - run: ./at.sh laravel:lint
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+  # api-laravel (tests/api, cross pairs, docs:test laravel) is filled in Plan 5 Task 14.
   # --- end laravel ---
 
   ds:

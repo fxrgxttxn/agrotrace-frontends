@@ -588,9 +588,29 @@ e2e() (
 django_test_hook() { echo "django:test: added by Plan 3 (Task 1 fills django_test_hook in at.sh)" >&2; return 1; }
 # --- end django ---
 # --- laravel (plan 5) ---
-# laravel_test_hook [pest args…]: the body of `laravel:test`, run after `prepare_test_db agrotrace_test_laravel`
-# (TEST_DATABASE_URL / TEST_APP_DATABASE_URL exported, stand lock held). Plan 5 Task 1 replaces this stub.
-laravel_test_hook() { echo "laravel:test: added by Plan 5 (Task 1 fills laravel_test_hook in at.sh)" >&2; return 1; }
+# laravel_test_hook [pest args…] [--domain-coverage]: the body of `laravel:test`, run after
+# `prepare_test_db agrotrace_test_laravel` (TEST_DATABASE_URL / TEST_APP_DATABASE_URL exported, stand lock held).
+# Bundles the contract (contracts/dist/openapi.json — ContractGate and the tests read it), installs the locked composer
+# packages into the laravel-vendor volume and runs Pest in php-tools; the `integration` tests use agrotrace_test_laravel
+# (as agrotrace_app) and the stand's Redis. --domain-coverage: only the domain on the shared vectors
+# (tests/Unit/Domain), failing below 70 % line coverage of app/Domain (spec §14.1). Other arguments go to Pest.
+laravel_test_hook() {
+  local pest="vendor/bin/pest" a args=()
+  for a in "$@"; do
+    case "$a" in
+      --domain-coverage) pest="vendor/bin/pest -c phpunit.domain.xml --coverage --min=70" ;;
+      *) args+=("$a") ;;
+    esac
+  done
+  run $T pnpm --filter @agrotrace/contracts bundle
+  run $DC run --rm -e TEST_DATABASE_URL -e TEST_APP_DATABASE_URL php-tools \
+    sh -c "composer install --no-interaction --no-progress --quiet && $pest \"\$@\"" pest ${args[@]+"${args[@]}"}
+}
+# laravel_lint: Pint (--test, no rewrite) and Larastan over backend-laravel — read-only, no stand lock.
+laravel_lint() {
+  run $DC run --rm --no-deps php-tools \
+    sh -c 'composer install --no-interaction --no-progress --quiet && vendor/bin/pint --test && vendor/bin/phpstan analyse --no-progress --memory-limit=1G'
+}
 # --- end laravel ---
 
 
@@ -640,6 +660,12 @@ case "$cmd" in
     # --- django (plan 3) ---
     # --- end django ---
     # --- laravel (plan 5) ---
+    "$0" laravel:test
+    "$0" api:test laravel --reset
+    "$0" api:test laravel --ratelimits
+    "$0" cross:test express laravel
+    "$0" cross:test laravel express
+    "$0" docs:test laravel
     # --- end laravel ---
     "$0" cross:test
     "$0" up gateway
@@ -772,6 +798,10 @@ case "$cmd" in
   # --- laravel (plan 5) ---
   # `laravel:test [pest args…]` (locked): Laravel's unit suite on its own DB agrotrace_test_laravel (SP2).
   laravel:test) prepare_test_db agrotrace_test_laravel; laravel_test_hook "$@" ;;
+  # `laravel:lint`: Pint --test + Larastan (backend-laravel, php-tools); `composer <args>`: composer in php-tools
+  # (backend-laravel, vendor in the laravel-vendor volume). Neither changes the stand: no lock.
+  laravel:lint) laravel_lint ;;
+  composer)  run $DC run --rm --no-deps php-tools composer "$@" ;;
   # --- end laravel ---
   # Top-level commands only (two-space indented case labels).
   help|*)  grep -E '^  [a-z0-9:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
