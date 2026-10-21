@@ -18,6 +18,8 @@ export interface Letter {
 export interface Mailer {
   /** Fire-and-forget; resolves when delivered or given up (tests may await it). */
   send(letter: Letter): Promise<void>;
+  /** One delivery attempt, no retries; rejects when the SMTP server refuses or is unreachable (notification delivery). */
+  sendOnce(letter: Letter): Promise<void>;
   close(): void;
 }
 
@@ -36,6 +38,14 @@ export function createMailer(
     socketTimeout: 10000,
   });
   return {
+    async sendOnce(letter) {
+      await transport.sendMail({
+        from: opts.from,
+        to: letter.to,
+        subject: letter.subject,
+        text: letter.text,
+      });
+    },
     async send(letter) {
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {

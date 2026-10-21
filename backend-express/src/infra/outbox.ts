@@ -1,11 +1,11 @@
 /**
  * Transactional outbox, write side (R55, R56, P1): an event is a row of `outbox_events` inserted in the SAME transaction
- * as the state change that causes it; the relay (after commit) and the sweeper publish it later (Task 12). The row's
+ * as the state change that causes it; the relay (after commit — the request's collected ids, app.ts) and the sweeper publish it. The row's
  * `payload` is the whole queue document of contracts/events/envelope.schema.json.
  */
 import { randomUUID } from 'node:crypto';
 import type { Transaction } from 'kysely';
-import { currentRequestId } from '../context.js';
+import { collectEvent, currentRequestId } from '../context.js';
 import type { DB } from '../db/types.generated.js';
 
 /** contracts/events/envelope.schema.json#/properties/type/enum */
@@ -49,5 +49,6 @@ export async function enqueue<T extends EventType>(
     .insertInto('outbox_events')
     .values({ id: envelope.id, backend: 'express', type: envelope.type, payload: JSON.stringify(envelope) })
     .execute();
+  collectEvent(envelope.id);
   return envelope;
 }

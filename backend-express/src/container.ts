@@ -15,6 +15,7 @@ import { createMailer, type Mailer } from './infra/mailer.js';
 import { createOutboxRelay, type OutboxRelay } from './infra/relay.js';
 import { createRedis } from './infra/redis.js';
 import { createS3, type S3 } from './infra/s3.js';
+import type { SseHub } from './sse/hub.js';
 
 export interface Container {
   config: Config;
@@ -29,6 +30,8 @@ export interface Container {
   fileUrls: FileUrls;
   /** Outbox relay + sweeper (publishing side, R55/R56); started by the API process only. */
   relay: OutboxRelay;
+  /** SSE hub (LISTEN notifications, R33); the API process sets it before createApp, others leave null. */
+  sse: SseHub | null;
   /** The bundled contract (API process only). */
   contract: { doc: OpenApiDoc; raw: string } | null;
   close(): Promise<void>;
@@ -69,10 +72,12 @@ export function createContainer(
     dadata,
     fileUrls: createFileUrls(config.JWT_SECRET),
     relay,
+    sse: null,
     contract: opts.contract ?? null,
     async close() {
       // quit() waits for pending replies — only on a live connection; a reconnecting client is just dropped.
       const redisDone = redis.status === 'ready' ? redis.quit() : Promise.resolve(redis.disconnect());
+      await this.sse?.close();
       await relay.stop();
       await Promise.allSettled([amqp.close(), redisDone, db.destroy()]);
       s3.client.destroy();

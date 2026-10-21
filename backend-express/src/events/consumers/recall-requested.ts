@@ -11,7 +11,8 @@
  *      FARM (published right after the commit; the sweeper retries).
  *
  * Notifications (1) and (2) are written with the notification.dispatch algorithm (modules/notifications/dispatch.ts);
- * a redelivered event finds its claim and creates nothing.
+ * a redelivered event finds its claim and creates nothing. The PENDING EMAIL/TELEGRAM rows are sent after the commit
+ * (modules/notifications/delivery.ts).
  */
 import { sql } from 'kysely';
 import type { Db } from '../../db/db.js';
@@ -20,6 +21,7 @@ import type { EventHandler } from '../../infra/consumer.js';
 import { enqueue } from '../../infra/outbox.js';
 import type { OutboxRelay } from '../../infra/relay.js';
 import { iso } from '../../modules/batches/view.js';
+import type { Delivery } from '../../modules/notifications/delivery.js';
 import { insertNotifications } from '../../modules/notifications/dispatch.js';
 import { claimEvent } from '../claim.js';
 
@@ -30,12 +32,18 @@ export interface RecallRequestedData {
   openedBy: string | null;
 }
 
-export function recallRequestedHandler(deps: { db: Db; relay: OutboxRelay }): EventHandler {
-  const { db, relay } = deps;
+export function recallRequestedHandler(deps: {
+  db: Db;
+  relay: OutboxRelay;
+  delivery: Delivery;
+}): EventHandler {
+  const { db, relay, delivery } = deps;
   return async (event) => {
     const data = event.data as unknown as RecallRequestedData;
-    const publish = await withTx(db, async (tx) => {
-      if (!(await claimEvent(tx, event.id))) return [];
+    const out = await withTx(db, async (tx) => {
+      const pending: string[] = [];
+      const none = { publish: [] as string[], pending };
+      if (!(await claimEvent(tx, event.id))) return none;
       const r = await tx
         .selectFrom('recalls as r')
         .innerJoin('batches as b', 'b.id', 'r.source_batch_id')
@@ -52,7 +60,7 @@ export function recallRequestedHandler(deps: { db: Db; relay: OutboxRelay }): Ev
         ])
         .where('r.id', '=', data.recallId)
         .executeTakeFirst();
-      if (!r) return [];
+      if (!r) return none;
       const tasks = await tx
         .selectFrom('recall_tasks as t')
         .innerJoin('batches as b', 'b.id', 't.batch_id')
@@ -63,43 +71,48 @@ export function recallRequestedHandler(deps: { db: Db; relay: OutboxRelay }): Ev
       // R89: no OPENED once the recall is no longer OPEN (closed at creation, or every task confirmed before this
       // handler ran — its CLOSED is already written) or is soft-deleted.
       if (r.status === 'OPEN' && r.deleted_at === null && tasks.length > 0)
-        await insertNotifications(tx, {
-          notificationType: 'RECALL',
-          recipients: {
-            userIds: [],
-            orgIds: [...new Set([...tasks.map((t) => t.holder_org_id), r.origin_org_id])],
-            orgHeadIds: [],
-            roles: ['INSPECTOR'],
-          },
-          payload: {
-            recallId: r.id,
-            event: 'OPENED',
-            sourceBatchId: r.batch_id,
-            publicCode: r.public_code,
-            trigger: r.trigger,
-          },
-        });
+        pending.push(
+          ...(await insertNotifications(tx, {
+            notificationType: 'RECALL',
+            recipients: {
+              userIds: [],
+              orgIds: [...new Set([...tasks.map((t) => t.holder_org_id), r.origin_org_id])],
+              orgHeadIds: [],
+              roles: ['INSPECTOR'],
+            },
+            payload: {
+              recallId: r.id,
+              event: 'OPENED',
+              sourceBatchId: r.batch_id,
+              publicCode: r.public_code,
+              trigger: r.trigger,
+            },
+          })),
+        );
       for (const t of tasks)
-        await insertNotifications(tx, {
-          notificationType: 'RECALL_TASK',
-          recipients: { userIds: [], orgIds: [t.holder_org_id], orgHeadIds: [], roles: [] },
-          payload: {
-            recallId: r.id,
-            taskId: t.id,
-            batchId: t.batch_id,
-            publicCode: t.public_code,
-            dueAt: iso(t.due_at),
-            event: 'CREATED',
-          },
-        });
-      if (r.origin_type !== 'FARM') return [];
+        pending.push(
+          ...(await insertNotifications(tx, {
+            notificationType: 'RECALL_TASK',
+            recipients: { userIds: [], orgIds: [t.holder_org_id], orgHeadIds: [], roles: [] },
+            payload: {
+              recallId: r.id,
+              taskId: t.id,
+              batchId: t.batch_id,
+              publicCode: t.public_code,
+              dueAt: iso(t.due_at),
+              event: 'CREATED',
+            },
+          })),
+        );
+      if (r.origin_type !== 'FARM') return none;
       const ev = await enqueue(tx, {
         type: 'rating.recalculate',
         requestId: event.requestId,
         payload: { organizationId: r.origin_org_id, cause: 'RECALL_SOURCE', sourceId: r.id },
       });
-      return [ev.id];
+      return { publish: [ev.id], pending };
     });
-    await relay.publish(publish);
+    delivery.deliver(out.pending);
+    await relay.publish(out.publish);
   };
 }

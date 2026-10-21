@@ -9,20 +9,23 @@
  * - sweeper: every 5 s, only while `pg_try_advisory_xact_lock(hashtext('agrotrace.outbox.express'))` succeeds, the
  *   oldest 100 unpublished rows of this backend.
  *
- * Only the event types with a consumer in the worker are relayed (`RELAYED_TYPES`; P1): vsd.import (Task 6),
- * recall.requested and rating.recalculate (Task 10). Rows of the other types (notification.dispatch, lab.escalate) stay
- * unpublished in the outbox until Task 12 adds their consumers and widens the list to every type.
+ * Every event type of the envelope is relayed (the worker has a handler for each). Retention (R59): the sweeper pass
+ * also deletes this backend's `outbox_events` published more than 7 days ago and its `processed_events` older than
+ * 30 days.
+ *
+ * Callers: the API publishes the ids a request collected right after its response (app.ts `publishAfterResponse`,
+ * context.ts) and some operations publish explicitly after their commit; worker handlers publish the rows they wrote;
+ * scheduler jobs leave theirs to the sweeper. A second publish of the same id finds the row published (or locked)
+ * and does nothing.
  */
 import { sql, type Transaction } from 'kysely';
 import type { ConfirmChannel } from 'amqplib';
+import type { RequestHandler } from 'express';
+import { currentContext } from '../context.js';
 import type { Db } from '../db/db.js';
 import type { DB } from '../db/types.generated.js';
 import type { Logger } from '../logger.js';
 import { EXCHANGE, type Amqp } from './amqp.js';
-import type { EventType } from './outbox.js';
-
-/** Event types the worker consumes so far (Task 12: every type of the envelope). */
-export const RELAYED_TYPES: readonly EventType[] = ['vsd.import', 'recall.requested', 'rating.recalculate'];
 
 const SWEEP_INTERVAL_MS = 5000;
 const SWEEP_BATCH = 100;
@@ -89,6 +92,13 @@ export function createOutboxRelay(deps: { db: Db; amqp: Amqp; logger: Logger }):
           SELECT pg_try_advisory_xact_lock(hashtext('agrotrace.outbox.express')) AS ok`.execute(tx);
         if (!got.rows[0]?.ok) return 0;
       }
+      if (advisory) {
+        // R59 retention, under the same sweeper lock.
+        await sql`DELETE FROM outbox_events
+                   WHERE backend = 'express' AND published_at < now() - interval '7 days'`.execute(tx);
+        await sql`DELETE FROM processed_events
+                   WHERE backend = 'express' AND processed_at < now() - interval '30 days'`.execute(tx);
+      }
       const rows = (await pick(base(tx)).execute()) as Row[];
       for (const row of rows) {
         await publishRow(ch, row);
@@ -109,7 +119,6 @@ export function createOutboxRelay(deps: { db: Db; amqp: Amqp; logger: Logger }):
       .select(['id', 'type', 'payload'])
       .where('backend', '=', 'express')
       .where('published_at', 'is', null)
-      .where('type', 'in', [...RELAYED_TYPES])
       .forUpdate()
       .skipLocked();
   }
@@ -145,4 +154,19 @@ export function createOutboxRelay(deps: { db: Db; amqp: Amqp; logger: Logger }):
     },
   };
   return relay;
+}
+
+/**
+ * Publishes the outbox rows a request wrote (`enqueue` collects their ids in the request context) once the response
+ * has gone out — every transaction of the request has committed by then (handlers answer after `withTx` resolves).
+ */
+export function publishAfterResponse(relay: OutboxRelay): RequestHandler {
+  return (_req, res, next) => {
+    const ctx = currentContext();
+    res.on('close', () => {
+      const ids = ctx?.events ?? [];
+      if (ids.length > 0) void relay.publish(ids.splice(0));
+    });
+    next();
+  };
 }

@@ -48,6 +48,7 @@ export const testConfig = {
   DADATA_URL: 'http://dadata.invalid/party',
   DADATA_TIMEOUT_MS: 3000,
   TELEGRAM_BOT_USERNAME: 'agrotrace_bot',
+  TELEGRAM_API_URL: 'http://telegram.invalid',
   RATE_LIMIT_OVERRIDES: {},
   MERCURY_URL: 'http://mercury.invalid',
   MERCURY_TIMEOUT_MS: 10000,

@@ -16,6 +16,7 @@ import {
   rejectEmptySegments,
 } from './http/problem.js';
 import { backendHeader, requestId } from './http/request-id.js';
+import { publishAfterResponse } from './infra/relay.js';
 import { adminRouter } from './modules/admin/routes.js';
 import { auditRouter } from './modules/audit/routes.js';
 import { batchesRouter } from './modules/batches/routes.js';
@@ -26,6 +27,7 @@ import { filesRouter, publicFilesRouter } from './modules/files/routes.js';
 import { fieldsRouter } from './modules/fields/routes.js';
 import { healthRouter } from './modules/health/routes.js';
 import { meRouter } from './modules/me/routes.js';
+import { notificationsRouter } from './modules/notifications/routes.js';
 import { organizationsRouter } from './modules/organizations/routes.js';
 import { usersRouter } from './modules/users/routes.js';
 import { labRouter } from './modules/lab/routes.js';
@@ -49,6 +51,7 @@ export function createApp(c: Container): Express {
   app.set('trust proxy', 1);
 
   app.use(requestId());
+  app.use(publishAfterResponse(c.relay));
   app.use(backendHeader('express'));
   app.use(accessLog(c.logger));
   app.use(rejectEmptySegments());
@@ -88,6 +91,7 @@ export function createApp(c: Container): Express {
   api.use(recallsRouter(c));
   api.use(complaintsRouter(c));
   api.use(publicRouter(c));
+  api.use(notificationsRouter(c));
   app.use('/api/v1', api);
 
   app.use(notFoundHandler());

@@ -85,6 +85,10 @@ const schema = z.object({
     .string()
     .regex(/^[A-Za-z0-9_]{5,32}$/, 'must be a Telegram username without @ (5-32 of A-Z a-z 0-9 _)')
     .default('agrotrace_bot'),
+  /** Bot API base (the worker's sendMessage / getUpdates); overridable for tests. */
+  TELEGRAM_API_URL: url(['http:', 'https:'])
+    .default('https://api.telegram.org')
+    .transform((s) => s.replace(/\/+$/, '')),
   /** ФГИС «Меркурий» (dev: mercury-mock), the `vsd.import` worker (R81, contracts/events/vsd.import.schema.json). */
   MERCURY_URL: url(['http:', 'https:'])
     .default('http://mercury-mock:8080')
