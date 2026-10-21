@@ -787,7 +787,7 @@ describe('Laravel commands (Plan 5)', () => {
 
   it('test:all runs the Laravel suites in its section', () => {
     expect(testAll()).toMatch(
-      /# --- laravel \(plan 5\) ---\n {4}"\$0" laravel:test\n {4}"\$0" api:test laravel --reset\n {4}"\$0" api:test laravel --ratelimits\n {4}"\$0" cross:test express laravel\n {4}"\$0" cross:test laravel express\n {4}"\$0" docs:test laravel\n {4}# --- end laravel ---/,
+      /# --- laravel \(plan 5\) ---\n {4}"\$0" laravel:test\n {4}"\$0" laravel:stack\n {4}"\$0" api:test laravel --reset\n {4}"\$0" api:test laravel --ratelimits\n {4}"\$0" cross:test express laravel\n {4}"\$0" cross:test laravel express\n {4}"\$0" docs:test laravel\n {4}# --- end laravel ---/,
     );
   });
 });
