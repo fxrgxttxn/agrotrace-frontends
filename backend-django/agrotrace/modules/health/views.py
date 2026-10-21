@@ -1,13 +1,18 @@
 """
 getHealthLive / getHealthReady (contracts/openapi/paths/health.yaml). Ready checks PostgreSQL, Redis, RabbitMQ and
-MinIO concurrently, each bounded by HEALTH_TIMEOUT_MS; any `fail` → 503 with the same body shape.
+MinIO concurrently under ONE deadline of HEALTH_TIMEOUT_MS counted from the start of the request (Express
+routes.ts `probe()`): every probe still running at the deadline is `fail`, so the whole answer is bounded by about
+HEALTH_TIMEOUT_MS whatever hangs. Each probe runs on its own short-lived daemon thread — a probe that hangs (a Redis
+socket timeout, a slow S3) can never fill a shared pool and delay the probes of later requests. Any `fail` → 503
+with the same body shape.
 """
 
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeout
+import threading
+import time
+from collections.abc import Callable
 
 from django.db import connections
 from rest_framework.response import Response
@@ -16,8 +21,6 @@ from agrotrace.core import config, sql
 from agrotrace.core.views import ContractView
 
 log = logging.getLogger("agrotrace.health")
-
-_probes = ThreadPoolExecutor(max_workers=8, thread_name_prefix="health")
 
 
 def _db() -> None:
@@ -47,7 +50,33 @@ def _s3() -> None:
     s3.ping()
 
 
-CHECKS = {"db": _db, "redis": _redis, "rabbitmq": _rabbitmq, "s3": _s3}
+CHECKS: dict[str, Callable[[], None]] = {"db": _db, "redis": _redis, "rabbitmq": _rabbitmq, "s3": _s3}
+
+
+def run_checks(checks: dict[str, Callable[[], None]], timeout_s: float) -> dict[str, str]:
+    """`{name: ok|fail}`: all probes start at once; one deadline `timeout_s` from now for all of them."""
+    results: dict[str, str] = {}
+    done = {name: threading.Event() for name in checks}
+
+    def probe(name: str, fn: Callable[[], None]) -> None:
+        try:
+            fn()
+            results[name] = "ok"
+        except Exception:
+            results[name] = "fail"
+        finally:
+            done[name].set()
+
+    for name, fn in checks.items():
+        threading.Thread(target=probe, args=(name, fn), name=f"health-{name}", daemon=True).start()
+    deadline = time.monotonic() + timeout_s
+    out: dict[str, str] = {}
+    for name in checks:
+        finished = done[name].wait(max(0.0, deadline - time.monotonic()))
+        out[name] = results.get(name, "fail") if finished else "fail"
+        if out[name] != "ok":
+            log.warning("readiness check failed", extra={"check": name})
+    return out
 
 
 class LiveView(ContractView):
@@ -61,15 +90,6 @@ class ReadyView(ContractView):
     operation_id = "getHealthReady"
 
     def get(self, request):
-        timeout = config.get().HEALTH_TIMEOUT_MS / 1000
-        futures = {name: _probes.submit(fn) for name, fn in CHECKS.items()}
-        checks: dict[str, str] = {}
-        for name, fut in futures.items():
-            try:
-                fut.result(timeout=timeout)
-                checks[name] = "ok"
-            except (FutureTimeout, Exception):
-                checks[name] = "fail"
-                log.warning("readiness check failed", extra={"check": name})
+        checks = run_checks(CHECKS, config.get().HEALTH_TIMEOUT_MS / 1000)
         ok = all(v == "ok" for v in checks.values())
         return Response({"status": "ok" if ok else "fail", "checks": checks}, status=200 if ok else 503)
