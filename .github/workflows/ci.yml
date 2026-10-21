@@ -104,7 +104,7 @@ jobs:
       - run: ./at.sh api:test express --reset --tz Europe/Moscow
       # P10: the [ratelimit] tests against the plain backend (no RATE_LIMIT_OVERRIDES).
       - run: ./at.sh api:test express --ratelimits
-      # tests/cross scaffold (Express×Express stub pair until Plan 3) — kept running so it cannot rot unseen.
+      # tests/cross (session + interop) on the default Express×Express pair; the port jobs run their real pairs.
       - run: ./at.sh cross:test
       - run: ./at.sh docs:test express
       - if: failure()

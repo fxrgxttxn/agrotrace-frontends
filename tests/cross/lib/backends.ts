@@ -1,8 +1,7 @@
 /**
  * The pair of backends a cross scenario runs against: CROSS_API_URLS = "<url A>,<url B>" (`./at cross:test <a> <b>`
- * sets http://api-<a>:8000/api/v1,http://api-<b>:8000/api/v1). Until Plan 3 brings api-django and api-laravel, the
- * default pair is Express with itself — a stub that keeps the scaffold running; the scenarios do not change when the
- * real pairs arrive.
+ * sets http://api-<a>:8000/api/v1,http://api-<b>:8000/api/v1). The default pair is Express with itself (main has no
+ * other backend yet); the scenarios are backend-agnostic (P58) and run unchanged for every real pair, in both orders.
  */
 export type Backend = 'express' | 'django' | 'laravel';
 
@@ -26,5 +25,5 @@ if (urls.length !== 2)
   throw new Error(`CROSS_API_URLS must hold exactly two URLs, got ${JSON.stringify(raw)}`);
 
 export const [A, B] = urls.map(target) as [Target, Target];
-/** True while both sides are the same backend (the pre-Plan-3 stub). */
-export const STUB = A.backend === B.backend;
+/** True while both sides are the same backend (the default express×express pair). */
+export const SAME_BACKEND = A.backend === B.backend;

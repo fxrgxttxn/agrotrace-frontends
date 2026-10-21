@@ -4,7 +4,9 @@ import { defineConfig } from 'vitest/config';
 // after another like tests/api.
 export default defineConfig({
   test: {
-    testTimeout: 30000,
+    // Long enough to wait out one shared rate-limit window (lib/http.ts fetchRetrying, R30: 60 s).
+    testTimeout: 120000,
+    hookTimeout: 120000,
     fileParallelism: false,
   },
 });

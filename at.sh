@@ -379,7 +379,8 @@ api_test() (
 )
 
 # `./at cross:test [a] [b] [vitest args…]`: tests/cross — cross-backend scenarios (spec 15.2) against api-<a> and api-<b>
-# (CROSS_API_URLS), both started first. Default pair express express: the stub until Plan 3 adds Django and Laravel.
+# (CROSS_API_URLS), both started first. Default pair express express (main has no other backend); the ports run their
+# pairs in both orders (`cross:test express django`, `cross:test django express`).
 cross_test() (
   set -euo pipefail
   a="express"; b="express"
@@ -612,8 +613,8 @@ case "$cmd" in
   # The command wrappers (at, at.sh, at.cmd, at.ps1; `up` in AT_DRY_RUN mode) — tests/at.
   at:test)   $T pnpm --filter @agrotrace/tests-at test "$@" ;;
   # Everything, in dependency order: unit → wrappers → tests/db (throwaway agrotrace_test) → dev DB migrated and
-  # seed checked → tests/api against Express (after a reset; then its rate-limit tests, P10) → tests/cross (stub pair
-  # until Plan 3) → gateway up + gw:test → Swagger UI through the gateway → design-system showcase.
+  # seed checked → tests/api against Express (after a reset; then its rate-limit tests, P10) → tests/cross (default
+  # express pair; the ports add theirs in their sections) → gateway up + gw:test → Swagger UI through the gateway → design-system showcase.
   # Per-backend lines (unit suite, api:test --reset / --ratelimits, cross pairs, docs:test) go in that backend's section.
   test:all)
     "$0" test
