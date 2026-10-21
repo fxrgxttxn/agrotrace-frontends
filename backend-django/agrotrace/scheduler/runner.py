@@ -41,21 +41,23 @@ def guarded_tick(name: str, run: Callable[[], int]) -> bool:
     try:
         key = advisory_key(name)
         try:
-            if not sql.scalar("SELECT pg_try_advisory_lock(hashtext(%s))", [key]):
-                return False
-            try:
-                n = run()
-                if n and n > 0:
-                    log.info("scheduler job tick", extra={"job": name, "rows": n})
-            finally:
+            # The session lock and the tick's transactions stay on one connection (core.sql holder discipline).
+            with sql.pinned():
+                if not sql.scalar("SELECT pg_try_advisory_lock(hashtext(%s))", [key]):
+                    return False
                 try:
-                    sql.execute("SELECT pg_advisory_unlock(hashtext(%s))", [key])
-                except Exception:
-                    # The session would keep the lock: never hand this connection back to the pool.
-                    raw = connection.connection
-                    if raw is not None:
-                        raw.close()
-                    raise
+                    n = run()
+                    if n and n > 0:
+                        log.info("scheduler job tick", extra={"job": name, "rows": n})
+                finally:
+                    try:
+                        sql.execute("SELECT pg_advisory_unlock(hashtext(%s))", [key])
+                    except Exception:
+                        # The session would keep the lock: never hand this connection back to the pool.
+                        raw = connection.connection
+                        if raw is not None:
+                            raw.close()
+                        raise
             return True
         except Exception as e:
             log.error("scheduler job failed", exc_info=e, extra={"job": name})

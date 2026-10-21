@@ -95,23 +95,28 @@ def with_tx[T](
     assert not connection.in_atomic_block, "with_tx() inside an open transaction (atomic) is not allowed"
     attempts = 2 if retry_once else 1
     attempt = 0
-    while True:
-        attempt += 1
-        try:
-            with transaction.atomic():
-                stmt = _SET_ISOLATION[isolation]
-                if stmt:
-                    sql.execute(stmt)
-                return fn(Tx())
-        except AppProblem:
-            raise
-        except Exception as exc:
-            if not is_retryable(exc) and not (retry_if is not None and retry_if(exc)):
+    try:
+        while True:
+            attempt += 1
+            try:
+                with transaction.atomic():
+                    stmt = _SET_ISOLATION[isolation]
+                    if stmt:
+                        sql.execute(stmt)
+                    return fn(Tx())
+            except AppProblem:
                 raise
-            if attempt < attempts:
-                continue
-            params = conflict_params() if conflict_params else None
-            raise AppProblem(409, "VERSION_CONFLICT", params=params) from exc
+            except Exception as exc:
+                if not is_retryable(exc) and not (retry_if is not None and retry_if(exc)):
+                    raise
+                if attempt < attempts:
+                    continue
+                params = conflict_params() if conflict_params else None
+                raise AppProblem(409, "VERSION_CONFLICT", params=params) from exc
+    finally:
+        # P61 holder discipline (core.sql): the connection goes back to the pool once the transaction is over.
+        if not sql.is_pinned() and not connection.in_atomic_block:
+            connection.close()
 
 
 #: Every entry of the recall engine (Tasks 9–11, D-I3): REPEATABLE READ and one more attempt when a parallel start
