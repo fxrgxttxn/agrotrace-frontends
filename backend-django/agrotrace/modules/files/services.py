@@ -88,7 +88,12 @@ def prepare(upload: Upload, *, kind: str, owner_id: str | None, allowed: Sequenc
     p = Prepared(id=file_id, kind=kind, owner_id=owner_id, original_name=upload.name, mime=mime, original=upload.data)
     extra: list[tuple[str, bytes, str]] = []
     if mime in images.RASTER_TYPES:
-        out = images.variants(upload.data, mime)
+        # The raster Lane (Ruling Q8): 2 decodes at a time, out of process; the wait holds no pool connection.
+        try:
+            out = images.variants(upload.data, mime, cancelled)
+        except images.RasterBusy:
+            # Not reachable in practice (a 256-deep queue, 120 s); the contract's generic overload answer.
+            raise AppProblem(503, "BACKEND_UNAVAILABLE", headers={"Retry-After": "1"}) from None
         if out is None:
             raise unsupported(allowed)
         for size, body in out.items():

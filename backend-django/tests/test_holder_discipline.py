@@ -70,7 +70,7 @@ def test_image_decoding_and_storage_run_without_a_connection(monkeypatch):
 
     holds = []
     monkeypatch.setattr("agrotrace.infra.images.variants",
-                        lambda data, mime: holds.append(("variants", sql.holds_connection())) or {"96": b"x", "480": b"y"})
+                        lambda data, mime, cancelled=None: holds.append(("variants", sql.holds_connection())) or {"96": b"x", "480": b"y"})
     monkeypatch.setattr("agrotrace.infra.s3.put", lambda *a: holds.append(("put", sql.holds_connection())))
     monkeypatch.setattr("agrotrace.infra.s3.bucket", lambda: "test")
     p = files.prepare(Upload("a.png", png(4, 4)), kind="AVATAR", owner_id=None, allowed=("image/png",))
@@ -105,7 +105,7 @@ def test_a_flood_of_slow_non_db_work_does_not_starve_other_queries(monkeypatch):
     queries stay fast and none waits for the pool (before the fix: ~1 s+ waits, and 503 past 5 s)."""
     from agrotrace.modules.files import services as files
 
-    def slow_variants(data, mime):
+    def slow_variants(data, mime, cancelled=None):
         time.sleep(1.0)
         return {"96": b"x", "480": b"y"}
 
@@ -150,9 +150,25 @@ def test_no_direct_cursor_outside_the_helpers():
         rel = p.relative_to(PKG).as_posix()
         if rel in DIRECT_ALLOWED:
             continue
-        for node in ast.walk(ast.parse(p.read_text("utf-8"))):
-            if isinstance(node, ast.Attribute) and node.attr in ("cursor", "raw") and \
-                    isinstance(node.value, (ast.Name, ast.Attribute)) and \
-                    getattr(node.value, "id", getattr(node.value, "attr", "")) in ("connection", "objects"):
-                bad.append(f"{rel}:{node.lineno} {node.attr}")
+        bad += [f"{rel}:{line} {what}" for line, what in _forbidden(ast.parse(p.read_text("utf-8")))]
     assert bad == []
+
+
+def _forbidden(tree) -> list[tuple[int, str]]:
+    """connection.cursor() / connections["default"].cursor() / any ORM manager (Model.objects.…) — they bypass the
+    releasing helpers and would hold a connection until the view ends (review N5)."""
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        base = node.value
+        if node.attr == "cursor" and (isinstance(base, ast.Subscript) or getattr(base, "id", "") == "connection"):
+            out.append((node.lineno, "cursor"))
+        if node.attr == "objects" and isinstance(base, ast.Name) and base.id[:1].isupper():  # a Model's manager
+            out.append((node.lineno, "objects"))
+    return out
+
+
+def test_the_guard_sees_the_forms_it_forbids():
+    sample = ast.parse('connection.cursor()\nconnections["default"].cursor()\nUser.objects.filter(id=1)\n')
+    assert sorted(w for _, w in _forbidden(sample)) == ["cursor", "cursor", "objects"]
