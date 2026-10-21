@@ -75,7 +75,7 @@ it('gives every request a fresh context and frees the DB slot at the end of the 
         $worker = new Worker(new ApplicationFactory(base_path()), $client);
         $worker->boot();
         $app = $worker->application();
-        $app->make('router')->get('/api/v1/me', function () use (&$after) {
+        $app->make('router')->get('/api/v1/fields', function () use (&$after) {
             $ctx = app(RequestContext::class);
             $seen = [
                 'requestId' => $ctx->requestId(),
@@ -92,10 +92,10 @@ it('gives every request a fresh context and frees the DB slot at the end of the 
             $seen['slotHeld'] = app(DbSlots::class)->held();
 
             return response()->json($seen);
-        })->name('getMe');
+        })->name('listFields');
 
         $send = function (string $id) use ($worker, $client) {
-            $r = Request::create('/api/v1/me', 'GET', server: ['HTTP_X_REQUEST_ID' => $id, 'REMOTE_ADDR' => '10.0.0.9']);
+            $r = Request::create('/api/v1/fields', 'GET', server: ['HTTP_X_REQUEST_ID' => $id, 'REMOTE_ADDR' => '10.0.0.9']);
             $worker->handle($r, new OctaneContext);
 
             return json_decode(end($client->responses)->getContent(), true);

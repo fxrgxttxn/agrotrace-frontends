@@ -9,7 +9,11 @@
 
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Docs\DocsController;
+use App\Http\Controllers\Files\FilesController;
 use App\Http\Controllers\Health\HealthController;
+use App\Http\Controllers\Me\MeController;
+use App\Http\Controllers\Organizations\OrganizationsController;
+use App\Http\Controllers\Users\UsersController;
 use Illuminate\Support\Facades\Route;
 
 /** @param  array{0: class-string, 1: string}  $action */
@@ -30,6 +34,25 @@ $op('POST', '/auth/password/forgot', [AuthController::class, 'forgotPassword'], 
 $op('POST', '/auth/password/reset', [AuthController::class, 'resetPassword'], 'resetPassword');
 $op('POST', '/auth/register-organization', [AuthController::class, 'registerOrganization'], 'registerOrganization');
 $op('POST', '/auth/accept-invite', [AuthController::class, 'acceptInvite'], 'acceptInvite');
+
+// Profile, users, organizations, files (Task 3).
+$op('GET', '/me', [MeController::class, 'getMe'], 'getMe');
+$op('PATCH', '/me', [MeController::class, 'updateMe'], 'updateMe');
+$op('PUT', '/me/avatar', [MeController::class, 'uploadMyAvatar'], 'uploadMyAvatar');
+$op('DELETE', '/me/avatar', [MeController::class, 'deleteMyAvatar'], 'deleteMyAvatar');
+$op('GET', '/me/channels', [MeController::class, 'getMyChannels'], 'getMyChannels');
+$op('PUT', '/me/channels', [MeController::class, 'updateMyChannels'], 'updateMyChannels');
+$op('POST', '/me/telegram-code', [MeController::class, 'createTelegramCode'], 'createTelegramCode');
+$op('GET', '/users', [UsersController::class, 'listUsers'], 'listUsers');
+$op('POST', '/users', [UsersController::class, 'inviteUser'], 'inviteUser');
+$op('PATCH', '/users/{id}', [UsersController::class, 'updateUser'], 'updateUser');
+$op('GET', '/users/{id}/avatar', [UsersController::class, 'getUserAvatar'], 'getUserAvatar');
+$op('GET', '/organizations', [OrganizationsController::class, 'listOrganizations'], 'listOrganizations');
+$op('GET', '/organizations/{id}', [OrganizationsController::class, 'getOrganization'], 'getOrganization');
+$op('PUT', '/organizations/{id}/logo', [OrganizationsController::class, 'uploadOrganizationLogo'], 'uploadOrganizationLogo');
+$op('GET', '/organizations/{id}/logo', [OrganizationsController::class, 'getOrganizationLogo'], 'getOrganizationLogo');
+$op('GET', '/files/{id}', [FilesController::class, 'downloadFile'], 'downloadFile');
+$op('GET', '/public/files/{id}', [FilesController::class, 'downloadPublicFile'], 'downloadPublicFile');
 
 // Swagger UI (spec 8.3) — outside the contract, as in Express.
 Route::get('/api/v1/docs', [DocsController::class, 'page']);
