@@ -148,14 +148,23 @@ describe('problem handler', () => {
   });
 });
 
+/** A container whose contract also declares `GET /zz-unimplemented` (every real operation is implemented now). */
+async function withUnimplemented() {
+  const { c } = await fakeContainer();
+  const doc = structuredClone(c.contract!.doc);
+  (doc.paths as Record<string, unknown>)['/zz-unimplemented'] = {
+    get: { operationId: 'zzUnimplemented', 'x-roles': ['ANY'], responses: {} },
+  };
+  return { ...c, contract: { doc, raw: JSON.stringify(doc) } } as typeof c;
+}
+
 describe('404 / 405 fallback (createApp)', () => {
-  it('a declared but not yet implemented operation is 404; another method on a contract path is 405 + Allow', async () => {
-    const { c } = await fakeContainer();
-    const app = createApp(c);
-    const notImpl = await request(app).get('/api/v1/analytics/dashboard');
+  it('a declared but not implemented operation is 404; another method on a contract path is 405 + Allow', async () => {
+    const app = createApp(await withUnimplemented());
+    const notImpl = await request(app).get('/api/v1/zz-unimplemented');
     expect(notImpl.status).toBe(404);
     expect(notImpl.body.code).toBe('NOT_FOUND');
-    const wrong = await request(app).post('/api/v1/analytics/dashboard');
+    const wrong = await request(app).post('/api/v1/zz-unimplemented');
     expect(wrong.status).toBe(405);
     expect(wrong.headers.allow).toBe('GET');
     expect(wrong.body).toEqual({
@@ -182,19 +191,18 @@ describe('404 / 405 fallback (createApp)', () => {
   });
 
   it('a route mounted on a contract path inherits the guard: only the declared method reaches it', async () => {
-    const { c } = await fakeContainer();
-    const app = createApp(c);
+    const app = createApp(await withUnimplemented());
     // What a future module does: mount a router with a handler for every method on a contract path.
     const hits: string[] = [];
     const stack = (app as unknown as { _router: { stack: unknown[] } })._router.stack;
     const probe = express.Router();
-    probe.all('/api/v1/analytics/dashboard', (req, res) => {
+    probe.all('/api/v1/zz-unimplemented', (req, res) => {
       hits.push(req.method);
       res.status(204).end();
     });
     stack.splice(stack.length - 2, 0, ...(probe as unknown as { stack: unknown[] }).stack);
-    expect((await request(app).get('/api/v1/analytics/dashboard')).status).toBe(204);
-    const put = await request(app).put('/api/v1/analytics/dashboard');
+    expect((await request(app).get('/api/v1/zz-unimplemented')).status).toBe(204);
+    const put = await request(app).put('/api/v1/zz-unimplemented');
     expect(put.status).toBe(405);
     expect(put.headers.allow).toBe('GET');
     expect(hits).toEqual(['GET']);

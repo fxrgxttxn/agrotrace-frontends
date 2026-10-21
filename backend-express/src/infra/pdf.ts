@@ -95,9 +95,15 @@ function paragraph(
   return y;
 }
 
-function newDoc(size: string, title: string, createdAt: Date): Doc {
+function newDoc(
+  size: string,
+  title: string,
+  createdAt: Date,
+  layout: 'portrait' | 'landscape' = 'portrait',
+): Doc {
   const doc = new PDFDocument({
     size,
+    layout,
     margin: 28,
     info: {
       Title: title,
@@ -152,5 +158,109 @@ export function qrLabelPdf(d: QrLabel): Promise<Buffer> {
     width,
     align: 'center',
   });
+  return finish(doc);
+}
+
+// ── report tables (downloadReport) ─────────────────────────────────────────────────────────────────────────────
+
+/** Lines of `text` within `width`: wrapped on spaces; a word wider than the column is broken between characters. */
+function wrap(doc: Doc, text: string, weight: Weight, size: number, width: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  const push = (word: string) => {
+    const next = line ? `${line} ${word}` : word;
+    if (widthOf(doc, next, weight, size) <= width) {
+      line = next;
+      return;
+    }
+    if (line) lines.push(line);
+    line = '';
+    let chunk = '';
+    for (const ch of word) {
+      if (chunk && widthOf(doc, chunk + ch, weight, size) > width) {
+        lines.push(chunk);
+        chunk = '';
+      }
+      chunk += ch;
+    }
+    line = chunk;
+  };
+  for (const paragraphText of text.split('\n')) {
+    for (const word of paragraphText.split(' ')) push(word);
+    lines.push(line);
+    line = '';
+  }
+  return lines.length ? lines : [''];
+}
+
+function drawLine(doc: Doc, text: string, weight: Weight, size: number, x: number, y: number): void {
+  for (const p of splitRuns(text)) {
+    doc
+      .font(`${weight}-${p.cyr ? 'cyr' : 'lat'}`)
+      .fontSize(size)
+      .fillColor('#33291F');
+    doc.text(p.s, x, y, { lineBreak: false });
+    x += doc.widthOfString(p.s);
+  }
+}
+
+export interface ReportPdfInput {
+  /** `AgroTrace — <title>` is the heading. */
+  title: string;
+  /** `Период: … (UTC)` or `Отзыв: <id>`. */
+  periodLine: string;
+  /** The `Сформирован: <YYYY-MM-DD HH:MM> UTC` line. */
+  generatedLine: string;
+  generatedAt: Date;
+  sheets: { name: string; header: string[]; rows: string[][] }[];
+}
+
+/**
+ * Report PDF (contract `Файл`): A4 landscape, a Cyrillic font, the heading `AgroTrace — <title>`, the period and
+ * generation lines, then a section per sheet (subheading = sheet name) with the same table; the header row repeats on
+ * every new page.
+ */
+export function reportPdf(d: ReportPdfInput): Promise<Buffer> {
+  const heading = `AgroTrace — ${d.title}`;
+  const doc = newDoc('A4', heading, d.generatedAt, 'landscape');
+  const left = 28;
+  const width = doc.page.width - 2 * left;
+  const bottom = doc.page.height - 28;
+  const size = 7;
+  const lh = size * 1.35;
+  let y = paragraph(doc, heading, 'bold', 14, { x: left, y: 28, width });
+  y = paragraph(doc, d.periodLine, 'regular', 9, { x: left, y: y + 2, width });
+  y = paragraph(doc, d.generatedLine, 'regular', 9, { x: left, y, width });
+  const newPage = () => {
+    doc.addPage({ size: 'A4', layout: 'landscape', margin: 28 });
+    y = 28;
+  };
+  for (const sheet of d.sheets) {
+    y += 10;
+    if (y > bottom - 60) newPage();
+    y = paragraph(doc, sheet.name, 'bold', 11, { x: left, y, width });
+    const colW = width / sheet.header.length;
+    const row = (cells: string[], weight: Weight) => {
+      const wrapped = cells.map((t) => wrap(doc, t, weight, size, colW - 4));
+      const h = Math.max(...wrapped.map((l) => l.length)) * lh + 3;
+      if (y + h > bottom) {
+        newPage();
+        if (weight !== 'bold') drawHeader();
+      }
+      wrapped.forEach((ls, i) =>
+        ls.forEach((l, k) => drawLine(doc, l, weight, size, left + i * colW, y + k * lh)),
+      );
+      y += h;
+      doc
+        .moveTo(left, y - 1.5)
+        .lineTo(left + width, y - 1.5)
+        .lineWidth(0.3)
+        .strokeColor('#B8AE9F')
+        .stroke();
+    };
+    const drawHeader = () => row(sheet.header, 'bold');
+    drawHeader();
+    for (const cells of sheet.rows) row(cells, 'regular');
+  }
   return finish(doc);
 }

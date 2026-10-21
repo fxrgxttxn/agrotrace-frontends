@@ -28,6 +28,7 @@ import { fieldsRouter } from './modules/fields/routes.js';
 import { healthRouter } from './modules/health/routes.js';
 import { meRouter } from './modules/me/routes.js';
 import { notificationsRouter } from './modules/notifications/routes.js';
+import { analyticsRouter } from './modules/reports/routes.js';
 import { organizationsRouter } from './modules/organizations/routes.js';
 import { usersRouter } from './modules/users/routes.js';
 import { labRouter } from './modules/lab/routes.js';
@@ -92,6 +93,7 @@ export function createApp(c: Container): Express {
   api.use(complaintsRouter(c));
   api.use(publicRouter(c));
   api.use(notificationsRouter(c));
+  api.use(analyticsRouter(c));
   app.use('/api/v1', api);
 
   app.use(notFoundHandler());
