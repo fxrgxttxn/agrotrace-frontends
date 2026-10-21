@@ -92,7 +92,7 @@ it('gives every request a fresh context and frees the DB slot at the end of the 
             $seen['slotHeld'] = app(DbSlots::class)->held();
 
             return response()->json($seen);
-        });
+        })->name('getMe');
 
         $send = function (string $id) use ($worker, $client) {
             $r = Request::create('/api/v1/me', 'GET', server: ['HTTP_X_REQUEST_ID' => $id, 'REMOTE_ADDR' => '10.0.0.9']);

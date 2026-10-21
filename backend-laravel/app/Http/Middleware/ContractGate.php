@@ -25,9 +25,24 @@ final class ContractGate
 {
     public function __construct(private readonly Contract $contract) {}
 
+    /**
+     * The path as the client sent it. A path with a malformed %-escape reaches PHP re-encoded (Go refuses the original);
+     * the HAProxy front (docker/haproxy-api.cfg) passes the original in this header and drops any client copy of it.
+     */
+    public const RAW_PATH_HEADER = 'X-Agrotrace-Raw-Path';
+
+    public static function rawPath(Request $request): string
+    {
+        $front = $request->headers->get(self::RAW_PATH_HEADER);
+
+        return is_string($front) && $front !== ''
+            ? $front
+            : explode('?', (string) $request->server->get('REQUEST_URI', '/'), 2)[0];
+    }
+
     public function handle(Request $request, Closure $next): Response
     {
-        $raw = explode('?', (string) $request->server->get('REQUEST_URI', '/'), 2)[0];
+        $raw = self::rawPath($request);
         if (str_contains($raw, '//')) {
             throw new Problem(404, ProblemCode::NOT_FOUND);
         }

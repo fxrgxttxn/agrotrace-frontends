@@ -30,6 +30,8 @@
 
 (app) {
 	root * /app/public
+	# Express sends no Server header (review M2).
+	header -Server
 	# The JSON body limit (12 582 912 bytes) is the application's: Caddy's own 413 would not be problem+json.
 	request_body {
 		max_size 16MiB

@@ -3,10 +3,12 @@
 namespace App\Providers;
 
 use App\Contract\Contract;
+use App\Http\Routing\ContractRouteCollection;
 use App\Infrastructure\Db\DbSlots;
 use App\Infrastructure\Db\PgConnector;
 use App\Infrastructure\Db\TxState;
 use App\Support\RequestContext;
+use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 
 final class AppServiceProvider extends ServiceProvider
@@ -27,5 +29,12 @@ final class AppServiceProvider extends ServiceProvider
             (bool) config('agrotrace.db.slots_enabled'),
         ));
         $this->app->bind('db.connector.pgsql', fn ($app) => new PgConnector($app->make(DbSlots::class)));
+
+        // Dispatch by the operation ContractGate matched on the raw path (review I1).
+        $this->app->extend('router', function (Router $router) {
+            $router->setRoutes(new ContractRouteCollection);
+
+            return $router;
+        });
     }
 }

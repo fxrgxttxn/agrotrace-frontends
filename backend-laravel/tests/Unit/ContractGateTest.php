@@ -7,6 +7,7 @@
  */
 
 use App\Contract\Contract;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 uses(TestCase::class);
@@ -122,4 +123,57 @@ it('prefers a literal template over a parameter one at the same position, whatev
     expect($c->methodsFor('/api/v1/a/b'))->toBe(['GET', 'DELETE', 'POST']);
     expect($c->match('GET', '/api/v1/a/%zz'))->toBeNull();
     expect($c->methodsFor('/api/v1/a/%zz'))->toBe(['GET', 'DELETE']);
+});
+
+it('dispatches the operation ContractGate matched on the raw path, not Laravel\'s decoded match (review I1)', function () {
+    // Registered so that Laravel's own matching (decoded path, registration order) would pick the wrong one.
+    Route::get('/api/v1/fields/{id}/treatments', fn (string $id) => response()->json(['op' => 'listFieldTreatments', 'id' => $id]))
+        ->name('listFieldTreatments');
+    Route::get('/api/v1/fields/{id}', fn (string $id) => response()->json(['op' => 'getField', 'id' => $id]))
+        ->name('getField');
+    Route::post('/api/v1/dictionaries/{name}/import', fn () => response()->json(['op' => 'importDictionary']))
+        ->name('importDictionary');
+    Route::put('/api/v1/dictionaries/{name}/{id}', fn (string $name, string $id) => response()->json(['op' => 'updateDictionaryEntry', 'id' => $id]))
+        ->name('updateDictionaryEntry');
+
+    // `%2F` is inside one segment: Express (raw-path routing) takes getField with id "<id>/treatments".
+    $res = $this->raw('GET', '/api/v1/fields/abc%2Ftreatments');
+    $res->assertStatus(200);
+    expect($res->json())->toBe(['op' => 'getField', 'id' => 'abc/treatments']);
+    expect($this->raw('GET', '/api/v1/fields/abc/treatments')->json())->toBe(['op' => 'listFieldTreatments', 'id' => 'abc']);
+
+    // A percent-encoded literal is not the literal: `imp%6Frt` is an {id}, so POST is not declared there.
+    $res = $this->raw('POST', '/api/v1/dictionaries/products/imp%6Frt');
+    $res->assertStatus(405);
+    expect($res->headers->get('Allow'))->toBe('PUT, DELETE');
+    expect($this->raw('PUT', '/api/v1/dictionaries/products/imp%6Frt')->json())
+        ->toBe(['op' => 'updateDictionaryEntry', 'id' => 'import']);
+    expect($this->raw('POST', '/api/v1/dictionaries/products/import')->json())->toBe(['op' => 'importDictionary']);
+});
+
+it('answers 404 for a declared operation whose route has another name (no fallback to Laravel matching)', function () {
+    Route::get('/api/v1/me', fn () => 'wrong')->name('notGetMe');
+    $this->raw('GET', '/api/v1/me')->assertStatus(404);
+});
+
+it('answers a malformed %-escape as Express does: method check first, then 404 (review I2)', function () {
+    // The HAProxy front forwards the path re-encoded (`%` → `%25`) with the original in X-Agrotrace-Raw-Path.
+    $front = fn (string $method, string $raw) => $this->raw($method, str_replace('%', '%25', $raw), ['X-Agrotrace-Raw-Path' => $raw]);
+    foreach (['POST', 'OPTIONS', 'DELETE'] as $method) {
+        $res = $front($method, '/api/v1/batches/%zz');
+        $res->assertStatus(405);
+        expect($res->headers->get('Allow'))->toBe('GET');
+    }
+    $front('GET', '/api/v1/batches/%zz')->assertStatus(404);
+    $front('HEAD', '/api/v1/batches/%zz/documents')->assertStatus(404);
+    $front('POST', '/api/v1/no/%zz')->assertStatus(404);
+    $front('OPTIONS', '/api/v1/no/%zz')->assertStatus(404);
+    $front('GET', '/api/v1/docs/%zz')->assertStatus(404);
+    $front('GET', '/api/v1/health/%E0%A4%A')->assertStatus(404);
+});
+
+it('sends no Cache-Control unless the operation sets one (review M2)', function () {
+    expect($this->raw('GET', '/api/v1/health/live')->headers->has('Cache-Control'))->toBeFalse();
+    expect($this->raw('GET', '/api/v1/no/such')->headers->has('Cache-Control'))->toBeFalse();
+    expect($this->raw('GET', '/api/v1/docs/init.js')->headers->get('Cache-Control'))->toContain('no-cache');
 });

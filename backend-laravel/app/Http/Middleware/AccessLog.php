@@ -17,7 +17,7 @@ final class AccessLog
     {
         $start = hrtime(true);
         $response = $next($request);
-        $path = explode('?', (string) $request->server->get('REQUEST_URI', '/'), 2)[0];
+        $path = ContractGate::rawPath($request);
         $status = $response->getStatusCode();
         $fields = [
             'method' => $request->getRealMethod(),

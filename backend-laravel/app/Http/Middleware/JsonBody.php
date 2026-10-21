@@ -30,12 +30,13 @@ final class JsonBody
 
     public function handle(Request $request, Closure $next): Response
     {
+        // Only JSON has this limit (review I5): uploads keep their operation's own (multipart reader, Tasks 3–5).
+        if (! self::isJson((string) $request->headers->get('Content-Type', ''))) {
+            return $next($request);
+        }
         $length = $request->headers->get('Content-Length');
         if (is_string($length) && ctype_digit($length) && (strlen($length) > 9 || (int) $length > Renderer::MAX_JSON_BYTES)) {
             throw self::tooLarge();
-        }
-        if (! self::isJson((string) $request->headers->get('Content-Type', ''))) {
-            return $next($request);
         }
         $raw = self::read($request);
         $request->attributes->set(self::ATTR_RAW, $raw);

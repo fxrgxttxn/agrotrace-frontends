@@ -45,7 +45,8 @@ it('has exactly the ProblemCode values of the contract', function () {
 /** Thrown inside a route, rendered by the application's exception handler, as a client receives it. */
 function renderedThrough(Throwable $e): array
 {
-    Route::get('/api/v1/me', fn () => throw $e); // a declared operation, so ContractGate lets it reach the route
+    Route::get('/api/v1/me', fn () => throw $e)->name('getMe'); // a declared operation, so ContractGate lets it reach the route
+    app('router')->getRoutes()->refreshNameLookups(); // re-registered within one test
     $res = test()->raw('GET', '/api/v1/me', ['X-Request-Id' => 'render-1']);
     expect($res->headers->get('Content-Type'))->toBe('application/problem+json; charset=utf-8');
     expect($res->headers->get('X-Backend'))->toBe('laravel');
