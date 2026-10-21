@@ -46,7 +46,7 @@ import {
   type FreshFarm,
 } from './lib/quality.js';
 import { closeRedis, redis } from './lib/redis.js';
-import { instant, instants } from './lib/time.js';
+import { comparable, instant, instants } from './lib/time.js';
 
 afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
@@ -274,7 +274,7 @@ describe('createRecall', () => {
     const h = (await inspector.get(`/batches/${o3.id}/history`)).body as { to: string; reason: string }[];
     expect(h.at(-1)).toMatchObject({ to: 'Recalled', reason: 'RECALLED' });
     expect(await redis().exists(`pub:batch:${o1.publicCode}`)).toBe(0);
-    expect(instants((await getRecall(inspector, r.id)).body)).toEqual(instants(r));
+    expect(comparable((await getRecall(inspector, r.id)).body)).toEqual(comparable(r));
 
     const requested = (await outboxEvents({ backend: BACKEND, type: 'recall.requested', since })).filter(
       (e) => e.payload.data.recallId === r.id,
@@ -293,7 +293,7 @@ describe('createRecall', () => {
       blockUpstream: true,
     });
     expect(again.status, again.text).toBe(200);
-    expect(instants(again.body)).toEqual(instants(r));
+    expect(comparable(again.body)).toEqual(comparable(r));
     expect(
       (await outboxEvents({ backend: BACKEND, type: 'recall.requested', since: since2 })).filter(
         (e) => e.payload.data.sourceBatchId === a.id,
@@ -554,7 +554,7 @@ describe('getRecall, listRecalls, getRecallGraph', () => {
       'batchesCount',
     ] as const;
     const listed = Object.fromEntries(LIST_KEYS.map((k) => [k, open[k]]));
-    expect(instants(item)).toEqual(instants(listed));
+    expect(comparable(item)).toEqual(comparable(listed));
     expectErrors(await listRecalls(inspector, { sort: 'reason,asc', status: 'DONE', trigger: 'X' }), {
       sort: ['validation.sort'],
       status: ['validation.enum'],
@@ -643,7 +643,7 @@ describe('listRecallTasks and confirmRecallTask', () => {
     expect((await of(inspector, { recallId: recall.id, overdue: false })).length).toBe(2);
     expect(await of(inspector, { recallId: recall.id, overdue: true })).toEqual([]);
     const listed = (await listRecallTasks(retailer.client)).body.items[0];
-    expect(instants(listed)).toEqual(instants(taskOf(o1)));
+    expect(comparable(listed)).toEqual(comparable(taskOf(o1)));
     expectErrors(await listRecallTasks(retailer.client, { holderOrgId: retailer.orgId }), {
       holderOrgId: ['validation.holderOrgId.notAllowed'],
     });

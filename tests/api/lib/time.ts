@@ -29,3 +29,26 @@ export function instants<T>(v: T): T {
   }
   return v;
 }
+
+/** A signed file URL (R39): `/api/v1/files/{id}?exp=<unix>&sig=<hex>`. */
+const SIGNED = /^(\/api\/v1\/files\/[0-9a-f-]{36})\?exp=\d+&sig=[0-9a-f]+$/;
+
+/**
+ * `instants(v)` that also drops the expiry and signature of signed file URLs (avatars in ActorRef, protocol links):
+ * two responses of the same entity built a second apart carry different `exp`/`sig` by design (TTL from the request
+ * time), so comparisons across requests keep only the file path.
+ */
+export function comparable<T>(v: T): T {
+  const strip = (x: unknown): unknown => {
+    if (typeof x === 'string') return SIGNED.test(x) ? x.replace(SIGNED, '$1?signed') : x;
+    if (Array.isArray(x)) return x.map(strip);
+    if (
+      x !== null &&
+      typeof x === 'object' &&
+      typeof (x as { asymmetricMatch?: unknown }).asymmetricMatch !== 'function'
+    )
+      return Object.fromEntries(Object.entries(x).map(([k, y]) => [k, strip(y)]));
+    return x;
+  };
+  return instants(strip(v) as T);
+}

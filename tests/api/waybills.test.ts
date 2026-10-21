@@ -35,7 +35,7 @@ import {
 } from './lib/production.js';
 import { freshFarm, labApproved } from './lib/quality.js';
 import { closeRedis, redis, sha256hex } from './lib/redis.js';
-import { instant, instants } from './lib/time.js';
+import { comparable, instant } from './lib/time.js';
 
 afterAll(async () => {
   await Promise.all([closeDb(), closeRedis()]);
@@ -652,7 +652,7 @@ describe('Idempotency-Key (R48, R53)', () => {
     const again = await createWaybill(farm.client, body, key);
     expect(again.status).toBe(201);
     expect(again.headers.get('idempotent-replayed')).toBe('true');
-    expect(instants(again.body)).toEqual(instants(first.body));
+    expect(comparable(again.body)).toEqual(comparable(first.body));
     expect((await listWaybills(farm.client, { q: b.publicCode })).body.total).toBe(1);
     const uid = await userId(farm.client);
     const raw = await redis().get(`idem:${uid}:${key}`);
