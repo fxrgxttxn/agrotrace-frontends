@@ -780,11 +780,11 @@ describe('Laravel commands (Plan 5)', () => {
   it('api:test laravel restarts the three Laravel processes with the api-test profile, then restores them', () => {
     const cmds = plus(sh(['./at', 'api:test', 'laravel', 'health'], { AT_DRY_RUN: '1' }).out);
     const procs = 'api-laravel worker-laravel scheduler-laravel';
-    expect(cmds).toContain(`+ docker compose up -d --build --wait ${procs}`);
+    expect(cmds).toContain(`+ docker compose up -d --build --no-deps --wait ${procs}`);
     expect(cmds.slice(-3)).toEqual([
-      `+ docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --wait ${procs}`,
+      `+ docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --no-deps --wait ${procs}`,
       '+ docker compose run --rm -e API_URL=http://api-laravel:8000/api/v1 -e API_BACKEND=laravel tools pnpm --filter @agrotrace/tests-api test health',
-      `+ docker compose up -d --no-build --wait ${procs}`,
+      `+ docker compose up -d --no-build --no-deps --wait ${procs}`,
     ]);
   });
 
