@@ -6,6 +6,86 @@ DC="docker compose"
 T="$DC run --rm tools"
 cmd="${1:-help}"; shift || true
 
+# ── Shared-stand mutex ──────────────────────────────────────────────────────────────────────────────────────────────
+# Several git worktrees (parallel backend ports) share ONE docker stand: one postgres/redis/rabbitmq/minio and the
+# agrotrace-* containers. Commands that reset/seed/migrate the shared DB or recreate backend containers with test
+# profiles take a host-level lock first; others wait ("waiting for <owner>" every AT_LOCK_NOTICE s, AT_LOCK_TIMEOUT s
+# limit, default 90 min). Lock = directory, created with mkdir (atomic), at
+#   AT_LOCK_DIR, else <main repo git common dir>/agrotrace-stand.lock (identical from every worktree of the clone),
+#   else ${TMPDIR:-/tmp}/agrotrace-stand.lock (no git).
+# It lives on the HOST: at.sh runs on the host (it drives `docker compose`); the tools container only runs
+# tests/at, which sets AT_LOCK_DIR itself. In AT_DRY_RUN=1 the lock is skipped unless AT_LOCK_DIR is set.
+# AT_NO_LOCK=1 bypasses. Nested at.sh calls of a locked command see AT_LOCK_HELD=<token> and do not re-lock.
+# A lock whose recorded PID is gone on this host is taken over with a warning.
+lock_dir() {
+  if [ -n "${AT_LOCK_DIR:-}" ]; then echo "$AT_LOCK_DIR"; return; fi
+  local g
+  if g="$(git rev-parse --git-common-dir 2>/dev/null)" && g="$(cd "$g" 2>/dev/null && pwd)"; then
+    echo "$g/agrotrace-stand.lock"
+  else
+    echo "${TMPDIR:-/tmp}/agrotrace-stand.lock"
+  fi
+}
+
+lock_field() { sed -n "s/^$1=//p" "$2/owner" 2>/dev/null | head -n1; }
+
+lock_owner_desc() {
+  echo "$(lock_field cmd "$1") in $(lock_field worktree "$1") (pid $(lock_field pid "$1"), since $(lock_field started "$1"))"
+}
+
+lock_release() {
+  [ -n "${AT_LOCK_MINE:-}" ] || return 0
+  if [ "$(lock_field token "$AT_LOCK_MINE_DIR")" = "$AT_LOCK_MINE" ]; then rm -rf "$AT_LOCK_MINE_DIR"; fi
+  AT_LOCK_MINE=""
+}
+
+# lock_acquire <description>
+lock_acquire() {
+  [ "${AT_NO_LOCK:-}" = "1" ] && return 0
+  if [ "${AT_DRY_RUN:-}" = "1" ] && [ -z "${AT_LOCK_DIR:-}" ]; then return 0; fi
+  local dir; dir="$(lock_dir)"
+  if [ -n "${AT_LOCK_HELD:-}" ] && [ "$(lock_field token "$dir")" = "$AT_LOCK_HELD" ]; then return 0; fi
+  local timeout="${AT_LOCK_TIMEOUT:-5400}" notice="${AT_LOCK_NOTICE:-30}" poll="${AT_LOCK_POLL:-1}"
+  local start=$SECONDS last=$((SECONDS - notice)) pid host mine_host grace=0
+  mine_host="$(hostname 2>/dev/null || echo host)"
+  while :; do
+    if mkdir "$dir" 2>/dev/null; then
+      local token="$$-$(date +%s)-$RANDOM"
+      {
+        echo "token=$token"; echo "pid=$$"; echo "host=$mine_host"; echo "worktree=$PWD"
+        echo "cmd=$1"; echo "started=$(date '+%Y-%m-%d %H:%M:%S')"
+      } > "$dir/owner"
+      AT_LOCK_MINE="$token"; AT_LOCK_MINE_DIR="$dir"
+      export AT_LOCK_HELD="$token"
+      trap lock_release EXIT
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
+      return 0
+    fi
+    pid="$(lock_field pid "$dir")"; host="$(lock_field host "$dir")"
+    if [ -z "$pid" ]; then
+      # Owner file not written yet (or the lock is broken): give the creator a few polls, then take over.
+      grace=$((grace + 1))
+      if [ "$grace" -gt 20 ] && [ ! -f "$dir/owner" ]; then pid=0; host="$mine_host"; fi
+    fi
+    if [ -n "$pid" ] && [ "$host" = "$mine_host" ] && ! kill -0 "$pid" 2>/dev/null; then
+      echo "at: stale stand lock (pid $pid gone: $(lock_owner_desc "$dir")) — taking over" >&2
+      # rename first: of several waiters only one wins the rename
+      if mv "$dir" "$dir.stale.$$" 2>/dev/null; then rm -rf "$dir.stale.$$"; fi
+      continue
+    fi
+    if [ $((SECONDS - start)) -ge "$timeout" ]; then
+      echo "at: timed out after ${timeout}s waiting for the shared stand, held by $(lock_owner_desc "$dir") (lock: $dir; AT_NO_LOCK=1 bypasses)" >&2
+      exit 75
+    fi
+    if [ $((SECONDS - last)) -ge "$notice" ]; then
+      echo "at: waiting for $(lock_owner_desc "$dir") [$((SECONDS - start))s, limit ${timeout}s]" >&2
+      last=$SECONDS
+    fi
+    sleep "$poll"
+  done
+}
+
 # Drops (if present) and recreates $1 as an empty DB owned by agrotrace_owner,
 # with role grants applied (ALTER DEFAULT PRIVILEGES/GRANT CONNECT are per-database).
 recreate_db() {
@@ -417,6 +497,18 @@ e2e() (
     -w //repo/tests/e2e $service npx --no-install playwright test "$@"
 )
 
+
+# Commands that mutate the shared stand (DB reset/seed/migrate, test-profile recreation of backend containers, real
+# backend e2e, benchmark) take the lock; everything else (build, unit tests, mock e2e, psql, check…) does not.
+case "$cmd" in
+  api:test|cross:test|docs:test|gw:test|test:all|db:migrate|db:rollback|db:test|gen:db-types|seed|seed:test|reset|bench|down)
+    lock_acquire "$cmd $*" ;;
+  up) [ "${1:-all}" = "help" ] || lock_acquire "$cmd $*" ;;
+  e2e) # only against a real backend (mock runs in the browser)
+    case " $* " in *" express "*|*" django "*|*" laravel "*) lock_acquire "$cmd $*" ;; esac ;;
+  lock:run) lock_acquire "$*" ;;
+esac
+
 case "$cmd" in
   install)   $T pnpm install "$@" ;;
   sh)        $T bash ;;
@@ -547,7 +639,9 @@ case "$cmd" in
     done
     $DC run --rm dbmate --no-dump-schema --wait up
     $DC run --rm -e SEED_NOW -e SEED_ALLOW_DB tools pnpm --filter @agrotrace/seed seed ;;
-  bench) exec "$(dirname "$0")/benchmark/bench.sh" "$@" ;;
+  bench) "$(dirname "$0")/benchmark/bench.sh" "$@" ;; # no exec: the EXIT trap releases the stand lock
+  # `lock:run <command…>`: any host command under the shared-stand lock (also the nested-call test hook).
+  lock:run)  "$@" ;;
   # Frontends (see fe_front above): build into frontend-<front>/dist (svelte: build), component tests (Vitest + MSW
   # from the contract), the Vite dev server on http://localhost:5173 (angular: 4200; API proxied to api-express), the
   # separate gateway, the smoke e2e.

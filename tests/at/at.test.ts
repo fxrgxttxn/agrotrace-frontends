@@ -2,8 +2,10 @@
  * The repo's command wrappers (R85, R88 M6), run with bash inside the tools container. `up` is exercised
  * with AT_DRY_RUN=1, which prints the docker commands instead of running them.
  */
-import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { hostname, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -367,5 +369,138 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
     expect(r.code).toBe(2);
     expect(r.err).toMatch(/usage: \.\/at fe:/);
     expect(sh(['./at', 'fe:test'], { AT_DRY_RUN: '1' }).code).toBe(2);
+  });
+});
+
+describe('shared-stand mutex (parallel backend worktrees)', () => {
+  const fresh = () => {
+    const base = mkdtempSync(join(tmpdir(), 'at-lock-'));
+    return { base, dir: join(base, 'stand.lock') };
+  };
+  const fast = { AT_LOCK_POLL: '0.1', AT_LOCK_NOTICE: '1' };
+  const runLocked = (dir: string, cmdline: string, env: Record<string, string> = {}) =>
+    sh(['./at.sh', 'lock:run', 'bash', '-c', cmdline], { AT_LOCK_DIR: dir, ...fast, ...env });
+  const owner = (dir: string) => readFileSync(join(dir, 'owner'), 'utf8');
+
+  it('acquires, records the owner, and releases on exit', () => {
+    const { base, dir } = fresh();
+    const r = runLocked(dir, `cat ${dir}/owner`);
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toMatch(/^pid=\d+$/m);
+    expect(r.out).toMatch(/^worktree=.+$/m);
+    expect(r.out).toMatch(/^cmd=bash -c /m);
+    expect(r.out).toMatch(/^started=\d{4}-\d\d-\d\d /m);
+    expect(existsSync(dir)).toBe(false);
+    rmSync(base, { recursive: true });
+  });
+
+  it('releases on a failing command and on a signal', () => {
+    const { base, dir } = fresh();
+    expect(runLocked(dir, 'exit 3').code).toBe(3);
+    expect(existsSync(dir)).toBe(false);
+    const child = spawn('bash', ['./at.sh', 'lock:run', 'sleep', '1'], {
+      cwd: REPO,
+      env: { ...process.env, AT_LOCK_DIR: dir },
+    });
+    return new Promise<void>((resolve) => {
+      const t = setInterval(() => {
+        if (!existsSync(dir)) return;
+        clearInterval(t);
+        child.kill('SIGTERM');
+        child.on('exit', () => {
+          expect(existsSync(dir)).toBe(false);
+          rmSync(base, { recursive: true });
+          resolve();
+        });
+      }, 50);
+    });
+  });
+
+  it('waits while the lock is held, reports the owner, then proceeds', () => {
+    const { base, dir } = fresh();
+    mkdirSync(dir);
+    writeFileSync(
+      join(dir, 'owner'),
+      `token=x\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt/plan-3\ncmd=api:test django\nstarted=now\n`,
+    );
+    spawn('sh', ['-c', `sleep 1.5; rm -rf '${dir}'`], { detached: true, stdio: 'ignore' }).unref();
+    const r = runLocked(dir, 'echo ran');
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toContain('ran');
+    expect(r.err).toMatch(/waiting for api:test django in \/wt\/plan-3 \(pid \d+/);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('times out with exit 75 while the owner is alive', () => {
+    const { base, dir } = fresh();
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'owner'), `token=x\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`);
+    const r = runLocked(dir, 'echo ran', { AT_LOCK_TIMEOUT: '1' });
+    expect(r.code).toBe(75);
+    expect(r.out).not.toContain('ran');
+    expect(r.err).toMatch(/timed out after 1s waiting for the shared stand, held by reset/);
+    expect(existsSync(dir)).toBe(true);
+    rmSync(base, { recursive: true });
+  });
+
+  it('takes over a stale lock whose PID is gone, with a warning', () => {
+    const { base, dir } = fresh();
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'owner'), `token=x\npid=2147483000\nhost=${hostname()}\nworktree=/wt/dead\ncmd=seed\nstarted=then\n`);
+    const r = runLocked(dir, 'echo ran');
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toContain('ran');
+    expect(r.err).toMatch(/stale stand lock \(pid 2147483000 gone: seed in \/wt\/dead/);
+    expect(existsSync(dir)).toBe(false);
+    rmSync(base, { recursive: true });
+  });
+
+  it('AT_NO_LOCK=1 bypasses a held lock', () => {
+    const { base, dir } = fresh();
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'owner'), `token=x\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`);
+    const r = runLocked(dir, 'echo ran', { AT_NO_LOCK: '1', AT_LOCK_TIMEOUT: '1' });
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toContain('ran');
+    expect(owner(dir)).toContain('cmd=reset');
+    rmSync(base, { recursive: true });
+  });
+
+  it('a nested at.sh call inside a locked command does not deadlock', () => {
+    const { base, dir } = fresh();
+    const r = runLocked(dir, `echo "held=$AT_LOCK_HELD"; bash ./at.sh lock:run echo inner-ok`, { AT_LOCK_TIMEOUT: '3' });
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toMatch(/held=\S+/);
+    expect(r.out).toContain('inner-ok');
+    expect(r.err).not.toMatch(/waiting for/);
+    expect(existsSync(dir)).toBe(false);
+    rmSync(base, { recursive: true });
+  });
+
+  it('a leaked AT_LOCK_HELD that does not match the lock owner is ignored', () => {
+    const { base, dir } = fresh();
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'owner'), `token=real\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`);
+    const r = runLocked(dir, 'echo ran', { AT_LOCK_HELD: 'bogus', AT_LOCK_TIMEOUT: '1' });
+    expect(r.code).toBe(75);
+    rmSync(base, { recursive: true });
+  });
+
+  it('dry-run commands skip the lock unless AT_LOCK_DIR is set; locked commands take it when it is', () => {
+    const { base, dir } = fresh();
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'owner'), `token=x\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`);
+    const free = sh(['./at.sh', 'up', 'express'], { AT_DRY_RUN: '1' });
+    expect(free.code, free.err).toBe(0);
+    const held = sh(['./at.sh', 'api:test', 'express'], { AT_DRY_RUN: '1', AT_LOCK_DIR: dir, AT_LOCK_TIMEOUT: '1', ...fast });
+    expect(held.code).toBe(75);
+    const mock = sh(['./at.sh', 'e2e', 'react', 'mock'], { AT_DRY_RUN: '1', AT_LOCK_DIR: dir, AT_LOCK_TIMEOUT: '1', ...fast });
+    expect(mock.code, mock.err).toBe(0);
+    const real = sh(['./at.sh', 'e2e', 'react', 'express'], { AT_DRY_RUN: '1', AT_LOCK_DIR: dir, AT_LOCK_TIMEOUT: '1', ...fast });
+    expect(real.code).toBe(75);
+    const done = sh(['./at.sh', 'api:test', 'express'], { AT_DRY_RUN: '1', AT_LOCK_DIR: join(base, 'other.lock') });
+    expect(done.code, done.err).toBe(0);
+    expect(existsSync(join(base, 'other.lock'))).toBe(false);
+    rmSync(base, { recursive: true });
   });
 });
