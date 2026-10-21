@@ -611,6 +611,14 @@ laravel_lint() {
   run $DC run --rm --no-deps php-tools \
     sh -c 'composer install --no-interaction --no-progress --quiet && vendor/bin/pint --test && vendor/bin/phpstan analyse --no-progress --memory-limit=1G'
 }
+# laravel_stack [pest args…]: tests/Stack (backend-laravel) against the running api-laravel through its HAProxy front —
+# the only guard of the front's rules (malformed %-escapes, the prompt JSON 413 with close, headers; Ruling Q8). Starts
+# the Laravel backend first (`up laravel`), stand lock held.
+laravel_stack() {
+  up_backend laravel
+  run $DC run --rm --no-deps -e STACK_API=api-laravel:8000 php-tools \
+    sh -c 'composer install --no-interaction --no-progress --quiet && vendor/bin/pest tests/Stack "$@"' pest ${1+"$@"}
+}
 # --- end laravel ---
 
 
@@ -629,6 +637,7 @@ case "$cmd" in
   # --- end django ---
   # --- laravel (plan 5) ---
   laravel:test) lock_acquire "$cmd $*" ;;
+  laravel:stack) lock_acquire "$cmd $*" ;;
   # --- end laravel ---
 esac
 
@@ -661,6 +670,7 @@ case "$cmd" in
     # --- end django ---
     # --- laravel (plan 5) ---
     "$0" laravel:test
+    "$0" laravel:stack
     "$0" api:test laravel --reset
     "$0" api:test laravel --ratelimits
     "$0" cross:test express laravel
@@ -798,6 +808,8 @@ case "$cmd" in
   # --- laravel (plan 5) ---
   # `laravel:test [pest args…]` (locked): Laravel's unit suite on its own DB agrotrace_test_laravel (SP2).
   laravel:test) prepare_test_db agrotrace_test_laravel; laravel_test_hook "$@" ;;
+  # `laravel:stack [pest args…]` (locked): tests/Stack against api-laravel (HAProxy front rules, Ruling Q8).
+  laravel:stack) laravel_stack "$@" ;;
   # `laravel:lint`: Pint --test + Larastan (backend-laravel, php-tools); `composer <args>`: composer in php-tools
   # (backend-laravel, vendor in the laravel-vendor volume). Neither changes the stand: no lock.
   laravel:lint) laravel_lint ;;
