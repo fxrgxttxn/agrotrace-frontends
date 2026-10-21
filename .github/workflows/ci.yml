@@ -1,3 +1,4 @@
+# Merge convention (SP3): per-backend jobs go only inside `# --- <backend> (plan N) ---` … `# --- end <backend> ---`.
 name: ci
 
 # Every job runs the SAME ./at.sh commands a developer runs locally (see README.md / docs/deploy.md)
@@ -110,6 +111,12 @@ jobs:
         run: docker compose logs --no-color --tail 500 api-express worker-express scheduler-express
       - uses: ./.github/actions/pnpm-store-save
         if: always()
+
+  # --- django (plan 3) ---
+  # --- end django ---
+
+  # --- laravel (plan 5) ---
+  # --- end laravel ---
 
   ds:
     name: ds (design-system showcase, Playwright)

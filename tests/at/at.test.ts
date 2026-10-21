@@ -1,3 +1,4 @@
+// Merge convention (SP3): per-backend cases go only inside `// --- <backend> (plan N) ---` … `// --- end <backend> ---`.
 /**
  * The repo's command wrappers (R85, R88 M6), run with bash inside the tools container. `up` is exercised
  * with AT_DRY_RUN=1, which prints the docker commands instead of running them.
@@ -21,6 +22,62 @@ const git = (...args: string[]) =>
     cwd: REPO,
     encoding: 'utf8',
   }).stdout;
+
+const BACKENDS = ['express', 'django', 'laravel'] as const;
+/** api, worker and scheduler (beat for Django) of a backend — at.sh backend_services. */
+const backendServices = (back: string) =>
+  back === 'django' ? 'api-django worker-django beat-django' : `api-${back} worker-${back} scheduler-${back}`;
+
+/** The body of `test:all` in at.sh. */
+function testAll(): string {
+  const m = /^ {2}test:all\)\n([\s\S]*?);;\n/m.exec(readFileSync(`${REPO}at.sh`, 'utf8'));
+  if (!m) throw new Error('no test:all in at.sh');
+  return m[1]!;
+}
+
+/** docker-compose.api-test.yml as { backend: { service: block text } } (top-level service keys, comments ignored). */
+function profileBlocks(): Record<string, Record<string, string>> {
+  const out: Record<string, Record<string, string>> = {};
+  const text = readFileSync(`${REPO}docker-compose.api-test.yml`, 'utf8');
+  const re = /^ {2}((?:api|worker|scheduler|beat)-(express|django|laravel)):\n((?: {4,}.*\n|\s*\n)*)/gm;
+  for (const m of text.matchAll(re)) (out[m[2]!] ??= {})[m[1]!] = m[3]!;
+  return out;
+}
+
+/** SP3: the marker pairs of a shared file, in order (`#` or `//` comments). */
+function markers(file: string): string[] {
+  return [...readFileSync(`${REPO}${file}`, 'utf8').matchAll(/^\s*(?:#|\/\/) --- (.+?) ---$/gm)].map((m) => m[1]!);
+}
+
+describe('merge-proof shared files (SP3)', () => {
+  const pairs = ['django (plan 3)', 'end django', 'laravel (plan 5)', 'end laravel'];
+  it.each([
+    'at.sh',
+    'docker-compose.yml',
+    'docker-compose.api-test.yml',
+    '.github/workflows/ci.yml',
+    '.env.example',
+    'tests/at/at.test.ts',
+  ])('%s states the convention at the top and holds the django and laravel sections, each opened and closed', (file) => {
+    const text = readFileSync(`${REPO}${file}`, 'utf8');
+    expect(text.split('\n').slice(0, 3).join('\n')).toMatch(/Merge convention \(SP3\)/);
+    const found = markers(file).filter((m) => !m.includes('express'));
+    expect(found.length).toBeGreaterThanOrEqual(4);
+    expect(found.length % 4).toBe(0);
+    for (let i = 0; i < found.length; i += 4) expect(found.slice(i, i + 4)).toEqual(pairs);
+  });
+
+  it('test:all has one section per backend, in order, with the shared lines around them', () => {
+    const body = testAll();
+    const sections = [...body.matchAll(/^ {4}# --- (.+?) ---$/gm)].map((m) => m[1]);
+    expect(sections).toEqual(['express (plan 1)', 'end express', ...pairs]);
+    expect(body).toMatch(/"\$0" seed:test\n {4}# --- express \(plan 1\) ---\n/);
+  });
+
+  it('every backend block of the api-test profile names a known service', () => {
+    for (const back of Object.keys(profileBlocks())) expect(BACKENDS).toContain(back);
+  });
+});
 
 describe('./at wrapper (R88 M6)', () => {
   it('is an executable bash script that runs at.sh with the same arguments', () => {
@@ -109,9 +166,15 @@ describe('./at wrapper (R88 M6)', () => {
       '+ docker compose run --rm -e API_URL=http://api-express:8000/api/v1 -e API_BACKEND=express tools pnpm --filter @agrotrace/tests-api test lab',
       '+ docker compose up -d --no-build --wait api-express worker-express scheduler-express',
     ]);
-    // The profile passes the zone to all three processes (UTC without --tz).
-    const profile = readFileSync(`${REPO}docker-compose.api-test.yml`, 'utf8');
-    expect(profile.match(/TZ: '\$\{API_TEST_TZ:-UTC\}'/g)?.length).toBe(3);
+    // The profile passes the zone to all three processes of every backend it holds (UTC without --tz); SP3: counted
+    // per backend, so each port's block adds its own three without touching this assertion.
+    const blocks = profileBlocks();
+    expect(Object.keys(blocks)).toContain('express');
+    for (const [back, services] of Object.entries(blocks)) {
+      expect(Object.keys(services).sort(), back).toEqual(backendServices(back).split(' ').sort());
+      for (const [svc, body] of Object.entries(services))
+        expect(body.match(/^\s+TZ: '\$\{API_TEST_TZ:-UTC\}'$/gm)?.length, svc).toBe(1);
+    }
     expect(sh(['./at', 'api:test', 'express', '--tz'], { AT_DRY_RUN: '1' }).code).not.toBe(0);
   });
 
@@ -150,9 +213,8 @@ describe('./at wrapper (R88 M6)', () => {
     expect(pair.at(-1)).toBe(
       '+ docker compose run --rm -e CROSS_API_URLS=http://api-express:8000/api/v1,http://api-django:8000/api/v1 tools pnpm --filter @agrotrace/tests-cross test session',
     );
-    expect(readFileSync(`${REPO}at.sh`, 'utf8')).toMatch(
-      /"\$0" api:test express --ratelimits\n {4}"\$0" cross:test\n/,
-    );
+    // SP3: test:all runs the default cross pair after every backend section (loose order, not adjacency).
+    expect(testAll()).toMatch(/"\$0" api:test express --ratelimits\n[\s\S]*# --- end laravel ---\n[\s\S]*"\$0" cross:test\n/);
   });
 
   it('docs:test [back] starts the backend and the gateway, then the Playwright Swagger UI check (P5)', () => {
@@ -166,7 +228,7 @@ describe('./at wrapper (R88 M6)', () => {
     expect(cmds).toContain(
       '+ docker compose up -d --build --wait api-express worker-express scheduler-express',
     );
-    expect(readFileSync(`${REPO}at.sh`, 'utf8')).toMatch(/"\$0" gw:test\n {4}"\$0" docs:test express\n/);
+    expect(testAll()).toMatch(/"\$0" gw:test\n[\s\S]*"\$0" docs:test express\n/);
   });
 
   it('fmt formats explicit paths only; no arguments or a flag is refused before prettier runs (P13)', () => {
@@ -504,3 +566,8 @@ describe('shared-stand mutex (parallel backend worktrees)', () => {
     rmSync(base, { recursive: true });
   });
 });
+
+// --- django (plan 3) ---
+// --- end django ---
+// --- laravel (plan 5) ---
+// --- end laravel ---

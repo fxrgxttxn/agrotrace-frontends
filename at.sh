@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Merge convention (SP3): per-backend code goes only inside `# --- <backend> (plan N) ---` … `# --- end <backend> ---`.
 set -euo pipefail
 cd "$(dirname "$0")"
 [ -f .env ] || cp .env.example .env
@@ -497,6 +498,12 @@ e2e() (
     -w //repo/tests/e2e $service npx --no-install playwright test "$@"
 )
 
+# ── Per-backend helpers (the hooks the per-backend commands call) ───────────────────────────────────────────────────
+# --- django (plan 3) ---
+# --- end django ---
+# --- laravel (plan 5) ---
+# --- end laravel ---
+
 
 # Commands that mutate the shared stand (DB reset/seed/migrate, test-profile recreation of backend containers, real
 # backend e2e, benchmark) take the lock; everything else (build, unit tests, mock e2e, psql, check…) does not.
@@ -507,6 +514,10 @@ case "$cmd" in
   e2e) # only against a real backend (mock runs in the browser)
     case " $* " in *" express "*|*" django "*|*" laravel "*) lock_acquire "$cmd $*" ;; esac ;;
   lock:run) lock_acquire "$*" ;;
+  # --- django (plan 3) ---
+  # --- end django ---
+  # --- laravel (plan 5) ---
+  # --- end laravel ---
 esac
 
 case "$cmd" in
@@ -522,6 +533,7 @@ case "$cmd" in
   # Everything, in dependency order: unit → wrappers → tests/db (throwaway agrotrace_test) → dev DB migrated and
   # seed checked → tests/api against Express (after a reset; then its rate-limit tests, P10) → tests/cross (stub pair
   # until Plan 3) → gateway up + gw:test → Swagger UI through the gateway → design-system showcase.
+  # Per-backend lines (unit suite, api:test --reset / --ratelimits, cross pairs, docs:test) go in that backend's section.
   test:all)
     "$0" test
     "$0" at:test
@@ -529,8 +541,14 @@ case "$cmd" in
     "$0" db:test
     "$0" db:migrate
     "$0" seed:test
+    # --- express (plan 1) ---
     "$0" api:test express --reset
     "$0" api:test express --ratelimits
+    # --- end express ---
+    # --- django (plan 3) ---
+    # --- end django ---
+    # --- laravel (plan 5) ---
+    # --- end laravel ---
     "$0" cross:test
     "$0" up gateway
     "$0" gw:test
@@ -654,6 +672,11 @@ case "$cmd" in
   fe:e2e-smoke) fe_e2e_smoke "$@" ;;
   # `e2e [front] [back] [playwright args…]`: the shared parity suite (see e2e above).
   e2e) e2e "$@" ;;
+  # Per-backend commands (unit suites, linters, package managers):
+  # --- django (plan 3) ---
+  # --- end django ---
+  # --- laravel (plan 5) ---
+  # --- end laravel ---
   # Top-level commands only (two-space indented case labels).
   help|*)  grep -E '^  [a-z0-9:-]+\)' "$0" | sed 's/).*//' | tr -d ' ' ;;
 esac

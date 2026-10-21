@@ -1,3 +1,4 @@
+# Merge convention (SP3): per-backend services go only inside `# --- <backend> (plan N) ---` … `# --- end <backend> ---`.
 name: agrotrace
 services:
   tools:
@@ -136,6 +137,10 @@ services:
     depends_on: *express-deps
     stop_grace_period: 15s
     networks: [at]
+  # --- django (plan 3) ---
+  # --- end django ---
+  # --- laravel (plan 5) ---
+  # --- end laravel ---
   # Test-only stub of a real backend (./at.sh gw:test): a tiny node:http server, network-aliased
   # as api-express so the gateway's variable proxy_pass resolves it exactly like a real api-express
   # container would. Behind the gwtest profile so it never starts with a normal `docker compose up`
@@ -157,3 +162,7 @@ volumes:
   pnpm-store: {}
   pgdata: {}
   miniodata: {}
+  # --- django (plan 3) ---
+  # --- end django ---
+  # --- laravel (plan 5) ---
+  # --- end laravel ---
