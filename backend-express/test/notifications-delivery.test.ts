@@ -109,6 +109,19 @@ describe('sendRow', () => {
 });
 
 describe('sendRow: configuration and a taken-over budget (P49)', () => {
+  it('an attempt that hangs past its deadline counts as failed (N5)', async () => {
+    const hang = vi.fn(() => new Promise<void>(() => undefined));
+    const out = await sendRow(row(), {
+      mailer: { configured: true, sendOnce: hang },
+      telegram: offTelegram,
+      logger: memoryLogger().logger,
+      sleep: async () => undefined,
+      attemptTimeoutMs: 20,
+    });
+    expect(out).toEqual({ status: 'FAILED', attempts: 3 });
+    expect(hang).toHaveBeenCalledTimes(3);
+  });
+
   it('a claim lost before an attempt stops the sender: nothing more is sent, nothing is stored (null)', async () => {
     const down = vi.fn().mockRejectedValue(new Error('down'));
     let renewals = 0;

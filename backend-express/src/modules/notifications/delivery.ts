@@ -3,7 +3,9 @@
  * the handler's transaction committed, every PENDING EMAIL/TELEGRAM row it inserted is sent with up to 3 attempts —
  * success → DELIVERED, every attempt failed → FAILED, channel not configured on the server (no SMTP host, no bot token)
  * → NOT_CONFIGURED without an attempt; an unlinked TELEGRAM row → FAILED without an attempt. Waits after a failed
- * attempt: 1 s and 2 s.
+ * attempt: 1 s and 2 s. Every attempt has a deadline of 30 s (ATTEMPT_TIMEOUT_MS, both channels; nodemailer's own
+ * connection/greeting/socket timeouts and the Telegram request's 10 s abort sit below it) — far below the 5-minute claim
+ * threshold, so a hung transport never outlives its claim.
  *
  * Claims (P49, per send, at-least-once): a row is claimed right before its first attempt — one autocommit `UPDATE …
  * SET claimed_at = now()` on the row still PENDING whose claim is absent or older than 5 minutes — and the claim is
@@ -28,6 +30,8 @@ export const DELIVERY_ATTEMPTS = 3;
 export const DELIVERY_DELAYS_MS = [1000, 2000, 4000] as const;
 /** A claim older than this is abandoned (its sender died); longer than any send of 3 attempts. */
 export const CLAIM_STALE_SEC = 300;
+/** One attempt (either channel) that has not finished within this long counts as failed (N5; far below 5 minutes). */
+export const ATTEMPT_TIMEOUT_MS = 30_000;
 const PARALLEL = 5;
 const SWEEP_BATCH = 100;
 
@@ -71,6 +75,8 @@ export async function sendRow(
     onFailure?: (attempts: number) => Promise<void>;
     /** Before every attempt (renews the claim); false — the row is no longer ours: stop, store nothing (null). */
     beforeAttempt?: () => Promise<boolean>;
+    /** Per-attempt deadline (tests); default ATTEMPT_TIMEOUT_MS. */
+    attemptTimeoutMs?: number;
   },
 ): Promise<DeliveryOutcome | null> {
   const { mailer, telegram, logger } = deps;
@@ -95,7 +101,7 @@ export async function sendRow(
   for (let attempt = done + 1; ; attempt++) {
     if (deps.beforeAttempt && !(await deps.beforeAttempt())) return null;
     try {
-      await send();
+      await withDeadline(send(), deps.attemptTimeoutMs ?? ATTEMPT_TIMEOUT_MS);
       return { status: 'DELIVERED', attempts: attempt };
     } catch (err) {
       logger.warn(
@@ -228,4 +234,13 @@ export function createDelivery(deps: {
       await Promise.allSettled([...inFlight]);
     },
   };
+}
+
+/** Rejects when `p` has not settled within `ms` (the attempt is then counted as failed). */
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`attempt timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
 }

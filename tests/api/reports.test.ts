@@ -28,6 +28,7 @@ import {
   inspector,
   inspectorTest,
   rawBatch,
+  ratingsSettled,
   submitAll,
   vetlab,
 } from './lib/quality.js';
@@ -611,6 +612,7 @@ describe('downloadReport: contents', () => {
     const insp = await inspector();
     const t = await today();
     const from = shift(t, -29);
+    const since = await dbNow();
     const farm = await freshFarm();
     const b = await rawBatch(farm);
     const test = await inspectorTest(b.id);
@@ -618,6 +620,8 @@ describe('downloadReport: contents', () => {
     const b2 = await rawBatch(farm);
     const rec = await createRecall(insp, { sourceBatchId: b2.id, reason: 'Сводка', blockUpstream: false });
     expect(rec.status, rec.text).toBe(201);
+    // BR-09 is eventually consistent: the PASS and the recall recompute the rating in the worker (N6).
+    await ratingsSettled(since);
     const { inn } = await orgOf(farm.client);
     const [o] = await query<{ name: string; region: string; rating: number }>(
       `SELECT o.name, r.name AS region, o.trust_rating AS rating FROM organizations o JOIN regions r ON r.id = o.region_id

@@ -12,7 +12,9 @@ import { expect } from 'vitest';
 import { loginAs } from './auth.js';
 import type { ApiClient } from './client.js';
 import { expectContract } from './contract.js';
-import { createBatch, daysAgo, freshOrg, getBatch, newField, wheat } from './production.js';
+import { createBatch, daysAgo, eventually, freshOrg, getBatch, newField, wheat } from './production.js';
+import { query } from './db.js';
+import { API_BACKEND } from './env.js';
 
 export interface FreshFarm {
   client: ApiClient;
@@ -155,4 +157,22 @@ export async function trustRating(orgId: string): Promise<number | null> {
   await expectContract(res, 'getOrganization');
   expect(res.status, res.text).toBe(200);
   return res.body.trustRating as number | null;
+}
+
+/**
+ * Waits until the worker has handled every `recall.requested` and `rating.recalculate` this backend wrote since
+ * `since` (each claimed in processed_events — the claim commits with the handler's effects, and the rating event of a
+ * recall is written in the same transaction as the recall.requested claim). After it, the trust ratings those events
+ * recompute are settled (read-only SQL; BR-09 is eventually consistent).
+ */
+export async function ratingsSettled(since: Date): Promise<void> {
+  await eventually(async () => {
+    const [r] = await query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM outbox_events o
+          WHERE o.backend = $1 AND o.created_at >= $2 AND o.type IN ('recall.requested', 'rating.recalculate')
+            AND NOT EXISTS (SELECT 1 FROM processed_events p WHERE p.event_id = o.id)`,
+      [API_BACKEND, since],
+    );
+    return r!.n === 0 ? true : undefined;
+  }, 25000);
 }
