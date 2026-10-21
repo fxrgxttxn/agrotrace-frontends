@@ -43,3 +43,21 @@ def client(timeout_s: float = 10.0):
 def ping() -> None:
     """HEAD of the bucket (health/ready)."""
     client().head_bucket(Bucket=config.get().S3_BUCKET)
+
+
+def bucket() -> str:
+    return config.get().S3_BUCKET
+
+
+def put(key: str, body: bytes, content_type: str) -> None:
+    """PutObject of a whole buffer (uploads are at most a few MiB and already in memory)."""
+    client().put_object(Bucket=bucket(), Key=key, Body=body, ContentType=content_type, ContentLength=len(body))
+
+
+def get(key: str) -> bytes:
+    """GetObject, read whole (downloads go through the backend, FR-FILE-03; files are small)."""
+    out = client().get_object(Bucket=bucket(), Key=key)
+    try:
+        return out["Body"].read()
+    finally:
+        out["Body"].close()

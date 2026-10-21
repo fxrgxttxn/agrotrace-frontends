@@ -33,6 +33,14 @@ def one(query: str, params: Any = None) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
+def release() -> None:
+    """Gives this thread's connection back to the pool before a long wait that needs no database (a Lane job, an
+    external call): a request must never hold one of the pool's few connections while it queues (P61). The next
+    statement checks a connection out again. A no-op inside a transaction."""
+    if not connection.in_atomic_block:
+        connection.close()
+
+
 def jsonb(value: Any) -> Any:
     """A `jsonb` column as Python data: Django's psycopg setup loads jsonb as TEXT (for JSONField), `json` as data."""
     return json.loads(value) if isinstance(value, str) else value

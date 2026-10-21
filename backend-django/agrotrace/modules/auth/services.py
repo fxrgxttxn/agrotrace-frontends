@@ -372,6 +372,7 @@ def register_organization(body: dict[str, Any]) -> dict[str, Any]:
     if errors:
         raise validation_problem(errors)
 
+    sql.release()  # DaData may take up to ~10 s: no pool connection is held meanwhile
     party = dadata.find_party(body["inn"])
     if party.status == "found":
         name, address, status = party.name, party.address, "PENDING"

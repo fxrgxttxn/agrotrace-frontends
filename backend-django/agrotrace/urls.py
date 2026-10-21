@@ -11,6 +11,10 @@ urlpatterns = [
     path("api/v1/", include("agrotrace.modules.docs.urls")),
     path("api/v1/", include("agrotrace.modules.auth.urls")),
     path("api/v1/", include("agrotrace.modules.admin.urls")),
+    path("api/v1/", include("agrotrace.modules.me.urls")),
+    path("api/v1/", include("agrotrace.modules.users.urls")),
+    path("api/v1/", include("agrotrace.modules.organizations.urls")),
+    path("api/v1/", include("agrotrace.modules.files.urls")),
 ]
 
 handler400 = "agrotrace.core.problem.handler400"
