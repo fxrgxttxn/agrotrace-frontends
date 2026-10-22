@@ -98,16 +98,12 @@ class ContractView(APIView):
         if self._idem is not None:
             status = response.status_code
             body = None
-            if 200 <= status < 300:
-                if isinstance(response, Response):
-                    body = response.data
-                else:
-                    try:
-                        from agrotrace.core.body import js_json_parse
-
-                        body = js_json_parse(response.content.decode("utf-8"))
-                    except (ValueError, UnicodeDecodeError, AttributeError):
-                        body = None
+            if 200 <= status < 300 and not getattr(response, "streaming", False):
+                # The record keeps the body exactly as the client gets it: render now (DRF renders lazily; Django
+                # does not render a rendered response twice) and store those bytes.
+                if isinstance(response, Response) and not response.is_rendered:
+                    response.render()
+                body = idempotency.response_body_json(response.content)
             self._idem.settle(status, body)
         return response
 

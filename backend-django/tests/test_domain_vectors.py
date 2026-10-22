@@ -1,6 +1,6 @@
 """The shared rule vectors (contracts/rules/vectors/*.json, contracts/rules/state-machine.json) run against the Python
 port of @agrotrace/domain. One runner: each vector file names its TS function (`fn`); RUNNERS maps it to the port.
-Tasks 7–11 add their files and functions here."""
+Tasks 8–11 add their files and functions here. BR-06 has no vector file (a status check, covered over HTTP)."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import pytest
 from agrotrace.core import config
 from agrotrace.core.render import iso
 from agrotrace.domain import dates, rules, state_machine
+from agrotrace.domain.idempotency import idempotency_decision
 
 VECTORS = config.ROOT / "contracts" / "rules" / "vectors"
 
@@ -32,6 +33,10 @@ def _working_days(i: dict[str, Any]) -> dict[str, Any]:
 
 RUNNERS: dict[str, tuple[str, Callable[[dict[str, Any]], dict[str, Any]]]] = {
     "batch-code.json": ("formatBatchCode", lambda i: {"code": rules.batch_code(i["year"], i["seq"])}),
+    "BR-01.json": ("checkWaitingPeriod", lambda i: rules.check_waiting_period(i["shipDate"], i["treatments"])),
+    "BR-07.json": ("checkDiscrepancy", lambda i: rules.check_discrepancy(i["declaredKg"], i["actualKg"])),
+    "BR-11.json": ("idempotencyDecision",
+                   lambda i: {"decision": idempotency_decision(i["key"], i["stored"], i["fingerprint"])}),
     "BR-03.json": ("requiresLabTest", _risk),
     "state-machine.json": ("canTransition", lambda i: {"allowed": rules.can_transition(i["from"], i["to"])}),
     "working-days.json": ("addWorkingDays", _working_days),
@@ -78,3 +83,25 @@ def test_dates_helpers():
     assert dates.add_days_to_date("2026-03-01", -3) == "2026-02-26"
     assert dates.add_days_to_date("2024-02-27", 3) == "2024-03-01"
     assert dates.utc_date("2026-09-10T23:59:59.999Z") == "2026-09-10"
+
+
+def test_the_waybill_machine_file_is_the_lifecycle():
+    machine = json.loads((config.ROOT / "contracts" / "rules" / "waybill-state-machine.json").read_text("utf-8"))
+    assert state_machine.waybill_statuses() == ("DRAFT", "SENT", "ACCEPTED", "REJECTED")
+    pairs = {(t["from"], t["to"]) for t in machine["transitions"]}
+    assert pairs == {("DRAFT", "SENT"), ("DRAFT", "DELETED"), ("SENT", "ACCEPTED"), ("SENT", "REJECTED")}
+    for a in (*machine["statuses"], *machine["pseudoStatuses"]):
+        for b in (*machine["statuses"], *machine["pseudoStatuses"]):
+            assert state_machine.can_waybill_go(a, b) == ((a, b) in pairs)
+
+
+def test_br01_tie_is_the_smallest_name_by_code_points():
+    # R21: equal `until` → the smallest substance name by code points (not UTF-16 units: U+FF5E < U+1F600).
+    t = [{"substance": "\U0001F600", "appliedAt": "2026-09-10T00:00:00.000Z", "waitingPeriodDays": 10},
+         {"substance": "\uFF5E", "appliedAt": "2026-09-10T12:00:00.000Z", "waitingPeriodDays": 10}]
+    assert rules.check_waiting_period("2026-09-15", t) == {"ok": False, "until": "2026-09-20", "substance": "\uFF5E"}
+
+
+def test_br07_declared_zero_and_half_up():
+    assert rules.check_discrepancy("0.000", "1.000") == {"error": "DECLARED_ZERO"}
+    assert rules.check_discrepancy("3.000", "3.001") == {"percent": "0.03", "actRequired": False}

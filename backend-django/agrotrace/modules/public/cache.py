@@ -2,7 +2,7 @@
 The public batch page cache (R82, contract info.description "Shared Redis keys"), the port of backend-express/src/
 modules/public/cache.ts: `pub:batch:{publicCode}` holds the exact PublicBatch JSON; every operation that changes what
 a page shows deletes the keys of the affected batches AFTER its commit. The codes are collected inside the transaction
-(a DB read), the DEL runs after it (`schedule_drop` → `Tx.on_commit`; P8: a retried attempt drops nothing).
+(a DB read), the DEL runs after it (`schedule_drop` → `Tx.after_release`; P8: a retried attempt drops nothing).
 """
 
 from __future__ import annotations
@@ -45,7 +45,8 @@ def drop(codes: Iterable[str]) -> None:
 
 
 def schedule_drop(tx: Tx, codes: Sequence[str]) -> None:
-    """`drop(codes)` after this transaction commits (nothing when it rolls back)."""
+    """`drop(codes)` after this transaction commits and its connection is back in the pool (P61: no connection is
+    held across the Redis call); nothing when it rolls back."""
     if codes:
         frozen = list(codes)
-        tx.on_commit(lambda: drop(frozen))
+        tx.after_release(lambda: drop(frozen))

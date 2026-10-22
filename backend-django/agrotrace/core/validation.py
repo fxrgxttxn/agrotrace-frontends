@@ -520,3 +520,60 @@ def wire_mass_ok(value: Any) -> bool:
 
 def to_decimal(s: str) -> Decimal:
     return Decimal(s)
+
+
+_WIRE_MASS = r"^\d{1,9}\.\d{3}$"
+
+
+def parse_request_body(
+    serializer_cls: type[ContractSerializer],
+    raw: Any,
+    *,
+    masses: Sequence[str | tuple[str, str]] = (),
+    defer_duplicates: Sequence[str] = (),
+    extra_errors: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
+    """Express `parseBody(schema, raw, masses, {deferDuplicates, extraErrors})` (backend-express/src/http/body.ts):
+
+    - `defer_duplicates` — arrays whose repeated elements are a later step of the operation (P36: createWaybill step
+      2, acceptWaybill step 6): `validation.duplicate` is dropped from their `array[i].field` errors;
+    - `masses` — top-level fields or `(array, field)` pairs that must be in the wire form (exactly three decimals):
+      a string the schema accepted otherwise is `validation.mass.format` (not added where the path already failed);
+    - `extra_errors` — the request's other parameter errors (If-Match), in the same 400.
+    Returns the parsed body (when only deferred duplicates failed: the body as parsed, equal to the raw one)."""
+    ok, value, errors = serializer_cls.validate(raw)
+    if not ok and defer_duplicates:
+        deferred = [ecma(rf"^{a}\[\d+\]\.[A-Za-z]+$") for a in defer_duplicates]
+        for path in list(errors):
+            if not any(rx.search(path) for rx in deferred):
+                continue
+            rest = [k for k in errors[path] if k != "validation.duplicate"]
+            if rest:
+                errors[path] = rest
+            else:
+                del errors[path]
+    if isinstance(raw, dict):
+        wire = ecma(_WIRE_MASS)
+
+        def add(path: str) -> None:
+            errors.setdefault(path, ["validation.mass.format"])
+
+        for m in masses:
+            if isinstance(m, str):
+                v = raw.get(m)
+                if isinstance(v, str) and not wire.search(v):
+                    add(m)
+                continue
+            array, field = m
+            items = raw.get(array)
+            if not isinstance(items, list):
+                continue
+            for i, item in enumerate(items):
+                v = item.get(field) if isinstance(item, dict) else None
+                if isinstance(v, str) and not wire.search(v):
+                    add(f"{array}[{i}].{field}")
+    for path, keys in (extra_errors or {}).items():
+        errors.setdefault(path, []).extend(keys)
+    if errors:
+        raise validation_problem(errors)
+    return value
