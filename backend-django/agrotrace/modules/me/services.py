@@ -151,6 +151,6 @@ def create_telegram_code(p: Principal) -> dict[str, Any]:
                     args=[json.dumps({"userId": p.user_id}, separators=(",", ":")), code, str(TGCODE_TTL_SEC)])
         if int(ok) == 1:
             expires = datetime.fromtimestamp(issued + TGCODE_TTL_SEC, UTC)
-            return {"code": code, "expiresAt": expires.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            return {"code": code, "expiresAt": iso(expires).replace(".000Z", "Z"),
                     "botUsername": c.TELEGRAM_BOT_USERNAME}
     raise RuntimeError("create_telegram_code: could not draw a free code")

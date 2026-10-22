@@ -253,13 +253,40 @@ def is_calendar_date(s: str) -> bool:
     return d <= days
 
 
+_EARLIEST = datetime.min.replace(tzinfo=UTC)
+
+
 def day_start(date: str) -> datetime:
-    """The first instant of the UTC day `date`."""
-    if date[:4] == "0000":  # no year 0 in Python (nor in PostgreSQL): the earliest instant
-        return datetime.min.replace(tzinfo=UTC)
+    """The first instant of the UTC day `date`. Year 0000 (a calendar date for Express, which builds a JS Date of
+    year 0) lies before every instant Python or PostgreSQL holds: the earliest instant stands for it."""
+    if date[:4] == "0000":
+        return _EARLIEST
     return datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), tzinfo=UTC)
 
 
-def day_after(date: str) -> datetime:
-    """The first instant after the UTC day `date` (the exclusive upper bound of an inclusive `to`)."""
+def day_after(date: str) -> datetime | None:
+    """The first instant after the UTC day `date` (the exclusive upper bound of an inclusive `to`), as Express's
+    `dayAfter`: `0000-12-31` → 0001-01-01; another day of year 0 → before every instant (the earliest); `9999-12-31`
+    → None — Express's bound is 10000-01-01, after every instant a `timestamptz` of the stand holds, so there is no
+    upper bound at all."""
+    if date == "9999-12-31":
+        return None
+    if date[:4] == "0000":
+        return datetime(1, 1, 1, tzinfo=UTC) if date[5:] == "12-31" else _EARLIEST
     return day_start(date) + timedelta(days=1)
+
+
+def utc_day_bounds(column: str, frm: str | None, to: str | None) -> tuple[list[str], list[Any]]:
+    """SQL conditions and parameters for `from`/`to` (UTC days, inclusive) on a timestamptz `column` — every from/to
+    filter (DateFrom/DateTo, R41/D31) goes through here."""
+    conds: list[str] = []
+    params: list[Any] = []
+    if frm is not None:
+        conds.append(f"{column} >= %s")
+        params.append(day_start(frm))
+    if to is not None:
+        upper = day_after(to)
+        if upper is not None:
+            conds.append(f"{column} < %s")
+            params.append(upper)
+    return conds, params

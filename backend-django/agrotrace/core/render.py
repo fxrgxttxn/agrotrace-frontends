@@ -17,7 +17,9 @@ def iso(dt: datetime) -> str:
     if dt.tzinfo is None:
         raise ValueError("iso(): naive datetime")
     u = dt.astimezone(UTC)
-    return u.strftime("%Y-%m-%dT%H:%M:%S.") + f"{u.microsecond // 1000:03d}Z"
+    # Not strftime: glibc writes `%Y` of year 1 as `1`; toISOString always has four digits (`0001-01-01T…`).
+    return (f"{u.year:04d}-{u.month:02d}-{u.day:02d}T{u.hour:02d}:{u.minute:02d}:{u.second:02d}."
+            f"{u.microsecond // 1000:03d}Z")
 
 
 def iso_or_null(dt: datetime | None) -> str | None:

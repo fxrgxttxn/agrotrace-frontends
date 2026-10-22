@@ -20,7 +20,7 @@ import json
 from typing import Any, Literal
 
 from agrotrace.core import audit, sql
-from agrotrace.core.params import QueryReader, day_after, day_start
+from agrotrace.core.params import QueryReader, utc_day_bounds
 from agrotrace.core.problem import AppProblem, validation_problem
 from agrotrace.core.render import iso, iso_or_null, js_number_text
 from agrotrace.core.tx import Tx, with_tx
@@ -300,12 +300,9 @@ def list_treatments(p: Principal, field_id: str, request) -> dict[str, Any]:
     if substance_id:
         conds.append("t.substance_id = %s")
         params.append(substance_id)
-    if frm is not None:
-        conds.append("t.applied_at >= %s")
-        params.append(day_start(frm))
-    if to is not None:
-        conds.append("t.applied_at < %s")
-        params.append(day_after(to))
+    day_conds, day_params = utc_day_bounds("t.applied_at", frm, to)
+    conds += day_conds
+    params += day_params
     where = " AND ".join(conds)
     total = sql.scalar(f"SELECT count(*) FROM treatments t WHERE {where}", params)  # noqa: S608
     column = "t.created_at" if sort.field == "createdAt" else "t.applied_at"

@@ -532,13 +532,19 @@ def parse_styles(data: bytes | None) -> list[str | None]:
         elif name == "xf" and len(where) >= 2 and where[-2] == "cellXfs":
             xfs.append(js_parse_int(attrs.get("numFmtId", "")))
 
+    declared: list[str] = []
     p = xml.parsers.expat.ParserCreate()
     p.StartElementHandler = start
     p.EndElementHandler = lambda name: where.pop()
+    p.EntityDeclHandler = lambda name, is_param, *rest: None if is_param else declared.append(name)
     try:
         p.Parse(data, True)
     except xml.parsers.expat.ExpatError:
         raise _Stop("unsupported") from None
+    # exceljs reads styles with saxes, which knows no DTD: a reference to an entity the DOCTYPE declares is an
+    # undefined entity there (Express 415 {allowed}). expat would expand it (and could inject a date format).
+    if declared and re.search(rb"&(?:" + b"|".join(re.escape(n.encode()) for n in declared) + rb");", data):
+        raise _Stop("unsupported")
     out: list[str | None] = []
     for fid in xfs:
         out.append((custom.get(fid) or _DEFAULT_FORMATS.get(fid)) if fid else None)

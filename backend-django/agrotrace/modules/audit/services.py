@@ -11,7 +11,7 @@ from typing import Any
 
 from agrotrace.core import sql
 from agrotrace.core.audit import ENTITY_TYPES
-from agrotrace.core.params import QueryReader, day_after, day_start
+from agrotrace.core.params import QueryReader, utc_day_bounds
 from agrotrace.core.render import iso
 from agrotrace.infra import file_urls
 
@@ -43,12 +43,9 @@ def list_audit_log(request) -> dict[str, Any]:
         if value is not None:
             conds.append(f"{column} = %s")
             params.append(value)
-    if frm is not None:
-        conds.append("a.created_at >= %s")
-        params.append(day_start(frm))
-    if to is not None:
-        conds.append("a.created_at < %s")
-        params.append(day_after(to))
+    day_conds, day_params = utc_day_bounds("a.created_at", frm, to)
+    conds += day_conds
+    params += day_params
     where = " AND ".join(conds)
     total = sql.scalar(f"SELECT count(*) FROM audit_log a WHERE {where}", params)  # noqa: S608
     direction = "ASC" if sort.dir == "asc" else "DESC"

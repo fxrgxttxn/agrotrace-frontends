@@ -107,3 +107,15 @@ def test_out_of_range_shared_string_is_empty():
 def test_a_long_cell_is_too_long_marker():
     assert one(f'<c r="A2" t="inlineStr"><is><t>{"ж" * 1001}</t></is></c>') == [TOO_LONG]
     assert one(f'<c r="A2" t="inlineStr"><is><t>{"ж" * 1000}</t></is></c>') == ["ж" * 1000]
+
+
+def test_a_styles_entity_from_its_doctype_is_refused_like_saxes():
+    """exceljs reads styles.xml with saxes, which knows no DTD: a referenced internal entity → 415 {allowed}."""
+    evil = (f'<!DOCTYPE styleSheet [<!ENTITY d "dd.mm.yyyy">]><styleSheet xmlns="{NS}"><numFmts count="1">'
+            '<numFmt numFmtId="164" formatCode="&d;"/></numFmts><cellXfs count="1"><xf numFmtId="164"/></cellXfs>'
+            "</styleSheet>")
+    row = '<row r="2"><c r="A2" s="0"><v>1</v></c></row>'
+    assert read_workbook(book('<row r="1"><c r="A1"><v>1</v></c></row>' + row, styles=evil)) == ("unsupported",)
+    # A DOCTYPE whose entity is never used reads, as with saxes.
+    unused = evil.replace('formatCode="&d;"', 'formatCode="0.00"')
+    assert read_workbook(book('<row r="1"><c r="A1"><v>1</v></c></row>' + row, styles=unused))[0] == "ok"
