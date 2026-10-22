@@ -43,7 +43,7 @@ final class Import
     /**
      * @return array{created: int, updated: int, unchanged: int, errors: list<array{row: int, column: ?string, message: string}>}
      */
-    public static function apply(string $name, Sheet $sheet, string $actorId): array
+    public static function apply(string $name, Sheet $sheet, string $actorId, ?callable $clientGone = null): array
     {
         $columns = self::COLUMNS[$name];
         $header = $sheet->header;
@@ -53,8 +53,9 @@ final class Import
         $rules = self::rules($name);
 
         // Review M5: parallel imports of one dictionary queue on a container gate holding no DB slot (LocalGate), so
-        // only one of them per container waits on the advisory lock with a slot — they cannot starve DB_SLOTS.
-        [$report, $codes] = LocalGate::run("dictionary-import:{$name}", fn (): array => Tx::run(function () use ($name, $sheet, $columns, $rules, $actorId): array {
+        // only one of them per container waits on the advisory lock with a slot — they cannot starve DB_SLOTS. The wait
+        // is bounded (re-review N1): the lock_timeout, MAX_WAITERS, and the client still being there (else 503).
+        [$report, $codes] = LocalGate::run("dictionary-import:{$name}", clientGone: $clientGone, work: fn (): array => Tx::run(function () use ($name, $sheet, $columns, $rules, $actorId): array {
             DictionaryStore::lock($name);
             $report = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'errors' => []];
             [$products, $indicators] = $name === 'norms' ? self::referenceMaps() : [[], []];

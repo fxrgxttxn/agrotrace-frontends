@@ -107,7 +107,14 @@ it('styles: a DOCTYPE entity that is referenced → unsupported, wherever the re
     'in an attribute' => ['<!DOCTYPE s [<!ENTITY f "dd.mm.yyyy">]><styleSheet xmlns="'.XR_NS.'"><numFmts><numFmt numFmtId="164" formatCode="&f;"/></numFmts></styleSheet>'],
     'in text' => ['<!DOCTYPE s [<!ENTITY e "x">]><styleSheet xmlns="'.XR_NS.'"><x>&e;</x></styleSheet>'],
     'billion laughs' => ['<!DOCTYPE s [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;"><!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">]><styleSheet xmlns="'.XR_NS.'"><x>&c;</x></styleSheet>'],
+    // Re-review N2: every part that ends inside its prolog is 415 {allowed} through api-express as well (probed:
+    // these six and an unclosed root, a prolog-only part, a blank part).
     'an unterminated DOCTYPE' => ['<!DOCTYPE s [<!ENTITY e "x">'],
+    'a DOCTYPE ending inside a quote' => ['<!DOCTYPE s SYSTEM "abc'],
+    'a DOCTYPE ending inside a subset comment' => ['<!DOCTYPE s [<!-- abc'],
+    'a DOCTYPE ending inside a subset PI' => ['<!DOCTYPE s [<?p abc'],
+    'a styleSheet swallowed by an unterminated subset' => ['<!DOCTYPE s [<!ENTITY e "x"> <styleSheet xmlns="'.XR_NS.'"><cellXfs><xf numFmtId="14"/></cellXfs></styleSheet>'],
+    'a prolog comment never closed' => ['<?xml version="1.0"?><!-- abc'],
     'not well-formed' => ['<styleSheet xmlns="'.XR_NS.'"><x></styleSheet>'],
     'a numFmt without formatCode' => ['<styleSheet xmlns="'.XR_NS.'"><numFmts><numFmt numFmtId="164"/></numFmts></styleSheet>'],
 ]);

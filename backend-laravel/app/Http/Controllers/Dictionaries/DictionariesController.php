@@ -59,9 +59,10 @@ final class DictionariesController
         $name = DictionaryStore::nameParam($request);
         $upload = MultipartReader::read($request, Import::MAX_BYTES);
         SlotHolder::release();
-        $sheet = SheetReader::read($upload->bytes, count(Import::COLUMNS[$name]), ClientConnection::watcher($request));
+        $gone = ClientConnection::watcher($request);
+        $sheet = SheetReader::read($upload->bytes, count(Import::COLUMNS[$name]), $gone);
 
-        return Responses::json(Import::apply($name, $sheet, Auth::principal()->userId));
+        return Responses::json(Import::apply($name, $sheet, Auth::principal()->userId, $gone));
     }
 
     public function uploadProductImage(Request $request): Response
