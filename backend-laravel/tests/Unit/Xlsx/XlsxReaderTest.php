@@ -148,6 +148,9 @@ it('styles: a DOCTYPE behind a decoy in the prolog, or a second DOCTYPE, is neve
     'deep laughs behind a decoy' => [xrStylesRef('<!--<!DOCTYPE x>-->'.xrLaughs(9), 'a9')],
     'deep laughs in text behind a PI decoy' => ['<?p <!DOCTYPE?>'.xrLaughs(9).'<styleSheet xmlns="'.XR_NS.'"><x>&a9;</x></styleSheet>'],
     'a PI in the internal subset hiding "]>"' => [xrStylesRef('<!DOCTYPE s [<?p ]> ?><!ENTITY f "dd.mm.yyyy">]>', 'f')],
+    // saxes "malformed comment" (probed: Express 415 {allowed}), even with no entity in use.
+    'a "--" inside a comment of the subset' => ['<!DOCTYPE s [<!-- a -- b --><!ENTITY u "x">]><styleSheet xmlns="'.XR_NS.'"/>'],
+    'a comment of the subset ending "--->"' => ['<!DOCTYPE s [<!-- a ---><!ENTITY u "x">]><styleSheet xmlns="'.XR_NS.'"/>'],
 ]);
 
 it('styles: libxml2 never processes a DOCTYPE the prolog scan does not reach', function (string $styles) {

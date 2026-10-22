@@ -259,7 +259,12 @@ final class XlsxReader
                 if ($c === ']') {
                     $subset = false;
                 } elseif ($c === '<' && substr_compare($text, '<!--', $i, 4) === 0) {
-                    $i = self::after($text, '-->', $i + 4);
+                    // saxes: the first `--` must end the comment (`-->`), else "malformed comment" → unsupported.
+                    $i = self::after($text, '--', $i + 4);
+                    if (($text[$i] ?? '') !== '>') {
+                        throw new XlsxStop('unsupported');
+                    }
+                    $i++;
 
                     continue;
                 } elseif ($c === '<' && ($text[$i + 1] ?? '') === '?') {
