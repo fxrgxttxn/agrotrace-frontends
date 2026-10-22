@@ -107,3 +107,10 @@ it('renders without a request too (Renderer::render)', function () {
     expect(json_decode($res->getContent(), true)['code'])->toBe('BACKEND_UNAVAILABLE');
     expect($res->headers->get('X-Backend'))->toBe('laravel');
 });
+
+it('keeps the custom titles Express sets (review M2) and the code title otherwise', function () {
+    $custom = new Problem(401, ProblemCode::TOKEN_EXPIRED, title: 'Refresh token expired');
+    expect($custom->body()->title)->toBe('Refresh token expired');
+    expect($custom->getMessage())->toBe('Refresh token expired');
+    expect((new Problem(401, ProblemCode::TOKEN_EXPIRED))->body()->title)->toBe('Token expired');
+});

@@ -37,7 +37,7 @@ final class FilesController
             $exp = $q->has('exp') ? $q->string('exp') : null;
             $sig = $q->has('sig') ? $q->string('sig') : null;
             if (! FileUrls::verify((string) $request->route('id'), $exp, $sig)) {
-                throw new Problem(403, ProblemCode::FORBIDDEN);
+                throw new Problem(403, ProblemCode::FORBIDDEN, title: 'Invalid or expired signature');
             }
         } elseif ($principal === null) {
             throw new Problem(401, ProblemCode::UNAUTHORIZED);

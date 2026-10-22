@@ -29,9 +29,10 @@ final class Problem extends RuntimeException
         public readonly ?array $params = null,
         public readonly array $headers = [],
         public readonly ?string $detail = null,
+        public readonly ?string $title = null,
     ) {
         $this->problemCode = $code;
-        parent::__construct($code->title());
+        parent::__construct($title ?? $code->title());
     }
 
     /**
@@ -48,7 +49,7 @@ final class Problem extends RuntimeException
     {
         $body = new stdClass;
         $body->type = $this->problemCode->type();
-        $body->title = $this->problemCode->title();
+        $body->title = $this->title ?? $this->problemCode->title();
         $body->status = $this->status;
         $body->code = $this->problemCode->value;
         if ($this->detail !== null) {

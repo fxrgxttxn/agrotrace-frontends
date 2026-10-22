@@ -50,7 +50,7 @@ final class AuthController
 
                 return $res;
             case 'expired':
-                $res = Renderer::response(new Problem(401, ProblemCode::TOKEN_EXPIRED));
+                $res = Renderer::response(new Problem(401, ProblemCode::TOKEN_EXPIRED, title: 'Refresh token expired'));
                 if ($outcome['clearCookie']) {
                     $res->headers->setCookie(RefreshCookie::clear());
                 }

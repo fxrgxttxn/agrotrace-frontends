@@ -138,7 +138,7 @@ final class AuthActions
         $input = AuthSchemas::twoFactorVerify()->parse($body);
         $key = "2fa:{$input['challengeId']}";
         $failKey = "2fa-fail:{$input['challengeId']}";
-        $expired = fn () => new Problem(401, ProblemCode::TOKEN_EXPIRED);
+        $expired = fn () => new Problem(401, ProblemCode::TOKEN_EXPIRED, title: 'Two-factor challenge expired');
         $r = SharedRedis::client();
         $challenge = self::keyValue($r->get($key));
         if ($challenge === null) {
