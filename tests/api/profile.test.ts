@@ -18,6 +18,7 @@ import {
   fileIdOf,
   fixture,
   MAX_IMAGE_BYTES,
+  multipart,
   pngOfSize,
   RASTER,
   sha256hex,
@@ -375,6 +376,19 @@ describe('uploadMyAvatar', () => {
     const empty = await upload(client, '/me/avatar', { data: Buffer.alloc(0), filename: 'a.png' });
     await expectContract(empty, 'uploadMyAvatar');
     expectErrors(empty, { file: ['validation.required'] });
+    expect((await getMe(client)).avatarUrl).toBeNull();
+  });
+
+  it('a multipart body cut off inside the file part → 400 VALIDATION at the root; the backend keeps serving', async () => {
+    const { client } = await freshHead('FARM');
+    const { body, contentType } = multipart([
+      { name: 'file', filename: 'a.png', contentType: 'image/png', data: fixture('tiny-40x20.png') },
+    ]);
+    const cut = body.subarray(0, body.length - 60);
+    const res = await client.put('/me/avatar', new Uint8Array(cut), { headers: { 'content-type': contentType } });
+    await expectContract(res, 'uploadMyAvatar');
+    expectErrors(res, { _root: ['validation.invalid'] });
+    expect((await api().get('/health/live')).status).toBe(200);
     expect((await getMe(client)).avatarUrl).toBeNull();
   });
 
