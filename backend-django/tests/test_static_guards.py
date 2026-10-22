@@ -20,7 +20,7 @@ CLOCK_DIRS = ("modules", "events", "scheduler", "core")
 CLOCK_EXCEPTIONS = {"security/jwt.py", "infra/altcha.py", "infra/file_urls.py", "core/logging.py"}
 #: Files allowed to take `FOR UPDATE` (P57, final m2): the physical deletion of a norm or region row (Task 4) and
 #: deleteField (Task 5).
-ALLOWED: set[str] = {"modules/dictionaries/store.py"}
+ALLOWED: set[str] = {"modules/dictionaries/store.py", "modules/fields/services.py"}
 PUBLISHERS = {"infra/relay.py", "events/tasks.py"}
 FOR_UPDATE = re.compile(r"\bfor\s+update\b", re.I)
 

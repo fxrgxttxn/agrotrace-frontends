@@ -396,6 +396,36 @@ class ListOf(Field):
         return (ABORTED if aborted else status), out
 
 
+class Tuple(Field):
+    """`z.tuple([a, b, …])` (Zod 3.25): not an array → type (aborted); fewer items → minItems at the tuple (aborted);
+    more items → maxItems (dirty) and only the declared items are parsed; then the arrays' merge (an aborted item
+    aborts the tuple)."""
+
+    def __init__(self, *items: Field):
+        self.items = items
+
+    def _parse_inner(self, value, path, ctx):
+        if not isinstance(value, list):
+            return _type_issue(ctx, path, value)
+        if len(value) < len(self.items):
+            ctx.add(path, "validation.minItems")
+            return ABORTED, value
+        status = VALID
+        if len(value) > len(self.items):
+            ctx.add(path, "validation.maxItems")
+            status = DIRTY
+        out = []
+        aborted = False
+        for i, item in enumerate(self.items):
+            s, v = item.parse(value[i], path + (i,), ctx)
+            if s == ABORTED:
+                aborted = True
+            elif s == DIRTY:
+                status = DIRTY
+            out.append(v)
+        return (ABORTED if aborted else status), out
+
+
 def no_duplicate(field: str) -> Callable[[list, Callable[[Path, str], None]], None]:
     """superRefine: every repeated element (not the first) gets `validation.duplicate` at its own `[i].field`."""
 
