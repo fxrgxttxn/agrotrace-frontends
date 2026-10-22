@@ -28,7 +28,7 @@ lock_dir() {
   fi
 }
 
-lock_field() { sed -n "s/^$1=//p" "$2/owner" 2>/dev/null | head -n1; }
+lock_field() { { sed -n "s/^$1=//p" "$2/owner" 2>/dev/null || true; } | head -n1; }
 
 lock_owner_desc() {
   echo "$(lock_field cmd "$1") in $(lock_field worktree "$1") (pid $(lock_field pid "$1"), since $(lock_field started "$1"))"
