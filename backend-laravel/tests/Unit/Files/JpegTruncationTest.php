@@ -33,8 +33,31 @@ it('answers a truncated JPEG as sharp with one thread does', function (string $c
     expect($accepted)->toBe($v['accepted']);
 })->with(array_keys(jpegVerdicts()));
 
-it('sharp accepts whole files and refuses half or progressive truncations at any concurrency', function () {
-    // Whole files are always accepted, a half or a progressive truncation is always refused, at any concurrency.
+/** Whether Laravel's decoder (Images::variants) accepts the JPEG of $case; any refusal must be 415. */
+function jpegLaravelAccepts(string $case): bool
+{
+    $bytes = substr((string) file_get_contents(__DIR__.'/../../Fixtures/jpeg/'.explode(':', $case)[0].'.jpg'), 0, jpegVerdicts()[$case]['length']);
+    try {
+        Images::variants($bytes, 'image/jpeg');
+
+        return true;
+    } catch (Problem $p) {
+        expect($p->status)->toBe(415);
+
+        return false;
+    }
+}
+
+// Review M2: where sharp's verdict does not depend on its concurrency (accepted 20 of 20 or 0 of 20: whole files,
+// half or progressive cuts), Laravel's decoder gives that verdict — Express and Laravel agree on every try.
+it('where sharp never races, Laravel decodes as Express always does', function (string $case) {
+    expect(jpegLaravelAccepts($case))->toBe(jpegVerdicts()[$case]['acceptedOf20'] === 20);
+})->with(array_values(array_filter(
+    array_keys(jpegVerdicts()),
+    fn (string $case) => in_array(jpegVerdicts()[$case]['acceptedOf20'], [0, 20], true),
+)));
+
+it('the race-free cases include every whole file and every half or progressive cut', function () {
     foreach (jpegVerdicts() as $case => $v) {
         if (str_ends_with($case, ':full')) {
             expect($v['acceptedOf20'])->toBe(20);
