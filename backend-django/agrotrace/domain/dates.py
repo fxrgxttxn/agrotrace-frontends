@@ -26,3 +26,29 @@ def can_edit_treatment(created_at: str | datetime, now: str | datetime) -> bool:
 def editable_until(created_at: datetime) -> datetime:
     """createdAt + 24 h (the end of the edit window, `Treatment.editableUntil`)."""
     return created_at + DAY
+
+
+def utc_date(v: str | datetime) -> str:
+    """The UTC calendar date `YYYY-MM-DD` of an instant (`utcDate`)."""
+    if isinstance(v, str):
+        return v[:10]
+    return v.astimezone(UTC).date().isoformat()
+
+
+def add_days_to_date(date: str, days: int) -> str:
+    """`addDaysToDate`: a calendar date plus `days` (negative allowed)."""
+    from datetime import date as _date
+
+    return (_date.fromisoformat(date) + timedelta(days=days)).isoformat()
+
+
+def add_working_days(start: datetime, days: int) -> datetime:
+    """`addWorkingDays` (R24): N working days (Mon–Fri by the UTC calendar date) after `start`, the time of day kept;
+    0 returns `start` unchanged even on a weekend. Holidays are not considered."""
+    d = start.astimezone(UTC)
+    left = days
+    while left > 0:
+        d += DAY
+        if d.weekday() < 5:
+            left -= 1
+    return d

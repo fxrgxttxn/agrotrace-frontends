@@ -130,8 +130,8 @@ def lock_field_for_reference(tx: Tx, field_id: str, org_id: str | None, *,
     — updateTreatment, createBatch; `no key update` — createTreatment. The `deleted_at IS NULL` condition is in the
     locking query, so a reference that waited for a deleteField finds nothing. None — no such field."""
     clause = {"key share": "FOR KEY SHARE", "no key update": "FOR NO KEY UPDATE"}[strength]
-    return tx.one(f"SELECT id::text AS id FROM fields WHERE id = %s AND organization_id = %s AND deleted_at IS NULL "
-                  f"{clause}", [field_id, org_id])
+    return tx.one("SELECT id::text AS id, region_id::text AS region_id FROM fields "
+                  f"WHERE id = %s AND organization_id = %s AND deleted_at IS NULL {clause}", [field_id, org_id])
 
 
 def _own_field_for_update(tx: Tx, p: Principal, field_id: str, purpose: Literal["update", "delete"]) -> dict:

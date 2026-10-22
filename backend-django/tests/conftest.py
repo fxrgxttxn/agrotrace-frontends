@@ -38,3 +38,13 @@ def other_session(db):
     conn = psycopg.connect(db, autocommit=True)
     yield conn
     conn.close()
+
+
+@pytest.fixture(autouse=True)
+def _no_broker_publish(request, monkeypatch):
+    """Unit tests never publish to the stand's broker: the outbox fast path (after commit) is off unless a test is
+    marked `relay` (tests/test_relay.py drives it against a fake broker)."""
+    if request.node.get_closest_marker("relay") is None:
+        from agrotrace.infra import outbox
+
+        monkeypatch.setattr(outbox, "_relay_after_commit", lambda ids: None)

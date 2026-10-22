@@ -4,9 +4,10 @@ Transactional outbox, write side (R55, R56, P1), the port of backend-express/src
 `payload` is the whole queue document of contracts/events/envelope.schema.json (`id` = outbox_events.id = the Celery
 task_id). `occurredAt` is the clock time of the INSERT (R59), `requestId` the current request's (or the one given).
 
-Publishing is never done here: after the transaction commits, the relay publishes the ids (`tx.on_commit`, the fast
-path — Task 6 `infra.relay.publish`), and the beat's outbox sweeper (every 5 s) is the guarantee. A rolled-back
-attempt (e.g. the first try of a 40P01 retry) drops its callback and its row: nothing is published.
+Publishing is never done here: after the transaction committed and its connection went back to the pool
+(`Tx.after_release`, P61), the relay publishes the ids (`infra.relay.publish`, the fast path, in the same thread),
+and the beat's outbox sweeper (every 5 s) is the guarantee. A rolled-back attempt (e.g. the first try of a 40P01
+retry) drops its callback and its row: nothing is published.
 """
 
 from __future__ import annotations
@@ -29,15 +30,13 @@ _UNSET: Any = object()
 
 
 def _relay_after_commit(ids: list[str]) -> None:
-    """The fast path: publish right after commit, in the same thread (P61: the relay holds the request's connection).
-    Until the relay exists (Task 6) — or when it fails — the sweeper publishes the rows."""
-    try:
-        from agrotrace.infra import relay  # Task 6
-    except ImportError:
-        return
+    """The fast path: publish right after commit, in the same thread, holding no pool connection (the relay's own
+    statements check one out each). A failure never fails the committed request: the sweeper publishes the rows."""
+    from agrotrace.infra import relay
+
     try:
         relay.publish(ids)
-    except Exception as e:  # never fails the committed request; the sweeper retries
+    except Exception as e:
         log.warning("outbox relay failed; the sweeper retries", extra={"err": str(e), "ids": ids})
 
 
@@ -63,6 +62,6 @@ def enqueue(tx: Tx, type: str, data: dict[str, Any], *, request_id: str | None =
     if pending is None:
         pending = []
         tx._outbox_ids = pending  # type: ignore[attr-defined]
-        tx.on_commit(lambda: _relay_after_commit(list(pending)))
+        tx.after_release(lambda: _relay_after_commit(list(pending)))
     pending.append(event_id)
     return event_id

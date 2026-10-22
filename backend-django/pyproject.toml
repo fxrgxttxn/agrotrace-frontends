@@ -6,7 +6,8 @@ requires-python = ">=3.12"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider -m 'not stand'"
-markers = ["stand: needs the running docker stand (./at.sh django:test -m stand)"]
+markers = ["stand: needs the running docker stand (./at.sh django:test -m stand)",
+           "relay: the outbox relay runs after commit (against a fake broker)"]
 filterwarnings = ["error::RuntimeWarning"]
 
 [tool.ruff]

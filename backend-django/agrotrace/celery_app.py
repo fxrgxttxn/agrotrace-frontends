@@ -1,6 +1,7 @@
 """
-The Celery application of worker-django and beat-django (plan 3, «Очередь, воркер и планировщик»). Tasks arrive with
-Task 6 (events.tasks: one task per event `type`, the envelope as the single argument, task_id = event id).
+The Celery application of worker-django and beat-django (plan 3, «Очередь, воркер и планировщик»); the api uses it
+to publish (infra/relay.py). The tasks are events.tasks (one per event `type`, the envelope as the single argument,
+task_id = event id); the worker imports their modules at start (`imports`).
 
 The topology is the one of infra/rabbitmq/definitions.json and is never declared by Celery:
 - queue `agrotrace.django.jobs` on the topic exchange `agrotrace.django` (`#`), both `no_declare`, with exactly the
@@ -89,6 +90,8 @@ app.conf.update(
     worker_hijack_root_logger=False,
     worker_redirect_stdouts=False,
     worker_consumer="agrotrace.celery_app:Consumer",
+    # The worker imports the event tasks at start (each module registers its `type`; Tasks 9–12 add theirs).
+    imports=("agrotrace.events.handlers.vsd_import",),
     beat_max_loop_interval=1,
     beat_schedule={},
     timezone="UTC",

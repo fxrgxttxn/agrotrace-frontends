@@ -15,6 +15,7 @@ P43: `tx.now` is the transaction's `now()` (read once, the same instant for ever
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Literal
@@ -23,6 +24,8 @@ from django.db import connection, transaction
 
 from agrotrace.core import sql
 from agrotrace.core.problem import AppProblem, sqlstate
+
+log = logging.getLogger("agrotrace.tx")
 
 Isolation = Literal["read committed", "repeatable read", "read only repeatable read"]
 
@@ -39,6 +42,7 @@ class Tx:
 
     def __init__(self) -> None:
         self._now: datetime | None = None
+        self._after: list[Callable[[], Any]] = []
 
     @property
     def now(self) -> datetime:
@@ -50,6 +54,12 @@ class Tx:
     def on_commit(self, cb: Callable[[], Any]) -> None:
         """Runs `cb` after this attempt commits; never after a rollback (a retried attempt drops it)."""
         transaction.on_commit(cb)
+
+    def after_release(self, cb: Callable[[], Any]) -> None:
+        """Runs `cb` after this attempt committed AND the connection went back to the pool (P61): work that talks to
+        another service (the outbox relay publishing to RabbitMQ) holds no pool connection. Never after a rollback;
+        an exception of `cb` is logged, never raised (the transaction is already committed)."""
+        self._after.append(cb)
 
     # Thin helpers over core.sql (the connection of the current thread is the transaction's).
     def execute(self, query: str, params: Any = None) -> int:
@@ -95,15 +105,19 @@ def with_tx[T](
     assert not connection.in_atomic_block, "with_tx() inside an open transaction (atomic) is not allowed"
     attempts = 2 if retry_once else 1
     attempt = 0
+    committed: Tx | None = None
     try:
         while True:
             attempt += 1
             try:
+                tx = Tx()
                 with transaction.atomic():
                     stmt = _SET_ISOLATION[isolation]
                     if stmt:
                         sql.execute(stmt)
-                    return fn(Tx())
+                    result = fn(tx)
+                committed = tx
+                break
             except AppProblem:
                 raise
             except Exception as exc:
@@ -117,6 +131,12 @@ def with_tx[T](
         # P61 holder discipline (core.sql): the connection goes back to the pool once the transaction is over.
         if not sql.is_pinned() and not connection.in_atomic_block:
             connection.close()
+    for cb in committed._after:  # type: ignore[union-attr]  # set by the break
+        try:
+            cb()
+        except Exception as e:
+            log.warning("after-release callback failed", exc_info=e)
+    return result
 
 
 #: Every entry of the recall engine (Tasks 9–11, D-I3): REPEATABLE READ and one more attempt when a parallel start

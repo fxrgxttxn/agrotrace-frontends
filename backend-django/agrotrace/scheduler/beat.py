@@ -16,6 +16,7 @@ from celery.beat import ScheduleEntry, Scheduler
 
 from agrotrace.core import config
 from agrotrace.scheduler import jobs
+from agrotrace.scheduler.jobs import outbox_sweeper  # noqa: F401  # registers `outbox-sweeper` (5 s)
 from agrotrace.scheduler.runner import guarded_tick
 
 log = logging.getLogger("agrotrace.beat")

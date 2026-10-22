@@ -165,27 +165,32 @@ def columns(alias: str) -> str:
 
 
 def can_read(p: Principal, f: dict[str, Any]) -> bool:
-    """Bearer access (п. 4.2: files inherit the rights of their entity); unreadable is indistinguishable from missing.
-    AVATAR — any authenticated user; LOGO, PRODUCT_IMAGE — everybody; REPORT — its owner; LAB_PROTOCOL — INSPECTOR and
-    ADMIN, a LAB for the tests of its own laboratory (participants through batch visibility — Task 6, when it exists);
-    QR — INSPECTOR and ADMIN (participants through batch visibility — Task 6)."""
+    """Bearer access (п. 4.2: files inherit the rights of their entity), the port of backend-express/src/modules/files/
+    access.ts; unreadable is indistinguishable from missing. AVATAR — any authenticated user; LOGO, PRODUCT_IMAGE —
+    everybody; REPORT — its owner; LAB_PROTOCOL — whoever sees the lab test (tag Lab): INSPECTOR and ADMIN all, a LAB
+    the tests of its own laboratory, FARMER/PROCESSOR/RETAILER the tests of the batches they see (tag Batches, S ∪ N);
+    QR — whoever sees the batch the QR belongs to (tag Batches)."""
+    from agrotrace.modules.batches.visibility import batch_visible_sql, is_participant, sees_all
+
     kind = f["kind"]
     if kind in ("AVATAR", "LOGO", "PRODUCT_IMAGE"):
         return True
     if kind == "REPORT":
         return f["owner_id"] == p.user_id
-    sees_all = "INSPECTOR" in p.roles or "ADMIN" in p.roles
     if kind == "LAB_PROTOCOL":
-        if sees_all:
+        if sees_all(p):
             return True
-        if "LAB" not in p.roles:
-            return False
+        own = "LAB" in p.roles
+        via, via_params = batch_visible_sql(p, "b.id", lab=False) if is_participant(p) else ("false", [])
         return bool(sql.scalar(
             "SELECT EXISTS (SELECT 1 FROM lab_tests t JOIN batches b ON b.id = t.batch_id "
-            "WHERE t.protocol_file_id = %s AND t.deleted_at IS NULL AND b.deleted_at IS NULL AND t.lab_org_id = %s)",
-            [f["id"], p.org_id]))
+            "WHERE t.protocol_file_id = %s AND t.deleted_at IS NULL AND b.deleted_at IS NULL "
+            f"AND ((%s AND t.lab_org_id = %s) OR {via}))", [f["id"], own, p.org_id, *via_params]))
     if kind == "QR":
-        return sees_all
+        pred, params = batch_visible_sql(p, "b.id")
+        return bool(sql.scalar(
+            "SELECT EXISTS (SELECT 1 FROM batches b WHERE (b.qr_png_file_id = %s OR b.qr_pdf_file_id = %s) "
+            f"AND b.deleted_at IS NULL AND {pred})", [f["id"], f["id"], *params]))
     return False
 
 
