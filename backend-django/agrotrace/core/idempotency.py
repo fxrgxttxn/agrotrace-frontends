@@ -202,7 +202,9 @@ def replay_response(stored: Record) -> HttpResponse:
     """The stored answer: its status and the record's `body` text unchanged (`null` when absent)."""
     body = raw_member(stored.raw, "body") if stored.raw else None
     content = body.encode("utf-8") if body is not None else json_bytes(stored.get("body"))
-    res = HttpResponse(content, status=stored.get("status") or 200, content_type="application/json; charset=utf-8")
+    status = stored.get("status")
+    status = 200 if status is None else status  # Express `stored.status ?? 200` (Task 7 review M5)
+    res = HttpResponse(content, status=status, content_type="application/json; charset=utf-8")
     res["Idempotent-Replayed"] = "true"
     return res
 

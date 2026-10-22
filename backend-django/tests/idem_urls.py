@@ -1,6 +1,6 @@
 """Test-only routes for test_idempotency.py: ContractView probes under /api/v1/test/idem/ that run the
 `createWaybill` operation's x-idempotent protocol (authentication is patched by the test) and answer with bodies
-holding a Decimal and a datetime, an error, or a crash."""
+holding a Decimal and a datetime, an error, a crash, or a 2xx that cannot be rendered."""
 
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -38,11 +38,20 @@ class Crashes(_Idem):
         raise RuntimeError("boom")
 
 
+class Unrenderable(_Idem):
+    """A 2xx whose data the renderer cannot serialize (a programming error): the render fails in finalize_response."""
+
+    def post(self, request):
+        CALLS.append("unrenderable")
+        return Response({"x": object()}, status=201)
+
+
 urlpatterns = [
     *app_urlpatterns,
     path("api/v1/test/idem/typed", Typed.as_view()),
     path("api/v1/test/idem/fails", Fails.as_view()),
     path("api/v1/test/idem/crashes", Crashes.as_view()),
+    path("api/v1/test/idem/unrenderable", Unrenderable.as_view()),
 ]
 
 handler404 = "agrotrace.core.problem.handler404"

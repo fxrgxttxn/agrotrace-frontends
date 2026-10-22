@@ -212,3 +212,40 @@ def test_another_request_with_the_key_is_reused_and_a_pending_one_in_progress(as
     assert other.json()["code"] == "IDEMPOTENCY_KEY_REUSED"
     assert json.loads(redis.client().get(k))["state"] == "pending"  # a foreign pending record is never touched
     assert idem_urls.CALLS == []
+
+
+@override_settings(ROOT_URLCONF="tests.idem_urls")
+def test_a_2xx_that_fails_to_render_frees_the_key(as_user):
+    # Task 7 review M1: the render runs in finalize_response; when it fails, the answer is a 500 and the key is freed
+    # (Express releases on a crash rendered as 500), so a retry executes again instead of 409 IN_PROGRESS for 60 s.
+    path = "/api/v1/test/idem/unrenderable"
+    key = uuid.uuid4().hex
+    as_user.append(f"idem:{USER.user_id}:{key}")
+    first = _post(path, key)
+    assert first.status == 500
+    assert first.json()["code"] == "INTERNAL"
+    assert redis.client().exists(f"idem:{USER.user_id}:{key}") == 0
+    assert _post(path, key).status == 500  # executes again, not IN_PROGRESS
+    assert idem_urls.CALLS == ["unrenderable", "unrenderable"]
+
+
+def test_the_replayed_status_defaults_to_200_only_when_absent(keys):
+    # Task 7 review M5: Express `stored.status ?? 200` — a missing or null status is 200; any other value is sent as
+    # stored (a 0 is not turned into 200; Node refuses it, and so does Django: the request fails as a 500).
+    s = IdemStore()
+    fp = fingerprint("POST", "/p", b"")
+    for status, expected in ((None, 200), ("absent", 200), (202, 202)):
+        k = keys()
+        rec = {"fingerprint": fp, "state": "done", "body": {"a": 1}}
+        if status != "absent":
+            rec["status"] = status
+        redis.client().set(k, json.dumps(rec), ex=60)
+        stored = s.get(k)
+        assert stored is not None
+        assert idempotency.replay_response(stored).status_code == expected
+    k = keys()
+    redis.client().set(k, json.dumps({"fingerprint": fp, "state": "done", "status": 0, "body": None}), ex=60)
+    stored = s.get(k)
+    assert stored is not None
+    with pytest.raises(ValueError):
+        idempotency.replay_response(stored)

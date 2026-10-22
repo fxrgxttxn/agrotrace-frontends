@@ -102,7 +102,13 @@ class ContractView(APIView):
                 # The record keeps the body exactly as the client gets it: render now (DRF renders lazily; Django
                 # does not render a rendered response twice) and store those bytes.
                 if isinstance(response, Response) and not response.is_rendered:
-                    response.render()
+                    try:
+                        response.render()
+                    except BaseException:
+                        # Django answers 500 (handler500); the key is freed so that a retry runs again, as Express
+                        # releases it on a crash rendered as 500 (Task 7 review M1).
+                        self._idem.settle(500, None)
+                        raise
                 body = idempotency.response_body_json(response.content)
             self._idem.settle(status, body)
         return response
