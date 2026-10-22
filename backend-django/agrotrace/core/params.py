@@ -11,6 +11,7 @@ parameter given twice or in bracket form is `validation.type`.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import parse_qsl
 
@@ -184,6 +185,24 @@ class QueryReader:
             return None
         return s == "true"
 
+    def date(self, name: str) -> str | None:
+        """`format: date` — a real calendar day `YYYY-MM-DD` (2026-02-30 is not), else `validation.date.format`."""
+        s = self.string(name)
+        if s is None:
+            return None
+        if not is_calendar_date(s):
+            self.add(name, "validation.date.format")
+            return None
+        return s
+
+    def date_range(self) -> tuple[str | None, str | None]:
+        """`DateFrom`/`DateTo` (UTC days, inclusive): `from` after `to` → `errors.from: [validation.range]`."""
+        frm = self.date("from")
+        to = self.date("to")
+        if frm is not None and to is not None and frm > to:
+            self.add("from", "validation.range")
+        return frm, to
+
     def not_allowed(self, name: str) -> None:
         if self.has(name):
             self.errors[name] = [f"validation.{name}.notAllowed"]
@@ -216,3 +235,31 @@ def variant_param(request) -> int:
     v = q.enum_of("variant", ("96", "480"))
     q.done()
     return 96 if v == "96" else 480
+
+
+_CALENDAR = ecma(r"^(\d{4})-(\d{2})-(\d{2})$")
+
+
+def is_calendar_date(s: str) -> bool:
+    """`YYYY-MM-DD` naming a day that exists (backend-express isCalendarDate; year 0000 included)."""
+    m = _CALENDAR.search(s)
+    if not m:
+        return False
+    y, mo, d = (int(g) for g in m.groups())
+    if not 1 <= mo <= 12 or d < 1:
+        return False
+    leap = y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)
+    days = (31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)[mo - 1]
+    return d <= days
+
+
+def day_start(date: str) -> datetime:
+    """The first instant of the UTC day `date`."""
+    if date[:4] == "0000":  # no year 0 in Python (nor in PostgreSQL): the earliest instant
+        return datetime.min.replace(tzinfo=UTC)
+    return datetime(int(date[:4]), int(date[5:7]), int(date[8:10]), tzinfo=UTC)
+
+
+def day_after(date: str) -> datetime:
+    """The first instant after the UTC day `date` (the exclusive upper bound of an inclusive `to`)."""
+    return day_start(date) + timedelta(days=1)

@@ -1,4 +1,4 @@
-"""/admin/organizations/* (contracts/openapi/paths/admin.yaml): approve and update (listAdminOrganizations — Task 4)."""
+"""/admin/organizations/* (contracts/openapi/paths/admin.yaml): list, approve and update."""
 
 from __future__ import annotations
 
@@ -8,6 +8,13 @@ from agrotrace.core.problem import AppProblem
 from agrotrace.core.views import ContractView, is_uuid
 from agrotrace.modules.admin import services
 from agrotrace.modules.admin.serializers import OrganizationAdminPatch
+
+
+class AdminOrganizationsView(ContractView):
+    operation_id = "listAdminOrganizations"
+
+    def get(self, request):
+        return Response(services.list_organizations(request))
 
 
 class AdminOrganizationView(ContractView):

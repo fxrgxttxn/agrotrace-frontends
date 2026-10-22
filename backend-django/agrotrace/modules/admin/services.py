@@ -1,7 +1,7 @@
 """
 Administration of organizations (contracts/openapi/paths/admin.yaml, FR-ADM-01, FR-IAM-01; R54/D25–D26, R59), the
 port of backend-express/src/modules/admin/service.ts — approveOrganization and updateAdminOrganization here (the
-fixtures of almost every tests/api file need them); listAdminOrganizations is Task 4.
+fixtures of almost every tests/api file need them); listAdminOrganizations (Task 4) at the end.
 
 Status changes follow contracts/rules/entity-state-machines.json (`organization`). Both operations lock the
 organization row first (`FOR NO KEY UPDATE`; R47/R59: `organization` comes after complaint and before batches in the
@@ -17,6 +17,7 @@ from functools import cache
 from typing import Any
 
 from agrotrace.core import audit, config, sql
+from agrotrace.core.params import QueryReader
 from agrotrace.core.problem import AppProblem, validation_problem
 from agrotrace.core.render import iso
 from agrotrace.core.tx import Tx, with_tx
@@ -147,3 +148,45 @@ def approve(p: Principal, org_id: str) -> dict[str, Any]:
 
     with_tx(run)
     return view(org_id)
+
+
+STATUSES = ("PENDING", "MANUAL_CHECK", "ACTIVE", "REJECTED", "SUSPENDED")
+TYPES = ("FARM", "PROCESSOR", "LAB", "RETAILER", "AUTHORITY", "PLATFORM")
+#: Contract `RegionCode`.
+REGION_CODE = r"^[0-9A-Z-]{1,8}$"
+
+
+def list_organizations(request) -> dict[str, Any]:
+    """listAdminOrganizations — every non-deleted organization; `status`/`type` repeat; `regionCode`; `q` (a name
+    substring without case or an INN prefix); sort createdAt (default desc) or name (code points), ties by id."""
+    q = QueryReader(request)
+    page, size, sort = q.page(("createdAt", "name"), "createdAt,desc")
+    text = q.q()
+    statuses = q.enum_list("status", STATUSES)
+    types = q.enum_list("type", TYPES)
+    region_code = q.matching("regionCode", REGION_CODE)
+    q.done()
+
+    conds = ["o.deleted_at IS NULL"]
+    params: list[Any] = []
+    if statuses:
+        conds.append("o.status = ANY(%s)")
+        params.append(statuses)
+    if types:
+        conds.append("o.type = ANY(%s)")
+        params.append(types)
+    if region_code is not None:
+        conds.append("o.region_id IN (SELECT id FROM regions WHERE code = %s)")
+        params.append(region_code)
+    if text is not None:
+        # `%`, `_`, `\` are ordinary characters (no LIKE).
+        conds.append("(position(lower(%s) in lower(o.name)) > 0 OR starts_with(o.inn, %s))")
+        params += [text, text]
+    where = " AND ".join(conds)
+    total = sql.scalar(f"SELECT count(*) FROM organizations o WHERE {where}", params)  # noqa: S608
+    order = 'o.name COLLATE "C"' if sort.field == "name" else "o.created_at"
+    direction = "ASC" if sort.dir == "asc" else "DESC"
+    rows = sql.all(f"SELECT o.id::text AS id FROM organizations o WHERE {where} "  # noqa: S608
+                   f'ORDER BY {order} {direction}, o.id::text COLLATE "C" LIMIT %s OFFSET %s',
+                   [*params, size, (page - 1) * size])
+    return {"items": load_views([r["id"] for r in rows]), "page": page, "size": size, "total": int(total)}

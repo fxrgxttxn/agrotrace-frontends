@@ -24,8 +24,20 @@ ENTITY_TYPES = ("organization", "user", "field", "treatment", "batch", "waybill"
 AuditDiff = dict[str, list[Any]]
 
 
+def _js(v: Any) -> Any:
+    """A value as JSON.stringify sees it: an integral float is an integer (`30.0` from jsonb equals `30`)."""
+    if isinstance(v, float) and v.is_integer() and abs(v) < 1e21:
+        return int(v)
+    if isinstance(v, list):
+        return [_js(x) for x in v]
+    if isinstance(v, dict):
+        return {k: _js(x) for k, x in v.items()}
+    return v
+
+
 def _same(a: Any, b: Any) -> bool:
-    return json_dumps(a) == json_dumps(b)
+    """JSON equality as the Express writer compares (`JSON.stringify(before) !== JSON.stringify(after)`)."""
+    return json_dumps(_js(a)) == json_dumps(_js(b))
 
 
 def audit_diff(before: dict[str, Any] | None, after: dict[str, Any]) -> AuditDiff:

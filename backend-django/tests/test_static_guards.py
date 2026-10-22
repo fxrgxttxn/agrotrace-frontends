@@ -5,7 +5,7 @@ do:
   `auto_now`/`auto_now_add`, `timezone.now()`, `datetime.now()`, `date.today()` in modules/, events/, scheduler/,
   core/ (exceptions: the files below, whose clock is not written data);
 - P57: no `select_for_update()` without `no_key=True`, no `FOR UPDATE` in SQL and no `lock(..., strength='update')`
-  outside ALLOWED (empty until Tasks 4/5: dictionary row deletion, deleteField);
+  outside ALLOWED (dictionary row deletion — Task 4, deleteField — Task 5);
 - outbox only (R55): no `.delay()`, `.apply_async()`, `.retry()` outside infra/relay.py and events/tasks.py.
 """
 
@@ -18,8 +18,9 @@ import agrotrace
 PKG = Path(agrotrace.__file__).parent
 CLOCK_DIRS = ("modules", "events", "scheduler", "core")
 CLOCK_EXCEPTIONS = {"security/jwt.py", "infra/altcha.py", "infra/file_urls.py", "core/logging.py"}
-#: Files allowed to take `FOR UPDATE` (P57, final m2) — added by Tasks 4 and 5.
-ALLOWED: set[str] = set()
+#: Files allowed to take `FOR UPDATE` (P57, final m2): the physical deletion of a norm or region row (Task 4) and
+#: deleteField (Task 5).
+ALLOWED: set[str] = {"modules/dictionaries/store.py"}
 PUBLISHERS = {"infra/relay.py", "events/tasks.py"}
 FOR_UPDATE = re.compile(r"\bfor\s+update\b", re.I)
 
