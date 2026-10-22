@@ -146,7 +146,7 @@ final class Images
      */
     private static function decodeAndEncode(string $bytes, string $mime, callable $unsupported): array
     {
-        $img = @imagecreatefromstring($bytes);
+        $img = $mime === 'image/jpeg' ? self::decodeJpeg($bytes) : @imagecreatefromstring($bytes);
         if (! $img instanceof GdImage) {
             throw $unsupported();
         }
@@ -170,6 +170,44 @@ final class Images
         } finally {
             imagedestroy($img);
         }
+    }
+
+    /**
+     * A JPEG as sharp `failOn: 'error'` reads it (review M6, compared through both APIs): a truncated file (libjpeg
+     * "Premature end of JPEG file", also a missing EOI) is refused, while other recoverable libjpeg warnings (corrupt
+     * data, extraneous bytes) are accepted. imagecreatefromstring ignores gd.jpeg_ignore_warning, so the strict pass
+     * reads a temporary file with imagecreatefromjpeg.
+     */
+    private static function decodeJpeg(string $bytes): GdImage|false
+    {
+        $path = tempnam(sys_get_temp_dir(), 'jpeg');
+        if ($path === false || file_put_contents($path, $bytes) !== strlen($bytes)) {
+            return @imagecreatefromstring($bytes);
+        }
+        $messages = [];
+        $previous = ini_set('gd.jpeg_ignore_warning', '0');
+        set_error_handler(function (int $no, string $message) use (&$messages): bool {
+            $messages[] = $message;
+
+            return true;
+        });
+        try {
+            $img = imagecreatefromjpeg($path);
+        } finally {
+            restore_error_handler();
+            ini_set('gd.jpeg_ignore_warning', $previous === false ? '1' : $previous);
+            @unlink($path);
+        }
+        if ($img instanceof GdImage) {
+            return $img;
+        }
+        foreach ($messages as $m) {
+            if (str_contains($m, 'Premature end of JPEG file')) {
+                return false;
+            }
+        }
+
+        return @imagecreatefromstring($bytes);
     }
 
     /** Fit inside size×size, never enlarged (sharp `fit: inside, withoutEnlargement`), WebP q80 with alpha kept. */

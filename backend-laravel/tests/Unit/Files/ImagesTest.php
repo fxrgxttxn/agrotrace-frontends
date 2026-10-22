@@ -144,3 +144,22 @@ it('decodes under the container-wide slot bound (M1): the slot is held during th
     expect($probe())->toBeTrue();
     expect(webpDims(Images::variants(gdImage(10, 10, 'png'), 'image/png')[96]['bytes']))->toBe(['image/webp', 10, 10]);
 });
+
+it('reads a damaged JPEG as sharp failOn error does: truncated or no EOI → 415, corrupt data → accepted (M6)', function () {
+    $img = imagecreatetruecolor(300, 200);
+    for ($i = 0; $i < 300; $i += 7) {
+        imagefilledrectangle($img, $i, 0, $i + 3, 199, imagecolorallocate($img, $i % 255, 80, 200));
+    }
+    ob_start();
+    imagejpeg($img, null, 90);
+    $jpeg = (string) ob_get_clean();
+    $refused = fn (string $b) => expect(fn () => Images::variants($b, 'image/jpeg'))
+        ->toThrow(fn (Problem $p) => expect($p->status)->toBe(415));
+    $refused(substr($jpeg, 0, intdiv(strlen($jpeg), 2)));
+    $refused(substr($jpeg, 0, -2));
+    $garbled = $jpeg;
+    for ($k = 400; $k < 600; $k++) {
+        $garbled[$k] = "\x00";
+    }
+    expect(webpDims(Images::variants($garbled, 'image/jpeg')[480]['bytes']))->toBe(['image/webp', 300, 200]);
+});
