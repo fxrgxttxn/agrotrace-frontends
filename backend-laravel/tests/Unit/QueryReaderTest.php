@@ -62,3 +62,15 @@ it('q is 1…100 code points; dates are real calendar dates; notAllowed even wit
     $r->dateRange();
     expect($r->errors)->toBe(['from' => ['validation.range']]);
 });
+
+// Fix round 1 (review M3), each case checked against api-express (qs with arrayLimit 1000, parameterLimit 1000).
+it('reads indexes and the parameter count as Express\'s qs does', function () {
+    expect((new QueryReader('type[999]=FARM'))->enums('type', ['FARM']))->toBe(['FARM']);
+    foreach (['type[1000]=FARM', 'type[01]=FARM'] as $object) {
+        $q = new QueryReader($object);
+        expect($q->enums('type', ['FARM']))->toBeNull();
+        expect($q->errors)->toBe(['type' => ['validation.type']]);
+    }
+    expect((new QueryReader(str_repeat('x=1&', 999).'type=ZOO'))->has('type'))->toBeTrue();
+    expect((new QueryReader(str_repeat('x=1&', 1000).'type=ZOO'))->has('type'))->toBeFalse();
+});

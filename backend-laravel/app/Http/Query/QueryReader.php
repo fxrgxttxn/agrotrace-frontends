@@ -18,6 +18,11 @@ use Illuminate\Http\Request;
  */
 final class QueryReader
 {
+    private const PARAMETER_LIMIT = 1000;
+
+    // Express 4.22 parses the query with qs `{arrayLimit: 1000}` (parameterLimit stays 1000).
+    private const ARRAY_LIMIT = 1000;
+
     /** @var array<string, list<string>|array{__object: true}> */
     private array $params = [];
 
@@ -26,7 +31,8 @@ final class QueryReader
 
     public function __construct(string $queryString)
     {
-        foreach (explode('&', $queryString) as $piece) {
+        // qs parameterLimit 1000: only the first 1000 `&`-pieces are read (review M3).
+        foreach (array_slice(explode('&', $queryString), 0, self::PARAMETER_LIMIT) as $piece) {
             if ($piece === '') {
                 continue;
             }
@@ -40,7 +46,8 @@ final class QueryReader
             if ($open !== false && $open > 0 && str_ends_with($key, ']')) {
                 $base = substr($key, 0, $open);
                 $inner = substr($key, $open + 1, -1);
-                if ($inner === '' || ctype_digit($inner)) {
+                // `a[]` and a canonical index 0…999 build a list, any other `a[…]` an object (review M3).
+                if ($inner === '' || (ctype_digit($inner) && (string) (int) $inner === $inner && (int) $inner < self::ARRAY_LIMIT)) {
                     $current = $this->params[$base] ?? [];
                     if (! isset($current['__object'])) {
                         $current[] = $value;
