@@ -46,8 +46,12 @@ final class Dadata
         return DadataResult::unavailable();
     }
 
+    /** @throws \RuntimeException for a `null` body (Express: reading `null.suggestions` throws → retried) */
     public static function fromBody(mixed $body): DadataResult
     {
+        if ($body === null) {
+            throw new \RuntimeException('dadata answered null');
+        }
         $s = is_array($body) ? ($body['suggestions'][0] ?? null) : null;
         if (! is_array($s)) {
             return DadataResult::notFound();
@@ -76,6 +80,9 @@ final class Dadata
             ->asJson()
             ->post((string) config('agrotrace.dadata.url'), ['query' => $inn, 'count' => 1]);
 
-        return ['status' => $res->status(), 'body' => $res->json()];
+        // As Express's res.json(): a 2xx body that is no JSON throws (retried, then unavailable), not notFound (M4).
+        $ok = $res->status() >= 200 && $res->status() < 300;
+
+        return ['status' => $res->status(), 'body' => $ok ? json_decode($res->body(), true, 512, JSON_THROW_ON_ERROR) : null];
     }
 }

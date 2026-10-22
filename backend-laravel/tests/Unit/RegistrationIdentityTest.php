@@ -10,6 +10,7 @@ use App\Actions\Auth\AuthActions;
 use App\Http\Problem\Problem;
 use App\Infrastructure\Dadata\Dadata;
 use App\Infrastructure\Dadata\DadataResult;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 uses(TestCase::class);
@@ -65,4 +66,14 @@ it('no key → unavailable without a call; 4xx → no retry; 5xx → 3 attempts,
 
     $found = fn (): array => ['status' => 200, 'body' => ['suggestions' => [['value' => 'ООО «Найдено»']]]];
     expect(Dadata::findParty('3328100013', $found, 0))->toEqual(DadataResult::found('ООО «Найдено»', null));
+});
+
+it('a 2xx answer that is no JSON, or JSON null, is retried and ends unavailable, as in Express (review M4)', function () {
+    config(['agrotrace.dadata.key' => 'k', 'agrotrace.dadata.url' => 'http://dadata.test/party']);
+    Http::fake(['dadata.test/*' => Http::sequence()
+        ->push('<html>oops</html>', 200)->push('null', 200)->push('{"suggestions":', 200)]);
+    expect(Dadata::findParty('3328100013', null, 0)->status)->toBe('unavailable');
+    Http::assertSentCount(3);
+    expect(fn () => Dadata::fromBody(null))->toThrow(RuntimeException::class);
+    expect(Dadata::fromBody([1, 2]))->toEqual(DadataResult::notFound());
 });
