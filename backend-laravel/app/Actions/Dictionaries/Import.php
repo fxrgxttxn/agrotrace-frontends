@@ -6,6 +6,7 @@ use App\Domain\Decimal;
 use App\Http\Problem\Problem;
 use App\Http\Validation\Ecma;
 use App\Infrastructure\Audit\AuditLog;
+use App\Infrastructure\Db\LocalGate;
 use App\Infrastructure\Db\Tx;
 use App\Infrastructure\Import\Cell;
 use App\Infrastructure\Import\Sheet;
@@ -51,7 +52,9 @@ final class Import
         }
         $rules = self::rules($name);
 
-        [$report, $codes] = Tx::run(function () use ($name, $sheet, $columns, $rules, $actorId): array {
+        // Review M5: parallel imports of one dictionary queue on a container gate holding no DB slot (LocalGate), so
+        // only one of them per container waits on the advisory lock with a slot — they cannot starve DB_SLOTS.
+        [$report, $codes] = LocalGate::run("dictionary-import:{$name}", fn (): array => Tx::run(function () use ($name, $sheet, $columns, $rules, $actorId): array {
             DictionaryStore::lock($name);
             $report = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'errors' => []];
             [$products, $indicators] = $name === 'norms' ? self::referenceMaps() : [[], []];
@@ -137,7 +140,7 @@ final class Import
             }
 
             return [$report, PublicCache::productPageCodes($changedProducts)];
-        });
+        }));
         PublicCache::dropCodes($codes);
 
         return $report;
