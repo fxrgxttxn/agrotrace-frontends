@@ -19,8 +19,12 @@ use Illuminate\Http\Request;
  */
 final class ClientConnection
 {
-    /** At most one /proc/net/tcp read per this many seconds per request (the lane polls every 5 ms). */
-    private const CHECK_EVERY_SEC = 0.05;
+    /**
+     * At most one /proc/net/tcp read per this many seconds per request (the lane polls every 5 ms). A read costs ~4 ms
+     * in api-laravel (measured: the kernel builds the table on every read), so 9 waiting jobs at 150 ms cost ~0.25 of a
+     * core instead of ~0.7 at 50 ms, while an aborted job still leaves the queue well within its deadline (review N2).
+     */
+    private const CHECK_EVERY_SEC = 0.15;
 
     private const ESTABLISHED = '01';
 

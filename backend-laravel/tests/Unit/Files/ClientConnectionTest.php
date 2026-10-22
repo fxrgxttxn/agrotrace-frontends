@@ -2,7 +2,7 @@
 
 /*
  * P18 under FrankenPHP (fix round 1, I2): the client is gone when no socket of the peer address is ESTABLISHED in
- * /proc/net/tcp; unknown peers are never gone; the table is read at most every 50 ms per request.
+ * /proc/net/tcp; unknown peers are never gone; the table is read at most every 150 ms per request.
  */
 
 use App\Http\ClientConnection;
@@ -39,7 +39,7 @@ it('is gone only when no socket of the peer is ESTABLISHED', function () {
     expect(ClientConnection::goneIn(tcpLine(0, $peer, '0100007F:1F90', '01'), $peer))->toBeFalse();
 });
 
-it('watches the request\'s peer, at most every 50 ms, and stays gone', function () {
+it('watches the request\'s peer, at most every 150 ms, and stays gone', function () {
     $file = tempnam(sys_get_temp_dir(), 'tcp');
     $peer = '0100007F:DFC0';
     file_put_contents($file, TCP_HEADER.tcpLine(0, '0100007F:1F90', $peer, '01'));
@@ -49,6 +49,8 @@ it('watches the request\'s peer, at most every 50 ms, and stays gone', function 
     file_put_contents($file, TCP_HEADER.tcpLine(0, '0100007F:1F90', $peer, '08'));
     expect($gone())->toBeFalse(); // throttled
     usleep(60_000);
+    expect($gone())->toBeFalse(); // still throttled: one read per 150 ms (review N2)
+    usleep(100_000);
     expect($gone())->toBeTrue();
     file_put_contents($file, TCP_HEADER.tcpLine(0, '0100007F:1F90', $peer, '01'));
     usleep(60_000);
