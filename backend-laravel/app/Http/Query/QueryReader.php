@@ -5,6 +5,7 @@ namespace App\Http\Query;
 use App\Http\Problem\Problem;
 use App\Http\Validation\Ecma;
 use App\Http\Validation\Z\StringS;
+use App\Support\UtcDays;
 use Illuminate\Http\Request;
 
 /**
@@ -364,8 +365,9 @@ final class QueryReader
         if (! Ecma::test(Ecma::compile('^\d{4}-\d{2}-\d{2}$'), $s)) {
             return false;
         }
+        // Express's check is a JavaScript Date round trip: proleptic Gregorian, year 0000 included (a leap year).
         [$y, $m, $d] = array_map('intval', explode('-', $s));
 
-        return $y >= 1 && checkdate($m, $d, $y);
+        return $m >= 1 && $m <= 12 && $d >= 1 && $d <= UtcDays::daysIn($y, $m);
     }
 }

@@ -7,7 +7,10 @@
  * carries `operation:{operationId}` — the contract's guard (x-roles, x-org-admin, the `user` limit).
  */
 
+use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Audit\AuditController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Dictionaries\DictionariesController;
 use App\Http\Controllers\Docs\DocsController;
 use App\Http\Controllers\Files\FilesController;
 use App\Http\Controllers\Health\HealthController;
@@ -53,6 +56,19 @@ $op('PUT', '/organizations/{id}/logo', [OrganizationsController::class, 'uploadO
 $op('GET', '/organizations/{id}/logo', [OrganizationsController::class, 'getOrganizationLogo'], 'getOrganizationLogo');
 $op('GET', '/files/{id}', [FilesController::class, 'downloadFile'], 'downloadFile');
 $op('GET', '/public/files/{id}', [FilesController::class, 'downloadPublicFile'], 'downloadPublicFile');
+
+// Dictionaries, administration, audit log, public regions (Task 4).
+$op('GET', '/dictionaries/{name}', [DictionariesController::class, 'listDictionary'], 'listDictionary');
+$op('POST', '/dictionaries/{name}', [DictionariesController::class, 'createDictionaryEntry'], 'createDictionaryEntry');
+$op('PUT', '/dictionaries/{name}/{id}', [DictionariesController::class, 'updateDictionaryEntry'], 'updateDictionaryEntry');
+$op('DELETE', '/dictionaries/{name}/{id}', [DictionariesController::class, 'deleteDictionaryEntry'], 'deleteDictionaryEntry');
+$op('POST', '/dictionaries/{name}/import', [DictionariesController::class, 'importDictionary'], 'importDictionary');
+$op('PUT', '/dictionaries/products/{id}/image', [DictionariesController::class, 'uploadProductImage'], 'uploadProductImage');
+$op('GET', '/public/regions', [DictionariesController::class, 'listPublicRegions'], 'listPublicRegions');
+$op('GET', '/admin/organizations', [AdminController::class, 'listAdminOrganizations'], 'listAdminOrganizations');
+$op('PATCH', '/admin/organizations/{id}', [AdminController::class, 'updateAdminOrganization'], 'updateAdminOrganization');
+$op('POST', '/admin/organizations/{id}/approve', [AdminController::class, 'approveOrganization'], 'approveOrganization');
+$op('GET', '/audit-log', [AuditController::class, 'listAuditLog'], 'listAuditLog');
 
 // Swagger UI (spec 8.3) — outside the contract, as in Express.
 Route::get('/api/v1/docs', [DocsController::class, 'page']);
