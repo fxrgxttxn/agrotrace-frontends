@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Organizations;
 
 use App\Actions\Organizations\OrganizationsActions;
+use App\Http\ClientConnection;
 use App\Http\Multipart\MultipartReader;
 use App\Http\Query\Params;
 use App\Http\Query\QueryReader;
@@ -31,7 +32,7 @@ final class OrganizationsController
         $id = Params::id($request);
         $upload = MultipartReader::read($request, OrganizationsActions::LOGO_MAX_BYTES);
 
-        return Responses::json(OrganizationsActions::uploadLogo(Auth::principal(), $id, $upload, self::clientGone()));
+        return Responses::json(OrganizationsActions::uploadLogo(Auth::principal(), $id, $upload, ClientConnection::watcher($request)));
     }
 
     public function getOrganizationLogo(Request $request): Response
@@ -40,16 +41,5 @@ final class OrganizationsController
         $variant = Params::variant($request);
 
         return Files::send($request, OrganizationsActions::logoFile(Auth::principal(), $id), $variant, Files::CACHE_PRIVATE);
-    }
-
-    /**
-     * P18: whether the client went away — a waiting SVG job is then dropped. FrankenPHP reports an aborted connection
-     * only through connection_aborted() (see the Task 1 spike: not reliably while no output has been written).
-     *
-     * @return callable(): bool
-     */
-    private static function clientGone(): callable
-    {
-        return fn (): bool => connection_aborted() === 1;
     }
 }
