@@ -184,7 +184,8 @@ services:
     depends_on: *django-deps
     stop_grace_period: 15s
     networks: [at]
-  # Celery Beat whose ticks run in this process (scheduler/beat.py): publishes nothing to the broker.
+  # Celery Beat whose ticks run in this process (scheduler/beat.py): no tick is a broker message; only the
+  # outbox-sweeper job publishes (outbox rows, infra/relay.py).
   beat-django:
     build: { context: ., dockerfile: backend-django/Dockerfile }
     image: agrotrace/backend-django:dev
