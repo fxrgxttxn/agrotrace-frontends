@@ -70,6 +70,22 @@ it('shared strings: runs concatenated, phonetic runs left out; inline rich text 
         ->toBe(['plain', 'rich', '', '', 'ab']);
 });
 
+// Ruling Q13 (as Django Q9): where exceljs differs, the contract/brief wins — t="d" → INVALID (exceljs: a date), a
+// formula without a cached value → '' (exceljs: INVALID), phonetic `<rPh>` runs dropped from inline rich text too
+// (exceljs: the phonetic text). Express differs on these three inputs (integration backlog).
+it('Ruling Q13: t="d" is INVALID, an uncached formula is empty, rPh is dropped (inline and shared)', function () {
+    $sst = '<sst xmlns="'.XR_NS.'"><si><t>a</t><rPh sb="0" eb="1"><t>X</t></rPh></si></sst>';
+    expect(xrRow(
+        '<c r="A2" t="d"><v>2026-01-02T00:00:00Z</v></c>'
+        .'<c r="B2"><f>SUM(1,1)</f></c>'
+        .'<c r="C2" t="str"><f>"x"</f></c>'
+        .'<c r="D2" t="inlineStr"><is><r><t>a</t></r><r><t>b</t></r><rPh sb="0" eb="1"><t>X</t></rPh></is></c>'
+        .'<c r="E2" t="inlineStr"><is><t>a</t><rPh sb="0" eb="1"><t>X</t></rPh></is></c>'
+        .'<c r="F2" t="s"><v>0</v></c>',
+        $sst,
+    ))->toBe([XlsxReader::INVALID, '', '', 'ab', 'a', 'a']);
+});
+
 it('trailing empty cells are dropped; a gap is an empty cell; empty rows are skipped', function () {
     $r = xrRead('<row r="1"><c r="A1"><v>1</v></c></row><row r="2"><c r="B2"><v>2</v></c><c r="C2"/></row><row r="3"><c r="A3" s="0"/></row><row r="4"><c r="A4"><v>4</v></c></row>');
     expect($r['header'])->toBe(['1']);
@@ -96,6 +112,66 @@ it('styles: a DOCTYPE entity that is referenced → unsupported, wherever the re
     'a numFmt without formatCode' => ['<styleSheet xmlns="'.XR_NS.'"><numFmts><numFmt numFmtId="164"/></numFmts></styleSheet>'],
 ]);
 
+/** A DOCTYPE declaring entities `a0` (10 bytes) … `a{depth}` (10^(depth+1) bytes), each ten references to the one before. */
+function xrLaughs(int $depth): string
+{
+    $d = '<!ENTITY a0 "aaaaaaaaaa">';
+    for ($i = 1; $i <= $depth; $i++) {
+        $d .= "<!ENTITY a{$i} \"".str_repeat('&a'.($i - 1).';', 10).'">';
+    }
+
+    return "<!DOCTYPE s [{$d}]>";
+}
+
+/** A styles part whose custom format 164 is the entity &$ref; (cellXfs: 164). */
+function xrStylesRef(string $prolog, string $ref): string
+{
+    return $prolog.'<styleSheet xmlns="'.XR_NS.'"><numFmts><numFmt numFmtId="164" formatCode="&'.$ref.';"/></numFmts>'
+        .'<cellXfs><xf numFmtId="164"/></cellXfs></styleSheet>';
+}
+
+// Review I1 (Tasks 4+5): the DOCTYPE used to be found by a substring search, so a decoy `<!DOCTYPE` inside a comment
+// or a PI of the prolog (or a second DOCTYPE) left the real one — and its entities — to libxml2, which expanded them
+// (with LIBXML_PARSEHUGE, without its amplification guard). saxes reads the prolog token by token: the entities stay
+// undefined (or the second DOCTYPE is misplaced) → 415 {allowed} on Express.
+it('styles: a DOCTYPE behind a decoy in the prolog, or a second DOCTYPE, is never processed (review I1)', function (string $styles) {
+    $started = microtime(true);
+    expect(fn () => XlsxReader::styles($styles))->toThrow(XlsxStop::class, 'unsupported');
+    expect(microtime(true) - $started)->toBeLessThan(1.0);
+})->with([
+    'a decoy in a comment' => [xrStylesRef('<?xml version="1.0"?><!--<!DOCTYPE x>-->'.xrLaughs(3), 'a3')],
+    'a decoy in a PI' => [xrStylesRef('<?x <!DOCTYPE y>?>'.xrLaughs(3), 'a3')],
+    'a decoy comment with "] >"' => [xrStylesRef('<?xml version="1.0" encoding="UTF-8" standalone="yes" ?><!-- <!DOCTYPE ] > -->'.xrLaughs(3), 'a3')],
+    'a second DOCTYPE' => [xrStylesRef('<!DOCTYPE x>'.xrLaughs(3), 'a3')],
+    'a second DOCTYPE after a comment' => [xrStylesRef('<!DOCTYPE x [<!ENTITY q "1">]><!-- -->'.xrLaughs(3), 'a3')],
+    'a second DOCTYPE, its entities unused' => ['<!DOCTYPE x><!DOCTYPE s [<!ENTITY u "u">]><styleSheet xmlns="'.XR_NS.'"/>'],
+    'deep laughs behind a decoy' => [xrStylesRef('<!--<!DOCTYPE x>-->'.xrLaughs(9), 'a9')],
+    'deep laughs in text behind a PI decoy' => ['<?p <!DOCTYPE?>'.xrLaughs(9).'<styleSheet xmlns="'.XR_NS.'"><x>&a9;</x></styleSheet>'],
+    'a PI in the internal subset hiding "]>"' => [xrStylesRef('<!DOCTYPE s [<?p ]> ?><!ENTITY f "dd.mm.yyyy">]>', 'f')],
+]);
+
+it('styles: libxml2 never processes a DOCTYPE the prolog scan does not reach', function (string $styles) {
+    expect(fn () => XlsxReader::styles($styles))->toThrow(XlsxStop::class, 'unsupported');
+})->with([
+    'after the root' => ['<styleSheet xmlns="'.XR_NS.'"/><!DOCTYPE s [<!ENTITY e "x">]>'],
+    'after text' => ['x<!DOCTYPE s [<!ENTITY e "x">]><styleSheet xmlns="'.XR_NS.'">&e;</styleSheet>'],
+    'after another declaration' => ['<!ELEMENT x ANY><!DOCTYPE s [<!ENTITY e "x">]><styleSheet xmlns="'.XR_NS.'">&e;</styleSheet>'],
+]);
+
+it('the other parts (read with LIBXML_PARSEHUGE) refuse any DOCTYPE, even behind a decoy', function (string $decoy) {
+    $part = $decoy.xrLaughs(9).'<worksheet xmlns="'.XR_NS.'"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>&a9;</t></is></c></row></sheetData></worksheet>';
+    $started = microtime(true);
+    expect(fn () => XlsxReader::sheet($part, [], []))->toThrow(XlsxStop::class, 'unsupported');
+    expect(fn () => XlsxReader::sharedStrings($part))->toThrow(XlsxStop::class, 'unsupported');
+    expect(fn () => XlsxReader::wellFormed($part))->toThrow(XlsxStop::class, 'unsupported');
+    expect(microtime(true) - $started)->toBeLessThan(1.0);
+})->with([
+    'none' => [''],
+    'a comment' => ['<!--<!DOCTYPE x>-->'],
+    'a PI' => ['<?p <!DOCTYPE?>'],
+    'a first DOCTYPE' => ['<!DOCTYPE x>'],
+]);
+
 it('styles: an unused, built-in-only, SYSTEM or parameter-entity DOCTYPE reads as without it', function (string $doctype) {
     $styles = $doctype.'<styleSheet xmlns="'.XR_NS.'"><numFmts><numFmt numFmtId="164" formatCode="a&amp;b"/></numFmts><cellXfs><xf numFmtId="164"/><xf numFmtId="14"/></cellXfs></styleSheet>';
     expect(XlsxReader::styles($styles))->toBe(['a&b', 'mm-dd-yy']);
@@ -104,6 +180,11 @@ it('styles: an unused, built-in-only, SYSTEM or parameter-entity DOCTYPE reads a
     'unused entity' => ['<!DOCTYPE s [<!ENTITY u "unused"><!-- ] > --><!ATTLIST x y CDATA "]">]>'],
     'SYSTEM' => ['<!DOCTYPE s SYSTEM "http://example.invalid/s.dtd">'],
     'parameter entity' => ['<!DOCTYPE s [<!ENTITY % p "<!ENTITY q \'v\'>"> %p;]>'],
+    // saxes's DOCTYPE states: quotes, comments and PIs in the internal subset do not end it (review I1).
+    'a PI in the subset hiding "]>"' => ['<!DOCTYPE s [<?p ]> ?><!ENTITY u "x">]>'],
+    'a quoted "]>" in the subset' => ['<!DOCTYPE s [<!ENTITY u "]>">]>'],
+    'a quoted ">" before the subset' => ['<!DOCTYPE s PUBLIC "-//a>b//EN" "x.dtd" [<!ENTITY u "x">]>'],
+    'BOM, declaration, comments and PIs around it' => ["\u{FEFF}<?xml version=\"1.0\"?>\n<!-- c --><?p x?>\n<!DOCTYPE s [<!ENTITY u \"x\">]>\n<!-- d --><?q?>\n"],
 ]);
 
 it('styles: invalid UTF-8 is replaced, as exceljs decodes the part', function () {

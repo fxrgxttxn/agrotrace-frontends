@@ -14,10 +14,25 @@ namespace App\Infrastructure\Sandbox;
  *   and its result discarded by the caller.
  * Protocol: the child writes `ready\n` once loaded, reads stdin to EOF, writes one result to stdout and exits 0.
  * The caller holds no DB slot meanwhile (P61).
+ *
+ * The child is bounded by the OS as well, never only by its parent (review I1/M1 of Tasks 4+5) — see `command()`:
+ * - its private memory (RLIMIT_DATA: brk and anonymous mmap, so libxml2's allocations outside `memory_limit` count
+ *   too) to the lane's memory plus CHILD_DATA_HEADROOM; past it an allocation fails and the job ends (too-complex or
+ *   unsupported), whatever allocated;
+ * - its life: SIGKILL when the thread that started it dies (PR_SET_PDEATHSIG, `setpriv`), and its own wall-clock
+ *   alarm (resources/sandbox/limits.php: READY_SEC until `ready`, then the job's remaining budget + 1 s; SIGALRM's
+ *   default action ends it even inside libxml2) plus RLIMIT_CPU as a last resort — so a child whose parent was killed
+ *   or restarted mid-job cannot outlive the job's deadline and keep a CPU after its lane slot was handed on.
  */
 final class Lane
 {
     private const POLL_US = 5_000;
+
+    /** The longest start-up (until `ready`) a child is given; it is not charged to the job's deadline. */
+    public const READY_SEC = 30;
+
+    /** The child's private memory beyond the lane's `memory_limit`: the engine's own data (~12 MiB) and slack. */
+    public const CHILD_DATA_HEADROOM = 32 * 1024 * 1024;
 
     /** @param  null|callable(): bool  $clientGone */
     public static function run(string $script, string $input, LaneOptions $o, ?callable $clientGone = null): string
@@ -62,11 +77,47 @@ final class Lane
         }
     }
 
-    private static function execute(string $script, string $input, LaneOptions $o, float $deadline): string
+    /**
+     * The child's command line: `setpriv --pdeathsig KILL` and `prlimit` exec in place (the PID proc_open knows is the
+     * PHP child's own, so proc_terminate reaches it), then PHP with the lane's memory_limit and the limits prelude.
+     *
+     * @return list<string>
+     */
+    public static function command(string $script, LaneOptions $o, float $budgetSec): array
     {
         $php = (string) config('agrotrace.sandbox.php', 'php');
+        $budget = max(0.001, $budgetSec);
+        $data = self::bytes($o->memoryLimit) + self::CHILD_DATA_HEADROOM;
+        $cpu = self::READY_SEC + (int) ceil($budget) + 2;
+
+        return [
+            'setpriv', '--pdeathsig', 'KILL', '--',
+            'prlimit', "--data={$data}", "--cpu={$cpu}", '--',
+            $php, '-d', "memory_limit={$o->memoryLimit}", '-d', 'display_errors=stderr',
+            '-d', 'auto_prepend_file='.dirname(__DIR__, 3).'/resources/sandbox/limits.php',
+            '-d', 'agrotrace.sandbox_ready_sec='.self::READY_SEC,
+            '-d', 'agrotrace.sandbox_budget_sec='.sprintf('%.3F', $budget),
+            $script,
+        ];
+    }
+
+    /** `256M` → bytes (PHP's shorthand: K, M, G). */
+    private static function bytes(string $limit): int
+    {
+        $n = (int) $limit;
+
+        return match (strtoupper(substr(trim($limit), -1))) {
+            'G' => $n << 30,
+            'M' => $n << 20,
+            'K' => $n << 10,
+            default => $n,
+        };
+    }
+
+    private static function execute(string $script, string $input, LaneOptions $o, float $deadline): string
+    {
         $proc = proc_open(
-            [$php, '-d', "memory_limit={$o->memoryLimit}", '-d', 'display_errors=stderr', $script],
+            self::command($script, $o, $deadline - microtime(true)),
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']],
             $pipes,
         );
@@ -76,7 +127,7 @@ final class Lane
         try {
             // Start-up is not charged: the clock pauses until `ready`.
             $startedAt = microtime(true);
-            $ready = self::readLine($pipes[1], $startedAt + 30.0);
+            $ready = self::readLine($pipes[1], $startedAt + self::READY_SEC);
             if ($ready !== "ready\n") {
                 throw new LaneRefused('too-complex', 'the child did not report ready');
             }

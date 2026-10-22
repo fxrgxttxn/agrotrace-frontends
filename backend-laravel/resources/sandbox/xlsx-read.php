@@ -22,8 +22,7 @@ mb_substitute_character(0xFFFD);
 
 // Warm up libxml2 and the classes before reporting ready (the job's clock starts at `ready`).
 XlsxReader::readWorkbook('');
-fwrite(STDOUT, "ready\n");
-fflush(STDOUT);
+sandbox_ready(); // limits.php, the Lane's prelude: `ready`, then the child's own alarm on the job's budget
 
 $input = stream_get_contents(STDIN);
 $result = is_string($input) ? XlsxReader::readWorkbook($input) : ['ok' => false, 'kind' => 'unsupported'];

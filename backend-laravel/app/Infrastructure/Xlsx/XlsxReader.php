@@ -7,7 +7,7 @@ use XMLReader;
 
 /**
  * Stage 4 of the XLSX import (L13; Express xlsx-read.ts `readWorkbook`): the reading of a pre-scanned workbook on
- * XMLReader (libxml2, LIBXML_PARSEHUGE), framework-free — it runs in the sandbox child (resources/sandbox/
+ * XMLReader (libxml2; entities never expanded, see `open`), framework-free — it runs in the sandbox child (resources/sandbox/
  * xlsx-read.php). Every part read must be well-formed XML 1.0 (what saxes enforces for exceljs; the pre-scan checked
  * the namespace rules). The cells follow exceljs where the contract agrees with it:
  * - a shared string (`t="s"`) or an inline string (`t="inlineStr"`, `<is>`) — its text as is; rich text — its runs
@@ -130,8 +130,8 @@ final class XlsxReader
         $custom = [];
         $xfs = [];
         $path = [];
-        $r = self::open($text);
-        while ($r->read()) {
+        $r = self::open($text, false);
+        while (self::step($r)) {
             $type = $r->nodeType;
             if ($type === XMLReader::ELEMENT) {
                 $name = $r->name;
@@ -183,75 +183,120 @@ final class XlsxReader
     }
 
     /**
-     * The styles part with a DOCTYPE in its prolog blanked out: saxes (exceljs) skips the DOCTYPE without processing
-     * its declarations — so an entity it declares stays undefined (libxml2 then refuses a reference to it, as saxes
-     * does) and nothing is fetched or expanded. An unterminated DOCTYPE → unsupported.
+     * The styles part with its DOCTYPE blanked out: saxes (exceljs) skips the DOCTYPE without processing its
+     * declarations — so an entity it declares stays undefined (libxml2 then refuses a reference to it, as saxes does)
+     * and nothing is fetched or expanded. The prolog is read token by token as saxes reads it (review I1 of Tasks 4+5:
+     * a substring search let a decoy `<!DOCTYPE` inside a comment or a PI hide the real one): an optional BOM, then
+     * whitespace, comments, PIs (the XML declaration among them) and at most one DOCTYPE — a second one is misplaced
+     * for saxes (`inappropriately located doctype`) → unsupported. The scan stops at anything else (the root element,
+     * or text and other markup libxml2 refuses); a DOCTYPE libxml2 meets there is refused by `step()`. An unterminated
+     * comment, PI or DOCTYPE → unsupported.
      */
     public static function withoutDoctype(string $text): string
     {
-        $d = strpos($text, '<!DOCTYPE');
-        if ($d === false) {
+        $span = self::prologDoctype($text);
+        if ($span === null) {
             return $text;
         }
-        $firstElement = self::firstElement($text);
-        if ($firstElement !== null && $firstElement < $d) {
-            return $text; // not in the prolog: left for libxml2 to refuse
-        }
+        [$start, $end] = $span;
+
+        return substr($text, 0, $start).str_repeat(' ', $end - $start).substr($text, $end);
+    }
+
+    /**
+     * [start, end) of the prolog's DOCTYPE, or null when the prolog has none.
+     *
+     * @return array{int, int}|null
+     *
+     * @throws XlsxStop
+     */
+    public static function prologDoctype(string $text): ?array
+    {
         $n = strlen($text);
-        $i = $d + 9;
+        $i = str_starts_with($text, "\xEF\xBB\xBF") ? 3 : 0;
+        $span = null;
+        for (; ;) {
+            $i += strspn($text, " \t\r\n", $i);
+            if ($i + 1 >= $n || $text[$i] !== '<') {
+                return $span;
+            }
+            if ($text[$i + 1] === '?') {
+                $i = self::after($text, '?>', $i + 2);
+            } elseif (substr_compare($text, '<!--', $i, 4) === 0) {
+                $i = self::after($text, '-->', $i + 4);
+            } elseif (substr_compare($text, '<!DOCTYPE', $i, 9) === 0) {
+                if ($span !== null) {
+                    throw new XlsxStop('unsupported'); // a second DOCTYPE
+                }
+                $end = self::doctypeEnd($text, $i + 9);
+                $span = [$i, $end];
+                $i = $end;
+            } else {
+                return $span; // the root element, or markup libxml2 refuses before any DOCTYPE
+            }
+        }
+    }
+
+    /**
+     * The offset after the `>` that ends a DOCTYPE whose name starts at $i — saxes's states: S_DOCTYPE (quotes; `[`
+     * opens the internal subset; `>` ends it) and in the subset S_DTD (quotes, `<!--` comments, `<?` PIs; `]` closes
+     * it).
+     *
+     * @throws XlsxStop
+     */
+    private static function doctypeEnd(string $text, int $i): int
+    {
+        $n = strlen($text);
         $subset = false;
         while ($i < $n) {
             $c = $text[$i];
             if ($c === '"' || $c === "'") {
-                $q = strpos($text, $c, $i + 1);
-                if ($q === false) {
-                    throw new XlsxStop('unsupported');
-                }
-                $i = $q + 1;
+                $i = self::after($text, $c, $i + 1);
 
                 continue;
             }
-            if ($subset && substr_compare($text, '<!--', $i, 4) === 0) {
-                $q = strpos($text, '-->', $i + 4);
-                if ($q === false) {
-                    throw new XlsxStop('unsupported');
-                }
-                $i = $q + 3;
+            if ($subset) {
+                if ($c === ']') {
+                    $subset = false;
+                } elseif ($c === '<' && substr_compare($text, '<!--', $i, 4) === 0) {
+                    $i = self::after($text, '-->', $i + 4);
 
-                continue;
-            }
-            if ($c === '[') {
+                    continue;
+                } elseif ($c === '<' && ($text[$i + 1] ?? '') === '?') {
+                    $i = self::after($text, '?>', $i + 2);
+
+                    continue;
+                }
+            } elseif ($c === '[') {
                 $subset = true;
-            } elseif ($c === ']') {
-                $subset = false;
-            } elseif ($c === '>' && ! $subset) {
-                return substr($text, 0, $d).str_repeat(' ', $i + 1 - $d).substr($text, $i + 1);
+            } elseif ($c === '>') {
+                return $i + 1;
             }
             $i++;
         }
         throw new XlsxStop('unsupported');
     }
 
-    /** Offset of the first start tag (`<` followed by a name start), or null. */
-    private static function firstElement(string $text): ?int
+    /**
+     * The offset after the first $token at or after $i.
+     *
+     * @throws XlsxStop when there is none (unterminated)
+     */
+    private static function after(string $text, string $token, int $i): int
     {
-        $i = 0;
-        while (($lt = strpos($text, '<', $i)) !== false) {
-            $c = $text[$lt + 1] ?? '';
-            if ($c !== '?' && $c !== '!' && $c !== '') {
-                return $lt;
-            }
-            $i = $lt + 1;
+        $p = $i <= strlen($text) ? strpos($text, $token, $i) : false;
+        if ($p === false) {
+            throw new XlsxStop('unsupported');
         }
 
-        return null;
+        return $p + strlen($token);
     }
 
     /** XML 1.0 well-formedness of a part (a full XMLReader pass). */
     public static function wellFormed(string $text): void
     {
         $r = self::open($text);
-        while ($r->read()) {
+        while (self::step($r)) {
             // nothing: errors are collected by libxml2
         }
         self::close($r);
@@ -269,7 +314,7 @@ final class XlsxReader
         $t = 0;
         $rph = 0;
         $r = self::open($text);
-        while ($r->read()) {
+        while (self::step($r)) {
             $type = $r->nodeType;
             if ($type === XMLReader::ELEMENT) {
                 if ($r->namespaceURI !== self::NS) {
@@ -320,7 +365,7 @@ final class XlsxReader
         $st = new SheetState($strings, $styles);
         $r = self::open($text);
         $tooMany = false;
-        while ($r->read()) {
+        while (self::step($r)) {
             $type = $r->nodeType;
             if ($type === XMLReader::ELEMENT) {
                 if ($r->namespaceURI !== self::NS) {
@@ -412,19 +457,42 @@ final class XlsxReader
         return ['header' => $st->header, 'rows' => $st->rows];
     }
 
-    private static function open(string $text): XMLReader
+    /**
+     * A reader over one part. Entities are never expanded (review I1 of Tasks 4+5):
+     * - `$huge` (the workbook, its relationships, the shared strings and the sheet — a cell may exceed libxml2's
+     *   10 MB text limit) turns LIBXML_PARSEHUGE on, which also turns libxml2's entity-amplification guard off; such
+     *   a part must therefore have no DOCTYPE at all (the pre-scan refuses one too) — any → unsupported;
+     * - styles.xml (≤ 1 MiB, its DOCTYPE blanked by `withoutDoctype`) is read without it, the guard on.
+     * Whatever slips past both, `step()` refuses at the first DOCTYPE node.
+     */
+    private static function open(string $text, bool $huge = true): XMLReader
     {
-        if ($text === '') {
+        if ($text === '' || ($huge && self::prologDoctype($text) !== null)) {
             throw new XlsxStop('unsupported');
         }
         libxml_use_internal_errors(true);
         libxml_clear_errors();
-        $r = XMLReader::XML($text, 'UTF-8', LIBXML_PARSEHUGE | LIBXML_NONET | LIBXML_COMPACT);
+        $r = XMLReader::XML($text, 'UTF-8', ($huge ? LIBXML_PARSEHUGE : 0) | LIBXML_NONET | LIBXML_COMPACT);
         if (! $r instanceof XMLReader) {
             throw new XlsxStop('unsupported');
         }
 
         return $r;
+    }
+
+    /** The next node; a DOCTYPE node (never expected: see `open`) → unsupported. */
+    private static function step(XMLReader $r): bool
+    {
+        if (! $r->read()) {
+            return false;
+        }
+        if ($r->nodeType === XMLReader::DOC_TYPE) {
+            $r->close();
+            libxml_clear_errors();
+            throw new XlsxStop('unsupported');
+        }
+
+        return true;
     }
 
     /** Ends a pass: any fatal libxml2 error (not well-formed) → unsupported. */

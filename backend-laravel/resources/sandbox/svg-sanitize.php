@@ -15,8 +15,7 @@ use App\Infrastructure\Svg\SvgDom;
 
 // Warm up libxml and the class before reporting ready (the job's clock starts at `ready`).
 SvgDom::sanitize('<svg xmlns="http://www.w3.org/2000/svg"/>');
-fwrite(STDOUT, "ready\n");
-fflush(STDOUT);
+sandbox_ready(); // limits.php, the Lane's prelude: `ready`, then the child's own alarm on the job's budget
 
 $input = stream_get_contents(STDIN);
 try {
