@@ -7,7 +7,11 @@
  */
 
 use App\Http\Problem\Problem;
+use App\Infrastructure\Images\DecodeSlots;
 use App\Infrastructure\Images\Images;
+use Tests\TestCase;
+
+uses(TestCase::class);
 
 function gdImage(int $w, int $h, string $format): string
 {
@@ -122,3 +126,21 @@ dataset('exif orientations', [
 it('orients every EXIF value 1–8 exactly as sharp does', function (int $o, string $expected) {
     expect(corners(Images::variants(quadrantJpeg($o), 'image/jpeg')[480]['bytes']))->toBe($expected);
 })->with('exif orientations');
+
+it('decodes under the container-wide slot bound (M1): the slot is held during the work and freed after', function () {
+    $dir = sys_get_temp_dir().'/agrotrace-decode-test-'.getmypid();
+    config(['agrotrace.images.decode_slots' => 1, 'agrotrace.images.decode_slots_dir' => $dir]);
+    $probe = function () use ($dir): bool {
+        $h = fopen("{$dir}/slot-0", 'c');
+        $free = flock($h, LOCK_EX | LOCK_NB);
+        $free && flock($h, LOCK_UN);
+        fclose($h);
+
+        return $free;
+    };
+    expect(DecodeSlots::with(fn () => $probe()))->toBeFalse();
+    expect($probe())->toBeTrue();
+    expect(fn () => DecodeSlots::with(fn () => throw new RuntimeException('x')))->toThrow(RuntimeException::class);
+    expect($probe())->toBeTrue();
+    expect(webpDims(Images::variants(gdImage(10, 10, 'png'), 'image/png')[96]['bytes']))->toBe(['image/webp', 10, 10]);
+});

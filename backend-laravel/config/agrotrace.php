@@ -55,6 +55,12 @@ return [
     ],
     // packages/i18n/locales/ru.json (the `mail.*` templates): a copy in the image, the repository's file in php-tools.
     'i18n_path' => env('I18N_PATH'),
+    // Raster decoding (GD) bounded per container (Images/DecodeSlots, review M1): flock'ed slot files like DB_SLOTS. 4 =
+    // libuv's default pool, Express's effective sharp concurrency; measured best of 2/4/8 for unrelated requests.
+    'images' => [
+        'decode_slots' => (int) env('IMAGE_DECODE_SLOTS', 4),
+        'decode_slots_dir' => env('IMAGE_DECODE_SLOTS_DIR', '/tmp/agrotrace-decode-slots'),
+    ],
     // L6: the sandbox lanes (flock slot files per container) and the PHP CLI that runs resources/sandbox/*.php.
     'sandbox' => [
         'dir' => env('SANDBOX_DIR', '/tmp/agrotrace-lanes'),

@@ -135,6 +135,17 @@ final class Images
         if ($info[0] * $info[1] > self::MAX_PIXELS) {
             throw $unsupported();
         }
+
+        // The header checks above are cheap; decoding, resizing and encoding run under the container's bound (M1).
+        return DecodeSlots::with(fn () => self::decodeAndEncode($bytes, $mime, $unsupported));
+    }
+
+    /**
+     * @param  callable(): Problem  $unsupported
+     * @return array<int, array{bytes: string, sha256: string, size: int}>
+     */
+    private static function decodeAndEncode(string $bytes, string $mime, callable $unsupported): array
+    {
         $img = @imagecreatefromstring($bytes);
         if (! $img instanceof GdImage) {
             throw $unsupported();
