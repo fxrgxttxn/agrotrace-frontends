@@ -1,0 +1,122 @@
+{
+  "baseline:full": {
+    "length": 29592,
+    "accepted": true,
+    "acceptedOf20": 20
+  },
+  "baseline:noEoi": {
+    "length": 29590,
+    "accepted": false,
+    "acceptedOf20": 10
+  },
+  "baseline:cut10": {
+    "length": 29582,
+    "accepted": false,
+    "acceptedOf20": 12
+  },
+  "baseline:cut40": {
+    "length": 29552,
+    "accepted": false,
+    "acceptedOf20": 11
+  },
+  "baseline:cut41": {
+    "length": 29551,
+    "accepted": false,
+    "acceptedOf20": 14
+  },
+  "baseline:cut100": {
+    "length": 29492,
+    "accepted": false,
+    "acceptedOf20": 14
+  },
+  "baseline:cut300": {
+    "length": 29292,
+    "accepted": false,
+    "acceptedOf20": 14
+  },
+  "baseline:half": {
+    "length": 14796,
+    "accepted": false,
+    "acceptedOf20": 0
+  },
+  "progressive:full": {
+    "length": 28545,
+    "accepted": true,
+    "acceptedOf20": 20
+  },
+  "progressive:noEoi": {
+    "length": 28543,
+    "accepted": false,
+    "acceptedOf20": 0
+  },
+  "progressive:cut10": {
+    "length": 28535,
+    "accepted": false,
+    "acceptedOf20": 0
+  },
+  "progressive:cut40": {
+    "length": 28505,
+    "accepted": false,
+    "acceptedOf20": 0
+  },
+  "progressive:cut41": {
+    "length": 28504,
+    "accepted": false,
+    "acceptedOf20": 0
+  },
+  "progressive:cut100": {
+    "length": 28445,
+    "accepted": false,
+    "acceptedOf20": 0
+  },
+  "progressive:cut300": {
+    "length": 28245,
+    "accepted": false,
+    "acceptedOf20": 0
+  },
+  "progressive:half": {
+    "length": 14272,
+    "accepted": false,
+    "acceptedOf20": 0
+  },
+  "portrait:full": {
+    "length": 4805,
+    "accepted": true,
+    "acceptedOf20": 20
+  },
+  "portrait:noEoi": {
+    "length": 4803,
+    "accepted": false,
+    "acceptedOf20": 14
+  },
+  "portrait:cut10": {
+    "length": 4795,
+    "accepted": false,
+    "acceptedOf20": 15
+  },
+  "portrait:cut40": {
+    "length": 4765,
+    "accepted": false,
+    "acceptedOf20": 15
+  },
+  "portrait:cut41": {
+    "length": 4764,
+    "accepted": false,
+    "acceptedOf20": 11
+  },
+  "portrait:cut100": {
+    "length": 4705,
+    "accepted": false,
+    "acceptedOf20": 15
+  },
+  "portrait:cut300": {
+    "length": 4505,
+    "accepted": false,
+    "acceptedOf20": 2
+  },
+  "portrait:half": {
+    "length": 2402,
+    "accepted": false,
+    "acceptedOf20": 0
+  }
+}
