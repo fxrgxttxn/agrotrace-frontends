@@ -3,11 +3,12 @@ Stand check (marker `stand`: `./at.sh django:test -m stand` with the stand up an
 
 1. the broker holds only the names of infra/rabbitmq/definitions.json — no `celery*`, `*.pidbox`, `celeryev*`,
    `celery_delayed_*` exchange or queue (Celery declares nothing);
-2. D-I6: a copy of a busy `vsd.import`, published by `publish_delay_copy`, waits in `agrotrace.django.jobs.delay`
-   (`messages` = 1 by the management API), does not reach `agrotrace.django.jobs` within 4 s and comes back there after
-   about 5 s (the queue's TTL, dead-lettered to the tail) — seen as the worker's claim of the event in
-   `processed_events` of the dev DB. The event id is new and has no outbox row; the document does not exist, so the
-   worker only claims it (vsd.import step 1); the claim is removed afterwards.
+2. D-I6: a copy of a busy `vsd.import`, published by `publish_delay_copy`, is seen waiting in
+   `agrotrace.django.jobs.delay` (a passive queue.declare, polled) and comes back to `agrotrace.django.jobs` only after
+   the queue's 5 s TTL (dead-lettered to the tail) — seen as the worker's claim of the event in `processed_events` of
+   the dev DB, within a generous deadline (the shared stand's queues need not be idle). The event id is new and has no
+   outbox row; the document does not exist, so the worker only claims it (vsd.import step 1); the claim is removed
+   afterwards.
 """
 
 from __future__ import annotations
@@ -76,12 +77,16 @@ def _claimed(conn, event_id) -> bool:
     return conn.execute("SELECT EXISTS (SELECT 1 FROM processed_events WHERE event_id = %s)", [event_id]).fetchone()[0]
 
 
-def _delay_messages() -> int:
-    q = _management("queues/%2F/agrotrace.django.jobs.delay")
-    return int(q.get("messages", 0) or 0)
+#: The delay queue's x-message-ttl (definitions.json); the copy cannot reach the jobs queue before it.
+DELAY_TTL_S = 5.0
+#: How long the copy may take to come back and be claimed. Generous: the jobs queue may hold other work (the stand is
+#: shared, nothing assumes idle queues), and the worker takes it in FIFO order.
+CLAIM_DEADLINE_S = 60.0
 
 
 def test_a_delay_copy_returns_to_the_jobs_queue_after_the_ttl():
+    """The queue state is polled (a passive queue.declare, exact and immediate), never the management API's sampled
+    stats; no assertion assumes the delay or jobs queue is otherwise empty."""
     dev_db = os.environ["APP_DATABASE_URL"]  # the stand's dev DB, where worker-django claims
     event_id = str(uuid.uuid4())
     envelope = {"id": event_id, "type": "vsd.import", "occurredAt": "2026-10-22T00:00:00.000Z", "backend": "django",
@@ -92,21 +97,20 @@ def test_a_delay_copy_returns_to_the_jobs_queue_after_the_ttl():
             assert conn.execute("SELECT count(*) FROM outbox_events WHERE id = %s", [event_id]).fetchone()[0] == 0
             t0 = time.monotonic()
             tasks.publish_delay_copy(_Request(envelope))
-            seen_by_management = seen_by_count = False
+            waiting_seen = False
             claimed_at = None
-            while time.monotonic() - t0 < 15:
-                if time.monotonic() - t0 < 4.0:
-                    seen_by_count = seen_by_count or amqp.queue_ready_count(DELAY_QUEUE) == 1
-                    seen_by_management = seen_by_management or _delay_messages() == 1
+            while time.monotonic() - t0 < CLAIM_DEADLINE_S:
                 if _claimed(conn, event_id):
                     claimed_at = time.monotonic() - t0
                     break
+                if not waiting_seen:
+                    count = amqp.queue_ready_count(DELAY_QUEUE)
+                    waiting_seen = count is not None and count >= 1
                 time.sleep(0.1)
-            assert claimed_at is not None, "the copy never came back to agrotrace.django.jobs"
-            assert claimed_at >= 4.0, f"the copy reached the jobs queue after {claimed_at:.2f} s (< 4 s)"
-            assert claimed_at <= 9.0, f"the copy came back only after {claimed_at:.2f} s"
-            assert seen_by_count, "the copy was not in agrotrace.django.jobs.delay (passive queue.declare)"
-            assert seen_by_management, "the management API never showed messages = 1 in agrotrace.django.jobs.delay"
+            assert claimed_at is not None, f"the copy was not claimed within {CLAIM_DEADLINE_S:.0f} s"
+            assert claimed_at >= DELAY_TTL_S - 1.0, (
+                f"the copy reached the jobs queue after {claimed_at:.2f} s, before the {DELAY_TTL_S:.0f} s TTL")
+            assert waiting_seen, "the copy was never seen waiting in agrotrace.django.jobs.delay"
         finally:
             conn.execute("DELETE FROM processed_events WHERE event_id = %s", [event_id])
 

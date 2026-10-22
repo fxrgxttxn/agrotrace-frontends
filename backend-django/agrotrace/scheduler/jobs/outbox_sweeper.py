@@ -8,7 +8,8 @@ contract does not fix the process; Express runs it in its api). One pass, in ONE
    than 30 days are deleted;
 3. the oldest 100 unpublished rows of this backend whose type has a handler (Ruling Q12), `ORDER BY created_at FOR
    NO KEY UPDATE SKIP LOCKED` — a row the relay thread holds in flight is skipped — are published and marked one by one
-   (infra.relay.sweep_rows); a failed publish ends the pass, the marks before it commit.
+   (infra.relay.sweep_rows) on a producer connected BEFORE the transaction opens; a failed publish ends the pass, the
+   marks before it commit.
 """
 
 from __future__ import annotations
@@ -23,18 +24,20 @@ BATCH = 100
 LOCK_KEY = "agrotrace.outbox.django"
 
 
-def _pass(tx: Tx) -> int:
+def _pass(tx: Tx, producer) -> int:
     if not tx.scalar("SELECT pg_try_advisory_xact_lock(hashtext(%s))", [LOCK_KEY]):
         return 0
     tx.execute("DELETE FROM outbox_events WHERE backend = 'django' AND published_at < now() - interval '7 days'")
     tx.execute("DELETE FROM processed_events WHERE backend = 'django' AND processed_at < now() - interval '30 days'")
-    published, _failed = relay.sweep_rows(tx, BATCH)
+    published, _failed = relay.sweep_rows(tx, BATCH, producer)
     return published
 
 
 def run() -> int:
-    """One sweeper pass; the number of rows published."""
-    return with_tx(_pass, retry_once=False)
+    """One sweeper pass; the number of rows published. The broker channel is opened before the transaction (a
+    reconnect never holds the advisory lock or row locks); with the broker down the pass keeps only the retention."""
+    with relay.connected_producer() as producer:
+        return with_tx(lambda tx: _pass(tx, producer), retry_once=False)
 
 
 JOB = register(Job(NAME, run, period_ms=PERIOD_MS))

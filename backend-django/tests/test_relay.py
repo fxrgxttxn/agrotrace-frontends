@@ -34,6 +34,8 @@ class Broker:
         self.fail_on: set[str] = set()
         self.confirm_s = 0.0
         self.lock = threading.Lock()
+        self.unreachable = False
+        self.channel_opened_in_tx: list[bool] = []
 
     def send_task(self, name, args=None, **kw):
         if self.confirm_s:
@@ -54,6 +56,14 @@ def broker(monkeypatch):
             @staticmethod
             def collect():
                 pass
+
+        @property
+        def channel(self):
+            # The relay opens the channel before its transaction (N1 of the Task 6 re-review).
+            b.channel_opened_in_tx.append(connections["default"].in_atomic_block)
+            if b.unreachable:
+                raise ConnectionRefusedError("broker unreachable")
+            return object()
 
     @contextmanager
     def acquire():
@@ -260,3 +270,32 @@ def test_the_sweeper_is_a_beat_job_every_5_s():
 
     assert beat.outbox_sweeper.JOB is jobs.REGISTRY["outbox-sweeper"]
     assert jobs.REGISTRY["outbox-sweeper"].period_ms == 5000
+
+
+def test_the_broker_channel_is_opened_before_the_transaction(broker, rows):
+    """N1 (Task 6 re-review): relay and sweeper open the confirm channel first, as Express does — a reconnect never
+    holds a pool connection's transaction, row locks or the sweeper's advisory lock."""
+    first, second = str(uuid.uuid4()), str(uuid.uuid4())
+    _insert(first)
+    _insert(second)
+    rows.extend([first, second])
+    assert relay.flush([first])[0] == 1
+    assert outbox_sweeper.run() >= 1
+    assert broker.channel_opened_in_tx and not any(broker.channel_opened_in_tx)
+
+
+def test_an_unreachable_broker_opens_no_transaction(broker, rows, monkeypatch):
+    event_id = str(uuid.uuid4())
+    _insert(event_id)
+    rows.append(event_id)
+    broker.unreachable = True
+    opened = []
+    import agrotrace.core.tx as txmod
+
+    real = txmod.with_tx
+    monkeypatch.setattr(txmod, "with_tx", lambda *a, **kw: opened.append(1) or real(*a, **kw))
+    assert relay.flush([event_id]) == (0, True)
+    assert opened == [] and broker.sent == []
+    assert _row(event_id)["published_at"] is None and _row(event_id)["attempts"] == 0
+    # The sweeper still keeps the retention, and publishes nothing.
+    assert outbox_sweeper.run() == 0 and broker.sent == []

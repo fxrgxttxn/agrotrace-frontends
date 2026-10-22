@@ -6,7 +6,8 @@ A row of `outbox_events` (`backend = 'django'`) is published as the Celery task 
 as the single argument — `app.send_task(type, args=[envelope], task_id=id, exchange='agrotrace.django', routing_key=
 type, delivery_mode=2, retry=False)` on a publisher-confirm connection — then marked: `UPDATE … SET published_at =
 now(), attempts = attempts + 1 WHERE id = :id AND published_at IS NULL`. As in Express, the rows are picked
-`FOR NO KEY UPDATE SKIP LOCKED` inside ONE transaction that stays open across send + confirm + mark: a sweeper pass
+`FOR NO KEY UPDATE SKIP LOCKED` inside ONE transaction that stays open across send + confirm + mark (the broker channel is
+opened BEFORE that transaction, as Express opens its confirm channel first: a reconnect holds no row lock): a sweeper pass
 skips a row in flight, so the same row is sent again only after a failed attempt (R56: consumers dedupe).
 
 - Only the types with a handler in worker-django are published (`events.handlers.HANDLED_TYPES`, Ruling Q12); rows of
@@ -27,7 +28,8 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from typing import Any
 
 from agrotrace.core import sql
@@ -57,53 +59,82 @@ def send(producer: Any, row: dict[str, Any]) -> None:
                   producer=producer)
 
 
-def publish_rows(rows: Sequence[dict[str, Any]],
-                 mark: Callable[[str, list[Any]], Any] = sql.execute) -> tuple[int, bool]:
-    """Publishes the (locked) `rows` in order and marks each one after its confirm; stops at the first failure (the
-    rest wait for the sweeper). Returns (how many were published, whether a publish failed)."""
-    if not rows:
-        return 0, False
+@contextmanager
+def connected_producer() -> Iterator[Any | None]:
+    """A producer whose broker connection and confirm channel are open BEFORE the caller opens its transaction (Express
+    `publishLocked`: `confirmChannel()` first): a reconnect — up to the 2 s connect timeout — never holds a pool
+    connection or row locks. Yields None when the broker cannot be reached (the caller publishes nothing)."""
     from agrotrace.celery_app import app
 
-    done = 0
     with app.producer_or_acquire() as producer:
-        for row in rows:
-            try:
-                send(producer, row)
-            except Exception as e:
-                log.warning("outbox publish failed; the sweeper retries",
-                            extra={"err": str(e), "eventId": row["id"], "type": row["type"]})
-                try:
-                    producer.connection.collect()  # a fresh connection for the next publish
-                except Exception:  # noqa: S110 - best effort
-                    pass
-                return done, True
-            mark(MARK, [row["id"]])
-            done += 1
+        try:
+            _ = producer.channel  # kombu: connects (fail-fast transport options) and opens the channel
+        except Exception as e:
+            log.warning("broker unreachable; the sweeper retries", extra={"err": str(e)})
+            _collect(producer)
+            producer = None
+        yield producer
+
+
+def _collect(producer: Any) -> None:
+    try:
+        producer.connection.collect()  # a fresh connection for the next publish
+    except Exception:  # noqa: S110 - best effort
+        pass
+
+
+def publish_rows(rows: Sequence[dict[str, Any]], producer: Any | None,
+                 mark: Callable[[str, list[Any]], Any] = sql.execute) -> tuple[int, bool]:
+    """Publishes the (locked) `rows` in order on the already connected `producer` and marks each one after its
+    confirm; stops at the first failure (the rest wait for the sweeper). Returns (how many were published, whether a
+    publish failed); no producer (broker down) → nothing published, failed."""
+    if not rows:
+        return 0, False
+    if producer is None:
+        return 0, True
+    done = 0
+    for row in rows:
+        try:
+            send(producer, row)
+        except Exception as e:
+            log.warning("outbox publish failed; the sweeper retries",
+                        extra={"err": str(e), "eventId": row["id"], "type": row["type"]})
+            _collect(producer)
+            return done, True
+        mark(MARK, [row["id"]])
+        done += 1
     return done, False
 
 
 def flush(ids: Sequence[str]) -> tuple[int, bool]:
     """Publishes these rows now, in one transaction holding them FOR NO KEY UPDATE SKIP LOCKED across send + confirm
-    (a row a sweeper pass holds is left to it). The relay thread's work; tests call it directly."""
+    (a row a sweeper pass holds is left to it). The broker channel is opened first, outside the transaction. The relay
+    thread's work; tests call it directly."""
     from agrotrace.core.tx import with_tx
 
     wanted = [str(i) for i in ids]
     if not wanted:
         return 0, False
 
-    def run(tx):
-        rows = tx.all(SELECT + " AND id = ANY(%s::uuid[]) ORDER BY created_at FOR NO KEY UPDATE SKIP LOCKED",
-                      [handled_types(), wanted])
-        return publish_rows(rows, mark=tx.execute)
+    with connected_producer() as producer:
+        if producer is None:
+            return 0, True
 
-    return with_tx(run, retry_once=False)
+        def run(tx):
+            rows = tx.all(SELECT + " AND id = ANY(%s::uuid[]) ORDER BY created_at FOR NO KEY UPDATE SKIP LOCKED",
+                          [handled_types(), wanted])
+            return publish_rows(rows, producer, mark=tx.execute)
+
+        return with_tx(run, retry_once=False)
 
 
-def sweep_rows(tx, limit: int) -> tuple[int, bool]:
-    """The sweeper's pick: the oldest unpublished rows of the handled types, locked SKIP LOCKED in `tx`."""
+def sweep_rows(tx, limit: int, producer: Any | None) -> tuple[int, bool]:
+    """The sweeper's pick: the oldest unpublished rows of the handled types, locked SKIP LOCKED in `tx`, published on
+    the `producer` the sweeper connected before opening `tx` (None: the broker is down — nothing is picked)."""
+    if producer is None:
+        return 0, True
     rows = tx.all(SELECT + " ORDER BY created_at LIMIT %s FOR NO KEY UPDATE SKIP LOCKED", [handled_types(), limit])
-    return publish_rows(rows, mark=tx.execute)
+    return publish_rows(rows, producer, mark=tx.execute)
 
 
 class Relay:
