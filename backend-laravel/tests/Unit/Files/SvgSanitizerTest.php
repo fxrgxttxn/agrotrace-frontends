@@ -8,6 +8,7 @@
 
 use App\Infrastructure\Svg\SvgDom;
 use App\Infrastructure\Svg\SvgSanitizer;
+use App\Infrastructure\Svg\SvgScanner;
 use Tests\TestCase;
 
 uses(TestCase::class);
@@ -82,4 +83,48 @@ it('sanitizes through the sandbox lane: the hostile fixture of tests/api comes b
     foreach (['onload', 'javascript:', 'evil.example', 'mask=', '\\'] as $bad) {
         expect(strtolower($out))->not->toContain($bad);
     }
+});
+
+it('judges every url( target as the hook\'s matchAll does: local only, one match per url( … run', function () {
+    $kept = fn (string $x) => str_contains((string) SvgDom::sanitize('<svg xmlns="http://www.w3.org/2000/svg"><rect x="'.$x.'"/></svg>'), ' x=');
+    expect($kept("url( '#a')"))->toBeTrue();
+    expect($kept('URL(#a) url(#b)'))->toBeTrue();
+    expect($kept('url(http://e/x)'))->toBeFalse();
+    expect($kept('url(#a) url(//e/x)'))->toBeFalse();
+    expect($kept('url(  )'))->toBeFalse();
+    expect($kept('url(url(#a)'))->toBeFalse();
+});
+
+/** A document of $n `<rect>`s whose attribute $attr is $unit × $reps — under every SvgScanner limit. */
+function bulkySvg(int $n, string $attr, string $unit, int $reps): string
+{
+    return '<svg xmlns="http://www.w3.org/2000/svg">'
+        .str_repeat('<rect '.$attr.'="'.str_repeat($unit, $reps).'"/>', $n).'</svg>';
+}
+
+// Fix round 1 (I2, P18): `url(url(url(…` was O(n²) in time and memory (18 s, or 256 MiB exhausted, for 1.9 MiB) and so
+// was a long run of non-ASCII white space at a value's ends; both are linear now.
+it('sanitizes 2 MiB of nested url( and of Unicode white space in linear time and bounded memory', function (string $svg) {
+    expect(SvgScanner::check($svg))->toBeNull();
+    expect(strlen($svg))->toBeGreaterThan(1_900_000);
+    $before = memory_get_usage();
+    memory_reset_peak_usage();
+    $started = microtime(true);
+    $out = SvgDom::sanitize($svg);
+    expect(microtime(true) - $started)->toBeLessThan(1.0);
+    expect(memory_get_peak_usage() - $before)->toBeLessThan(64 * 1024 * 1024);
+    expect($out)->toStartWith('<svg')->not->toContain('url(');
+})->with([
+    'url( × 10 000 in 50 attributes' => fn () => bulkySvg(50, 'x', 'url(', 10000),
+    'url( × 15 000 in 33 attributes' => fn () => bulkySvg(33, 'x', 'url(', 15000),
+    'url( × 15 000 in 33 fill attributes' => fn () => bulkySvg(33, 'fill', 'url(', 15000),
+    'U+3000 × 20 000 around a value' => fn () => bulkySvg(33, 'x', str_repeat("\u{3000}", 10000).'1'.str_repeat("\u{3000}", 10000), 1),
+]);
+
+it('accepts the 1.9 MiB nested url( document through the lane well inside its deadline', function () {
+    config(['agrotrace.sandbox.dir' => sys_get_temp_dir().'/agrotrace-lanes-test-'.getmypid()]);
+    $started = microtime(true);
+    $out = SvgSanitizer::sanitize(bulkySvg(50, 'x', 'url(', 10000), ['image/svg+xml']);
+    expect(microtime(true) - $started)->toBeLessThan(1.5);
+    expect($out)->toStartWith('<svg');
 });

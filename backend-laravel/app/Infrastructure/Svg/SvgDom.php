@@ -220,10 +220,8 @@ final class SvgDom
                         $keep = false;
                     }
                 }
-                foreach (self::urlTargets($value) as $target) {
-                    if (! self::isLocalRef($target)) {
-                        $keep = false;
-                    }
+                if (! self::urlTargetsLocal($value)) {
+                    $keep = false;
                 }
                 if (self::containsCi($value, '@import') || self::containsCi($value, 'javascript:') || self::hasExpression($value)) {
                     $keep = false;
@@ -410,13 +408,12 @@ final class SvgDom
     }
 
     /**
-     * The targets of every `url\s*\(\s*(['"]?)([^'")]*)` in $v (case-insensitive), as the hook reads them.
-     *
-     * @return list<string>
+     * Whether the target of every `url\s*\(\s*(['"]?)([^'")]*)` in $v (case-insensitive, global) is a local reference
+     * (`^\s*#`), as the hook's matchAll reads them. Linear (P18): like matchAll, the search resumes after the whole
+     * match (`url(url(url(…` is one match), and each target is judged in place, never copied.
      */
-    private static function urlTargets(string $v): array
+    private static function urlTargetsLocal(string $v): bool
     {
-        $out = [];
         $lower = strtolower($v);
         $n = strlen($v);
         $at = 0;
@@ -429,12 +426,19 @@ final class SvgDom
                 if ($j < $n && ($v[$j] === '"' || $v[$j] === "'")) {
                     $j++;
                 }
-                $out[] = substr($v, $j, strcspn($v, "'\")", $j));
+                $len = strcspn($v, "'\")", $j);
+                $lead = strspn($v, " \t\n\r\f\v", $j, $len);
+                if ($lead === $len || $v[$j + $lead] !== '#') {
+                    return false;
+                }
+                $at = $j + $len;
+
+                continue;
             }
             $at = $p + 3;
         }
 
-        return $out;
+        return true;
     }
 
     private static function hasCall(string $v, string $fn): bool
@@ -498,23 +502,30 @@ final class SvgDom
         if ($t === '' || (ord($t[0]) < 0x80 && ord($t[strlen($t) - 1]) < 0x80)) {
             return $t;
         }
-        $s = $t;
-        $chars = preg_split('//u', self::JS_SPACE, -1, PREG_SPLIT_NO_EMPTY) ?: [];
-        $changed = true;
-        while ($changed && $s !== '') {
-            $changed = false;
-            foreach ($chars as $c) {
-                if (str_starts_with($s, $c)) {
-                    $s = substr($s, strlen($c));
-                    $changed = true;
-                }
-                if ($s !== '' && str_ends_with($s, $c)) {
-                    $s = substr($s, 0, -strlen($c));
-                    $changed = true;
-                }
+        // Offsets and a set lookup per character, one copy at the end: linear however long the white space (P18).
+        static $set = null;
+        $set ??= array_flip(preg_split('//u', self::JS_SPACE, -1, PREG_SPLIT_NO_EMPTY) ?: []);
+        $start = 0;
+        $end = strlen($t);
+        while ($start < $end) {
+            $b = ord($t[$start]);
+            $len = $b < 0x80 ? 1 : ($b < 0xE0 ? 2 : ($b < 0xF0 ? 3 : 4));
+            if (! isset($set[substr($t, $start, $len)])) {
+                break;
             }
+            $start += $len;
+        }
+        while ($end > $start) {
+            $k = $end - 1;
+            while ($k > $start && (ord($t[$k]) & 0xC0) === 0x80) {
+                $k--;
+            }
+            if (! isset($set[substr($t, $k, $end - $k)])) {
+                break;
+            }
+            $end = $k;
         }
 
-        return $s;
+        return substr($t, $start, $end - $start);
     }
 }
