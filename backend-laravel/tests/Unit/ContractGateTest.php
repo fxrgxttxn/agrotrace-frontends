@@ -77,7 +77,7 @@ it('treats HEAD as GET', function () {
 });
 
 it('answers 404 for a declared operation that has no route yet', function () {
-    $res = $this->raw('GET', '/api/v1/fields');
+    $res = $this->raw('GET', '/api/v1/batches');
     $res->assertStatus(404);
     expect(problemOf($res)['code'])->toBe('NOT_FOUND');
 });
@@ -127,20 +127,20 @@ it('prefers a literal template over a parameter one at the same position, whatev
 
 it('dispatches the operation ContractGate matched on the raw path, not Laravel\'s decoded match (review I1)', function () {
     // Registered so that Laravel's own matching (decoded path, registration order) would pick the wrong one.
-    Route::get('/api/v1/fields/{id}/treatments', fn (string $id) => response()->json(['op' => 'listFieldTreatments', 'id' => $id]))
-        ->name('listFieldTreatments');
-    Route::get('/api/v1/fields/{id}', fn (string $id) => response()->json(['op' => 'getField', 'id' => $id]))
-        ->name('getField');
+    Route::get('/api/v1/batches/{id}/graph', fn (string $id) => response()->json(['op' => 'getBatchGraph', 'id' => $id]))
+        ->name('getBatchGraph');
+    Route::get('/api/v1/batches/{id}', fn (string $id) => response()->json(['op' => 'getBatch', 'id' => $id]))
+        ->name('getBatch');
     Route::post('/api/v1/dictionaries/{name}/import', fn () => response()->json(['op' => 'importDictionary']))
         ->name('importDictionary');
     Route::put('/api/v1/dictionaries/{name}/{id}', fn (string $name, string $id) => response()->json(['op' => 'updateDictionaryEntry', 'id' => $id]))
         ->name('updateDictionaryEntry');
 
-    // `%2F` is inside one segment: Express (raw-path routing) takes getField with id "<id>/treatments".
-    $res = $this->raw('GET', '/api/v1/fields/abc%2Ftreatments');
+    // `%2F` is inside one segment: Express (raw-path routing) takes getBatch with id "<id>/graph".
+    $res = $this->raw('GET', '/api/v1/batches/abc%2Fgraph');
     $res->assertStatus(200);
-    expect($res->json())->toBe(['op' => 'getField', 'id' => 'abc/treatments']);
-    expect($this->raw('GET', '/api/v1/fields/abc/treatments')->json())->toBe(['op' => 'listFieldTreatments', 'id' => 'abc']);
+    expect($res->json())->toBe(['op' => 'getBatch', 'id' => 'abc/graph']);
+    expect($this->raw('GET', '/api/v1/batches/abc/graph')->json())->toBe(['op' => 'getBatchGraph', 'id' => 'abc']);
 
     // A percent-encoded literal is not the literal: `imp%6Frt` is an {id}, so POST is not declared there.
     $res = $this->raw('POST', '/api/v1/dictionaries/products/imp%6Frt');
@@ -152,8 +152,8 @@ it('dispatches the operation ContractGate matched on the raw path, not Laravel\'
 });
 
 it('answers 404 for a declared operation whose route has another name (no fallback to Laravel matching)', function () {
-    Route::get('/api/v1/fields', fn () => 'wrong')->name('notListFields');
-    $this->raw('GET', '/api/v1/fields')->assertStatus(404);
+    Route::get('/api/v1/batches', fn () => 'wrong')->name('notListBatches');
+    $this->raw('GET', '/api/v1/batches')->assertStatus(404);
 });
 
 it('answers a malformed %-escape as Express does: method check first, then 404 (review I2)', function () {

@@ -12,6 +12,7 @@ use App\Http\Controllers\Audit\AuditController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Dictionaries\DictionariesController;
 use App\Http\Controllers\Docs\DocsController;
+use App\Http\Controllers\Fields\FieldsController;
 use App\Http\Controllers\Files\FilesController;
 use App\Http\Controllers\Health\HealthController;
 use App\Http\Controllers\Me\MeController;
@@ -69,6 +70,16 @@ $op('GET', '/admin/organizations', [AdminController::class, 'listAdminOrganizati
 $op('PATCH', '/admin/organizations/{id}', [AdminController::class, 'updateAdminOrganization'], 'updateAdminOrganization');
 $op('POST', '/admin/organizations/{id}/approve', [AdminController::class, 'approveOrganization'], 'approveOrganization');
 $op('GET', '/audit-log', [AuditController::class, 'listAuditLog'], 'listAuditLog');
+
+// Fields and treatments (Task 5).
+$op('GET', '/fields', [FieldsController::class, 'listFields'], 'listFields');
+$op('POST', '/fields', [FieldsController::class, 'createField'], 'createField');
+$op('GET', '/fields/{id}', [FieldsController::class, 'getField'], 'getField');
+$op('PUT', '/fields/{id}', [FieldsController::class, 'updateField'], 'updateField');
+$op('DELETE', '/fields/{id}', [FieldsController::class, 'deleteField'], 'deleteField');
+$op('GET', '/fields/{id}/treatments', [FieldsController::class, 'listFieldTreatments'], 'listFieldTreatments');
+$op('POST', '/fields/{id}/treatments', [FieldsController::class, 'createTreatment'], 'createTreatment');
+$op('PUT', '/treatments/{id}', [FieldsController::class, 'updateTreatment'], 'updateTreatment');
 
 // Swagger UI (spec 8.3) — outside the contract, as in Express.
 Route::get('/api/v1/docs', [DocsController::class, 'page']);

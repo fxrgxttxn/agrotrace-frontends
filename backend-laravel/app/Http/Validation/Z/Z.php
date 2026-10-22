@@ -57,6 +57,12 @@ final class Z
         return new UnionS($options);
     }
 
+    /** @param  list<Schema>  $items */
+    public static function tuple(array $items): TupleS
+    {
+        return new TupleS($items);
+    }
+
     // ── common.ts ────────────────────────────────────────────────────────────────────────────────────────────────
 
     /** `codePointString(min, max, pattern?)`: empty → required (min > 0), shorter → minLength, longer → maxLength. */

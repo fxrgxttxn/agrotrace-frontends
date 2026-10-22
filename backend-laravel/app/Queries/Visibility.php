@@ -34,6 +34,17 @@ final class Visibility
             [$p->orgId, $p->orgId, $p->orgId]];
     }
 
+    /**
+     * The predicate "field $alias is visible to $p" (tag Fields): FARMER — the fields of its own farm; INSPECTOR and
+     * ADMIN — every field (read-only). Deletion is the caller's predicate.
+     *
+     * @return array{0: string, 1: list<mixed>}
+     */
+    public static function fieldVisibleTo(Principal $p, string $alias = 'f'): array
+    {
+        return $p->seesAll() ? ['true', []] : ["{$alias}.organization_id = ?", [$p->orgId]];
+    }
+
     /** Whether organization $orgId exists (not deleted) and $p may see it. */
     public static function canSeeOrganization(Principal $p, string $orgId): bool
     {
