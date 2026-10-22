@@ -294,6 +294,9 @@ final class AuthActions
         $hash = Passwords::hash($input['password']);
         Tx::run(function () use ($entry, $hash): void {
             $now = Tx::now();
+            // The contract's lock order: the `refresh:` advisory lock before the users row, as updateUser(BLOCKED)
+            // takes them — Express locks the row first, so a reset racing a block can deadlock there (review M5).
+            Sessions::lockUser($entry['userId']);
             $n = DB::update(
                 'UPDATE users SET password_hash = ?, failed_logins = 0, locked_until = NULL, updated_at = ?::timestamptz
                   WHERE id = ? AND deleted_at IS NULL',
