@@ -5,9 +5,9 @@ Transactional outbox, write side (R55, R56, P1), the port of backend-express/src
 task_id). `occurredAt` is the clock time of the INSERT (R59), `requestId` the current request's (or the one given).
 
 Publishing is never done here: after the transaction committed and its connection went back to the pool
-(`Tx.after_release`, P61), the relay publishes the ids (`infra.relay.publish`, the fast path, in the same thread),
-and the beat's outbox sweeper (every 5 s) is the guarantee. A rolled-back attempt (e.g. the first try of a 40P01
-retry) drops its callback and its row: nothing is published.
+(`Tx.after_release`, P61), the ids go to the process's relay thread (`infra.relay.publish`, the fast path — the
+request never waits on the broker), and the beat's outbox sweeper (every 5 s) is the guarantee.
+A rolled-back attempt (e.g. the first try of a 40P01 retry) drops its callback and its row: nothing is published.
 """
 
 from __future__ import annotations

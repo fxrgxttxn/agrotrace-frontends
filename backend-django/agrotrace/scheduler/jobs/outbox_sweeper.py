@@ -6,8 +6,9 @@ contract does not fix the process; Express runs it in its api). One pass, in ONE
    backend skips the pass);
 2. retention (R59): this backend's `outbox_events` published more than 7 days ago and its `processed_events` older
    than 30 days are deleted;
-3. the oldest 100 unpublished rows of this backend, `ORDER BY created_at FOR NO KEY UPDATE SKIP LOCKED`, are published
-   and marked one by one (infra.relay.publish_rows); a failed publish ends the pass, the marks before it commit.
+3. the oldest 100 unpublished rows of this backend whose type has a handler (Ruling Q12), `ORDER BY created_at FOR
+   NO KEY UPDATE SKIP LOCKED` — a row the relay thread holds in flight is skipped — are published and marked one by one
+   (infra.relay.sweep_rows); a failed publish ends the pass, the marks before it commit.
 """
 
 from __future__ import annotations
@@ -27,8 +28,8 @@ def _pass(tx: Tx) -> int:
         return 0
     tx.execute("DELETE FROM outbox_events WHERE backend = 'django' AND published_at < now() - interval '7 days'")
     tx.execute("DELETE FROM processed_events WHERE backend = 'django' AND processed_at < now() - interval '30 days'")
-    rows = tx.all(relay.SELECT + " ORDER BY created_at LIMIT %s FOR NO KEY UPDATE SKIP LOCKED", [BATCH])
-    return relay.publish_rows(rows, mark=tx.execute)
+    published, _failed = relay.sweep_rows(tx, BATCH)
+    return published
 
 
 def run() -> int:

@@ -32,6 +32,7 @@ from kombu import Exchange, Queue  # noqa: E402
 django.setup()
 
 from agrotrace.core import config  # noqa: E402
+from agrotrace.events.handlers import HANDLER_MODULES  # noqa: E402
 
 EXCHANGE = "agrotrace.django"
 QUEUE = "agrotrace.django.jobs"
@@ -65,7 +66,9 @@ _exchange = Exchange(EXCHANGE, type="topic", durable=True, no_declare=True)
 app.conf.update(
     broker_url=config.get().RABBITMQ_URL,
     broker_connection_retry_on_startup=True,
-    broker_transport_options={"confirm_publish": True, "confirm_timeout": 10.0},
+    # Fail fast (Q13 revised): a down broker costs the relay thread 2 s per attempt, never a request.
+    broker_connection_timeout=2.0,
+    broker_transport_options={"confirm_publish": True, "max_retries": 0, "connect_timeout": 2.0},
     broker_heartbeat=0,
     task_queues=[
         Queue(QUEUE, _exchange, routing_key="#", durable=True, queue_arguments=queue_arguments(), no_declare=True)
@@ -91,7 +94,7 @@ app.conf.update(
     worker_redirect_stdouts=False,
     worker_consumer="agrotrace.celery_app:Consumer",
     # The worker imports the event tasks at start (each module registers its `type`; Tasks 9–12 add theirs).
-    imports=("agrotrace.events.handlers.vsd_import",),
+    imports=tuple(dict.fromkeys(HANDLER_MODULES.values())),
     beat_max_loop_interval=1,
     beat_schedule={},
     timezone="UTC",
