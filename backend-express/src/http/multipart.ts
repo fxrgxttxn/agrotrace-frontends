@@ -74,6 +74,9 @@ export async function readFileUpload(req: Request, maxBytes: number): Promise<Up
     });
 
     parser.on('file', (name, stream, info) => {
+      // A body cut off inside a part ("Unexpected end of form") is emitted on the part's stream too; unhandled, it
+      // would crash the process.
+      stream.on('error', () => fail(validationProblem({ _root: ['validation.invalid'] })));
       if (name !== FIELD) {
         addError(name, 'validation.unknownField');
         stream.resume();
