@@ -3,9 +3,11 @@
 namespace App\Infrastructure\Amqp;
 
 use App\Events\EventHandler;
+use App\Events\Stopping;
 use App\Infrastructure\Outbox\Relay;
 use App\Support\Json;
 use App\Support\RequestContext;
+use App\Support\StopSignal;
 use Closure;
 use Illuminate\Support\Facades\Log;
 use stdClass;
@@ -24,8 +26,11 @@ use Throwable;
  *   requeued to the head as the busy path.
  * - A failing handler is retried in-process after 2, 4, 8, 16 and 32 s (each attempt its own transaction — the
  *   handler's business), then rejected without requeue (→ the DLQ).
- * - stop() (SIGTERM): the running handler is finished and settled; a failed one is not retried any more but returned
- *   unacknowledged (nack requeue) — a shutdown never dead-letters an event (Express rejects it; see the Task 6 report).
+ * - stop() (SIGTERM; the brief's order): the consumption is cancelled first (basic.cancel, once the running handler
+ *   returns, so no further delivery arrives), then the running delivery is settled, then the command closes the
+ *   channel. A handler that fails while stopping, or gives up because of it (StopSignal, Stopping), is not retried
+ *   any more. It is returned unacknowledged (nack requeue): a shutdown never dead-letters an event (Ruling: Express
+ *   rejects it; see the Task 6 report).
  */
 final class Consumer
 {
@@ -62,6 +67,7 @@ final class Consumer
     public function stop(): void
     {
         $this->stopping = true;
+        app(StopSignal::class)->raise();
     }
 
     public function stopping(): bool
@@ -108,6 +114,7 @@ final class Consumer
                 $this->lane->release();
             }
         }
+        $this->cancelIfStopping($channel);
         match ($ok) {
             true => $channel->ack($deliveryTag),
             false => $channel->reject($deliveryTag, false),
@@ -128,10 +135,12 @@ final class Consumer
         } catch (Throwable $e) {
             Log::error('vsd.import re-schedule failed; requeueing', ['eventId' => $envelope->id, 'err' => $e->getMessage()]);
             ($this->sleepMs)(self::RESCHEDULE_FAILURE_PAUSE_MS);
+            $this->cancelIfStopping($channel);
             $channel->nack($deliveryTag, true);
 
             return;
         }
+        $this->cancelIfStopping($channel);
         // Acknowledged only after the broker confirmed the copy: a crash in between leaves a duplicate (the claim
         // absorbs it), never a loss.
         $channel->ack($deliveryTag);
@@ -155,6 +164,23 @@ final class Consumer
         }
     }
 
+    /**
+     * Stop order (brief: cancel → finish → ack → close): once a stop was requested, the consumption is cancelled
+     * before the running delivery is settled, so the broker pushes nothing more to this channel (prefetch 1 holds the
+     * next one back until this settle). Idempotent on the port; a failed cancel is logged and the settle still happens.
+     */
+    private function cancelIfStopping(ChannelPort $channel): void
+    {
+        if (! $this->stopping) {
+            return;
+        }
+        try {
+            $channel->cancel();
+        } catch (Throwable $e) {
+            Log::warning('consumer cancel failed while stopping', ['err' => $e->getMessage()]);
+        }
+    }
+
     /** true — handled; false — failed after every retry (dead-letter); null — stopping, return it to the queue. */
     private function run(EventHandler $handler, stdClass $envelope): ?bool
     {
@@ -167,15 +193,16 @@ final class Consumer
 
                 return true;
             } catch (Throwable $e) {
+                // Stopping first: a failure caused by the stop (Stopping) or during it is never dead-lettered.
+                if ($this->stopping || $e instanceof Stopping) {
+                    Log::warning('event handler failed while stopping; returning it to the queue', ['eventId' => $envelope->id, 'err' => $e->getMessage()]);
+
+                    return null;
+                }
                 if ($attempt >= count($this->retryDelaysMs)) {
                     Log::error('event handler failed; dead-lettering', ['eventId' => $envelope->id, 'type' => $envelope->type, 'err' => $e]);
 
                     return false;
-                }
-                if ($this->stopping) {
-                    Log::warning('event handler failed while stopping; returning it to the queue', ['eventId' => $envelope->id, 'err' => $e->getMessage()]);
-
-                    return null;
                 }
                 Log::warning('event handler failed; retrying', ['eventId' => $envelope->id, 'type' => $envelope->type,
                     'attempt' => $attempt + 1, 'err' => $e->getMessage()]);

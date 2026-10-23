@@ -13,6 +13,9 @@ interface ChannelPort
 
     public function nack(int $deliveryTag, bool $requeue): void;
 
+    /** Cancels this channel's consumer (basic.cancel, waiting for cancel-ok); idempotent, a no-op once cancelled. */
+    public function cancel(): void;
+
     /**
      * Publishes a copy of the delivery to the delay queue (default exchange, routing key = the queue) with `mandatory`
      * and waits for its confirm; throws BrokerUnavailable on basic.return, basic.nack or a confirm timeout.

@@ -21,8 +21,9 @@ use Throwable;
  * supervisord: the worker's two channels): one confirm channel, basic.qos prefetch 1, every delivery to Consumer.
  * - A channel the broker closes while the connection stays up (consumer_timeout, PRECONDITION_FAILED …) is opened
  *   again after 1 s; a lost connection reconnects with Broker's back-off (0.5 … 10 s).
- * - SIGTERM/SIGINT: the running handler finishes and its delivery is settled, then the consumer is cancelled and the
- *   channel and connection closed (unacknowledged deliveries return to the queue).
+ * - SIGTERM/SIGINT (the brief's order): the consumer is cancelled (by Consumer, as soon as the running handler returns),
+ *   then that delivery is settled, then the channel and connection are closed (unacknowledged deliveries return to the
+ *   queue). The vsd.import back-off ends at once on the stop (StopSignal), so the stop fits supervisord's stopwaitsecs.
  */
 final class Consume extends Command
 {
@@ -55,6 +56,7 @@ final class Consume extends Command
                     function (AMQPMessage $m) use ($consumer, $port): void {
                         $consumer->handle($m->getBody(), $m->get_properties(), (int) $m->getDeliveryTag(), $port);
                     });
+                $port->consuming($tag);
                 Log::info('worker consuming', ['queue' => self::QUEUE, 'handlers' => EventHandlers::types()]);
                 $unavailable = false;
                 while ($channel->is_consuming() && ! $consumer->stopping()) {
@@ -65,7 +67,7 @@ final class Consume extends Command
                     }
                 }
                 if ($consumer->stopping()) {
-                    $channel->basic_cancel($tag);
+                    $port->cancel(); // usually done already: Consumer cancels before settling the running delivery
                     $channel->close();
                     $broker->reset();
                 }

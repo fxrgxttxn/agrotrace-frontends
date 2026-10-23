@@ -9,6 +9,8 @@ final class AmqpChannelPort implements ChannelPort
 {
     private readonly Publisher $publisher;
 
+    private ?string $consumerTag = null;
+
     public function __construct(private readonly AMQPChannel $channel, private readonly float $confirmTimeoutSec = 10.0)
     {
         $this->publisher = new Publisher($channel);
@@ -27,6 +29,22 @@ final class AmqpChannelPort implements ChannelPort
     public function nack(int $deliveryTag, bool $requeue): void
     {
         $this->channel->basic_nack($deliveryTag, false, $requeue);
+    }
+
+    /** The consumer tag basic_consume returned (cancel() cancels it). */
+    public function consuming(string $consumerTag): void
+    {
+        $this->consumerTag = $consumerTag;
+    }
+
+    public function cancel(): void
+    {
+        if ($this->consumerTag === null) {
+            return;
+        }
+        $tag = $this->consumerTag;
+        $this->consumerTag = null;
+        $this->channel->basic_cancel($tag);
     }
 
     public function copyToDelay(string $queue, string $body, array $properties, string $messageId): void

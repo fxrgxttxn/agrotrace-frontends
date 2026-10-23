@@ -5,11 +5,13 @@ namespace App\Events\Handlers;
 use App\Domain\Dates;
 use App\Events\Claim;
 use App\Events\EventHandler;
+use App\Events\Stopping;
 use App\Infrastructure\Audit\AuditLog;
 use App\Infrastructure\Db\Tx;
 use App\Infrastructure\Mercury\Mercury;
 use App\Support\Iso;
 use App\Support\Json;
+use App\Support\StopSignal;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -31,6 +33,10 @@ use stdClass;
  *
  * Mercury being down is never a handler failure: the message is acknowledged after FAILED. The batch is never
  * touched. P61 holder rule: no connection is held across the Mercury calls and the pauses between them.
+ *
+ * Stop (SIGTERM, StopSignal): the back-off pause ends at once, and no further Mercury call is made. The handler
+ * throws Stopping, so the Consumer returns the event to the queue (never the DLQ). A call in flight runs to its
+ * 10 s timeout, inside supervisord's stopwaitsecs = 12.
  */
 final class VsdImport implements EventHandler
 {
@@ -40,10 +46,14 @@ final class VsdImport implements EventHandler
 
     private readonly Closure $sleepMs;
 
-    public function __construct(private readonly Mercury $mercury, ?Closure $sleepMs = null, private readonly ?int $retryBaseMs = null)
+    private readonly StopSignal $stop;
+
+    /** @param  null|Closure(int): void  $sleepMs  the back-off pause (default: StopSignal::sleep, ended by a stop request) */
+    public function __construct(private readonly Mercury $mercury, ?Closure $sleepMs = null, private readonly ?int $retryBaseMs = null, ?StopSignal $stop = null)
     {
+        $this->stop = $stop ?? app(StopSignal::class);
         $this->sleepMs = $sleepMs ?? function (int $ms): void {
-            usleep($ms * 1000);
+            $this->stop->sleep($ms);
         };
     }
 
@@ -77,6 +87,11 @@ final class VsdImport implements EventHandler
         ];
         $base = $this->retryBaseMs ?? (int) config('agrotrace.mercury.retry_base_ms', 2000);
         for ($call = 1; ; $call++) {
+            if ($this->stop->raised()) {
+                // A stop request (SIGTERM; the back-off pause ended early): no further Mercury call. The event goes
+                // back to the queue unclaimed (Consumer), and the row stays PENDING with the attempts counted so far.
+                throw new Stopping("vsd.import stopped before Mercury call {$call}");
+            }
             DB::disconnect();
             $r = $this->mercury->listVsd($query);
             if ($r['ok']) {

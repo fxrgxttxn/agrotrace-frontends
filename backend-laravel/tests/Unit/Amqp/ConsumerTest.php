@@ -8,6 +8,7 @@
  */
 
 use App\Events\EventHandler;
+use App\Events\Stopping;
 use App\Infrastructure\Amqp\Broker;
 use App\Infrastructure\Amqp\BrokerUnavailable;
 use App\Infrastructure\Amqp\ChannelPort;
@@ -15,6 +16,7 @@ use App\Infrastructure\Amqp\Consumer;
 use App\Infrastructure\Amqp\VsdLane;
 use App\Infrastructure\Outbox\Relay;
 use App\Support\RequestContext;
+use App\Support\StopSignal;
 use Tests\TestCase;
 
 uses(TestCase::class);
@@ -42,6 +44,11 @@ final class FakeChannel implements ChannelPort
     public function nack(int $deliveryTag, bool $requeue): void
     {
         $this->calls[] = "nack {$deliveryTag} ".($requeue ? 'requeue' : 'no-requeue');
+    }
+
+    public function cancel(): void
+    {
+        $this->calls[] = 'cancel';
     }
 
     public function copyToDelay(string $queue, string $body, array $properties, string $messageId): void
@@ -192,7 +199,7 @@ it('stopping: a failing handler is not retried any more; its delivery returns to
     $ch = new FakeChannel;
     $consumer->handle(envelopeBody('rating.recalculate'), [], 4, $ch);
     expect($this->sleeps)->toBe([2000]);
-    expect($ch->calls)->toBe(['nack 4 requeue']);
+    expect($ch->calls)->toBe(['cancel', 'nack 4 requeue']); // cancelled before the settle (stop order)
 });
 
 it('the handled event\'s requestId tags the worker (logs, enqueued events); audit stays system (no request id)', function () {
@@ -219,4 +226,67 @@ it('the outbox events a handler committed are handed to the relay after it (a re
     $consumer->handle(envelopeBody('rating.recalculate'), [], 2, $ch);
     expect($ch->calls)->toBe(['ack 2']);
     expect(app(RequestContext::class)->eventIds())->toBe([]);
+});
+
+it('stop order (brief): a stop during the handler cancels the consumer first, then the delivery is acked (review M6)', function () {
+    $handler = new class implements EventHandler
+    {
+        public ?Consumer $consumer = null;
+
+        public function handle(stdClass $envelope): void
+        {
+            $this->consumer?->stop(); // SIGTERM arrives while the handler runs
+        }
+    };
+    $consumer = new Consumer(['rating.recalculate' => $handler], new VsdLane(laneFile()), sleepMs: $this->sleep);
+    $handler->consumer = $consumer;
+    $ch = new FakeChannel;
+    $consumer->handle(envelopeBody('rating.recalculate'), [], 6, $ch);
+    expect($ch->calls)->toBe(['cancel', 'ack 6']);
+    expect(app(StopSignal::class)->raised())->toBeTrue(); // long handlers see the stop too
+});
+
+it('a busy vsd.import re-scheduled while stopping: cancel, then the ack after the confirmed copy', function () {
+    $file = laneFile();
+    $holder = new VsdLane($file);
+    $holder->tryAcquire();
+    $consumer = new Consumer(['vsd.import' => new RecordingHandler], new VsdLane($file), sleepMs: $this->sleep);
+    $consumer->stop();
+    $ch = new FakeChannel;
+    $consumer->handle(envelopeBody('vsd.import'), ['message_id' => 'e1'], 8, $ch);
+    expect($ch->calls)->toBe(['copy agrotrace.laravel.jobs.delay', 'cancel', 'ack 8']);
+    $holder->release();
+    @unlink($file);
+});
+
+it('a handler giving up because of the stop (Stopping) is returned to the queue even on its last attempt, never the DLQ', function () {
+    $handler = new class implements EventHandler
+    {
+        public int $calls = 0;
+
+        public function handle(stdClass $envelope): void
+        {
+            $this->calls++;
+            throw new Stopping('stopping');
+        }
+    };
+    $consumer = new Consumer(['rating.recalculate' => $handler], new VsdLane(laneFile()), retryDelaysMs: [], sleepMs: $this->sleep);
+    $ch = new FakeChannel;
+    $consumer->handle(envelopeBody('rating.recalculate'), [], 3, $ch);
+    expect($handler->calls)->toBe(1);
+    expect($this->sleeps)->toBe([]);
+    expect($ch->calls)->toBe(['nack 3 requeue']);
+});
+
+it('the default retry pause ends within ~100 ms of a stop request', function () {
+    $consumer = new Consumer(['rating.recalculate' => new RecordingHandler(failures: 1)], new VsdLane(laneFile()));
+    pcntl_async_signals(true);
+    pcntl_signal(SIGALRM, fn () => $consumer->stop());
+    $started = microtime(true);
+    pcntl_alarm(1);
+    $ch = new FakeChannel;
+    $consumer->handle(envelopeBody('rating.recalculate'), [], 2, $ch);
+    pcntl_signal(SIGALRM, SIG_DFL);
+    expect(microtime(true) - $started)->toBeLessThan(1.5); // the first pause is 2 s
+    expect($ch->calls)->toBe(['cancel', 'nack 2 requeue']);
 });

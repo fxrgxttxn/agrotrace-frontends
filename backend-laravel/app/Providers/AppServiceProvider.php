@@ -11,6 +11,7 @@ use App\Infrastructure\Mercury\Mercury;
 use App\Infrastructure\Outbox\Relay;
 use App\Infrastructure\Storage\ObjectStore;
 use App\Support\RequestContext;
+use App\Support\StopSignal;
 use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 
@@ -32,6 +33,7 @@ final class AppServiceProvider extends ServiceProvider
             (bool) config('agrotrace.db.slots_enabled'),
         ));
         $this->app->singleton(ObjectStore::class);
+        $this->app->singleton(StopSignal::class);
         $this->app->bind(Mercury::class, fn () => Mercury::fromConfig());
         $this->app->bind(Relay::class, fn () => Relay::fromConfig('agrotrace-laravel-'.config('agrotrace.process')));
         $this->app->bind('db.connector.pgsql', fn ($app) => new PgConnector($app->make(DbSlots::class)));
