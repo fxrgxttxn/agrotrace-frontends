@@ -12,6 +12,7 @@
 use App\Http\Middleware\AccessLog;
 use App\Http\Middleware\BackendHeader;
 use App\Http\Middleware\ContractGate;
+use App\Http\Middleware\Idempotency;
 use App\Http\Middleware\JsonBody;
 use App\Http\Middleware\Operation;
 use App\Http\Middleware\RequestContextMw;
@@ -37,7 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
             ContractGate::class,
             JsonBody::class,
         ]);
-        $middleware->alias(['operation' => Operation::class]);
+        $middleware->alias(['operation' => Operation::class, 'idempotency' => Idempotency::class]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         // A client error is the client's, not a failure of ours: only 5xx problems and unexpected exceptions are logged.

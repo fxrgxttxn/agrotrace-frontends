@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Contract\Contract;
+use App\Http\Idempotency\IdemStore;
+use App\Http\Idempotency\RedisIdemStore;
 use App\Http\Routing\ContractRouteCollection;
 use App\Infrastructure\Db\DbSlots;
 use App\Infrastructure\Db\PgConnector;
@@ -34,6 +36,7 @@ final class AppServiceProvider extends ServiceProvider
         ));
         $this->app->singleton(ObjectStore::class);
         $this->app->singleton(StopSignal::class);
+        $this->app->singleton(IdemStore::class, RedisIdemStore::class);
         $this->app->bind(Mercury::class, fn () => Mercury::fromConfig());
         $this->app->bind(Relay::class, fn () => Relay::fromConfig('agrotrace-laravel-'.config('agrotrace.process')));
         $this->app->bind('db.connector.pgsql', fn ($app) => new PgConnector($app->make(DbSlots::class)));
