@@ -1,13 +1,15 @@
 """Business rules of @agrotrace/domain (packages/domain/src/rules.ts): the BR-03 risk model, the public batch code, BR-01
 (waiting period), BR-04 (mass balance), BR-05 (processing input) and BR-07 (discrepancy); the state machine is
-re-exported from domain.state_machine. Later tasks add their rules (BR-02/08/09/10) here. Vectors:
+re-exported from domain.state_machine; BR-02 (lab conclusion), BR-09 (trust rating), BR-10 (recall closing). Vectors:
 contracts/rules/vectors (tests/test_domain_vectors.py)."""
 
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Literal
 
+from agrotrace.core import config
 from agrotrace.domain.dates import add_days_to_date, utc_date
 from agrotrace.domain.decimal import (
     compare_decimal_strings,
@@ -20,8 +22,8 @@ from agrotrace.domain.state_machine import available_actions, can_transition
 from agrotrace.domain.strings import compare_code_points
 
 __all__ = ["available_actions", "batch_code", "can_transition", "can_use_as_input", "check_discrepancy",
-           "check_mass_balance", "check_waiting_period", "conclude_lab_test", "risk_model", "sample_bucket",
-           "should_close_recall"]
+           "check_mass_balance", "check_waiting_period", "conclude_lab_test", "next_trust_rating", "risk_model",
+           "sample_bucket", "should_close_recall"]
 
 RiskReason = Literal["NEW_FARM", "LOW_RATING", "RECENT_PESTICIDE", "SAMPLED", "NONE"]
 
@@ -115,3 +117,17 @@ def conclude_lab_test(results: list[dict]) -> dict:
 def should_close_recall(task_statuses: list[str]) -> bool:
     """BR-10 `shouldCloseRecall`: a recall closes when every task is CONFIRMED — vacuously for a recall without tasks."""
     return all(s == "CONFIRMED" for s in task_statuses)
+
+
+#: contracts/rules/trust-rating.json — `initial`, bounds `min`/`max`, `deltas` per rating event (BR-09).
+TRUST_RATING: dict = json.loads((config.ROOT / "contracts" / "rules" / "trust-rating.json").read_text("utf-8"))
+
+RatingEvent = Literal["LAB_PASS", "LAB_FAIL", "RECALL_SOURCE"]
+
+
+def next_trust_rating(current: int, event: str) -> int:
+    """BR-09 `nextTrustRating`: `current` + the event's delta clamped to [min, max] — integers throughout (the
+    rating column and the deltas are integers, so `Math.round` of the TS port is the identity); an unknown event is a
+    KeyError."""
+    tr = TRUST_RATING
+    return min(tr["max"], max(tr["min"], int(current) + int(tr["deltas"][event])))

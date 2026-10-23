@@ -26,7 +26,7 @@ log = logging.getLogger("agrotrace.outbox")
 #: contracts/events/envelope.schema.json#/properties/type/enum
 EVENT_TYPES = ("recall.requested", "notification.dispatch", "lab.escalate", "rating.recalculate", "vsd.import")
 
-_UNSET: Any = object()
+UNSET: Any = object()
 
 
 def _relay_after_commit(ids: list[str]) -> None:
@@ -40,7 +40,7 @@ def _relay_after_commit(ids: list[str]) -> None:
         log.warning("outbox relay failed; the sweeper retries", extra={"err": str(e), "ids": ids})
 
 
-def enqueue(tx: Tx, type: str, data: dict[str, Any], *, request_id: str | None = _UNSET) -> str:  # noqa: A002
+def enqueue(tx: Tx, type: str, data: dict[str, Any], *, request_id: str | None = UNSET) -> str:  # noqa: A002
     """Writes the event into the outbox inside `tx`; returns its id."""
     if type not in EVENT_TYPES:
         raise ValueError(f"unknown event type {type}")
@@ -51,7 +51,7 @@ def enqueue(tx: Tx, type: str, data: dict[str, Any], *, request_id: str | None =
         # R59: the clock time of the INSERT, inside the causing transaction.
         "occurredAt": iso(datetime.now(UTC)),
         "backend": "django",
-        "requestId": context.request_id() if request_id is _UNSET else request_id,
+        "requestId": context.request_id() if request_id is UNSET else request_id,
         "data": data,
     }
     tx.execute(

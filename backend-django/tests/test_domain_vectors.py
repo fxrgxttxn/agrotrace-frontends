@@ -36,9 +36,20 @@ def _recall_due(i: dict[str, Any]) -> dict[str, Any]:
     return {"dueAt": iso(dates.recall_task_due_at(opened))}
 
 
+def _overdue(i: dict[str, Any]) -> dict[str, Any]:
+    return {"overdue": dates.is_overdue(_instant(i["dueAt"]), _instant(i["now"]))}
+
+
+def _instant(s: str) -> datetime:
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
 RUNNERS: dict[str, tuple[str, Callable[[dict[str, Any]], dict[str, Any]]]] = {
     "BR-02.json": ("concludeLabTest", lambda i: rules.conclude_lab_test(i["results"])),
     "BR-08.json": ("recallTaskDueAt", _recall_due),
+    "BR-08-overdue.json": ("isOverdue", _overdue),
+    "BR-09.json": ("nextTrustRating", lambda i: {"rating": rules.next_trust_rating(i["current"], i["event"])}),
+    "BR-10.json": ("shouldCloseRecall", lambda i: {"close": rules.should_close_recall(i["taskStatuses"])}),
     "batch-code.json": ("formatBatchCode", lambda i: {"code": rules.batch_code(i["year"], i["seq"])}),
     "BR-01.json": ("checkWaitingPeriod", lambda i: rules.check_waiting_period(i["shipDate"], i["treatments"])),
     "BR-07.json": ("checkDiscrepancy", lambda i: rules.check_discrepancy(i["declaredKg"], i["actualKg"])),
@@ -167,3 +178,20 @@ def test_br02_is_strictly_greater_and_decimal():
     assert one("0.300000", "0.3") == {"conclusion": "PASS", "exceeded": []}
     assert one("99999999.999999", "99999999.999998") == {"conclusion": "FAIL", "exceeded": ["x"]}
     assert rules.conclude_lab_test([]) == {"error": "NO_RESULTS"}
+
+
+def test_every_vector_file_has_a_runner():
+    # treatment-edit.json runs in tests/test_treatment_window.py.
+    assert sorted(p.name for p in VECTORS.glob("*.json")) == sorted([*RUNNERS, "treatment-edit.json"])
+
+
+def test_br09_follows_trust_rating_json():
+    """BR-09 reads contracts/rules/trust-rating.json (initial, bounds, deltas) — never constants of its own."""
+    tr = json.loads((config.ROOT / "contracts" / "rules" / "trust-rating.json").read_text("utf-8"))
+    assert rules.TRUST_RATING == tr
+    for event, delta in tr["deltas"].items():
+        assert rules.next_trust_rating(50, event) == 50 + delta
+    assert rules.next_trust_rating(tr["max"], "LAB_PASS") == tr["max"]
+    assert rules.next_trust_rating(tr["min"], "LAB_FAIL") == tr["min"]
+    with pytest.raises(KeyError):
+        rules.next_trust_rating(50, "OTHER")

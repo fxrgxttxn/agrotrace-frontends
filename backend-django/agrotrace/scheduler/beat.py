@@ -17,7 +17,11 @@ from celery.beat import ScheduleEntry, Scheduler
 
 from agrotrace.core import config
 from agrotrace.scheduler import jobs
-from agrotrace.scheduler.jobs import lab_escalation, outbox_sweeper  # noqa: F401  # importing registers the job
+from agrotrace.scheduler.jobs import (  # noqa: F401  # importing registers the job
+    lab_escalation,
+    outbox_sweeper,
+    recall_task_overdue,
+)
 from agrotrace.scheduler.runner import guarded_tick
 
 log = logging.getLogger("agrotrace.beat")

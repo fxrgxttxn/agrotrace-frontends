@@ -40,12 +40,13 @@ def _uniq(xs: Iterable[str] | None) -> list[str]:
 
 def notify(tx: Tx, notification_type: str, *, user_ids: Iterable[str] | None = None,
            org_ids: Iterable[str] | None = None, org_head_ids: Iterable[str] | None = None,
-           roles: Iterable[str] | None = None, payload: dict[str, Any]) -> str:
+           roles: Iterable[str] | None = None, payload: dict[str, Any], request_id: Any = outbox.UNSET) -> str:
     """`notification.dispatch` into the outbox: the type's recipients as logical groups resolved to ids (each list
-    without duplicates, first occurrence kept), `payload` with exactly the type's keys."""
+    without duplicates, first occurrence kept), `payload` with exactly the type's keys. `request_id` — the envelope's
+    requestId (default: the current request's; scheduler jobs pass None)."""
     return outbox.enqueue(tx, "notification.dispatch", {
         "notificationType": notification_type,
         "recipients": {"userIds": _uniq(user_ids), "orgIds": _uniq(org_ids), "orgHeadIds": _uniq(org_head_ids),
                        "roles": _uniq(roles)},
         "payload": payload,
-    })
+    }, request_id=request_id)
