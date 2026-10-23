@@ -8,6 +8,7 @@
  * pool or an expired lock wait). Another holder is a separate PHP process that flocks the gate file.
  */
 
+use App\Actions\Dictionaries\Import;
 use App\Infrastructure\Db\BackendUnavailable;
 use App\Infrastructure\Db\LocalGate;
 use Tests\TestCase;
@@ -213,6 +214,6 @@ it('a group caps the waiters of all its keys together: GROUP_MAX_WAITERS per con
 
 it('importDictionary gates every dictionary in one group (imports never take all the workers)', function () {
     $src = file_get_contents(app_path('Actions/Dictionaries/Import.php'));
-    expect($src)->toContain("group: Import::GATE_GROUP");
-    expect(App\Actions\Dictionaries\Import::GATE_GROUP)->toBe('dictionary-import');
+    expect($src)->toContain('group: Import::GATE_GROUP');
+    expect(Import::GATE_GROUP)->toBe('dictionary-import');
 });
