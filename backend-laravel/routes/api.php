@@ -7,6 +7,7 @@
  * carries `operation:{operationId}` — the contract's guard (x-roles, x-org-admin, the `user` limit).
  */
 
+use App\Contract\Contract;
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Audit\AuditController;
 use App\Http\Controllers\Auth\AuthController;
@@ -19,11 +20,17 @@ use App\Http\Controllers\Health\HealthController;
 use App\Http\Controllers\Me\MeController;
 use App\Http\Controllers\Organizations\OrganizationsController;
 use App\Http\Controllers\Users\UsersController;
+use App\Http\Controllers\Waybills\WaybillsController;
 use Illuminate\Support\Facades\Route;
 
 /** @param  array{0: class-string, 1: string}  $action */
 $op = function (string $method, string $path, array $action, string $operationId): void {
-    Route::match([$method], '/api/v1'.$path, $action)->name($operationId)->middleware("operation:{$operationId}");
+    $middleware = ["operation:{$operationId}"];
+    // `x-idempotent: true` (R48): the Idempotency-Key protocol right after the guard, read from the contract itself.
+    if ((app(Contract::class)->operation($operationId)['x-idempotent'] ?? false) === true) {
+        $middleware[] = 'idempotency';
+    }
+    Route::match([$method], '/api/v1'.$path, $action)->name($operationId)->middleware($middleware);
 };
 
 Route::get('/api/v1/health/live', [HealthController::class, 'live'])->name('getHealthLive');
@@ -95,6 +102,15 @@ $op('GET', '/batches/{id}/documents', [BatchesController::class, 'getBatchDocume
 $op('POST', '/batches/{id}/documents/vsd/retry', [BatchesController::class, 'retryBatchVsdImport'], 'retryBatchVsdImport');
 $op('POST', '/batches/{id}/on-sale', [BatchesController::class, 'putBatchOnSale'], 'putBatchOnSale');
 $op('POST', '/batches/{id}/sold', [BatchesController::class, 'markBatchSold'], 'markBatchSold');
+
+// Waybills (Task 7).
+$op('GET', '/waybills', [WaybillsController::class, 'listWaybills'], 'listWaybills');
+$op('POST', '/waybills', [WaybillsController::class, 'createWaybill'], 'createWaybill');
+$op('GET', '/waybills/{id}', [WaybillsController::class, 'getWaybill'], 'getWaybill');
+$op('DELETE', '/waybills/{id}', [WaybillsController::class, 'deleteWaybill'], 'deleteWaybill');
+$op('POST', '/waybills/{id}/send', [WaybillsController::class, 'sendWaybill'], 'sendWaybill');
+$op('POST', '/waybills/{id}/accept', [WaybillsController::class, 'acceptWaybill'], 'acceptWaybill');
+$op('POST', '/waybills/{id}/reject', [WaybillsController::class, 'rejectWaybill'], 'rejectWaybill');
 
 // Swagger UI (spec 8.3) — outside the contract, as in Express.
 Route::get('/api/v1/docs', [DocsController::class, 'page']);
