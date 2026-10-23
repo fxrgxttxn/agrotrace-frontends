@@ -38,6 +38,9 @@ final class Import
         'regions' => ['code', 'name'],
     ];
 
+    /** The LocalGate group of every dictionary's import: their waiters share one per-container cap. */
+    public const GATE_GROUP = 'dictionary-import';
+
     private const KEY_COLUMN = ['products' => 'name', 'substances' => 'name', 'indicators' => 'name', 'norms' => 'indicator', 'regions' => 'code'];
 
     /**
@@ -54,8 +57,9 @@ final class Import
 
         // Review M5: parallel imports of one dictionary queue on a container gate holding no DB slot (LocalGate), so
         // only one of them per container waits on the advisory lock with a slot — they cannot starve DB_SLOTS. The wait
-        // is bounded (re-review N1): the lock_timeout, MAX_WAITERS, and the client still being there (else 503).
-        [$report, $codes] = LocalGate::run("dictionary-import:{$name}", clientGone: $clientGone, work: fn (): array => Tx::run(function () use ($name, $sheet, $columns, $rules, $actorId): array {
+        // is bounded (re-review N1): the lock_timeout, MAX_WAITERS, and the client still being there (else 503); the waiters of
+        // all dictionaries together are capped as well (GATE_GROUP), so imports never take every Octane worker.
+        [$report, $codes] = LocalGate::run("dictionary-import:{$name}", group: Import::GATE_GROUP, clientGone: $clientGone, work: fn (): array => Tx::run(function () use ($name, $sheet, $columns, $rules, $actorId): array {
             DictionaryStore::lock($name);
             $report = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'errors' => []];
             [$products, $indicators] = $name === 'norms' ? self::referenceMaps() : [[], []];

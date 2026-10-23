@@ -77,7 +77,8 @@ it('treats HEAD as GET', function () {
 });
 
 it('answers 404 for a declared operation that has no route yet', function () {
-    $res = $this->raw('GET', '/api/v1/batches');
+    // getDashboard is routed only in Task 13, the last operation task.
+    $res = $this->raw('GET', '/api/v1/analytics/dashboard');
     $res->assertStatus(404);
     expect(problemOf($res)['code'])->toBe('NOT_FOUND');
 });
@@ -152,8 +153,8 @@ it('dispatches the operation ContractGate matched on the raw path, not Laravel\'
 });
 
 it('answers 404 for a declared operation whose route has another name (no fallback to Laravel matching)', function () {
-    Route::get('/api/v1/batches', fn () => 'wrong')->name('notListBatches');
-    $this->raw('GET', '/api/v1/batches')->assertStatus(404);
+    Route::get('/api/v1/analytics/dashboard', fn () => 'wrong')->name('notGetDashboard');
+    $this->raw('GET', '/api/v1/analytics/dashboard')->assertStatus(404);
 });
 
 it('answers a malformed %-escape as Express does: method check first, then 404 (review I2)', function () {

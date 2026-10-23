@@ -180,3 +180,39 @@ it('a failing work releases the gate', function () {
     expect(fn () => LocalGate::run('fails', fn () => throw new RuntimeException('boom'), dir: gateDir()))->toThrow(RuntimeException::class);
     gateAllFree('fails');
 });
+
+it('a group caps the waiters of all its keys together: GROUP_MAX_WAITERS per container, one more is refused at once', function () {
+    // Two dictionaries: each has its own gate and waiting slots, but the waiters of the group share one bound, so the
+    // imports of every dictionary together can never take all the Octane workers.
+    $holders = [gateHolder(gateFile('dict-a'), 5000), gateHolder(gateFile('dict-b'), 5000)];
+    for ($i = 0; $i < LocalGate::GROUP_MAX_WAITERS; $i++) {
+        $holders[] = gateHolder(gateDir().'/group-'.hash('sha256', 'imports').".wait-{$i}.lock", 5000);
+    }
+    $started = microtime(true);
+    // dict-b has every one of its own waiting slots free, yet the group is full.
+    expect(gateOutcome(fn () => LocalGate::run('dict-b', fn () => null, dir: gateDir(), group: 'imports')))
+        ->toBe('refused: gate group imports: '.LocalGate::GROUP_MAX_WAITERS.' requests already waiting');
+    expect(microtime(true) - $started)->toBeLessThan(0.05);
+    // Without the group the same call would wait (and here time out).
+    expect(gateOutcome(fn () => LocalGate::run('dict-b', fn () => null, deadlineSec: 0.1, dir: gateDir())))
+        ->toBe('refused: gate dict-b: not free within the lock timeout');
+    // A freed group slot admits a waiter of either key again; a free gate needs no waiting slot at all.
+    gateRelease(array_pop($holders));
+    expect(gateOutcome(fn () => LocalGate::run('dict-a', fn () => null, deadlineSec: 0.1, dir: gateDir(), group: 'imports')))
+        ->toBe('refused: gate dict-a: not free within the lock timeout');
+    expect(LocalGate::run('dict-c', fn () => 'ran', dir: gateDir(), group: 'imports'))->toBe('ran');
+    foreach ($holders as $h) {
+        gateRelease($h);
+    }
+    gateAllFree('dict-a');
+    gateAllFree('dict-b');
+    for ($i = 0; $i < LocalGate::GROUP_MAX_WAITERS; $i++) {
+        expect(gateFree(gateDir().'/group-'.hash('sha256', 'imports').".wait-{$i}.lock"))->toBeTrue();
+    }
+});
+
+it('importDictionary gates every dictionary in one group (imports never take all the workers)', function () {
+    $src = file_get_contents(app_path('Actions/Dictionaries/Import.php'));
+    expect($src)->toContain("group: Import::GATE_GROUP");
+    expect(App\Actions\Dictionaries\Import::GATE_GROUP)->toBe('dictionary-import');
+});

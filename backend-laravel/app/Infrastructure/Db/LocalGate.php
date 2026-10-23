@@ -19,11 +19,17 @@ use LogicException;
  *   gets; Express answers its expiry, 55P03, with 503 BACKEND_UNAVAILABLE) — the same 503;
  * - a client that went away ($clientGone, ClientConnection) leaves the queue before its work ever starts (a 503 nobody
  *   reads): an aborted request is never applied later.
- * Every path gives the gate and the waiting slot back (finally; the kernel on a crash).
+ * - a `$group` (importDictionary: every dictionary) caps the waiters of all its keys together at
+ *   `$groupMaxWaiters` per container as well (a waiter holds a waiting slot of its key AND one of its group; either
+ *   full → the same 503 at once), so the imports of all dictionaries together hold at most one worker per dictionary
+ *   plus GROUP_MAX_WAITERS — never all the Octane workers.
+ * Every path gives the gate and the waiting slots back (finally; the kernel on a crash).
  */
 final class LocalGate
 {
     public const MAX_WAITERS = 8;
+
+    public const GROUP_MAX_WAITERS = 8;
 
     private const POLL_MIN_US = 2_000;
 
@@ -45,6 +51,8 @@ final class LocalGate
         ?float $deadlineSec = null,
         int $maxWaiters = self::MAX_WAITERS,
         ?string $dir = null,
+        ?string $group = null,
+        int $groupMaxWaiters = self::GROUP_MAX_WAITERS,
     ): mixed {
         if (Tx::active() || app(DbSlots::class)->held()) {
             throw new LogicException('LocalGate::run() with a DB slot held');
@@ -57,6 +65,7 @@ final class LocalGate
         $base = $dir.'/'.hash('sha256', $key);
         $gate = self::tryLock("{$base}.lock");
         $wait = null;
+        $groupWait = null;
         try {
             if ($gate === null) {
                 for ($i = 0; $i < $maxWaiters && $wait === null; $i++) {
@@ -64,6 +73,15 @@ final class LocalGate
                 }
                 if ($wait === null) {
                     throw new BackendUnavailable("gate {$key}: {$maxWaiters} requests already waiting");
+                }
+                if ($group !== null) {
+                    $groupBase = $dir.'/group-'.hash('sha256', $group);
+                    for ($i = 0; $i < $groupMaxWaiters && $groupWait === null; $i++) {
+                        $groupWait = self::tryLock("{$groupBase}.wait-{$i}.lock");
+                    }
+                    if ($groupWait === null) {
+                        throw new BackendUnavailable("gate group {$group}: {$groupMaxWaiters} requests already waiting");
+                    }
                 }
                 $sleep = self::POLL_MIN_US;
                 while ($gate === null) {
@@ -79,6 +97,10 @@ final class LocalGate
                 }
                 self::unlock($wait);
                 $wait = null;
+                if ($groupWait !== null) {
+                    self::unlock($groupWait);
+                    $groupWait = null;
+                }
                 if ($clientGone !== null && $clientGone()) {
                     throw new BackendUnavailable("gate {$key}: the client went away while waiting");
                 }
@@ -88,6 +110,9 @@ final class LocalGate
         } finally {
             if ($wait !== null) {
                 self::unlock($wait);
+            }
+            if ($groupWait !== null) {
+                self::unlock($groupWait);
             }
             if ($gate !== null) {
                 self::unlock($gate);
