@@ -10,8 +10,8 @@ use App\Infrastructure\Amqp\Publisher;
 use App\Infrastructure\Db\Tx;
 use App\Support\Json;
 use Closure;
-use LogicException;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 use Throwable;
 
 /**

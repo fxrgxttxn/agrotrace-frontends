@@ -169,6 +169,10 @@ services:
       redis: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
       minio: { condition: service_healthy }
+    # The Octane workers hand committed event ids to the relay process as Unix datagrams (Task 6). The kernel default
+    # of 10 queued datagrams per socket fills during one slow confirm; 4096 rides out ~10 s of a 400 req/s burst. The
+    # relay also catches dropped ids up from the outbox itself, so this sets latency, not correctness.
+    sysctls: { net.unix.max_dgram_qlen: 4096 }
     stop_grace_period: 15s
     networks: [at]
   # supervisord: 2 × agrotrace:consume (the worker's two channels of agrotrace.laravel.jobs, L1, L2); the Telegram

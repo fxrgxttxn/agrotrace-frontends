@@ -27,7 +27,7 @@ final class EndOfRequest
         if ($app->bound(RequestContext::class)) {
             $ctx = $app->make(RequestContext::class);
             // The relay (L4 order: right after the response): the committed events go to the relay process — a
-            // non-blocking datagram, never a wait on the broker (RelayNotifier; the sweeper is the guarantee).
+            // non-blocking datagram, never a wait on the broker (RelayNotifier; a failed hand-off is caught up by the relay).
             try {
                 RelayNotifier::send($ctx->takeEventIds());
             } catch (Throwable $e) {

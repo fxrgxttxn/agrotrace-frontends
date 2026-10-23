@@ -31,6 +31,8 @@ return [
     // The api container's relay process (agrotrace:relay) and the Octane workers' hand-off to it (RelayNotifier).
     'relay' => [
         'socket' => env('RELAY_SOCKET', '/tmp/agrotrace-relay.sock'),
+        // Touched by a sender whose hand-off failed: the relay then catches up from the outbox (RelayLoop).
+        'dropped_marker' => env('RELAY_DROPPED_MARKER', '/tmp/agrotrace-relay.dropped'),
     ],
     // At most one vsd.import handler per worker container (L2).
     'vsd_lock' => env('VSD_LOCK_FILE', '/tmp/agrotrace-vsd.lock'),
