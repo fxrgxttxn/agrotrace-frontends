@@ -114,3 +114,34 @@ def test_the_guards_catch_what_they_guard(tmp_path):
     calls = [dotted(n.func) for n in ast.walk(sample) if isinstance(n, ast.Call)]
     assert {"x.select_for_update", "datetime.now", "task.delay"} <= set(calls)
     assert FOR_UPDATE.search("SELECT 1 FOR  Update") and not FOR_UPDATE.search("FOR NO KEY UPDATE")
+
+
+def test_for_update_is_taken_in_exactly_the_two_allowed_places():
+    """P57 (Task 10): ALLOWED is exactly the dictionary row deletion and deleteField, and each of them really takes
+    `FOR UPDATE` in a SQL string (a stale entry would silently widen the guard); nothing else in the package does."""
+    assert ALLOWED == {"modules/dictionaries/store.py", "modules/fields/services.py"}
+    found: set[str] = set()
+    for rel, tree in sources():
+        skip = docstrings(tree)
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in skip
+                    and FOR_UPDATE.search(node.value)):
+                found.add(rel)
+    assert found == ALLOWED
+
+
+def test_no_float_in_decimal_arithmetic():
+    """Masses, lab values and norms are compared and rendered as exact decimals; the trust rating is an integer
+    fold — no `float(` in their services and mappers (Task 8 review M2, Task 9 review M4)."""
+    guarded = ["modules/processing/services.py", "modules/lab/services.py", "modules/lab/mappers.py",
+               "modules/lab/assign.py", "modules/recalls/engine.py", "modules/recalls/services.py",
+               "modules/recalls/mappers.py", "modules/rating/services.py", "domain/rules.py", "domain/decimal.py"]
+    bad = []
+    for rel in guarded:
+        tree = ast.parse((PKG / rel).read_text("utf-8"), filename=rel)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and dotted(node.func) == "float":
+                bad.append(f"{rel}:{node.lineno} float()")
+            if isinstance(node, ast.Constant) and isinstance(node.value, float):
+                bad.append(f"{rel}:{node.lineno} float literal")
+    assert bad == []
