@@ -16,6 +16,7 @@ use App\Octane\EndOfRequest;
 use App\Security\Principal;
 use App\Support\RequestContext;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Support\MemoryIdemStore;
 use Tests\TestCase;
@@ -111,6 +112,29 @@ it('a crash of the owner (an exception out of the handler) releases the key and 
     expect($this->store->records)->toBe([]);
     expect($this->store->calls)->toContain('release idem:'.IDEM_USER.':key-0003');
 });
+
+it('a throw while giving back the DB slot still settles the record (T7 review M1)', function (int $status) {
+    $db = DB::getFacadeRoot();
+    DB::swap(new class
+    {
+        public function disconnect(): void
+        {
+            throw new RuntimeException('disconnect failed');
+        }
+    });
+    try {
+        idemRun(idemRequest('key-0010'), fn () => Responses::json(['ok' => true], $status));
+    } finally {
+        DB::swap($db);
+    }
+    $key = 'idem:'.IDEM_USER.':key-0010';
+    if ($status < 300) {
+        expect(json_decode($this->store->records[$key], true))->toMatchArray(['state' => 'done', 'status' => $status]);
+    } else {
+        expect($this->store->records)->toBe([]);
+        expect($this->store->calls)->toContain("release {$key}");
+    }
+})->with([201, 422]);
 
 it('the same key with another request → 409 IDEMPOTENCY_KEY_REUSED; the record is not touched', function () {
     idemRun(idemRequest('key-0004'), fn () => Responses::json(['ok' => true], 201));

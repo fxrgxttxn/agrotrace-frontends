@@ -115,10 +115,15 @@ final class Idempotency
 
     private function settle(string $key, string $fingerprint, int $status, mixed $body): void
     {
+        // The slot release has its own try: a throw there must not leave the key pending until its TTL.
         try {
             if (! Tx::active()) {
                 SlotHolder::release();
             }
+        } catch (Throwable $e) {
+            Log::warning('db slot not released before the idempotency settle', ['err' => $e->getMessage()]);
+        }
+        try {
             if ($status >= 200 && $status < 300) {
                 $this->store->complete($key, $fingerprint, $status, $body);
             } else {
