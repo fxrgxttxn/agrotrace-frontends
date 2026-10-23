@@ -9,12 +9,19 @@ import hashlib
 from typing import Literal
 
 from agrotrace.domain.dates import add_days_to_date, utc_date
-from agrotrace.domain.decimal import kg_to_grams, mass_total, percent_to_basis_points, ratio_percent2
+from agrotrace.domain.decimal import (
+    compare_decimal_strings,
+    kg_to_grams,
+    mass_total,
+    percent_to_basis_points,
+    ratio_percent2,
+)
 from agrotrace.domain.state_machine import available_actions, can_transition
 from agrotrace.domain.strings import compare_code_points
 
 __all__ = ["available_actions", "batch_code", "can_transition", "can_use_as_input", "check_discrepancy",
-           "check_mass_balance", "check_waiting_period", "risk_model", "sample_bucket"]
+           "check_mass_balance", "check_waiting_period", "conclude_lab_test", "risk_model", "sample_bucket",
+           "should_close_recall"]
 
 RiskReason = Literal["NEW_FARM", "LOW_RATING", "RECENT_PESTICIDE", "SAMPLED", "NONE"]
 
@@ -92,3 +99,19 @@ def check_mass_balance(inputs: list[dict], outputs: list[dict]) -> dict:
 def can_use_as_input(status: str) -> dict:
     """BR-05 `canUseAsInput`: only Approved or Accepted batches are processing inputs (R20)."""
     return {"allowed": status in ("Approved", "Accepted")}
+
+
+def conclude_lab_test(results: list[dict]) -> dict:
+    """BR-02 `concludeLabTest`: FAIL when any indicator's value is strictly greater than its norm (`maxValue`; null — not
+    normalized, never a failure), else PASS; `exceeded` lists the failing indicators in input order. Exact decimal
+    comparison of the strings (domain.decimal), never a float. No results → `{"error": "NO_RESULTS"}`."""
+    if not results:
+        return {"error": "NO_RESULTS"}
+    exceeded = [r["indicatorId"] for r in results
+                if r["maxValue"] is not None and compare_decimal_strings(r["value"], r["maxValue"]) > 0]
+    return {"conclusion": "FAIL" if exceeded else "PASS", "exceeded": exceeded}
+
+
+def should_close_recall(task_statuses: list[str]) -> bool:
+    """BR-10 `shouldCloseRecall`: a recall closes when every task is CONFIRMED — vacuously for a recall without tasks."""
+    return all(s == "CONFIRMED" for s in task_statuses)

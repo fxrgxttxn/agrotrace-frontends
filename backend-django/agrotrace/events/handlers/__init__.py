@@ -6,6 +6,7 @@ Kept free of Celery/Django imports: the api process reads it to filter what it p
 
 HANDLER_MODULES: dict[str, str] = {
     "vsd.import": "agrotrace.events.handlers.vsd_import",
+    "lab.escalate": "agrotrace.events.handlers.lab_escalate",
 }
 
 #: Event types the outbox publishes (in contract enum order is irrelevant; a set of names).

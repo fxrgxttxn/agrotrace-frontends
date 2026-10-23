@@ -64,6 +64,7 @@ def test_the_delayed_delivery_step_is_not_in_the_consumer():
 
 def test_the_worker_imports_the_event_tasks():
     assert "agrotrace.events.handlers.vsd_import" in app.conf.imports
+    assert "agrotrace.events.handlers.lab_escalate" in app.conf.imports
 
 
 def test_the_compose_commands():

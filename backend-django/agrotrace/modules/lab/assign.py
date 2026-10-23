@@ -67,3 +67,28 @@ def assign_lab(tx: Tx, batch: dict[str, Any], *, actor: Principal) -> str | None
         "productName": batch["product_name"], "labOrgId": lab["id"], "labName": lab["name"], "reason": reason,
         "dueAt": iso(due_at)})
     return test_id
+
+
+def insert_unplanned(tx: Tx, *, batch: dict[str, Any], lab: dict[str, Any], reason: str, actor: Principal,
+                     action: str) -> str:
+    """An unplanned lab test, the port of backend-express/src/modules/lab/assign.ts `insertUnplannedLabTest`: QUEUED,
+    `reason` INSPECTOR (createLabTest) or COMPLAINT (decideComplaint, Task 11), due in 5 working days, `created_by` =
+    the user, version 1; the audit row (`action`) and LAB_ASSIGNED to the laboratory and the batch origin. `batch`:
+    id, public_code, origin_org_id, product_name; `lab`: id, name. The caller checked both. Returns the test id."""
+    now = tx.now
+    due_at = add_working_days(now.replace(microsecond=now.microsecond // 1000 * 1000), DUE_WORKING_DAYS)
+    test_id = tx.scalar(
+        "INSERT INTO lab_tests (batch_id, lab_org_id, reason, status, due_at, created_at, updated_at, created_by, "
+        "version) VALUES (%s, %s, %s, 'QUEUED', %s, %s, %s, %s, 1) RETURNING id::text",
+        [batch["id"], lab["id"], reason, due_at, now, now, actor.user_id],
+    )
+    audit.record(tx, action=action, entity_type="labTest", entity_id=test_id, actor=actor,
+                 diff=audit.audit_diff(None, {"batchId": batch["id"], "labOrgId": lab["id"], "reason": reason,
+                                              "status": "QUEUED", "dueAt": iso(due_at), "version": 1}))
+    from agrotrace.modules.batches.lifecycle import notify
+
+    notify(tx, "LAB_ASSIGNED", org_ids=[lab["id"], batch["origin_org_id"]], payload={
+        "labTestId": test_id, "batchId": batch["id"], "publicCode": batch["public_code"],
+        "productName": batch["product_name"], "labOrgId": lab["id"], "labName": lab["name"], "reason": reason,
+        "dueAt": iso(due_at)})
+    return test_id

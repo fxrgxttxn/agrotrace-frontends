@@ -31,7 +31,14 @@ def _working_days(i: dict[str, Any]) -> dict[str, Any]:
     return {"result": iso(dates.add_working_days(start, i["days"]))}
 
 
+def _recall_due(i: dict[str, Any]) -> dict[str, Any]:
+    opened = datetime.fromisoformat(i["openedAt"].replace("Z", "+00:00"))
+    return {"dueAt": iso(dates.recall_task_due_at(opened))}
+
+
 RUNNERS: dict[str, tuple[str, Callable[[dict[str, Any]], dict[str, Any]]]] = {
+    "BR-02.json": ("concludeLabTest", lambda i: rules.conclude_lab_test(i["results"])),
+    "BR-08.json": ("recallTaskDueAt", _recall_due),
     "batch-code.json": ("formatBatchCode", lambda i: {"code": rules.batch_code(i["year"], i["seq"])}),
     "BR-01.json": ("checkWaitingPeriod", lambda i: rules.check_waiting_period(i["shipDate"], i["treatments"])),
     "BR-07.json": ("checkDiscrepancy", lambda i: rules.check_discrepancy(i["declaredKg"], i["actualKg"])),
@@ -148,3 +155,15 @@ def test_br04_loss_norm_pattern_r23():
         [{"massUsedKg": "0.001", "lossNormPercent": "1.5"}, {"massUsedKg": "0.001", "lossNormPercent": "1.5"}],
         [{"massKg": "0.001"}],
     ) == {"ok": False, "inputKg": "0.002", "allowedKg": "0.000", "outputKg": "0.001"}
+
+
+def test_br02_is_strictly_greater_and_decimal():
+    """BR-02: equal is not exceeded (strict `>`), whatever the scale; the comparison is exact, never a float."""
+    one = lambda v, m: rules.conclude_lab_test([{"indicatorId": "x", "value": v, "maxValue": m}])  # noqa: E731
+    assert one("0.500000", "0.5") == {"conclusion": "PASS", "exceeded": []}
+    assert one("10", "10.000000") == {"conclusion": "PASS", "exceeded": []}
+    assert one("10.000001", "10") == {"conclusion": "FAIL", "exceeded": ["x"]}
+    # 0.1 + 0.2 style traps: exact decimals.
+    assert one("0.300000", "0.3") == {"conclusion": "PASS", "exceeded": []}
+    assert one("99999999.999999", "99999999.999998") == {"conclusion": "FAIL", "exceeded": ["x"]}
+    assert rules.conclude_lab_test([]) == {"error": "NO_RESULTS"}

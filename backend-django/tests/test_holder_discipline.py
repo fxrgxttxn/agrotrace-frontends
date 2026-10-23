@@ -172,3 +172,22 @@ def _forbidden(tree) -> list[tuple[int, str]]:
 def test_the_guard_sees_the_forms_it_forbids():
     sample = ast.parse('connection.cursor()\nconnections["default"].cursor()\nUser.objects.filter(id=1)\n')
     assert sorted(w for _, w in _forbidden(sample)) == ["cursor", "cursor", "objects"]
+
+
+def test_the_lab_protocol_goes_to_storage_without_a_connection(monkeypatch):
+    """uploadLabProtocol (P61): the PDF bytes are written to MinIO between the two transactions, holding nothing."""
+    import uuid
+
+    from agrotrace.modules.lab import services
+    from agrotrace.security.jwt import Principal
+
+    holds = []
+    monkeypatch.setattr(services, "lock_own_test", lambda tx, p, i: {"protocol_file_id": None})
+    monkeypatch.setattr(services.files, "insert", lambda tx, f: None)
+    monkeypatch.setattr(services.audit, "record", lambda *a, **k: None)
+    monkeypatch.setattr("agrotrace.infra.s3.put", lambda *a: holds.append(sql.holds_connection()))
+    monkeypatch.setattr("agrotrace.infra.s3.bucket", lambda: "test")
+    p = Principal(user_id=str(uuid.uuid4()), org_id=str(uuid.uuid4()), roles=("LAB",), org_admin=False)
+    ref = services.upload_protocol(p, str(uuid.uuid4()), Upload("p.pdf", b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n \n%%EOF\n"))
+    assert holds == [False]
+    assert ref["mime"] == "application/pdf" and not sql.holds_connection()

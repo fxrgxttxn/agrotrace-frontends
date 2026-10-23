@@ -101,7 +101,7 @@ def _insert(event_id, *, type_="vsd.import", published_days_ago=None, backend="d
 def test_the_handled_types_are_the_registered_tasks():
     import importlib
 
-    assert HANDLED_TYPES == ("vsd.import",)
+    assert HANDLED_TYPES == ("vsd.import", "lab.escalate")
     assert set(app.conf.imports) == set(HANDLER_MODULES.values())
     for type_, module in HANDLER_MODULES.items():
         importlib.import_module(module)
@@ -151,7 +151,8 @@ def test_the_request_never_waits_on_the_broker(broker, rows):
 def test_types_without_a_handler_stay_unpublished(broker, rows):
     def fn(tx):
         rows.append(outbox.enqueue(tx, "notification.dispatch", {}))
-        rows.append(outbox.enqueue(tx, "lab.escalate", {}))
+        rows.append(outbox.enqueue(tx, "rating.recalculate", {}))
+        rows.append(outbox.enqueue(tx, "recall.requested", {}))
 
     with_tx(fn)
     assert relay.relay().wait_idle()
