@@ -1,6 +1,6 @@
 """The shared rule vectors (contracts/rules/vectors/*.json, contracts/rules/state-machine.json) run against the Python
 port of @agrotrace/domain. One runner: each vector file names its TS function (`fn`); RUNNERS maps it to the port.
-Tasks 8–11 add their files and functions here. BR-06 has no vector file (a status check, covered over HTTP)."""
+Tasks 9–11 add their files and functions here. BR-06 has no vector file (a status check, covered over HTTP)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import pytest
 
 from agrotrace.core import config
 from agrotrace.core.render import iso
-from agrotrace.domain import dates, rules, state_machine
+from agrotrace.domain import dates, decimal, rules, state_machine
 from agrotrace.domain.idempotency import idempotency_decision
 
 VECTORS = config.ROOT / "contracts" / "rules" / "vectors"
@@ -38,6 +38,8 @@ RUNNERS: dict[str, tuple[str, Callable[[dict[str, Any]], dict[str, Any]]]] = {
     "BR-11.json": ("idempotencyDecision",
                    lambda i: {"decision": idempotency_decision(i["key"], i["stored"], i["fingerprint"])}),
     "BR-03.json": ("requiresLabTest", _risk),
+    "BR-04.json": ("checkMassBalance", lambda i: rules.check_mass_balance(i["inputs"], i["outputs"])),
+    "BR-05.json": ("canUseAsInput", lambda i: rules.can_use_as_input(i["status"])),
     "state-machine.json": ("canTransition", lambda i: {"allowed": rules.can_transition(i["from"], i["to"])}),
     "working-days.json": ("addWorkingDays", _working_days),
 }
@@ -105,3 +107,44 @@ def test_br01_tie_is_the_smallest_name_by_code_points():
 def test_br07_declared_zero_and_half_up():
     assert rules.check_discrepancy("0.000", "1.000") == {"error": "DECLARED_ZERO"}
     assert rules.check_discrepancy("3.000", "3.001") == {"percent": "0.03", "actRequired": False}
+
+
+def test_kg_to_grams_bounds_r26():
+    assert decimal.kg_to_grams("123456789.123") == 123456789123
+    assert decimal.kg_to_grams("999999999.999") == 999999999999
+    assert decimal.kg_to_grams("12") == 12000 and decimal.kg_to_grams("1.5") == 1500
+    for bad in ("1234567890", "1234567890.000", "1.0001", "-1.000", "1.", ".5", "", "1e3", "１.000", "1.000\n"):
+        with pytest.raises(ValueError):
+            decimal.kg_to_grams(bad)
+
+
+def test_grams_to_kg_and_mass_total_r50():
+    assert decimal.grams_to_kg(0) == "0.000"
+    assert decimal.grams_to_kg(1) == "0.001"
+    assert decimal.grams_to_kg(123456789123) == "123456789.123"
+    assert decimal.grams_to_kg(-1500) == "-1.500"  # as gramsToKg (a difference may be negative)
+    # MassTotal `^\d{1,15}\.\d{3}$`: a sum of 50 maximal inputs still fits; a negative or a 16-digit sum does not.
+    assert decimal.mass_total(50 * 999999999999) == "49999999999.950"
+    assert decimal.mass_total(10**18 - 1) == "999999999999999.999"
+    for bad in (-1, 10**18):
+        with pytest.raises(ValueError):
+            decimal.mass_total(bad)
+    with pytest.raises(TypeError):
+        decimal.mass_total(1.5)  # type: ignore[arg-type]  # never a float
+
+
+def test_br04_loss_norm_pattern_r23():
+    assert decimal.percent_to_basis_points("5") == 500
+    assert decimal.percent_to_basis_points("5.5") == 550
+    assert decimal.percent_to_basis_points("100.00") == 10000
+    for bad in ("1000", "5.555", "-5", "5.", "", "٥", "5\n"):
+        with pytest.raises(ValueError):
+            decimal.percent_to_basis_points(bad)
+    with pytest.raises(ValueError):
+        rules.check_mass_balance([{"massUsedKg": "1.000", "lossNormPercent": "5.555"}], [{"massKg": "1.000"}])
+    # Both lists empty → NO_INPUTS first (R23); allowance is floored per input, not on the sum.
+    assert rules.check_mass_balance([], []) == {"error": "NO_INPUTS"}
+    assert rules.check_mass_balance(
+        [{"massUsedKg": "0.001", "lossNormPercent": "1.5"}, {"massUsedKg": "0.001", "lossNormPercent": "1.5"}],
+        [{"massKg": "0.001"}],
+    ) == {"ok": False, "inputKg": "0.002", "allowedKg": "0.000", "outputKg": "0.001"}

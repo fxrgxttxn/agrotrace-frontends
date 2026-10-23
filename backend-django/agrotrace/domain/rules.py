@@ -1,6 +1,7 @@
 """Business rules of @agrotrace/domain (packages/domain/src/rules.ts): the BR-03 risk model, the public batch code, BR-01
-(waiting period) and BR-07 (discrepancy); the state machine is re-exported from domain.state_machine. Later tasks add
-their rules (BR-02/04/05/08/09/10) here. Vectors: contracts/rules/vectors (tests/test_domain_vectors.py)."""
+(waiting period), BR-04 (mass balance), BR-05 (processing input) and BR-07 (discrepancy); the state machine is
+re-exported from domain.state_machine. Later tasks add their rules (BR-02/08/09/10) here. Vectors:
+contracts/rules/vectors (tests/test_domain_vectors.py)."""
 
 from __future__ import annotations
 
@@ -8,12 +9,12 @@ import hashlib
 from typing import Literal
 
 from agrotrace.domain.dates import add_days_to_date, utc_date
-from agrotrace.domain.decimal import kg_to_grams, ratio_percent2
+from agrotrace.domain.decimal import kg_to_grams, mass_total, percent_to_basis_points, ratio_percent2
 from agrotrace.domain.state_machine import available_actions, can_transition
 from agrotrace.domain.strings import compare_code_points
 
-__all__ = ["available_actions", "batch_code", "can_transition", "check_discrepancy", "check_waiting_period", "risk_model",
-           "sample_bucket"]
+__all__ = ["available_actions", "batch_code", "can_transition", "can_use_as_input", "check_discrepancy",
+           "check_mass_balance", "check_waiting_period", "risk_model", "sample_bucket"]
 
 RiskReason = Literal["NEW_FARM", "LOW_RATING", "RECENT_PESTICIDE", "SAMPLED", "NONE"]
 
@@ -67,3 +68,27 @@ def check_discrepancy(declared_kg: str, actual_kg: str) -> dict:
     a = kg_to_grams(actual_kg)
     diff = abs(a - d)
     return {"percent": ratio_percent2(diff, d), "actRequired": diff * 100 > 2 * d}
+
+
+def check_mass_balance(inputs: list[dict], outputs: list[dict]) -> dict:
+    """BR-04 `checkMassBalance`, exactly in integer grams: `allowed` = Σ floor(g_i × (10000 − bp_i) / 10000), the
+    fractional gram dropped per input (bp = lossNormPercent × 100); ok when Σ outputs ≤ allowed. Inputs are checked
+    before outputs, so both empty is NO_INPUTS (R23). Totals are `MassTotal` strings (R50). Never a float."""
+    if not inputs:
+        return {"error": "NO_INPUTS"}
+    if not outputs:
+        return {"error": "NO_OUTPUTS"}
+    total_in = allowed = total_out = 0
+    for x in inputs:
+        g = kg_to_grams(x["massUsedKg"])
+        total_in += g
+        allowed += g * (10000 - percent_to_basis_points(x["lossNormPercent"])) // 10000
+    for o in outputs:
+        total_out += kg_to_grams(o["massKg"])
+    return {"ok": total_out <= allowed, "inputKg": mass_total(total_in), "allowedKg": mass_total(allowed),
+            "outputKg": mass_total(total_out)}
+
+
+def can_use_as_input(status: str) -> dict:
+    """BR-05 `canUseAsInput`: only Approved or Accepted batches are processing inputs (R20)."""
+    return {"allowed": status in ("Approved", "Accepted")}
