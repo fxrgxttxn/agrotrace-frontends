@@ -15,6 +15,8 @@
 use App\Events\EventHandlers;
 use App\Infrastructure\Amqp\Broker;
 use App\Infrastructure\Amqp\BrokerUnavailable;
+use App\Infrastructure\Amqp\ConfirmPublisher;
+use App\Infrastructure\Db\Tx;
 use App\Infrastructure\Outbox\Relay;
 use App\Scheduler\Jobs\OutboxSweep;
 use Illuminate\Support\Facades\DB;
@@ -242,4 +244,38 @@ it('the real Broker fails fast against a refused port and then backs off without
     expect(fn () => $broker->connection())->toThrow(BrokerUnavailable::class, 'in back-off');
     expect(microtime(true) - $started)->toBeLessThan(0.01);
     expect($broker->backoffLeft())->toBeGreaterThan(0.0);
+});
+
+it('a serialization failure during the publish is never retried by the relay: one send, the row stays unpublished (M5)', function () {
+    $id = outboxRow();
+    $sends = new ArrayObject;
+    $relay = new Relay(new Broker('amqp://none:none@127.0.0.1:1/', 'test'), 10.0, fn () => new class($sends) implements ConfirmPublisher
+    {
+        public function __construct(private readonly ArrayObject $sends) {}
+
+        public function publishAll(array $messages, float $timeoutSec = 10.0): void
+        {
+            $this->sends->append(count($messages));
+            $e = new PDOException('could not serialize access');
+            $e->errorInfo = ['40001', 7, 'could not serialize access'];
+            throw $e;
+        }
+
+        public function isOpen(): bool
+        {
+            return true;
+        }
+    });
+    expect(fn () => $relay->publish([$id]))->toThrow(PDOException::class);
+    expect($sends->getArrayCopy())->toBe([1]);
+    expect(outboxState($id)->published_at)->toBeNull();
+    expect(DB::transactionLevel())->toBe(0);
+    // Not locked any more.
+    DB::transaction(fn () => expect(DB::selectOne('SELECT id FROM outbox_events WHERE id = ? FOR NO KEY UPDATE NOWAIT', [$id])->id)->toBe($id));
+});
+
+it('refuses to publish inside a transaction (the events must have committed first)', function () {
+    $id = outboxRow();
+    expect(fn () => Tx::run(fn () => fakeRelay($this->log, 'relay')->publish([$id])))->toThrow(LogicException::class);
+    expect(FakePublisher::sends($this->log))->toBe([]);
 });

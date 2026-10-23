@@ -10,6 +10,7 @@ use App\Infrastructure\Amqp\Publisher;
 use App\Infrastructure\Db\Tx;
 use App\Support\Json;
 use Closure;
+use LogicException;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -101,20 +102,37 @@ final class Relay
         $this->broker->reset();
     }
 
-    /** @param  list<mixed>  $bindings */
+    /**
+     * The pick, the publish + confirm and the UPDATE run in ONE transaction of their own. This is deliberately not
+     * Tx::run: Tx re-runs its closure on 40001/40P01 (P8: the closure touches only the database), and a broker publish
+     * is a side effect a retry must never repeat. Here any failure rolls back and is thrown, never retried; the caller
+     * (relay process, worker, sweeper) decides when to try again. The isolation level is pinned to READ COMMITTED:
+     * SKIP LOCKED plus the UPDATE's `published_at IS NULL` re-check are what rule out a second send.
+     *
+     * @param  list<mixed>  $bindings
+     */
     private function publishLocked(string $pick, array $bindings, int $limit): int
     {
+        if (Tx::active() || DB::transactionLevel() !== 0) {
+            throw new LogicException('Relay inside a transaction: publish only after the events\' transaction committed');
+        }
         $publisher = $this->publisher();
         $types = EventHandlers::types();
         $typeMarks = implode(',', array_fill(0, count($types), '?'));
+        $db = DB::connection();
         try {
-            return Tx::run(function () use ($publisher, $pick, $bindings, $types, $typeMarks, $limit): int {
-                $rows = DB::select("SELECT id, type, payload::text AS payload FROM outbox_events
+            $db->beginTransaction();
+            try {
+                $db->statement('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+                $rows = $db->select("SELECT id, type, payload::text AS payload FROM outbox_events
                      WHERE backend = 'laravel' AND published_at IS NULL AND type IN ({$typeMarks}) AND {$pick}
                      ORDER BY created_at LIMIT ? FOR NO KEY UPDATE SKIP LOCKED", [...$types, ...$bindings, $limit]);
                 if ($rows === []) {
+                    $db->commit();
+
                     return 0;
                 }
+                // The row locks stay held across the publish AND the confirm: a sweeper or another relay skips them.
                 $publisher->publishAll(array_map(fn ($r) => [
                     'exchange' => self::EXCHANGE,
                     'routingKey' => $r->type,
@@ -124,11 +142,21 @@ final class Relay
                     'mandatory' => false,
                 ], $rows), $this->confirmTimeoutSec);
                 $ids = array_map(fn ($r) => $r->id, $rows);
-                DB::update('UPDATE outbox_events SET published_at = now(), attempts = attempts + 1
+                $db->update('UPDATE outbox_events SET published_at = now(), attempts = attempts + 1
                      WHERE id IN ('.implode(',', array_fill(0, count($ids), '?')).') AND published_at IS NULL', $ids);
+                $db->commit();
 
                 return count($rows);
-            });
+            } catch (Throwable $e) {
+                try {
+                    if ($db->transactionLevel() > 0) {
+                        $db->rollBack(0);
+                    }
+                } catch (Throwable) {
+                    // The connection is gone: PostgreSQL ended the session and released the row locks.
+                }
+                throw $e;
+            }
         } catch (BrokerUnavailable $e) {
             $this->reset();
             throw $e;
