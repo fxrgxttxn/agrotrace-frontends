@@ -290,3 +290,11 @@ it('the default retry pause ends within ~100 ms of a stop request', function () 
     expect(microtime(true) - $started)->toBeLessThan(1.5); // the first pause is 2 s
     expect($ch->calls)->toBe(['cancel', 'nack 2 requeue']);
 });
+
+it('stopping: an unreadable message or an unhandled type is also cancelled before its reject (re-review N2)', function (string $body) {
+    $consumer = new Consumer(['vsd.import' => new RecordingHandler], new VsdLane(laneFile()), sleepMs: $this->sleep);
+    $consumer->stop();
+    $ch = new FakeChannel;
+    $consumer->handle($body, [], 9, $ch);
+    expect($ch->calls)->toBe(['cancel', 'reject 9 no-requeue']);
+})->with(['not json', envelopeBody('lab.escalate')]);

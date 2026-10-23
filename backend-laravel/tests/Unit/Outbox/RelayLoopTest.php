@@ -217,3 +217,19 @@ it('P61: the DB slot is kept while ids keep coming, given back after the idle gr
     $loop->shutdown(1.0);
     expect(DB::selectOne("SELECT count(*) AS n FROM outbox_events WHERE backend = 'laravel' AND published_at IS NULL")->n)->toBe(0);
 });
+
+it('the flush deadline counts from the stop request, not from the start of the shutdown (re-review N1)', function () {
+    $loop = loopFor($this, new Relay(new Broker('amqp://none:none@127.0.0.1:1/', 'test'), 10.0, fn () => throw new BrokerUnavailable('down')));
+    $loop->tick(0.01);
+    $ids = loopRows(2);
+    RelayNotifier::send($ids, $this->sock, $this->marker);
+    $loop->tick(0.05);
+    expect($loop->pendingCount())->toBe(2);
+    $loop->stop();
+    usleep(300_000); // the last tick still running when SIGTERM came
+    $t0 = microtime(true);
+    $loop->shutdown(0.3);
+    // 0.3 s from the stop request: at most what is left of it, not a fresh 0.3 s.
+    expect(microtime(true) - $t0)->toBeLessThan(0.15);
+    expect(is_file($this->marker))->toBeTrue();
+});

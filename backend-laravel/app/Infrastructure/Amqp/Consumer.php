@@ -90,6 +90,7 @@ final class Consumer
         }
         if (! $envelope instanceof stdClass || ! is_string($envelope->id ?? null) || ! is_string($envelope->type ?? null)) {
             Log::error('unreadable queue message; dead-lettering');
+            $this->cancelIfStopping($channel);
             $channel->reject($deliveryTag, false);
 
             return;
@@ -97,6 +98,7 @@ final class Consumer
         $handler = $this->handlers[$envelope->type] ?? null;
         if ($handler === null) {
             Log::error('no handler for the event type; dead-lettering', ['eventId' => $envelope->id, 'type' => $envelope->type]);
+            $this->cancelIfStopping($channel);
             $channel->reject($deliveryTag, false);
 
             return;

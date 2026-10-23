@@ -53,6 +53,8 @@ final class RelayLoop
 
     private bool $stop = false;
 
+    private ?float $stopRequestedAt = null;
+
     /** At start: ids dropped while no relay was bound. */
     private bool $catchUpDue = true;
 
@@ -111,8 +113,10 @@ final class RelayLoop
         return $sock;
     }
 
+    /** The stop request (SIGTERM); the flush deadline counts from its first call (stopwaitsecs counts from the signal). */
     public function stop(): void
     {
+        $this->stopRequestedAt ??= microtime(true);
         $this->stop = true;
     }
 
@@ -166,10 +170,14 @@ final class RelayLoop
         }
     }
 
-    /** The stop: unbind, drain, flush the pending ids until $flushSec passes. Returns the number left pending. */
+    /**
+     * The stop: unbind, drain, flush the pending ids until $flushSec after the stop request (stop(); a tick still
+     * running when the signal came — a catch-up's confirms — spends the same budget, re-review N1). Returns the number
+     * left pending.
+     */
     public function shutdown(float $flushSec): int
     {
-        $deadline = microtime(true) + $flushSec;
+        $deadline = ($this->stopRequestedAt ?? microtime(true)) + $flushSec;
         @unlink($this->socketPath);
         $this->drain();
         while ($this->pending !== [] && microtime(true) < $deadline) {
@@ -262,6 +270,10 @@ final class RelayLoop
     private function catchUp(): void
     {
         for ($round = 0; $round < self::CATCH_UP_ROUNDS; $round++) {
+            if ($this->stop) {
+                // The stop's budget goes to the pending ids; the rest stays for the next relay's start-up catch-up.
+                return;
+            }
             $this->drain();
             $n = $this->guarded(fn () => $this->relay->publishOldest(self::CATCH_UP_BATCH));
             if ($n < self::CATCH_UP_BATCH) {
