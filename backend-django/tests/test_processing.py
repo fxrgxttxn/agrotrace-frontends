@@ -52,8 +52,13 @@ def test_a_first_deadlock_is_retried_and_the_checks_run_again(db, monkeypatch):
 
 
 def test_the_mass_never_passes_through_a_float():
-    src = inspect.getsource(services)
-    assert "float(" not in src
+    """The service and the domain modules that do its arithmetic (check_mass_balance, kg_to_grams, mass_total, the
+    loss-norm basis points) — Task 8 review M2."""
+    from agrotrace.domain import decimal, rules
+
+    for module in (services, rules, decimal):
+        src = inspect.getsource(module)
+        assert "float(" not in src, module.__name__
 
 
 def test_a_repeated_input_in_another_letter_case_is_the_step_1_duplicate():
@@ -73,3 +78,22 @@ def test_a_repeated_input_in_another_letter_case_is_the_step_1_duplicate():
         "inputs": [{"batchId": bid, "massUsedKg": "1.000"}],
         "outputs": [{"productId": pid, "massKg": "1.000"}, {"productId": pid.upper(), "massKg": "1.000"}]})
     assert ok, errors
+
+
+def test_a_malformed_id_in_another_letter_case_is_not_a_duplicate():
+    """Task 8 review M1: only valid uuids are folded; other strings are compared as Zod compares them, so the 400 of
+    a malformed id is Express's (`validation.uuid` alone)."""
+    from agrotrace.modules.processing.serializers import ProcessingRequest
+
+    out = [{"productId": str(uuid.uuid4()), "massKg": "1.000"}]
+    ok, _value, errors = ProcessingRequest.validate({
+        "inputs": [{"batchId": "abc", "massUsedKg": "1.000"}, {"batchId": "ABC", "massUsedKg": "1.000"}],
+        "outputs": out})
+    assert not ok
+    assert errors == {"inputs[0].batchId": ["validation.uuid"], "inputs[1].batchId": ["validation.uuid"]}
+    # The same malformed string twice is a duplicate, as in Zod.
+    ok, _value, errors = ProcessingRequest.validate({
+        "inputs": [{"batchId": "abc", "massUsedKg": "1.000"}, {"batchId": "abc", "massUsedKg": "1.000"}],
+        "outputs": out})
+    assert errors == {"inputs[0].batchId": ["validation.uuid"],
+                      "inputs[1].batchId": ["validation.uuid", "validation.duplicate"]}

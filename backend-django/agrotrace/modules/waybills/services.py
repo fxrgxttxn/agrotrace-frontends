@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agrotrace.core import audit, sql
+from agrotrace.core import audit, locks, sql
 from agrotrace.core.if_match import check_version
 from agrotrace.core.params import QueryReader, utc_day_bounds
 from agrotrace.core.problem import AppProblem, validation_problem
@@ -46,8 +46,8 @@ WAYBILL_COLUMNS = ("w.id::text AS id, w.number, w.status, w.sender_org_id::text 
                    "w.receiver_org_id::text AS receiver_org_id, w.created_at, w.sent_at, w.accepted_at, "
                    "w.reject_reason, w.version, w.deleted_at")
 _RETURNING = WAYBILL_COLUMNS.replace("w.", "")
-_BATCH_LOCK_COLUMNS = ("id::text AS id, public_code, holder_org_id::text AS holder_org_id, field_id::text AS field_id, "
-                       "kind, mass_kg, status, version")
+_BATCH_LOCK_COLUMNS = ("b.id::text AS id, b.public_code, b.holder_org_id::text AS holder_org_id, "
+                       "b.field_id::text AS field_id, b.kind, b.mass_kg, b.status, b.version")
 
 
 # ── problems ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -175,12 +175,8 @@ def current_version(waybill_id: str) -> dict[str, Any] | None:
 # ── locks ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def lock_batches(tx: Tx, ids: list[str]) -> list[dict[str, Any]]:
-    """The batches FOR NO KEY UPDATE in ONE statement `ORDER BY id`; missing ids are simply absent."""
-    wanted = sorted(set(ids))
-    if not wanted:
-        return []
-    return tx.all(f"SELECT {_BATCH_LOCK_COLUMNS} FROM batches WHERE id = ANY(%s::uuid[]) ORDER BY id "
-                  "FOR NO KEY UPDATE", [wanted])
+    """The batches FOR NO KEY UPDATE in ONE statement `ORDER BY id` (core.locks.lock_batches); missing ids are absent."""
+    return locks.lock_batches(tx, ids, _BATCH_LOCK_COLUMNS)
 
 
 def _lock_all(tx: Tx, p: Principal, waybill_id: str) -> tuple[dict[str, Any], list[tuple[dict, dict]]]:

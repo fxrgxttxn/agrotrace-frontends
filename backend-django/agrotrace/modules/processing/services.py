@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agrotrace.core import audit
+from agrotrace.core import audit, locks
 from agrotrace.core.problem import AppProblem, validation_problem
 from agrotrace.core.tx import Tx, with_tx
 from agrotrace.core.validation import parse_request_body
@@ -42,12 +42,8 @@ def business_rule(rule: str, params: dict[str, Any]) -> AppProblem:
 
 def lock_inputs(tx: Tx, ids: list[str]) -> list[dict[str, Any]]:
     """The input batches FOR NO KEY UPDATE in ONE statement `ORDER BY id` (deleted ones included — visibility is the
-    caller's check); missing ids are simply absent."""
-    wanted = sorted(set(ids))
-    if not wanted:
-        return []
-    return tx.all(f"SELECT {BATCH_COLUMNS} FROM batches b WHERE b.id = ANY(%s::uuid[]) ORDER BY b.id "
-                  "FOR NO KEY UPDATE OF b", [wanted])
+    caller's check; core.locks.lock_batches, the same statement as the waybill operations); missing ids are absent."""
+    return locks.lock_batches(tx, ids, BATCH_COLUMNS)
 
 
 def _ancestors(tx: Tx, batch_id: str) -> set[str]:

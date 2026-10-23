@@ -10,9 +10,12 @@ sweeper take `skip_locked`. A lock outside a transaction locks nothing: it is re
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.db import connection, models
+
+if TYPE_CHECKING:
+    from agrotrace.core.tx import Tx
 
 Strength = Literal["no key update", "update", "share", "key share"]
 
@@ -41,3 +44,15 @@ def lock[M: models.Model](
     clause = "FOR " + _CLAUSE[strength] + (" SKIP LOCKED" if skip_locked else "")
     query = f"SELECT * FROM {table} WHERE {pk} = ANY(%s::uuid[]) ORDER BY {pk} {clause}"
     return list(table_model.objects.raw(query, [wanted]))
+
+
+def lock_batches(tx: Tx, ids: Iterable[str], columns: str) -> list[dict[str, Any]]:
+    """The R52 `batches` lock — the ONE statement form every operation uses (waybills, processing, lab results, the
+    recall engine): the rows of `ids` (deleted ones included — visibility is the caller's check) `FOR NO KEY UPDATE
+    OF b`, ordered by id, so two operations over overlapping sets always lock in the same order. `columns` — the
+    select list over the alias `b`; missing ids are simply absent."""
+    wanted = sorted({str(i) for i in ids})
+    if not wanted:
+        return []
+    return tx.all(f"SELECT {columns} FROM batches b WHERE b.id = ANY(%s::uuid[]) ORDER BY b.id FOR NO KEY UPDATE OF b",
+                  [wanted])
