@@ -1,6 +1,7 @@
 """The batch state machine (contracts/rules/state-machine.json), the port of packages/domain/src/state-machine.ts:
 `can_transition` and `available_actions` (the transitions from a status, in file order); the waybill lifecycle
-(contracts/rules/waybill-state-machine.json): `can_waybill_go`."""
+(contracts/rules/waybill-state-machine.json): `can_waybill_go`; the lifecycles of quality, recall, complaint and
+organization entities (contracts/rules/entity-state-machines.json): `can_entity_go`."""
 
 from __future__ import annotations
 
@@ -43,3 +44,19 @@ def waybill_statuses() -> tuple[str, ...]:
 def can_waybill_go(frm: str, to: str) -> bool:
     """A waybill transition of the file (`to` may be the pseudo-status DELETED)."""
     return any(t["from"] == frm and t["to"] == to for t in _waybill_machine()["transitions"])
+
+
+# ── quality, recall, complaint, organization, VSD import (contracts/rules/entity-state-machines.json) ─────────────
+
+@cache
+def _entity_machines() -> dict[str, Any]:
+    return json.loads((config.ROOT / "contracts" / "rules" / "entity-state-machines.json").read_text("utf-8"))
+
+
+def entity_statuses(entity: str) -> tuple[str, ...]:
+    return tuple(_entity_machines()[entity]["statuses"])
+
+
+def can_entity_go(entity: str, frm: str, to: str) -> bool:
+    """A transition of `entity` (`labTest`, `recall`, `recallTask`, `complaint`, …) listed in the file."""
+    return any(t["from"] == frm and t["to"] == to for t in _entity_machines()[entity]["transitions"])

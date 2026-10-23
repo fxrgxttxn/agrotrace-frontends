@@ -195,3 +195,33 @@ def test_br09_follows_trust_rating_json():
     assert rules.next_trust_rating(tr["min"], "LAB_FAIL") == tr["min"]
     with pytest.raises(KeyError):
         rules.next_trust_rating(50, "OTHER")
+
+
+def test_entity_machines_follow_the_file():
+    """entity-state-machines.json: every listed transition is allowed, every other pair of statuses is not; the
+    complaint lifecycle (Task 11) as the contract states it."""
+    doc = json.loads((config.ROOT / "contracts" / "rules" / "entity-state-machines.json").read_text("utf-8"))
+    for entity, m in doc.items():
+        if entity == "description":
+            continue
+        assert state_machine.entity_statuses(entity) == tuple(m["statuses"])
+        pairs = {(t["from"], t["to"]) for t in m["transitions"]}
+        for a in m["statuses"]:
+            for b in m["statuses"]:
+                assert state_machine.can_entity_go(entity, a, b) == ((a, b) in pairs), (entity, a, b)
+    assert state_machine.can_entity_go("complaint", "NEW", "IN_REVIEW")
+    assert state_machine.can_entity_go("complaint", "IN_REVIEW", "DECIDED")
+    assert not state_machine.can_entity_go("complaint", "IN_REVIEW", "IN_REVIEW")
+    assert not state_machine.can_entity_go("complaint", "DECIDED", "DECIDED")
+
+
+def test_br09_rounds_like_math_round():
+    """BR-09 is `Math.round(current + delta)` clamped (Task 10 review M1): half rounds up (towards +∞), never a
+    truncation."""
+    assert rules.next_trust_rating(50.5, "LAB_PASS") == 53
+    assert rules.next_trust_rating(50.4, "LAB_PASS") == 52
+    assert rules.next_trust_rating(20.5, "LAB_FAIL") == 6  # 5.5 → 6
+    assert rules.next_trust_rating(12.5, "RECALL_SOURCE") == 3  # 2.5 → 3
+    assert rules.next_trust_rating(9.5, "RECALL_SOURCE") == 0  # -0.5 → -0 → clamped 0
+    assert rules.next_trust_rating(7.6, "LAB_FAIL") == 0
+    assert isinstance(rules.next_trust_rating(50.5, "LAB_PASS"), int)
