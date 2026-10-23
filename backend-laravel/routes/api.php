@@ -19,6 +19,7 @@ use App\Http\Controllers\Files\FilesController;
 use App\Http\Controllers\Health\HealthController;
 use App\Http\Controllers\Me\MeController;
 use App\Http\Controllers\Organizations\OrganizationsController;
+use App\Http\Controllers\Processing\ProcessingController;
 use App\Http\Controllers\Users\UsersController;
 use App\Http\Controllers\Waybills\WaybillsController;
 use Illuminate\Support\Facades\Route;
@@ -111,6 +112,9 @@ $op('DELETE', '/waybills/{id}', [WaybillsController::class, 'deleteWaybill'], 'd
 $op('POST', '/waybills/{id}/send', [WaybillsController::class, 'sendWaybill'], 'sendWaybill');
 $op('POST', '/waybills/{id}/accept', [WaybillsController::class, 'acceptWaybill'], 'acceptWaybill');
 $op('POST', '/waybills/{id}/reject', [WaybillsController::class, 'rejectWaybill'], 'rejectWaybill');
+
+// Processing (Task 8).
+$op('POST', '/processing', [ProcessingController::class, 'processBatches'], 'processBatches');
 
 // Swagger UI (spec 8.3) — outside the contract, as in Express.
 Route::get('/api/v1/docs', [DocsController::class, 'page']);
