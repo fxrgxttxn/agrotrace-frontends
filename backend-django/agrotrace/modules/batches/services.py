@@ -228,7 +228,7 @@ def create_batch(p: Principal, body: Any) -> dict[str, Any]:
             "AND t.applied_at >= %s AND t.applied_at <= %s",
             [field["id"], now_ms - timedelta(days=30), now_ms])
         required, reason = risk_model(public_code=b["public_code"], farm_batch_count=int(farm_batch_count),
-                                      trust_rating=float(trust or 0),
+                                      trust_rating=int(trust or 0),
                                       pesticide_treatments_last_30_days=int(pesticides))
         tx.execute("UPDATE batches SET test_required = %s, test_reason = %s WHERE id = %s",
                    [required, reason, b["id"]])

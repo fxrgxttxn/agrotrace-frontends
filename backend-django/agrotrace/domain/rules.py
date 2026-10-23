@@ -33,7 +33,7 @@ def sample_bucket(public_code: str) -> int:
     return int.from_bytes(hashlib.sha256(public_code.encode("utf-8")).digest()[:4], "big") % 100
 
 
-def risk_model(*, public_code: str, farm_batch_count: int, trust_rating: float,
+def risk_model(*, public_code: str, farm_batch_count: int, trust_rating: int,
                pesticide_treatments_last_30_days: int) -> tuple[bool, RiskReason]:
     """BR-03 `requiresLabTest`, checked in order: NEW_FARM (< 5 batches), LOW_RATING (< 70), RECENT_PESTICIDE (> 0),
     SAMPLED (the deterministic 20 % sample by the code's hash), else NONE."""
@@ -126,8 +126,8 @@ RatingEvent = Literal["LAB_PASS", "LAB_FAIL", "RECALL_SOURCE"]
 
 
 def next_trust_rating(current: int, event: str) -> int:
-    """BR-09 `nextTrustRating`: `current` + the event's delta clamped to [min, max] — integers throughout (the
-    rating column and the deltas are integers, so `Math.round` of the TS port is the identity); an unknown event is a
-    KeyError."""
+    """BR-09 `nextTrustRating`: `Math.round(current + delta)` clamped to [min, max]; an unknown event is a KeyError.
+    `Math.round` rounds half towards +∞: `(2x + 1) // 2` (exact for the integer ratings of the column, the identity
+    there; a fractional `current` rounds as the TS port does — Task 10 review M1)."""
     tr = TRUST_RATING
-    return min(tr["max"], max(tr["min"], int(current) + int(tr["deltas"][event])))
+    return min(tr["max"], max(tr["min"], int((2 * (current + tr["deltas"][event]) + 1) // 2)))

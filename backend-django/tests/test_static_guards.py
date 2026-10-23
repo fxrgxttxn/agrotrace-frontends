@@ -6,7 +6,8 @@ do:
   core/ (exceptions: the files below, whose clock is not written data);
 - P57: no `select_for_update()` without `no_key=True`, no `FOR UPDATE` in SQL and no `lock(..., strength='update')`
   outside ALLOWED (dictionary row deletion — Task 4, deleteField — Task 5);
-- outbox only (R55): no `.delay()`, `.apply_async()`, `.retry()` outside infra/relay.py and events/tasks.py.
+- outbox only (R55): no `.delay()`, `.apply_async()`, `.retry()` outside infra/relay.py and events/tasks.py;
+- no floats in decimal or rating arithmetic: the whole package, with FLOAT_EXCEPTIONS and duration names.
 """
 
 import ast
@@ -23,6 +24,12 @@ CLOCK_EXCEPTIONS = {"security/jwt.py", "infra/altcha.py", "infra/file_urls.py", 
 ALLOWED: set[str] = {"modules/dictionaries/store.py", "modules/fields/services.py"}
 PUBLISHERS = {"infra/relay.py", "events/tasks.py"}
 FOR_UPDATE = re.compile(r"\bfor\s+update\b", re.I)
+#: Task 10 review M2 — files where a float is the type by nature: the JS numbers of JSON bodies, of rendering and of
+#: XLSX cells; the 1e21 threshold of JSON.stringify; a Pillow resampling factor; monotonic-clock seconds.
+FLOAT_EXCEPTIONS = {"core/body.py", "core/render.py", "infra/xlsx_scan.py", "core/audit.py", "infra/images.py",
+                    "infra/lanes.py", "modules/health/views.py"}
+#: Names of durations in seconds (`CONFIRM_TIMEOUT_S`, `timeout=`, `connect_timeout`, `self._down_until`).
+DURATION_NAME = re.compile(r"(_S|_until)$|timeout", re.I)
 
 
 def sources():
@@ -131,17 +138,37 @@ def test_for_update_is_taken_in_exactly_the_two_allowed_places():
 
 
 def test_no_float_in_decimal_arithmetic():
-    """Masses, lab values and norms are compared and rendered as exact decimals; the trust rating is an integer
-    fold — no `float(` in their services and mappers (Task 8 review M2, Task 9 review M4)."""
-    guarded = ["modules/processing/services.py", "modules/lab/services.py", "modules/lab/mappers.py",
-               "modules/lab/assign.py", "modules/recalls/engine.py", "modules/recalls/services.py",
-               "modules/recalls/mappers.py", "modules/rating/services.py", "domain/rules.py", "domain/decimal.py"]
+    """Masses, lab values, norms and the trust rating are exact decimals or integers: over the WHOLE package (Task 10
+    review M2) no `float(` call and no float literal, except
+    - FLOAT_EXCEPTIONS — files whose numbers are JS numbers or clock seconds by nature;
+    - a float literal that is a duration in seconds: the value of a name, attribute, keyword, parameter default or dict
+      key named like a duration (DURATION_NAME: `*_S`, `*timeout*`, …)."""
     bad = []
-    for rel in guarded:
-        tree = ast.parse((PKG / rel).read_text("utf-8"), filename=rel)
+    for rel, tree in sources():
+        if rel in FLOAT_EXCEPTIONS:
+            continue
+        durations: set[int] = set()
+        for node in ast.walk(tree):
+            pairs: list[tuple[str, ast.AST]] = []
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                pairs += [(t.id if isinstance(t, ast.Name) else t.attr, node.value) for t in targets
+                          if isinstance(t, (ast.Name, ast.Attribute)) and node.value is not None]
+            elif isinstance(node, ast.keyword) and node.arg:
+                pairs.append((node.arg, node.value))
+            elif isinstance(node, ast.arguments):
+                args = [*node.posonlyargs, *node.args]
+                pairs += list(zip([a.arg for a in args[len(args) - len(node.defaults):]], node.defaults, strict=True))
+                pairs += [(a.arg, d) for a, d in zip(node.kwonlyargs, node.kw_defaults, strict=True) if d is not None]
+            elif isinstance(node, ast.Dict):
+                pairs += [(k.value, v) for k, v in zip(node.keys, node.values, strict=True)
+                          if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+            durations |= {id(v) for name, v in pairs if DURATION_NAME.search(name)}
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and dotted(node.func) == "float":
                 bad.append(f"{rel}:{node.lineno} float()")
-            if isinstance(node, ast.Constant) and isinstance(node.value, float):
+            if isinstance(node, ast.Constant) and isinstance(node.value, float) and id(node) not in durations:
                 bad.append(f"{rel}:{node.lineno} float literal")
     assert bad == []
+    assert {"domain/rules.py", "modules/rating/services.py", "modules/recalls/engine.py"} <= \
+        {rel for rel, _ in sources()}
