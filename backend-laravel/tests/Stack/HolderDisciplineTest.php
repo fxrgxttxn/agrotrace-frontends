@@ -32,6 +32,30 @@ function stackLogin(string $email): string
     return $body['accessToken'];
 }
 
+/**
+ * Waits until the current `user` rate-limit window of $userId (Redis `rl:user:<id>:<windowStart>`, RateLimiter; the
+ * api's Redis prefix is empty, SP7) has room for $hits more requests under the limit of 100 and at least $minLeftSec
+ * left — otherwise sleeps into the next window. The rate limit itself is unchanged.
+ */
+function stackFreshWindow(string $userId, int $hits, int $minLeftSec): void
+{
+    $u = parse_url((string) (getenv('REDIS_URL') ?: 'redis://redis:6379/0'));
+    $redis = new Redis;
+    $redis->connect($u['host'], $u['port'] ?? 6379, 2.0);
+    $redis->select((int) ltrim($u['path'] ?? '/0', '/'));
+    for ($guard = 0; $guard < 3; $guard++) {
+        $now = time();
+        $windowStart = intdiv($now, 60) * 60;
+        $used = (int) $redis->get("rl:user:{$userId}:{$windowStart}");
+        $left = $windowStart + 60 - $now;
+        if ($used + $hits <= 100 && $left >= $minLeftSec) {
+            break;
+        }
+        sleep($left + 1);
+    }
+    $redis->close();
+}
+
 /** A ~1.9 MB JPEG of noise (expensive to decode and resize, under the 2 MiB limit). */
 function heavyJpeg(): string
 {
@@ -61,11 +85,10 @@ it('40 parallel heavy uploads of one user leave other users fast and never 503',
     $body = "--{$boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"heavy.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n{$jpeg}\r\n--{$boundary}--\r\n";
 
     // 40 uploads in flight at every moment, 90 in all (a new one starts whenever one finishes) — under the uploader's
-    // `user` limit of 100 per minute, from the start of a fresh window.
-    $left = 60 - time() % 60;
-    if ($left < 20) {
-        sleep($left + 1);
-    }
+    // `user` limit of 100 per minute (fixed, epoch-aligned windows). Start in a window the uploader has (almost) not
+    // used — a back-to-back run in the same minute finds the previous run's ~91 hits (review M3) — with ≥ 20 s left.
+    $uploaderId = (string) json_decode(base64_decode(strtr(explode('.', $uploader)[1], '-_', '+/')), true)['sub'];
+    stackFreshWindow($uploaderId, 91, 20);
     $mh = curl_multi_init();
     $uploads = [];
     $launch = function () use ($mh, &$uploads, $body, $uploader, $boundary): void {
