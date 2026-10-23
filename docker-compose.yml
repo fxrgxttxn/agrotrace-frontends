@@ -171,11 +171,12 @@ services:
       minio: { condition: service_healthy }
     stop_grace_period: 15s
     networks: [at]
-  # Consumers (2 × agrotrace:consume) + the Telegram poller arrive in Tasks 6 and 12 (L1, L2): a standby process until then.
+  # supervisord: 2 × agrotrace:consume (the worker's two channels of agrotrace.laravel.jobs, L1, L2); the Telegram
+  # poller joins in Task 12.
   worker-laravel:
     image: agrotrace/backend-laravel:dev
     pull_policy: never
-    command: ["php", "artisan", "agrotrace:standby", "worker"]
+    command: ["supervisord", "-c", "/app/docker/supervisord-worker.conf"]
     env_file: [.env]
     environment:
       AGROTRACE_PROCESS: worker

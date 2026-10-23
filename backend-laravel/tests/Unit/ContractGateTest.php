@@ -136,6 +136,8 @@ it('dispatches the operation ContractGate matched on the raw path, not Laravel\'
         ->name('importDictionary');
     Route::put('/api/v1/dictionaries/{name}/{id}', fn (string $name, string $id) => response()->json(['op' => 'updateDictionaryEntry', 'id' => $id]))
         ->name('updateDictionaryEntry');
+    // These stand-ins replace the real operations' routes by name (the later registration wins after a refresh).
+    Route::getRoutes()->refreshNameLookups();
 
     // `%2F` is inside one segment: Express (raw-path routing) takes getBatch with id "<id>/graph".
     $res = $this->raw('GET', '/api/v1/batches/abc%2Fgraph');

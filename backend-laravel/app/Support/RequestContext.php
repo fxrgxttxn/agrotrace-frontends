@@ -25,10 +25,35 @@ final class RequestContext
     /** @var list<callable> */
     private array $afterResponse = [];
 
+    private ?string $eventRequestId = null;
+
     public function begin(?string $requestId, ?string $clientIp): void
     {
         $this->requestId = $requestId;
         $this->clientIp = $clientIp;
+    }
+
+    /**
+     * A worker handling an event: its envelope's requestId tags the log lines and the events the handler enqueues
+     * (envelope: "an event published by a worker copies the requestId of the event being handled"); audit rows stay
+     * system ones (request_id null), as in Express.
+     */
+    public function beginEvent(?string $eventRequestId): void
+    {
+        $this->requestId = null;
+        $this->clientIp = null;
+        $this->eventRequestId = $eventRequestId;
+    }
+
+    public function eventRequestId(): ?string
+    {
+        return $this->eventRequestId;
+    }
+
+    /** The id log lines carry: the request's, else the handled event's. */
+    public function logRequestId(): ?string
+    {
+        return $this->requestId ?? $this->eventRequestId;
     }
 
     public function requestId(): ?string
@@ -61,6 +86,19 @@ final class RequestContext
     public function eventIds(): array
     {
         return $this->eventIds;
+    }
+
+    /**
+     * The committed event ids, removed from the context (the relay hand-off runs once).
+     *
+     * @return list<string>
+     */
+    public function takeEventIds(): array
+    {
+        $out = $this->eventIds;
+        $this->eventIds = [];
+
+        return $out;
     }
 
     /** Runs after the response has been sent (App\Octane\EndOfRequest), before the DB connection is closed. */

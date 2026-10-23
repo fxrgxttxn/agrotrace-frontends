@@ -39,4 +39,33 @@ final class Locks
              WHERE f.id = ? AND f.deleted_at IS NULL'.$org.' '.strtoupper($strength).' OF f',
             $orgId !== null ? [$id, $orgId] : [$id]);
     }
+
+    /**
+     * The batches $ids `FOR NO KEY UPDATE ORDER BY id`, in ONE statement (R47/R52 lock order: after waybill, recall,
+     * labTest, complaint, organization; before recall tasks and other rows). Missing ids are simply absent; deleted
+     * rows are included (visibility and deletion are the caller's checks over the locked rows).
+     *
+     * @param  list<string>  $ids
+     * @return array<string, object> by id
+     */
+    public static function batches(array $ids): array
+    {
+        if (! Tx::active()) {
+            throw new LogicException('Locks::batches outside Tx::run');
+        }
+        $ids = array_values(array_unique($ids));
+        if ($ids === []) {
+            return [];
+        }
+        $marks = implode(',', array_fill(0, count($ids), '?'));
+        $out = [];
+        foreach (DB::select("SELECT b.*, b.harvested_at::text AS harvested_at, b.produced_at::text AS produced_at,
+                b.created_at::text AS created_at, b.updated_at::text AS updated_at, b.qr_generated_at::text AS qr_generated_at,
+                b.deleted_at::text AS deleted_at
+              FROM batches b WHERE b.id IN ({$marks}) ORDER BY b.id FOR NO KEY UPDATE OF b", $ids) as $b) {
+            $out[$b->id] = $b;
+        }
+
+        return $out;
+    }
 }

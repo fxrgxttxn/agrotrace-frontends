@@ -39,7 +39,8 @@ final class Outbox
             'type' => $type,
             'occurredAt' => Iso::clockNow(),
             'backend' => 'laravel',
-            'requestId' => $ctx->requestId(),
+            // A worker copies the requestId of the event it handles (envelope).
+            'requestId' => $ctx->requestId() ?? $ctx->eventRequestId(),
             'data' => is_array($data) ? Json::obj($data) : $data,
         ];
         DB::insert(

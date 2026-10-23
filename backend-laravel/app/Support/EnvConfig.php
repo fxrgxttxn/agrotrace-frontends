@@ -19,7 +19,7 @@ final class EnvConfig
 
     public const FIXED_CONNECTIONS = 1 + 3 + 4;
 
-    public const PROCESSES = ['api', 'worker', 'scheduler', 'cli', 'test'];
+    public const PROCESSES = ['api', 'relay', 'worker', 'scheduler', 'cli', 'test'];
 
     /**
      * @param  array<string, string|false|null>  $env  variable → value (false/null = unset)
@@ -68,6 +68,16 @@ final class EnvConfig
         $bot = $get('TELEGRAM_BOT_USERNAME');
         if ($bot !== null && $bot !== '' && preg_match('/^[A-Za-z0-9_]{5,32}$/D', $bot) !== 1) {
             $p[] = 'TELEGRAM_BOT_USERNAME: must be a Telegram username without @ (5-32 of A-Z a-z 0-9 _)';
+        }
+        // ФГИС «Меркурий» and the test-stand knobs of the worker (P35), as Express's config validates them.
+        if ($get('MERCURY_URL') !== null && $get('MERCURY_URL') !== '') {
+            self::url($p, 'MERCURY_URL', $get('MERCURY_URL'), ['http', 'https']);
+        }
+        self::int($p, 'MERCURY_TIMEOUT_MS', $get('MERCURY_TIMEOUT_MS'), 10000, 100, 60000);
+        self::int($p, 'MERCURY_RETRY_BASE_MS', $get('MERCURY_RETRY_BASE_MS'), 2000, 1, 60000);
+        $failMode = $get('MERCURY_FAIL_MODE');
+        if ($failMode !== null && $failMode !== '' && ! in_array($failMode, ['500', 'timeout'], true)) {
+            $p[] = 'MERCURY_FAIL_MODE: must be 500 or timeout';
         }
         $smtpPort = $get('SMTP_PORT');
         if ($smtpPort !== null && $smtpPort !== '') {

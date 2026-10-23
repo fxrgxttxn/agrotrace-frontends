@@ -23,7 +23,10 @@ RUN pnpm --filter @agrotrace/contracts bundle \
  && mkdir -p /out/swagger \
  && cp contracts/dist/openapi.json /out/openapi.json \
  && cd backend-express/node_modules/swagger-ui-dist \
- && cp package.json swagger-ui.css swagger-ui-bundle.js swagger-ui-standalone-preset.js favicon-32x32.png /out/swagger/
+ && cp package.json swagger-ui.css swagger-ui-bundle.js swagger-ui-standalone-preset.js favicon-32x32.png /out/swagger/ \
+ && mkdir -p /out/fonts/onest /out/fonts/jetbrains-mono \
+ && cp -rL /repo/backend-express/node_modules/@fontsource/onest/files /out/fonts/onest/ \
+ && cp -rL /repo/backend-express/node_modules/@fontsource/jetbrains-mono/files /out/fonts/jetbrains-mono/
 
 # ── base: FrankenPHP (PHP 8.3 ZTS) with the extensions of the plan's tech stack. ────────────────────────────────────
 FROM dunglas/frankenphp:1.4.4-php8.3-bookworm AS base
@@ -62,9 +65,13 @@ COPY --from=contract /out/swagger /app/resources/swagger/dist
 COPY contracts/rules /app/resources/contract/rules
 # The `mail.*` templates (and the notification texts, Task 12) of packages/i18n (App\Infrastructure\I18n\Messages).
 COPY packages/i18n/locales/ru.json /app/resources/i18n/ru.json
+# The QR label fonts (Onest, JetBrains Mono: the @fontsource WOFF files Express embeds), converted for TCPDF once here.
+COPY --from=contract /out/fonts /app/resources/fonts
+ENV PDF_FONT_CACHE=/app/resources/fonts-tcpdf
 # An empty .env: every setting comes from the environment (compose `env_file` + `environment`).
 RUN touch .env \
  && mkdir -p storage/framework/cache storage/framework/views storage/logs bootstrap/cache /data/caddy /config/caddy \
+ && php artisan agrotrace:fonts \
  && chown -R www-data:www-data storage bootstrap/cache /data /config \
  && chmod +x docker/entrypoint.sh
 ENV APP_ENV=production APP_DEBUG=false AGROTRACE_PROCESS=api

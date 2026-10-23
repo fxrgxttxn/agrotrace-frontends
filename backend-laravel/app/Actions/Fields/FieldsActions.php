@@ -16,8 +16,6 @@ use App\Security\Principal;
 use App\Support\Iso;
 use App\Support\Json;
 use App\Support\UtcDays;
-use DateTimeImmutable;
-use DateTimeZone;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 use stdClass;
@@ -142,21 +140,10 @@ final class FieldsActions
         }
     }
 
-    /**
-     * Date.parse of a validated `DateTime` (`YYYY-MM-DDTHH:MM[:SS[.fraction]]Z`): milliseconds, the fraction cut to
-     * three digits as JavaScript does.
-     */
+    /** Date.parse of a validated `DateTime` — Iso::epochMs (shared with createBatch). */
     public static function epochMs(string $iso): int
     {
-        $date = substr($iso, 0, 10);
-        $time = substr($iso, 11, -1);
-        [$hms, $frac] = array_pad(explode('.', $time, 2), 2, '');
-        if (strlen($hms) === 5) {
-            $hms .= ':00';
-        }
-        $d = new DateTimeImmutable("{$date}T{$hms}", new DateTimeZone('UTC'));
-
-        return (int) $d->format('U') * 1000 + (int) str_pad(substr($frac, 0, 3), 3, '0');
+        return Iso::epochMs($iso);
     }
 
     /**

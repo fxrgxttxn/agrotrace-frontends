@@ -87,7 +87,7 @@ final class JsonLineFormatter implements FormatterInterface
         try {
             $app = app();
 
-            return $app->resolved(RequestContext::class) ? $app->make(RequestContext::class)->requestId() : null;
+            return $app->resolved(RequestContext::class) ? $app->make(RequestContext::class)->logRequestId() : null;
         } catch (Throwable) {
             return null;
         }

@@ -3,6 +3,7 @@
 namespace App\Octane;
 
 use App\Infrastructure\Db\DbSlots;
+use App\Infrastructure\Outbox\RelayNotifier;
 use App\Support\RequestContext;
 use Illuminate\Contracts\Container\Container;
 use Laravel\Octane\Events\RequestTerminated;
@@ -24,7 +25,15 @@ final class EndOfRequest
     public static function finish(Container $app): void
     {
         if ($app->bound(RequestContext::class)) {
-            foreach ($app->make(RequestContext::class)->takeAfterResponse() as $callback) {
+            $ctx = $app->make(RequestContext::class);
+            // The relay (L4 order: right after the response): the committed events go to the relay process — a
+            // non-blocking datagram, never a wait on the broker (RelayNotifier; the sweeper is the guarantee).
+            try {
+                RelayNotifier::send($ctx->takeEventIds());
+            } catch (Throwable $e) {
+                report($e);
+            }
+            foreach ($ctx->takeAfterResponse() as $callback) {
                 try {
                     $callback();
                 } catch (Throwable $e) {

@@ -23,6 +23,23 @@ final class Iso
         return (new DateTimeImmutable($pg))->setTimezone(new DateTimeZone('UTC'))->format(self::FORMAT);
     }
 
+    /**
+     * Date.parse of a validated `DateTime` (`YYYY-MM-DDTHH:MM[:SS[.fraction]]Z`, Zod `datetime({offset: false})`):
+     * milliseconds since the epoch, the fraction cut to three digits as JavaScript does.
+     */
+    public static function epochMs(string $iso): int
+    {
+        $date = substr($iso, 0, 10);
+        $time = substr($iso, 11, -1);
+        [$hms, $frac] = array_pad(explode('.', $time, 2), 2, '');
+        if (strlen($hms) === 5) {
+            $hms .= ':00';
+        }
+        $d = new DateTimeImmutable("{$date}T{$hms}", new DateTimeZone('UTC'));
+
+        return (int) $d->format('U') * 1000 + (int) str_pad(substr($frac, 0, 3), 3, '0');
+    }
+
     /** The process clock in API format — only for the envelope's `occurredAt` (R59) and logs, never a DB write. */
     public static function clockNow(): string
     {

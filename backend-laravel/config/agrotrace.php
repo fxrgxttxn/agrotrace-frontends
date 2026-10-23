@@ -22,6 +22,35 @@ return [
     ],
     'rabbitmq_url' => env('RABBITMQ_URL', 'amqp://guest:guest@rabbitmq:5672/'),
     'exchange' => 'agrotrace.laravel',
+    // The broker fails fast (connect + handshake + channel RPCs) and confirms are bounded (Express: 10 s), Task 6.
+    'amqp' => [
+        'connect_timeout_sec' => (float) env('AMQP_CONNECT_TIMEOUT_SEC', 2.0),
+        'read_write_timeout_sec' => 10.0,
+        'confirm_timeout_sec' => (float) env('AMQP_CONFIRM_TIMEOUT_SEC', 10.0),
+    ],
+    // The api container's relay process (agrotrace:relay) and the Octane workers' hand-off to it (RelayNotifier).
+    'relay' => [
+        'socket' => env('RELAY_SOCKET', '/tmp/agrotrace-relay.sock'),
+    ],
+    // At most one vsd.import handler per worker container (L2).
+    'vsd_lock' => env('VSD_LOCK_FILE', '/tmp/agrotrace-vsd.lock'),
+    // ФГИС «Меркурий» (R81; P35: the test-stand knobs of the worker).
+    'mercury' => [
+        'url' => env('MERCURY_URL', 'http://mercury-mock:8080'),
+        'timeout_ms' => (int) env('MERCURY_TIMEOUT_MS', 10000),
+        'retry_base_ms' => (int) env('MERCURY_RETRY_BASE_MS', 2000),
+        'fail_product_codes' => (string) env('MERCURY_FAIL_PRODUCT_CODES', ''),
+        'fail_mode' => env('MERCURY_FAIL_MODE', '500'),
+    ],
+    // createBatchQr: the bounded render lane and the label's fonts (@fontsource WOFF → TCPDF font files).
+    'qr' => [
+        'render_slots' => (int) env('QR_RENDER_SLOTS', 2),
+        'render_dir' => env('QR_RENDER_DIR', '/tmp/agrotrace-qr-render'),
+    ],
+    'pdf' => [
+        'fonts_dir' => env('PDF_FONTS_DIR'),
+        'font_cache' => env('PDF_FONT_CACHE', sys_get_temp_dir().'/agrotrace-fonts'),
+    ],
     's3' => [
         'endpoint' => env('S3_ENDPOINT', 'http://minio:9000'),
         'key' => env('S3_ACCESS_KEY'),

@@ -10,6 +10,7 @@
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Audit\AuditController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Batches\BatchesController;
 use App\Http\Controllers\Dictionaries\DictionariesController;
 use App\Http\Controllers\Docs\DocsController;
 use App\Http\Controllers\Fields\FieldsController;
@@ -80,6 +81,20 @@ $op('DELETE', '/fields/{id}', [FieldsController::class, 'deleteField'], 'deleteF
 $op('GET', '/fields/{id}/treatments', [FieldsController::class, 'listFieldTreatments'], 'listFieldTreatments');
 $op('POST', '/fields/{id}/treatments', [FieldsController::class, 'createTreatment'], 'createTreatment');
 $op('PUT', '/treatments/{id}', [FieldsController::class, 'updateTreatment'], 'updateTreatment');
+
+// Batches, graph, QR, documents (Task 6).
+$op('GET', '/batches', [BatchesController::class, 'listBatches'], 'listBatches');
+$op('POST', '/batches', [BatchesController::class, 'createBatch'], 'createBatch');
+$op('GET', '/batches/{id}', [BatchesController::class, 'getBatch'], 'getBatch');
+$op('GET', '/batches/{id}/graph', [BatchesController::class, 'getBatchGraph'], 'getBatchGraph');
+$op('GET', '/batches/{id}/history', [BatchesController::class, 'getBatchHistory'], 'getBatchHistory');
+$op('GET', '/batches/{id}/path', [BatchesController::class, 'getBatchPath'], 'getBatchPath');
+$op('POST', '/batches/{id}/qr', [BatchesController::class, 'createBatchQr'], 'createBatchQr');
+$op('GET', '/batches/{id}/qr', [BatchesController::class, 'downloadBatchQr'], 'downloadBatchQr');
+$op('GET', '/batches/{id}/documents', [BatchesController::class, 'getBatchDocuments'], 'getBatchDocuments');
+$op('POST', '/batches/{id}/documents/vsd/retry', [BatchesController::class, 'retryBatchVsdImport'], 'retryBatchVsdImport');
+$op('POST', '/batches/{id}/on-sale', [BatchesController::class, 'putBatchOnSale'], 'putBatchOnSale');
+$op('POST', '/batches/{id}/sold', [BatchesController::class, 'markBatchSold'], 'markBatchSold');
 
 // Swagger UI (spec 8.3) — outside the contract, as in Express.
 Route::get('/api/v1/docs', [DocsController::class, 'page']);
