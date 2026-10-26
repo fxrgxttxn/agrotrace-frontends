@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # One image, three processes (spec 8.1, plan 3): the command picks the process —
-#   uvicorn agrotrace.asgi:application (api) | celery … worker (worker) | celery … beat (beat)
+#   python -m agrotrace.serve (api: uvicorn) | celery … worker (worker) | celery … beat (beat)
 # Build context: the repository root; Dockerfile.dockerignore next to this file trims it. The node stage bundles the
 # contract (contracts/dist/openapi.json) and takes the Swagger UI assets and the Onest font from the lockfile; the
 # python stage installs the pinned requirements (runtime AND dev: the django:test hook runs pytest + ruff in this
@@ -45,4 +45,4 @@ ENV DJANGO_SETTINGS_MODULE=agrotrace.settings \
     AGROTRACE_ROOT=/app
 USER agrotrace
 EXPOSE 8000
-CMD ["uvicorn", "agrotrace.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-access-log", "--no-server-header"]
+CMD ["python", "-m", "agrotrace.serve"]

@@ -16,7 +16,7 @@ from datetime import timedelta
 
 from celery.beat import ScheduleEntry, Scheduler
 
-from agrotrace.core import config
+from agrotrace.core import config, lifecycle
 from agrotrace.scheduler import jobs
 from agrotrace.scheduler.jobs import (  # noqa: F401  # importing registers the job
     lab_escalation,
@@ -58,5 +58,11 @@ class InProcessScheduler(Scheduler):
         self.submit(entry.task)
 
     def close(self) -> None:
-        self._pool.shutdown(wait=True, cancel_futures=True)
-        super().close()
+        """The ticks running finish (none starts); a close still waiting SHUTDOWN_TIMEOUT_MS + 2 s later ends the
+        process with exit code 1, as Express's scheduler (core/lifecycle.py)."""
+        watchdog = lifecycle.exit_after(config.get().SHUTDOWN_TIMEOUT_MS)
+        try:
+            self._pool.shutdown(wait=True, cancel_futures=True)
+            super().close()
+        finally:
+            watchdog.cancel()

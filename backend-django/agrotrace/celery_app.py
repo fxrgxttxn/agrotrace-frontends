@@ -26,6 +26,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "agrotrace.settings")
 
 import django  # noqa: E402
 from celery import Celery  # noqa: E402
+from celery.signals import worker_shutting_down  # noqa: E402
 from celery.worker.consumer.consumer import Consumer as _CeleryConsumer  # noqa: E402
 from kombu import Exchange, Queue  # noqa: E402
 
@@ -140,3 +141,12 @@ app.conf.update(
     timezone="UTC",
     enable_utc=True,
 )
+
+
+@worker_shutting_down.connect
+def _shutdown_watchdog(**_kwargs) -> None:
+    """SIGTERM/SIGINT: a warm shutdown still running SHUTDOWN_TIMEOUT_MS + 2 s later ends the process (exit 1), as
+    Express's onShutdown (core/lifecycle.py)."""
+    from agrotrace.core import lifecycle
+
+    lifecycle.exit_after(config.get().SHUTDOWN_TIMEOUT_MS)

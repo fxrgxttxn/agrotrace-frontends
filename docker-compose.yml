@@ -146,8 +146,8 @@ services:
   api-django:
     build: { context: ., dockerfile: backend-django/Dockerfile }
     image: agrotrace/backend-django:dev
-    command: ["uvicorn", "agrotrace.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--workers", "1",
-              "--no-access-log", "--no-server-header", "--timeout-graceful-shutdown", "10"]
+    # agrotrace/serve.py: uvicorn on PORT (8000), one worker, SHUTDOWN_TIMEOUT_MS for in-flight requests on SIGTERM.
+    command: ["python", "-m", "agrotrace.serve"]
     env_file: [.env]
     environment:
       AGROTRACE_PROCESS: api

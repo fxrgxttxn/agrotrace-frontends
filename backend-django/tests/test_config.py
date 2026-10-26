@@ -51,8 +51,10 @@ def test_pool_sizes_per_process_and_the_backend_total(services):
     # beat: one connection per job (its advisory lock, its tick transactions, the stale notification sends).
     assert len(config.BEAT_JOBS) <= beat_pool
     # api: one uvicorn process (the LISTEN session and the metrics are per process).
-    api_cmd = services["api-django"]["command"]
-    assert api_cmd[api_cmd.index("--workers") + 1] == "1"
+    from agrotrace import serve
+
+    assert services["api-django"]["command"] == ["python", "-m", "agrotrace.serve"]
+    assert serve.uvicorn_options(config.get())["workers"] == 1
     total = api_pool + sse_pool + config.API_LISTEN_SESSIONS + worker_pool + beat_pool
     assert total == config.BACKEND_CONNECTION_BUDGET == 20
 
