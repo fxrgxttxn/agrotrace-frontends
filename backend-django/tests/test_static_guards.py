@@ -27,7 +27,8 @@ FOR_UPDATE = re.compile(r"\bfor\s+update\b", re.I)
 #: Task 10 review M2 — files where a float is the type by nature: the JS numbers of JSON bodies, of rendering and of
 #: XLSX cells; the 1e21 threshold of JSON.stringify; a Pillow resampling factor; monotonic-clock seconds.
 FLOAT_EXCEPTIONS = {"core/body.py", "core/render.py", "infra/xlsx_scan.py", "core/audit.py", "infra/images.py",
-                    "infra/lanes.py", "modules/health/views.py"}
+                    "infra/lanes.py", "modules/health/views.py",
+                    "infra/pdf.py"}  # page layout in PostScript points (Task 13), no stored decimals
 #: Names of durations in seconds (`CONFIRM_TIMEOUT_S`, `timeout=`, `connect_timeout`, `self._down_until`).
 DURATION_NAME = re.compile(r"(_S|_until)$|timeout", re.I)
 
