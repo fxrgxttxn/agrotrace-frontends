@@ -57,6 +57,8 @@ final class EnvConfig
             );
         }
         self::int($p, 'OCTANE_WORKERS', $get('OCTANE_WORKERS'), 32, 1, 1024);
+        // Classic FrankenPHP threads for the SSE streams (docker/Caddyfile, Task 12): one per open stream.
+        self::int($p, 'SSE_MAX_STREAMS', $get('SSE_MAX_STREAMS'), 200, 1, 4096);
         self::int($p, 'HEALTH_TIMEOUT_MS', $get('HEALTH_TIMEOUT_MS'), 2000, 100, 30000);
         // L5: a period the Scheduler can express (App\Scheduler\Tick, the port's deviation from Express's 100…3 600 000).
         $tick = self::int($p, 'SCHEDULER_TICK_MS', $get('SCHEDULER_TICK_MS'), Tick::DEFAULT_MS, 100, 3_600_000);
@@ -79,6 +81,9 @@ final class EnvConfig
         $bot = $get('TELEGRAM_BOT_USERNAME');
         if ($bot !== null && $bot !== '' && preg_match('/^[A-Za-z0-9_]{5,32}$/D', $bot) !== 1) {
             $p[] = 'TELEGRAM_BOT_USERNAME: must be a Telegram username without @ (5-32 of A-Z a-z 0-9 _)';
+        }
+        if ($get('TELEGRAM_API_URL') !== null && $get('TELEGRAM_API_URL') !== '') {
+            self::url($p, 'TELEGRAM_API_URL', $get('TELEGRAM_API_URL'), ['http', 'https']);
         }
         // ФГИС «Меркурий» and the test-stand knobs of the worker (P35), as Express's config validates them.
         if ($get('MERCURY_URL') !== null && $get('MERCURY_URL') !== '') {

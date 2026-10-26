@@ -20,10 +20,12 @@ use App\Http\Controllers\Files\FilesController;
 use App\Http\Controllers\Health\HealthController;
 use App\Http\Controllers\Lab\LabController;
 use App\Http\Controllers\Me\MeController;
+use App\Http\Controllers\Notifications\NotificationsController;
 use App\Http\Controllers\Organizations\OrganizationsController;
 use App\Http\Controllers\Processing\ProcessingController;
 use App\Http\Controllers\Public\PublicController;
 use App\Http\Controllers\Recalls\RecallsController;
+use App\Http\Controllers\Sse\StreamController;
 use App\Http\Controllers\Users\UsersController;
 use App\Http\Controllers\Waybills\WaybillsController;
 use Illuminate\Support\Facades\Route;
@@ -145,6 +147,12 @@ $op('POST', '/complaints/{id}/decision', [ComplaintsController::class, 'decideCo
 $op('GET', '/public/batches/{publicCode}', [PublicController::class, 'getPublicBatch'], 'getPublicBatch');
 $op('POST', '/public/batches/{publicCode}/complaints', [PublicController::class, 'createPublicComplaint'], 'createPublicComplaint');
 $op('GET', '/public/captcha', [PublicController::class, 'getCaptchaChallenge'], 'getCaptchaChallenge');
+
+// Notifications and the SSE stream (Task 12). streamEvents authenticates with `access_token` itself (Operation lets an
+// `accessTokenQuery` operation through); FrankenPHP serves it on a classic thread (public/sse.php).
+$op('GET', '/notifications', [NotificationsController::class, 'listNotifications'], 'listNotifications');
+$op('POST', '/notifications/read', [NotificationsController::class, 'markNotificationsRead'], 'markNotificationsRead');
+$op('GET', '/events/stream', [StreamController::class, 'open'], 'streamEvents');
 
 // Swagger UI (spec 8.3) — outside the contract, as in Express.
 Route::get('/api/v1/docs', [DocsController::class, 'page']);

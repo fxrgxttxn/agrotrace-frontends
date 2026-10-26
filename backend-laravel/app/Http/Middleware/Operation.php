@@ -17,8 +17,8 @@ use Symfony\Component\HttpFoundation\Response;
  * itself (`x-roles`, `x-org-admin`), so routes cannot drift from it. Order (contract info.description): 401 → the
  * `user` rate limit (R30: every Bearer-authenticated request counts) → 403 FORBIDDEN without params (`ANY` = any
  * authenticated role; `x-org-admin`: roles other than ADMIN must be the head of their organization). The principal
- * (verified claims only) is put in RequestContext — Auth::principal(). PUBLIC operations and the signed downloadFile
- * (`x-access: signed`, its own order) pass through.
+ * (verified claims only) is put in RequestContext — Auth::principal(). PUBLIC operations, the signed downloadFile
+ * (`x-access: signed`, its own order) and streamEvents (`accessTokenQuery`, StreamController) pass through.
  */
 final class Operation
 {
@@ -30,6 +30,12 @@ final class Operation
         $roles = $op['x-roles'] ?? [];
         if (in_array('PUBLIC', $roles, true) || ($op['x-access'] ?? null) === 'signed') {
             return $next($request);
+        }
+        // streamEvents (`security: accessTokenQuery`): the stream controller verifies `access_token`, then the limit.
+        foreach ($op['security'] ?? [] as $scheme) {
+            if (is_array($scheme) && array_key_exists('accessTokenQuery', $scheme)) {
+                return $next($request);
+            }
         }
         $principal = Auth::bearer($request) ?? throw new Problem(401, ProblemCode::UNAUTHORIZED);
         RateLimiter::hit('user', $principal->userId);

@@ -4,6 +4,12 @@
 #                    %-escapes with its own 400 before PHP runs) — the gateway proxies <front>-laravel.localhost/api/ to :8000;
 #   :9464 — Prometheus /metrics only (METRICS_PORT, P54/L15; implemented in Task 14), never behind the gateway.
 # :8000 and :9464 are `expose`d inside the `at` network only (docker-compose.yml), never published.
+#
+# SSE (Task 12 step 2): GET /api/v1/events/stream runs on FrankenPHP's classic threads (public/sse.php, Laravel booted
+# per stream), not on an Octane worker — a stream lives up to the token's 15 minutes and would hold a worker that long.
+# num_threads (docker/entrypoint.sh) = OCTANE_WORKERS (the workers' own threads) + 2 + SSE_MAX_STREAMS (classic threads:
+# one per open stream). Static on purpose: FrankenPHP 1.4's max_threads scaling started threads too slowly for 150
+# streams opened at once (measured: p50 7 s to the first byte, a third not served in 14 s; static: all within 0.3 s).
 {
 	admin off
 	auto_https off
@@ -14,8 +20,7 @@
 		level WARN
 	}
 	frankenphp {
-		# FrankenPHP needs more threads than workers: docker/entrypoint.sh sets OCTANE_WORKERS + 2.
-		num_threads {$FRANKENPHP_NUM_THREADS:34}
+		num_threads {$FRANKENPHP_NUM_THREADS:234}
 		worker {
 			file /app/public/frankenphp-worker.php
 			num {$OCTANE_WORKERS:32}
@@ -36,8 +41,14 @@
 	request_body {
 		max_size 16MiB
 	}
-	# Every request goes to the worker (REQUEST_URI stays the raw original); no static files, no compression (SSE).
-	route {
+	# Every request goes to PHP (REQUEST_URI stays the raw original); no static files, no compression (SSE). The stream
+	# to a classic thread, everything else to the Octane workers.
+	@stream path /api/v1/events/stream
+	handle @stream {
+		rewrite * /sse.php
+		php
+	}
+	handle {
 		rewrite * /frankenphp-worker.php
 		php
 	}
