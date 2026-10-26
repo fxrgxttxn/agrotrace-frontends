@@ -5,7 +5,6 @@ Bot API client's request shapes."""
 
 from __future__ import annotations
 
-import io
 import json
 import threading
 import time
@@ -183,36 +182,76 @@ def test_start_code_links_the_chat_with_getdel(world):
     assert telegram.link_by_code("K2", "1", redis_client=r) is False
 
 
-class _Res(io.BytesIO):
-    def __init__(self, status, body):
-        super().__init__(json.dumps(body).encode())
-        self.status = status
+class FakeConn:
+    """An http.client connection stand-in: records the request, answers `answer`, or blocks until its socket is shut
+    down (`block`)."""
 
-    def __enter__(self):
-        return self
+    def __init__(self, seen, answer=(200, {"ok": True, "result": [{"update_id": 1}]}), block=False):
+        self.seen, self.answer, self.block = seen, answer, block
+        self.gone = threading.Event()
+        test = self
 
-    def __exit__(self, *a):
-        return False
+        class Sock:
+            def shutdown(self, how):
+                test.gone.set()
+
+        self.sock = Sock()
+
+    def request(self, method, path, body=None, headers=None):
+        self.seen.append((method, path, json.loads(body), headers))
+
+    def getresponse(self):
+        if self.block:
+            assert self.gone.wait(5), "never aborted"
+            raise OSError("connection shut down")
+        status, doc = self.answer
+        return type("R", (), {"status": status, "read": lambda self: json.dumps(doc).encode()})()
+
+    def close(self):
+        pass
 
 
 def test_the_bot_api_requests():
-    seen = []
+    seen, made = [], []
 
-    def opener(req, timeout):
-        seen.append((req.full_url, json.loads(req.data), timeout, req.get_header("Content-type")))
-        return _Res(200, {"ok": True, "result": [{"update_id": 1}]})
+    def connect(host, port, https, timeout):
+        made.append((host, port, https, timeout))
+        return FakeConn(seen)
 
-    tg = Telegram("T0K", "http://tg.example/", opener=opener)
+    tg = Telegram("T0K", "http://tg.example:8080/", connect=connect)
     tg.send_message("42", "текст")
     assert tg.get_updates(5, 25) == [{"update_id": 1}]
     assert tg.get_updates(None) == [{"update_id": 1}]
-    assert seen[0] == ("http://tg.example/botT0K/sendMessage", {"chat_id": "42", "text": "текст"}, 10.0,
-                       "application/json")
-    assert seen[1][:3] == ("http://tg.example/botT0K/getUpdates",
-                           {"offset": 5, "timeout": 25, "allowed_updates": ["message"]}, 35)
-    assert seen[2][1] == {"timeout": 25, "allowed_updates": ["message"]}
-    bad = Telegram("T0K", opener=lambda req, timeout: _Res(200, {"ok": False, "description": "chat not found"}))
+    assert made[0] == ("tg.example", 8080, False, 10.0) and made[1][3] == 35
+    assert seen[0] == ("POST", "/botT0K/sendMessage", {"chat_id": "42", "text": "текст"},
+                       {"content-type": "application/json"})
+    assert seen[1][1:3] == ("/botT0K/getUpdates", {"offset": 5, "timeout": 25, "allowed_updates": ["message"]})
+    assert seen[2][2] == {"timeout": 25, "allowed_updates": ["message"]}
+    bad = Telegram("T0K", connect=lambda *a: FakeConn([], answer=(200, {"ok": False, "description": "chat not found"})))
     with pytest.raises(telegram.TelegramError, match="chat not found"):
         bad.send_message("1", "x")
     with pytest.raises(telegram.TelegramError):
         Telegram(None).send_message("1", "x")
+
+
+def test_ownership_loss_aborts_the_long_poll_in_flight():
+    """Review M3: as Express aborts its getUpdates fetch when the renewal returns 0."""
+    conns = []
+
+    def connect(*a):
+        conns.append(FakeConn([], block=True))
+        return conns[-1]
+
+    tg = Telegram("T0K", connect=connect)
+    r = FakeRedis()
+    p = Poller(tg, r, idle_s=5, renew_every_s=0.05, min_poll_s=0.01).start()
+    try:
+        _until(lambda: conns)
+        assert not conns[0].gone.is_set()
+        t0 = time.monotonic()
+        r.data[POLLER_KEY] = "thief"
+        _until(lambda: conns[0].gone.is_set())
+        assert time.monotonic() - t0 < 1  # not after the 25 s long poll
+        _until(lambda: not p._owner.is_set())
+    finally:
+        p.stop()

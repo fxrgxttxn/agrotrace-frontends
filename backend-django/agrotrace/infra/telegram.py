@@ -9,7 +9,7 @@ token (P14/P51), so worker-django never polls and never sends.
 
 Poller (`start_poller()` — a thread of the worker, started on `worker_ready`, stopped on `worker_shutdown`): only the
 process holding `tg:poller` polls — `SET tg:poller <instance> NX EX 30`, renewed every 10 s by the owner with the
-contract's Lua compare-and-PEXPIRE (0 → ownership lost: polling stops — updates of a poll in flight are dropped, the
+contract's Lua compare-and-PEXPIRE (0 → ownership lost: the long poll in flight is aborted, as Express does — any updates it returned are dropped, the
 offset does not move — and the process competes for the key again). The offset (`last update_id + 1`) moves past an
 update only once it was handled; Telegram confirms it on the next `getUpdates`, so a new owner continues where the
 previous one stopped and a message seen twice is harmless (`GETDEL tgcode:{code}`). The poller thread uses the
@@ -18,12 +18,13 @@ database only for the one `UPDATE users` of a link (autocommit; the connection g
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
+import socket
 import threading
 import time
-import urllib.error
-import urllib.request
+import urllib.parse
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -49,36 +50,44 @@ class TelegramError(RuntimeError):
 
 
 class Telegram:
-    """The Bot API client. `token` None/'' — not configured (every call raises)."""
+    """The Bot API client. `token` None/'' — not configured (every call raises). Requests go over http.client so that
+    the long poll in flight can be aborted from another thread (`abort()`: its socket is shut down), as Express aborts
+    its `getUpdates` fetch when ownership of `tg:poller` is lost."""
 
     def __init__(self, token: str | None, api_url: str = "https://api.telegram.org", *,
                  request_timeout: float = REQUEST_TIMEOUT_S,
-                 opener: Callable[..., Any] | None = None):
+                 connect: Callable[[str, int | None, bool, float], Any] | None = None):
         self.token = token or None
         self.api_url = api_url.rstrip("/")
         self.request_timeout = request_timeout
-        self._open = opener or urllib.request.urlopen
+        self._connect = connect or _connection
+        self._lock = threading.Lock()
+        self._polling: Any = None
 
     @property
     def configured(self) -> bool:
         return self.token is not None
 
-    def _call(self, method: str, body: dict[str, Any], timeout: float) -> Any:
+    def _call(self, method: str, body: dict[str, Any], timeout: float, *, abortable: bool = False) -> Any:
         if not self.token:
             raise TelegramError("telegram is not configured")
-        req = urllib.request.Request(
-            f"{self.api_url}/bot{self.token}/{method}", data=json.dumps(body).encode("utf-8"), method="POST",
-            headers={"content-type": "application/json"})
-        status = 0
+        u = urllib.parse.urlsplit(self.api_url)
+        conn = self._connect(u.hostname or "", u.port, u.scheme == "https", timeout)
+        if abortable:
+            with self._lock:
+                self._polling = conn
         try:
-            with self._open(req, timeout=timeout) as res:
-                status = res.status
-                raw = res.read()
-        except urllib.error.HTTPError as e:
-            status = e.code
-            raw = e.read() if e.fp is not None else b""
-        except (urllib.error.URLError, OSError) as e:
+            conn.request("POST", f"{u.path}/bot{self.token}/{method}", body=json.dumps(body).encode("utf-8"),
+                         headers={"content-type": "application/json"})
+            res = conn.getresponse()
+            status, raw = res.status, res.read()
+        except (OSError, http.client.HTTPException) as e:
             raise TelegramError(f"telegram {method}: {e}") from e
+        finally:
+            if abortable:
+                with self._lock:
+                    self._polling = None
+            conn.close()
         try:
             doc = json.loads(raw)
         except ValueError:
@@ -96,8 +105,24 @@ class Telegram:
         body: dict[str, Any] = {"timeout": timeout_sec, "allowed_updates": ["message"]}
         if offset is not None:
             body = {"offset": offset, **body}
-        result = self._call("getUpdates", body, timeout_sec + 10)
+        result = self._call("getUpdates", body, timeout_sec + 10, abortable=True)
         return result if isinstance(result, list) else []
+
+    def abort(self) -> None:
+        """Ends the `getUpdates` in flight, if any (it raises TelegramError in its own thread)."""
+        with self._lock:
+            conn = self._polling
+        sock = getattr(conn, "sock", None)
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+
+def _connection(host: str, port: int | None, https: bool, timeout: float) -> http.client.HTTPConnection:
+    cls = http.client.HTTPSConnection if https else http.client.HTTPConnection
+    return cls(host, port, timeout=timeout)
 
 
 def client() -> Telegram:
@@ -161,6 +186,7 @@ class Poller:
             return self._owner.is_set()
         if int(n) == 0:
             self._owner.clear()
+            self.telegram.abort()  # as Express aborts its fetch: the long poll in flight ends now (review M3)
             return False
         return True
 
@@ -196,6 +222,7 @@ class Poller:
 
     def own_loop(self) -> None:
         self._owner.set()
+        self.offset = None  # Express keeps the offset per ownership (Telegram confirms it server-side)
         renewer = threading.Thread(target=self._renew_loop, name="tg-poller-renew", daemon=True)
         renewer.start()
         try:
@@ -235,6 +262,7 @@ class Poller:
         """Stops polling; hands the key over at once (only while still ours). A long poll in flight is not waited
         for longer than `timeout` (the thread is a daemon; its result is dropped)."""
         self._stopping.set()
+        self.telegram.abort()
         if self._thread is not None:
             self._thread.join(timeout)
         try:
