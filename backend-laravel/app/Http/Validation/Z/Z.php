@@ -57,6 +57,16 @@ final class Z
         return new UnionS($options);
     }
 
+    /**
+     * `z.discriminatedUnion(discriminator, options)`, the options by their discriminator value.
+     *
+     * @param  array<string, Schema>  $options
+     */
+    public static function discriminatedUnion(string $discriminator, array $options): DiscriminatedS
+    {
+        return new DiscriminatedS($discriminator, $options);
+    }
+
     /** @param  list<Schema>  $items */
     public static function tuple(array $items): TupleS
     {

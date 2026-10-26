@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Audit\AuditController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Batches\BatchesController;
+use App\Http\Controllers\Complaints\ComplaintsController;
 use App\Http\Controllers\Dictionaries\DictionariesController;
 use App\Http\Controllers\Docs\DocsController;
 use App\Http\Controllers\Fields\FieldsController;
@@ -21,6 +22,7 @@ use App\Http\Controllers\Lab\LabController;
 use App\Http\Controllers\Me\MeController;
 use App\Http\Controllers\Organizations\OrganizationsController;
 use App\Http\Controllers\Processing\ProcessingController;
+use App\Http\Controllers\Public\PublicController;
 use App\Http\Controllers\Recalls\RecallsController;
 use App\Http\Controllers\Users\UsersController;
 use App\Http\Controllers\Waybills\WaybillsController;
@@ -134,6 +136,15 @@ $op('GET', '/recalls/{id}', [RecallsController::class, 'getRecall'], 'getRecall'
 $op('GET', '/recalls/{id}/graph', [RecallsController::class, 'getRecallGraph'], 'getRecallGraph');
 $op('GET', '/recall-tasks', [RecallsController::class, 'listRecallTasks'], 'listRecallTasks');
 $op('POST', '/recall-tasks/{id}/confirm', [RecallsController::class, 'confirmRecallTask'], 'confirmRecallTask');
+
+// Complaints and the public part (Task 11).
+$op('GET', '/complaints', [ComplaintsController::class, 'listComplaints'], 'listComplaints');
+$op('GET', '/complaints/{id}', [ComplaintsController::class, 'getComplaint'], 'getComplaint');
+$op('POST', '/complaints/{id}/review', [ComplaintsController::class, 'startComplaintReview'], 'startComplaintReview');
+$op('POST', '/complaints/{id}/decision', [ComplaintsController::class, 'decideComplaint'], 'decideComplaint');
+$op('GET', '/public/batches/{publicCode}', [PublicController::class, 'getPublicBatch'], 'getPublicBatch');
+$op('POST', '/public/batches/{publicCode}/complaints', [PublicController::class, 'createPublicComplaint'], 'createPublicComplaint');
+$op('GET', '/public/captcha', [PublicController::class, 'getCaptchaChallenge'], 'getCaptchaChallenge');
 
 // Swagger UI (spec 8.3) — outside the contract, as in Express.
 Route::get('/api/v1/docs', [DocsController::class, 'page']);

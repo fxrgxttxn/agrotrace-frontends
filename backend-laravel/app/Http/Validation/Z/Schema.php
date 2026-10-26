@@ -42,6 +42,12 @@ abstract class Schema
         return new NullableS($this);
     }
 
+    /** `.default(value)`: an absent value becomes $value. */
+    public function default(mixed $value): DefaultS
+    {
+        return new DefaultS($this, $value);
+    }
+
     /** `.refine(check, message)`; $message may be a callable of the value (Zod's message function). */
     public function refine(callable $check, string|callable $message): Effects
     {
