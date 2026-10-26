@@ -24,7 +24,7 @@ $relay = new Relay(new Broker('amqp://none:none@127.0.0.1:1/', 'test'), 10.0,
 DB::selectOne('SELECT 1');
 echo "started\n";
 try {
-    $n = $mode === 'relay' ? $relay->publish($ids) : (new OutboxSweep($relay))->run();
+    $n = $mode === 'relay' ? $relay->publish($ids) : (new OutboxSweep($relay))->sweep();
     echo "published {$n}\n";
 } catch (Throwable $e) {
     echo 'error '.get_class($e).': '.$e->getMessage()."\n";

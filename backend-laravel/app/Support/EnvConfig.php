@@ -3,6 +3,8 @@
 namespace App\Support;
 
 use App\Contract\RulesRepo;
+use App\Scheduler\Tick;
+use App\Scheduler\TickConfigError;
 use Throwable;
 
 /**
@@ -56,6 +58,15 @@ final class EnvConfig
         }
         self::int($p, 'OCTANE_WORKERS', $get('OCTANE_WORKERS'), 32, 1, 1024);
         self::int($p, 'HEALTH_TIMEOUT_MS', $get('HEALTH_TIMEOUT_MS'), 2000, 100, 30000);
+        // L5: a period the Scheduler can express (App\Scheduler\Tick, the port's deviation from Express's 100…3 600 000).
+        $tick = self::int($p, 'SCHEDULER_TICK_MS', $get('SCHEDULER_TICK_MS'), Tick::DEFAULT_MS, 100, 3_600_000);
+        if ($tick !== null) {
+            try {
+                Tick::frequency($tick);
+            } catch (TickConfigError $e) {
+                $p[] = $e->getMessage();
+            }
+        }
         $process = $get('AGROTRACE_PROCESS') ?? 'cli';
         if (! in_array($process, self::PROCESSES, true)) {
             $p[] = 'AGROTRACE_PROCESS: must be one of '.implode(', ', self::PROCESSES);

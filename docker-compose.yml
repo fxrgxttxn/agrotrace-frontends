@@ -193,12 +193,13 @@ services:
       api-laravel: { condition: service_started }
     stop_grace_period: 15s
     networks: [at]
-  # The four job processes (agrotrace:job <name>, L5) arrive in Task 9: a standby process until then. The service name
-  # is fixed (SP1: `api:test <other>` stops it by its compose label).
+  # supervisord: the four job processes `agrotrace:job <name>` (L5: lab-escalation, recall-task-overdue,
+  # notification-delivery, outbox-sweep), one PostgreSQL connection each. The service name is fixed (SP1:
+  # `api:test <other>` stops it by its compose label).
   scheduler-laravel:
     image: agrotrace/backend-laravel:dev
     pull_policy: never
-    command: ["php", "artisan", "agrotrace:standby", "scheduler"]
+    command: ["supervisord", "-c", "/app/docker/supervisord-scheduler.conf"]
     env_file: [.env]
     environment:
       AGROTRACE_PROCESS: scheduler

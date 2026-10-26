@@ -12,6 +12,7 @@ use App\Infrastructure\Db\TxState;
 use App\Infrastructure\Mercury\Mercury;
 use App\Infrastructure\Outbox\Relay;
 use App\Infrastructure\Storage\ObjectStore;
+use App\Scheduler\Jobs\OutboxSweep;
 use App\Support\RequestContext;
 use App\Support\StopSignal;
 use Illuminate\Routing\Router;
@@ -39,6 +40,8 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->singleton(IdemStore::class, RedisIdemStore::class);
         $this->app->bind(Mercury::class, fn () => Mercury::fromConfig());
         $this->app->bind(Relay::class, fn () => Relay::fromConfig('agrotrace-laravel-'.config('agrotrace.process')));
+        // The sweeper keeps its confirm channel across ticks (one broker connection per job process).
+        $this->app->singleton(OutboxSweep::class, fn ($app) => new OutboxSweep($app->make(Relay::class)));
         $this->app->bind('db.connector.pgsql', fn ($app) => new PgConnector($app->make(DbSlots::class)));
 
         // Dispatch by the operation ContractGate matched on the raw path (review I1).

@@ -17,6 +17,7 @@ use App\Http\Controllers\Docs\DocsController;
 use App\Http\Controllers\Fields\FieldsController;
 use App\Http\Controllers\Files\FilesController;
 use App\Http\Controllers\Health\HealthController;
+use App\Http\Controllers\Lab\LabController;
 use App\Http\Controllers\Me\MeController;
 use App\Http\Controllers\Organizations\OrganizationsController;
 use App\Http\Controllers\Processing\ProcessingController;
@@ -115,6 +116,15 @@ $op('POST', '/waybills/{id}/reject', [WaybillsController::class, 'rejectWaybill'
 
 // Processing (Task 8).
 $op('POST', '/processing', [ProcessingController::class, 'processBatches'], 'processBatches');
+
+// Lab (Task 9).
+$op('GET', '/lab-tests', [LabController::class, 'listLabTests'], 'listLabTests');
+$op('POST', '/lab-tests', [LabController::class, 'createLabTest'], 'createLabTest');
+$op('GET', '/lab-tests/{id}', [LabController::class, 'getLabTest'], 'getLabTest');
+$op('POST', '/lab-tests/{id}/sample', [LabController::class, 'registerLabSample'], 'registerLabSample');
+$op('POST', '/lab-tests/{id}/results', [LabController::class, 'submitLabResults'], 'submitLabResults');
+$op('PUT', '/lab-tests/{id}/protocol', [LabController::class, 'uploadLabProtocol'], 'uploadLabProtocol');
+$op('GET', '/lab-tests/{id}/protocol', [LabController::class, 'downloadLabProtocol'], 'downloadLabProtocol');
 
 // Swagger UI (spec 8.3) — outside the contract, as in Express.
 Route::get('/api/v1/docs', [DocsController::class, 'page']);

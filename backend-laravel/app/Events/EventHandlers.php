@@ -2,6 +2,7 @@
 
 namespace App\Events;
 
+use App\Events\Handlers\LabEscalate;
 use App\Events\Handlers\VsdImport;
 
 /**
@@ -15,6 +16,7 @@ final class EventHandlers
     /** @var array<string, class-string<EventHandler>> */
     public const MAP = [
         'vsd.import' => VsdImport::class,
+        'lab.escalate' => LabEscalate::class,
     ];
 
     /** @return list<string> */

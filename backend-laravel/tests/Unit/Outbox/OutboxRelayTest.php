@@ -90,7 +90,7 @@ it('a sweeper pass during the relay\'s confirm skips the in-flight row: exactly 
     $id = outboxRow();
     $relay = relayChild('relay', 'relay', $this->log, 1000, ids: [$id]);
     usleep($offsetMs * 1000);
-    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run())->toBe(0);
+    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep())->toBe(0);
     expect(relayChildResult($relay))->toBe('published 1');
     $sends = FakePublisher::sends($this->log);
     expect(array_column($sends, 'who'))->toBe(['relay']);
@@ -99,7 +99,7 @@ it('a sweeper pass during the relay\'s confirm skips the in-flight row: exactly 
     expect(outboxState($id)->published_at)->not->toBeNull();
     expect((int) outboxState($id)->attempts)->toBe(1);
     // A later pass finds it published.
-    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run())->toBe(0);
+    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep())->toBe(0);
     expect(count(FakePublisher::sends($this->log)))->toBe(1);
 })->with([50, 500, 900]);
 
@@ -130,13 +130,13 @@ it('a failed confirm releases the row lock and leaves the row unpublished; the n
     $id = outboxRow();
     $relay = relayChild('relay', 'relay', $this->log, 600, fail: true, ids: [$id]);
     usleep(200_000);
-    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run())->toBe(0);
+    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep())->toBe(0);
     expect(relayChildResult($relay))->toStartWith('error '.BrokerUnavailable::class);
     expect(outboxState($id)->published_at)->toBeNull();
     expect((int) outboxState($id)->attempts)->toBe(0);
     // Not locked any more.
     DB::transaction(fn () => expect(DB::selectOne('SELECT id FROM outbox_events WHERE id = ? FOR NO KEY UPDATE NOWAIT', [$id])->id)->toBe($id));
-    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run())->toBe(1);
+    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep())->toBe(1);
     expect(array_column(FakePublisher::sends($this->log), 'who'))->toBe(['relay', 'sweeper']);
     expect((int) outboxState($id)->attempts)->toBe(1);
 });
@@ -145,13 +145,13 @@ it('a relay killed mid-confirm loses nothing: its session ends, the next pass pu
     $id = outboxRow();
     $relay = relayChild('relay', 'relay', $this->log, 30_000, ids: [$id]);
     usleep(300_000);
-    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run())->toBe(0);
+    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep())->toBe(0);
     proc_terminate($relay[0], 9);
     relayChildResult($relay);
     $published = 0;
     $deadline = microtime(true) + 5;
     while ($published === 0 && microtime(true) < $deadline) {
-        $published = (new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run();
+        $published = (new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep();
         usleep(50_000);
     }
     expect($published)->toBe(1);
@@ -161,13 +161,13 @@ it('a relay killed mid-confirm loses nothing: its session ends, the next pass pu
 });
 
 it('picks only this backend\'s unpublished rows of handled types, oldest first, at most 100 (Q12)', function () {
-    expect(EventHandlers::types())->toBe(['vsd.import']);
+    expect(EventHandlers::types())->toBe(['vsd.import', 'lab.escalate']);
     $old = outboxRow(createdAgo: '3 minutes');
     $new = outboxRow(createdAgo: '1 minute');
     $unhandled = outboxRow('notification.dispatch', createdAgo: '5 minutes');
     $express = outboxRow('vsd.import', 'express', createdAgo: '4 minutes');
     try {
-        expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run())->toBe(2);
+        expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep())->toBe(2);
         expect(array_column(FakePublisher::sends($this->log), 'id'))->toBe([$old, $new]);
         expect(outboxState($unhandled)->published_at)->toBeNull();
         expect(outboxState($express)->published_at)->toBeNull();
@@ -176,8 +176,8 @@ it('picks only this backend\'s unpublished rows of handled types, oldest first, 
         for ($i = 0; $i < 105; $i++) {
             outboxRow();
         }
-        expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run())->toBe(100);
-        expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run())->toBe(5);
+        expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep())->toBe(100);
+        expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep())->toBe(5);
     } finally {
         DB::delete('DELETE FROM outbox_events WHERE id = ?', [$express]);
     }
@@ -200,7 +200,7 @@ it('retention (R59): this backend\'s rows published over 7 days ago and processe
     DB::insert("INSERT INTO processed_events (event_id, backend, processed_at) VALUES
         (?, 'laravel', now() - interval '31 days'), (?, 'laravel', now() - interval '29 days'), (?, 'express', now() - interval '31 days')", $ev);
     try {
-        (new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run();
+        (new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep();
         expect(DB::selectOne('SELECT count(*) AS n FROM outbox_events WHERE id = ?', [$gone])->n)->toBe(0);
         expect(DB::selectOne('SELECT count(*) AS n FROM outbox_events WHERE id IN (?, ?)', [$kept, $express])->n)->toBe(2);
         expect(array_map(fn ($r) => $r->event_id, DB::select('SELECT event_id FROM processed_events WHERE event_id IN (?, ?, ?) ORDER BY processed_at', $ev)))
@@ -217,19 +217,19 @@ it('skips the pass while another session holds the sweeper\'s advisory lock', fu
     $other = DB::connection('other');
     $other->select("SELECT pg_advisory_lock(hashtext('agrotrace.outbox.laravel'))");
     try {
-        expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run())->toBe(0);
+        expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep())->toBe(0);
         expect(outboxState($id)->published_at)->toBeNull();
     } finally {
         $other->select("SELECT pg_advisory_unlock(hashtext('agrotrace.outbox.laravel'))");
         $other->disconnect();
     }
-    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->run())->toBe(1);
+    expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep())->toBe(1);
 });
 
 it('a broker that is down skips the pass before any lock or transaction is taken', function () {
     $id = outboxRow();
     $relay = new Relay(new Broker('amqp://none:none@127.0.0.1:1/', 'test'), 10.0, fn () => throw new BrokerUnavailable('down'));
-    expect((new OutboxSweep($relay))->run())->toBe(0);
+    expect((new OutboxSweep($relay))->sweep())->toBe(0);
     expect(fn () => $relay->publish([$id]))->toThrow(BrokerUnavailable::class);
     expect(outboxState($id)->published_at)->toBeNull();
     expect(DB::selectOne("SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()")->n)->toBe(0);

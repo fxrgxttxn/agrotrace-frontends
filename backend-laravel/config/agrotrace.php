@@ -34,6 +34,8 @@ return [
         // Touched by a sender whose hand-off failed: the relay then catches up from the outbox (RelayLoop).
         'dropped_marker' => env('RELAY_DROPPED_MARKER', '/tmp/agrotrace-relay.dropped'),
     ],
+    // The scheduler's job period (L5, App\Scheduler\Tick): 5 minutes; the test stand — 1 s. The sweeper: 5 s always.
+    'scheduler_tick_ms' => (int) env('SCHEDULER_TICK_MS', 300000),
     // At most one vsd.import handler per worker container (L2).
     'vsd_lock' => env('VSD_LOCK_FILE', '/tmp/agrotrace-vsd.lock'),
     // ФГИС «Меркурий» (R81; P35: the test-stand knobs of the worker).
