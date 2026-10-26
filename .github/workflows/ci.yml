@@ -125,10 +125,14 @@ jobs:
       - run: ./at.sh install
       - run: ./at.sh up infra
       - run: ./at.sh reset
-      # Django's unit suite (pytest + ruff in the backend-django image) on its own DB agrotrace_test_django (SP2).
+      # Django's unit suite (pytest + ruff in the backend-django image) on its own DB agrotrace_test_django (SP2); a
+      # full run also holds agrotrace/domain to the §14.1 coverage bar (70 %).
       - run: ./at.sh django:test
       # api-django, worker-django, beat-django (built from this commit).
       - run: ./at.sh up django
+      # The stand checks against the running processes: only definitions.json names on the broker (Celery declares
+      # nothing), the vsd.import delay copy (D-I6).
+      - run: ./at.sh django:test -m stand
       # The parity suite (P10 api-test profile) incl. the permission matrix, the metrics and the contract coverage
       # check, which is enforced on this full run (tests/api/contract-coverage.test.ts).
       - run: ./at.sh api:test django
