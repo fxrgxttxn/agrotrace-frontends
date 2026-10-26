@@ -82,7 +82,8 @@ def test_the_compose_commands():
 
 def test_a_call_soon_from_a_pool_thread_wakes_the_consumer_hub():
     """Late acks of `-P threads` are `call_soon`s into the kombu hub, which polls up to 1 s between looks at its ready
-    list: our consumer writes a self-pipe registered as a hub reader, so the poll returns at once."""
+    list: the wake pipe is registered as a hub reader on the hub thread (register_with_event_loop, at every loop start,
+    so also after a hub reset), and a pool thread only writes to it."""
     import os
     import select
     import threading
@@ -98,21 +99,31 @@ def test_a_call_soon_from_a_pool_thread_wakes_the_consumer_hub():
             self.ready.append(p)
 
         def add_reader(self, fd, cb):
+            assert threading.current_thread() is threading.main_thread()
             self.readers[fd] = cb
+
+    class FakeBlueprint:
+        def send_all(self, *a, **kw):
+            pass
 
     c = celery_app.Consumer.__new__(celery_app.Consumer)
     c.hub = FakeHub()
+    c.blueprint = FakeBlueprint()
     c._wake_pipe = None
+    c.call_soon(lambda: None)  # before the loop started: nothing to wake, nothing registered from here
+    assert c._wake_pipe is None and c.hub.readers == {}
+    c.register_with_event_loop(c.hub)
+    r, w = c._wake_pipe
+    assert r in c.hub.readers
     t = threading.Thread(target=lambda: c.call_soon(lambda: None))
     t.start()
     t.join()
-    r, _w = c._wake_pipe
-    assert len(c.hub.ready) == 1 and r in c.hub.readers
+    assert len(c.hub.ready) == 2
     assert select.select([r], [], [], 0)[0] == [r]  # readable: a poll returns at once
     c.hub.readers[r]()
     assert select.select([r], [], [], 0)[0] == []  # drained
-    c.hub.readers.clear()  # a hub reset (connection restart): registered again on the next call
-    c.call_soon(lambda: None)
-    assert r in c.hub.readers
+    c.hub = FakeHub()  # a hub reset (connection restart): the next loop start registers the same pipe again
+    c.register_with_event_loop(c.hub)
+    assert c._wake_pipe == (r, w) and r in c.hub.readers
     os.close(r)
-    os.close(_w)
+    os.close(w)

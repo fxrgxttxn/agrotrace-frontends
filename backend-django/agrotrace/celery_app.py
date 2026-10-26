@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "agrotrace.settings")
 
@@ -67,28 +66,27 @@ class Consumer(_CeleryConsumer):
         default_steps = [s for s in _CeleryConsumer.Blueprint.default_steps if "delayed_delivery" not in s]
 
     _wake_pipe: tuple[int, int] | None = None
-    _wake_lock = threading.Lock()
+
+    def register_with_event_loop(self, hub):
+        """On the hub thread, at every loop start (asynloop calls it after each hub reset): the wake pipe becomes a
+        reader of this hub. Pool threads never touch the hub's reader table (M1 of the Task 12 review)."""
+        super().register_with_event_loop(hub)
+        if self._wake_pipe is None:
+            r, w = os.pipe()
+            os.set_blocking(r, False)
+            os.set_blocking(w, False)
+            self._wake_pipe = (r, w)
+        hub.add_reader(self._wake_pipe[0], self._drain_wake)
 
     def call_soon(self, p, *args, **kwargs):
         promise = super().call_soon(p, *args, **kwargs)
-        if self.hub is not None:
-            self._wake()
+        pipe = self._wake_pipe
+        if self.hub is not None and pipe is not None:
+            try:
+                os.write(pipe[1], b"x")  # the only thing a pool thread does: a non-blocking write
+            except BlockingIOError:
+                pass  # the pipe is full: the hub is woken anyway
         return promise
-
-    def _wake(self) -> None:
-        with self._wake_lock:
-            if self._wake_pipe is None:
-                r, w = os.pipe()
-                os.set_blocking(r, False)
-                os.set_blocking(w, False)
-                self._wake_pipe = (r, w)
-            r, w = self._wake_pipe
-            if r not in self.hub.readers:  # (re)registered after a hub reset (connection restart)
-                self.hub.add_reader(r, self._drain_wake)
-        try:
-            os.write(w, b"x")
-        except BlockingIOError:
-            pass  # the pipe is full: the hub is woken anyway
 
     def _drain_wake(self) -> None:
         try:
