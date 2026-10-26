@@ -175,13 +175,16 @@ def test_no_float_in_decimal_arithmetic():
 
 
 #: Task 11 review N4 — `a / b` and `math.*` / `statistics.*` give floats without any `float(` or float literal. The
-#: allowed forms (everything else fails the guard): a path join (`ROOT / 'contracts'`: a str or f-string operand, or a
-#: left operand named `ROOT`, `DIST` or `files`), and a millisecond setting converted to seconds (`…_MS / 1000`,
-#: `timeout_ms / 1000`, `base_ms * … / 1000`). FLOAT_EXCEPTIONS files are skipped as above. Review M4: exact AST
-#: shapes, not text patterns. Decimal division (`Decimal / Decimal` stays exact) is not used today; a future one is
-#: added here by file with its reason, never by widening the shapes.
+#: allowed forms (everything else fails the guard): a path join — a str or f-string right operand (`ROOT / 'a' /
+#: f'{x}.json'`, at any depth: each `/` of the chain has one), or a bare `ROOT` / `DIST` name on the left
+#: (`DIST / ASSETS[name][0]`); and a millisecond setting converted to seconds — `<ms> / 1000` where `<ms>` is a name or
+#: attribute ending in `_ms`/`_MS`, or such a name times an integer constant or a power of a constant (`base_ms * 2 **
+#: k`). FLOAT_EXCEPTIONS files are skipped as above. Review M4: exact AST shapes, not text patterns; Task 12 review
+#: N2: no chain rule beyond path joins, no `<ms> * <anything>` (`cfg.X_MS / 1000 / qty`, `ROOT / 'a' / qty`,
+#: `base_ms * mass / 1000`, `self.files / n` all fail). Decimal division (`Decimal / Decimal` stays exact) is not used
+#: today; a future one is added here by file with its reason, never by widening the shapes.
 DIV_ALLOWED: dict[str, str] = {}
-_PATH_NAMES = {"ROOT", "DIST", "files"}
+_PATH_NAMES = {"ROOT", "DIST"}
 
 
 def _last_name(node: ast.AST) -> str | None:
@@ -193,25 +196,34 @@ def _last_name(node: ast.AST) -> str | None:
     return None
 
 
-def _is_ms(node: ast.AST) -> bool:
-    """A millisecond setting: a Name/Attribute ending in `_ms`/`_MS`, or such a name times something (`base_ms * …`)."""
+def _is_ms_name(node: ast.AST) -> bool:
     name = _last_name(node)
-    if name is not None:
-        return name.endswith(("_ms", "_MS"))
-    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult) and _is_ms(node.left)
+    return name is not None and name.endswith(("_ms", "_MS"))
+
+
+def _is_int_factor(node: ast.AST) -> bool:
+    """An integer constant, or a power of one (`2 ** k`)."""
+    if isinstance(node, ast.Constant):
+        return type(node.value) is int
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow) and _is_int_factor(node.left)
+
+
+def _is_ms(node: ast.AST) -> bool:
+    """A millisecond setting: a Name/Attribute ending in `_ms`/`_MS`, or one times an integer factor."""
+    if _is_ms_name(node):
+        return True
+    return (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult) and _is_ms_name(node.left)
+            and _is_int_factor(node.right))
 
 
 def _allowed_div(node: ast.BinOp) -> bool:
-    """`… / 'str'` or `… / f'…'` (a path join), `ROOT|DIST|files / …` (a Name or Attribute with that last name),
-    a chain of those, `<ms setting> / 1000`."""
+    """`… / 'str'` or `… / f'…'` (a path join), `ROOT|DIST / …` (a bare Name), `<ms setting> / 1000`."""
     left, right = node.left, node.right
     if isinstance(right, ast.JoinedStr) or (isinstance(right, ast.Constant) and isinstance(right.value, str)):
         return True
-    if _last_name(left) in _PATH_NAMES:
+    if isinstance(left, ast.Name) and left.id in _PATH_NAMES:
         return True
-    if isinstance(left, ast.BinOp) and isinstance(left.op, ast.Div) and _allowed_div(left):
-        return True  # ROOT / 'a' / b
-    return isinstance(right, ast.Constant) and right.value == 1000 and _is_ms(left)
+    return isinstance(right, ast.Constant) and type(right.value) is int and right.value == 1000 and _is_ms(left)
 
 
 def numeric_offences(rel: str, tree: ast.AST) -> list[str]:
@@ -248,3 +260,15 @@ def test_the_division_guard_catches_what_it_guards():
     assert [f.split(" ", 1)[1].split(" ")[0] for f in found] == ["division", "import", "math.floor()", "/=",
                                                                   "statistics.mean()", "division", "division",
                                                                   "division"]
+
+
+def test_the_division_guard_has_no_chain_or_product_loophole():
+    """Task 12 review N2: a chain is allowed only through path joins, and an ms setting only times an integer factor.
+    Each of these lines is one offence; the allowed shapes below them are none."""
+    bad = ast.parse("a = cfg.X_MS / 1000 / qty\nb = ROOT / 'a' / qty\nc = base_ms * mass / 1000\nd = self.files / n\n"
+                    "e = config.ROOT.joinpath('a') / n\nf = timeout_ms / 1000.0\n")
+    lines = sorted(int(f.split(":")[1].split(" ")[0]) for f in numeric_offences("s.py", bad))
+    assert lines == [1, 2, 3, 4, 5, 6]
+    ok = ast.parse("a = config.ROOT / 'contracts' / 'rules' / f'{n}.json'\nb = DIST / ASSETS[name][0]\n"
+                   "c = c.DB_CONNECT_TIMEOUT_MS / 1000\nd = base_ms * 2 ** (call - 1) / 1000\ne = files / f'{x}.woff'\n")
+    assert numeric_offences("s.py", ok) == []
