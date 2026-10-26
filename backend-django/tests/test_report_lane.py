@@ -138,3 +138,41 @@ def test_the_render_job_produces_both_formats():
     spec = _big_spec(3)
     assert render.render(spec, "pdf")[:5] == b"%PDF-"
     assert render.render(spec, "xlsx")[:2] == b"PK"
+
+
+def _bearer(roles: tuple[str, ...]) -> dict[str, str]:
+    import uuid
+    from datetime import UTC, datetime
+
+    from agrotrace.security.jwt import issue_access_token
+
+    p = Principal(user_id=str(uuid.uuid4()), org_id=str(uuid.uuid4()), roles=roles, org_admin=False)
+    return {"authorization": f"Bearer {issue_access_token(p, datetime.now(UTC))}"}
+
+
+def test_over_http_a_gone_client_frees_its_place_and_a_full_queue_is_503(lane, db):
+    """Through the ASGI application (D-I7: `http.disconnect` → client_gone() in the view's thread)."""
+    import asyncio
+
+    from tests.asgi_client import call
+
+    ln = lane()
+    blockers = _occupy(ln, 4, 4)  # 1 running + 3 waiting
+    path = "/api/v1/reports/complaints?format=xlsx&from=2020-01-01&to=2020-01-01"
+    started = time.monotonic()
+    asyncio.run(call("GET", path, headers=_bearer(("INSPECTOR",)), disconnect_after=0.5))
+    assert time.monotonic() - started < 3  # it left the queue at once, not after the running render
+    deadline = time.monotonic() + 5
+    while ln.size != 4 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert ln.size == 4  # its waiting place is free again
+    more = _occupy(ln, 1, 4)  # the fifth place taken by someone else: now the queue is full
+    deadline = time.monotonic() + 5
+    while ln.size != 5 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert ln.size == 5
+    res = asyncio.run(call("GET", path, headers=_bearer(("INSPECTOR",))))
+    assert res.status == 503 and res.json()["params"] == {"reason": "report-busy"}
+    assert res.headers["content-type"].startswith("application/problem+json")
+    for t in blockers + more:
+        t.join(30)
