@@ -115,7 +115,7 @@ final class RecallsActions
         $order = $sort['field'] === 'closedAt' ? 'r.closed_at' : 'r.opened_at';
         $dir = $sort['dir'] === 'asc' ? 'ASC' : 'DESC';
         $ids = array_map(fn ($r) => $r->id, DB::select("SELECT r.id {$fromSql} WHERE {$cond}
-            ORDER BY {$order} {$dir} NULLS LAST, r.id::text COLLATE \"C\" LIMIT ? OFFSET ?", [...$bindings, $size, ($page - 1) * $size]));
+            ORDER BY {$order} {$dir} NULLS LAST, r.id::text COLLATE \"C\" LIMIT ? OFFSET ?", [...$bindings, $size, ((int) $page - 1) * $size]));
 
         return ['items' => RecallView::items($ids), 'page' => $page, 'size' => $size, 'total' => $total];
     }
@@ -227,7 +227,7 @@ final class RecallsActions
         };
         $dir = $sort['dir'] === 'asc' ? 'ASC' : 'DESC';
         $ids = array_map(fn ($r) => $r->id, DB::select("SELECT t.id {$fromSql} WHERE {$cond}
-            ORDER BY {$order} {$dir} NULLS LAST, t.id::text COLLATE \"C\" LIMIT ? OFFSET ?", [...$bindings, $size, ($page - 1) * $size]));
+            ORDER BY {$order} {$dir} NULLS LAST, t.id::text COLLATE \"C\" LIMIT ? OFFSET ?", [...$bindings, $size, ((int) $page - 1) * $size]));
 
         return ['items' => RecallView::tasks($ids), 'page' => $page, 'size' => $size, 'total' => $total];
     }

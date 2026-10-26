@@ -179,7 +179,7 @@ final class LabActions
         };
         $dir = $sort['dir'] === 'asc' ? 'ASC' : 'DESC';
         $ids = array_map(fn ($r) => $r->id, DB::select("SELECT t.id {$from} WHERE {$cond}
-            ORDER BY {$order} {$dir} NULLS LAST, t.id::text COLLATE \"C\" LIMIT ? OFFSET ?", [...$bindings, $size, ($page - 1) * $size]));
+            ORDER BY {$order} {$dir} NULLS LAST, t.id::text COLLATE \"C\" LIMIT ? OFFSET ?", [...$bindings, $size, ((int) $page - 1) * $size]));
 
         return ['items' => LabView::listItems($ids), 'page' => $page, 'size' => $size, 'total' => $total];
     }
