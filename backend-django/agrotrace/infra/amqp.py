@@ -15,12 +15,13 @@ log = logging.getLogger("agrotrace.amqp")
 
 
 @contextmanager
-def channel() -> Iterator[object]:
+def channel(acquire_timeout: float | None = None) -> Iterator[object]:
     """A fresh channel (confirm mode: every basic.publish waits for the broker's ack) on a pooled connection; closed
-    afterwards. A failed operation drops the connection so the pool reconnects."""
+    afterwards. A failed operation drops the connection so the pool reconnects. `acquire_timeout`: seconds to wait
+    for a free pooled connection (None: as long as it takes)."""
     from agrotrace.celery_app import app
 
-    with app.pool.acquire(block=True) as conn:
+    with app.pool.acquire(block=True, timeout=acquire_timeout) as conn:
         ch = conn.channel()
         try:
             yield ch
@@ -37,13 +38,13 @@ def channel() -> Iterator[object]:
                 pass
 
 
-def queue_ready_count(queue: str | None = None) -> int | None:
+def queue_ready_count(queue: str | None = None, acquire_timeout: float | None = None) -> int | None:
     """Messages ready in `queue` (default `agrotrace.django.jobs`) by a passive queue.declare — None when the broker is
-    unreachable or the queue is missing (never created here)."""
+    unreachable, no pooled connection is free within `acquire_timeout` s, or the queue is missing (never created here)."""
     from agrotrace.celery_app import QUEUE
 
     try:
-        with channel() as ch:
+        with channel(acquire_timeout) as ch:
             _name, count, _consumers = ch.queue_declare(queue=queue or QUEUE, passive=True)  # type: ignore[attr-defined]
             return int(count)
     except Exception as e:
