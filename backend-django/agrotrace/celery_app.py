@@ -7,7 +7,7 @@ The topology is the one of infra/rabbitmq/definitions.json and is never declared
 - queue `agrotrace.django.jobs` on the topic exchange `agrotrace.django` (`#`), both `no_declare`, with exactly the
   definitions' queue arguments (quorum, DLX → `agrotrace.django.jobs.dlq`, delivery limit);
 - default queue/exchange/type point there (send_task would otherwise go to `celery`), missing queues are never
-  created, no remote control (`celery.pidbox`, reply queues), no task events, no gossip/mingle/heartbeat (the worker
+  created, no remote control (`celery.pidbox`, reply queues), no task events, no gossip/mingle/event heartbeat (the worker
   command), no result backend;
 - the DelayedDelivery bootstep of Celery 5.5 (it declares `celery_delayed_*` once it sees a quorum queue) is removed
   from the consumer blueprint (`Consumer` below);
@@ -106,7 +106,10 @@ app.conf.update(
     # Fail fast (Q13 revised): a down broker costs the relay thread 2 s per attempt, never a request.
     broker_connection_timeout=2.0,
     broker_transport_options={"confirm_publish": True, "max_retries": 0, "connect_timeout": 2.0},
-    broker_heartbeat=0,
+    # AMQP heartbeats of the worker's consumer connection, 60 s as amqplib (Express) negotiates with the broker: a
+    # half-open connection is noticed in minutes, not after the kernel's keepalive (final review M3). Only the consumer
+    # uses it (Celery: producers/pool connections send none, so an idle pooled connection is never dropped for it).
+    broker_heartbeat=60,
     task_queues=[
         Queue(QUEUE, _exchange, routing_key="#", durable=True, queue_arguments=queue_arguments(), no_declare=True)
     ],

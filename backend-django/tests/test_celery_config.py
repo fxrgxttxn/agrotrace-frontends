@@ -53,6 +53,13 @@ def test_delivery_semantics():
     assert c.broker_transport_options["confirm_publish"] is True
 
 
+def test_the_consumer_negotiates_60_s_amqp_heartbeats():
+    """As amqplib (Express) does with the broker's default (final review M3); the worker's consumer connection is
+    opened with it (Consumer.connection_for_read(heartbeat=broker_heartbeat))."""
+    assert app.conf.broker_heartbeat == 60
+    assert app.connection_for_read(heartbeat=app.conf.broker_heartbeat).heartbeat == 60
+
+
 def test_the_delayed_delivery_step_is_not_in_the_consumer():
     steps = celery_app.Consumer.Blueprint.default_steps
     assert not any("delayed_delivery" in s.lower() or "DelayedDelivery" in s for s in steps)
