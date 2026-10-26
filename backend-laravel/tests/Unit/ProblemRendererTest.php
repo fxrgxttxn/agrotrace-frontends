@@ -84,6 +84,12 @@ it('renders every exception class as the contract problem', function (Closure $m
     'statement_timeout 57014' => [fn () => new QueryException('pgsql', 'select 1', [], pdoError('57014')), 503, 'BACKEND_UNAVAILABLE'],
     'lock_timeout 55P03' => [fn () => new QueryException('pgsql', 'select 1', [], pdoError('55P03')), 503, 'BACKEND_UNAVAILABLE'],
     'connection failure 08006' => [fn () => new QueryException('pgsql', 'select 1', [], pdoError('08006')), 503, 'BACKEND_UNAVAILABLE'],
+    'connection failure 08000' => [fn () => new QueryException('pgsql', 'select 1', [], pdoError('08000')), 503, 'BACKEND_UNAVAILABLE'],
+    'connection failure 08001' => [fn () => new QueryException('pgsql', 'select 1', [], pdoError('08001')), 503, 'BACKEND_UNAVAILABLE'],
+    'connection failure 08003' => [fn () => new QueryException('pgsql', 'select 1', [], pdoError('08003')), 503, 'BACKEND_UNAVAILABLE'],
+    'connection failure 08004' => [fn () => new QueryException('pgsql', 'select 1', [], pdoError('08004')), 503, 'BACKEND_UNAVAILABLE'],
+    'connection failure 08007' => [fn () => new QueryException('pgsql', 'select 1', [], pdoError('08007')), 503, 'BACKEND_UNAVAILABLE'],
+    'protocol violation 08P01 (a defect, as Express)' => [fn () => new QueryException('pgsql', 'select 1', [], pdoError('08P01')), 500, 'INTERNAL'],
     'other SQL error 23505' => [fn () => new QueryException('pgsql', 'insert', [], pdoError('23505')), 500, 'INTERNAL'],
 ]);
 

@@ -112,11 +112,13 @@ final class Renderer
     }
 
     /**
-     * P61: no DB slot/connection in time (BackendUnavailable), a connection failure (SQLSTATE class 08), or a statement
-     * or lock wait past the session's statement_timeout (57014) / lock_timeout (55P03) — the infrastructure is
-     * unavailable, not the request wrong. Searched along the exception chain (Laravel wraps PDO errors in
-     * QueryException).
+     * P61: no DB slot/connection in time (BackendUnavailable), a connection failure (SQLSTATE 08000, 08001, 08003,
+     * 08004, 08006, 08007), or a statement or lock wait past the session's statement_timeout (57014) / lock_timeout
+     * (55P03) — the infrastructure is unavailable, not the request wrong. Searched along the exception chain (Laravel
+     * wraps PDO errors in QueryException). 08P01 (protocol_violation) is a defect, 500 as in Express (T11 review M2).
      */
+    private const UNAVAILABLE_STATES = ['57014', '55P03', '08000', '08001', '08003', '08004', '08006', '08007'];
+
     private static function isBackendUnavailable(Throwable $e): bool
     {
         for ($x = $e; $x !== null; $x = $x->getPrevious()) {
@@ -124,7 +126,7 @@ final class Renderer
                 return true;
             }
             $state = self::sqlState($x);
-            if ($state !== null && ($state === '57014' || $state === '55P03' || str_starts_with($state, '08'))) {
+            if ($state !== null && in_array($state, self::UNAVAILABLE_STATES, true)) {
                 return true;
             }
         }
