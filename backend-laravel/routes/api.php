@@ -21,6 +21,7 @@ use App\Http\Controllers\Lab\LabController;
 use App\Http\Controllers\Me\MeController;
 use App\Http\Controllers\Organizations\OrganizationsController;
 use App\Http\Controllers\Processing\ProcessingController;
+use App\Http\Controllers\Recalls\RecallsController;
 use App\Http\Controllers\Users\UsersController;
 use App\Http\Controllers\Waybills\WaybillsController;
 use Illuminate\Support\Facades\Route;
@@ -125,6 +126,14 @@ $op('POST', '/lab-tests/{id}/sample', [LabController::class, 'registerLabSample'
 $op('POST', '/lab-tests/{id}/results', [LabController::class, 'submitLabResults'], 'submitLabResults');
 $op('PUT', '/lab-tests/{id}/protocol', [LabController::class, 'uploadLabProtocol'], 'uploadLabProtocol');
 $op('GET', '/lab-tests/{id}/protocol', [LabController::class, 'downloadLabProtocol'], 'downloadLabProtocol');
+
+// Recalls and recall tasks (Task 10).
+$op('GET', '/recalls', [RecallsController::class, 'listRecalls'], 'listRecalls');
+$op('POST', '/recalls', [RecallsController::class, 'createRecall'], 'createRecall');
+$op('GET', '/recalls/{id}', [RecallsController::class, 'getRecall'], 'getRecall');
+$op('GET', '/recalls/{id}/graph', [RecallsController::class, 'getRecallGraph'], 'getRecallGraph');
+$op('GET', '/recall-tasks', [RecallsController::class, 'listRecallTasks'], 'listRecallTasks');
+$op('POST', '/recall-tasks/{id}/confirm', [RecallsController::class, 'confirmRecallTask'], 'confirmRecallTask');
 
 // Swagger UI (spec 8.3) — outside the contract, as in Express.
 Route::get('/api/v1/docs', [DocsController::class, 'page']);

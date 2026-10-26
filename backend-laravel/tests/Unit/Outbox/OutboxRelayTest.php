@@ -161,7 +161,7 @@ it('a relay killed mid-confirm loses nothing: its session ends, the next pass pu
 });
 
 it('picks only this backend\'s unpublished rows of handled types, oldest first, at most 100 (Q12)', function () {
-    expect(EventHandlers::types())->toBe(['vsd.import', 'lab.escalate']);
+    expect(EventHandlers::types())->toBe(['vsd.import', 'lab.escalate', 'recall.requested', 'rating.recalculate']);
     $old = outboxRow(createdAgo: '3 minutes');
     $new = outboxRow(createdAgo: '1 minute');
     $unhandled = outboxRow('notification.dispatch', createdAgo: '5 minutes');

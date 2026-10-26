@@ -3,6 +3,8 @@
 namespace App\Events;
 
 use App\Events\Handlers\LabEscalate;
+use App\Events\Handlers\RatingRecalculate;
+use App\Events\Handlers\RecallRequested;
 use App\Events\Handlers\VsdImport;
 
 /**
@@ -17,6 +19,8 @@ final class EventHandlers
     public const MAP = [
         'vsd.import' => VsdImport::class,
         'lab.escalate' => LabEscalate::class,
+        'recall.requested' => RecallRequested::class,
+        'rating.recalculate' => RatingRecalculate::class,
     ];
 
     /** @return list<string> */

@@ -160,8 +160,15 @@ final class Rules
     public static function nextTrustRating(array $i): array
     {
         $tr = RulesRepo::json('trust-rating');
-        // Math.round: half towards +∞.
-        $rating = (int) floor($i['current'] + $tr['deltas'][$i['event']] + 0.5);
+        // JavaScript's Math.round exactly: half towards +∞, and no `x + 0.5` (0.49999999999999994 + 0.5 rounds to 1.0 in
+        // binary floating point, Math.round gives 0). Integers — the stored rating and the deltas — stay integers.
+        $x = $i['current'] + $tr['deltas'][$i['event']];
+        if (is_int($x)) {
+            $rating = $x;
+        } else {
+            $down = floor($x);
+            $rating = (int) ($x - $down >= 0.5 ? $down + 1 : $down);
+        }
 
         return ['rating' => max($tr['min'], min($tr['max'], $rating))];
     }
