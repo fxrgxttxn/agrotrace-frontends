@@ -12,7 +12,9 @@ namespace App\Security;
  *   signature = hex(HMAC-SHA256(key, challenge))
  *
  * A solution is canonical padded standard base64 (RFC 4648 §4) of a JSON object read with JSON.parse semantics: the
- * last duplicate key wins, invalid UTF-8 becomes U+FFFD (Buffer#toString), a lone surrogate escape is a string
+ * last duplicate key wins, invalid UTF-8 inside strings becomes U+FFFD — one per invalid byte, where Buffer#toString
+ * (WHATWG) emits one per maximal subpart, so the count may differ; that cannot change a verdict for a server-issued
+ * challenge, whose salt is ASCII and bound by the signature (T11 review M1) — a lone surrogate escape is a string
  * character (its UTF-8 is U+FFFD's, as Node encodes it), any nesting depth. `number` is checked against its source
  * text — the last top-level member named `number` (escapes in keys expanded), as the JSON.parse reviver's
  * `context.source` gives it — because json_decode turns `-0` into 0 and `12345.0` into a float. Replay protection
