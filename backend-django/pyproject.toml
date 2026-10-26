@@ -21,3 +21,8 @@ ignore = ["E501", "B008"]
 
 [tool.coverage.run]
 data_file = "/tmp/.coverage"
+# A full `./at.sh django:test` (no pytest arguments) runs with `--cov`: the domain layer, held to the §14.1 bar.
+source = ["agrotrace/domain"]
+
+[tool.coverage.report]
+fail_under = 70

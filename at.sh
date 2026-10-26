@@ -588,7 +588,11 @@ e2e() (
 # ruff are in it, D-M5) and runs, with the working tree's backend-django/ and docker-compose.yml mounted read-only,
 # `pytest [args…]` against agrotrace_test_django as the app role (TEST_DATABASE_URL inside = TEST_APP_DATABASE_URL),
 # then `ruff check`; fails if either fails. MSYS_NO_PATHCONV keeps Git Bash from rewriting the container paths.
+# A run without pytest arguments is a full run: it also measures agrotrace/domain and fails under the §14.1 bar
+# (70 %, backend-django/pyproject.toml [tool.coverage]). `-m stand` runs the stand checks (the broker topology) against
+# the running stand (`./at up django` first).
 django_test_hook() {
+  [ $# -eq 0 ] && set -- --cov --cov-report=term
   run $DC build api-django
   run env MSYS_NO_PATHCONV=1 $DC run --rm --no-deps -e "TEST_DATABASE_URL=$TEST_APP_DATABASE_URL" \
     -e AGROTRACE_PROCESS=test -v ./backend-django:/app/backend-django:ro \
