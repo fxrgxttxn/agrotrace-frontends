@@ -20,7 +20,9 @@ emits `{"user_id", "unread": true}`.
   that text). Notifications are read with `conn.notifies(timeout=30)` (psycopg 3.2), which returns at least every
   30 s: an open `notifies()` generator holds the connection's lock, and the probe could not run otherwise (D-M4). A
   failed probe or read is a lost session: reconnect with a back-off (0.5 s doubling to 10 s), then `resync()`;
-- a client that does not read (more than 1 MiB buffered) loses its stream.
+- more than 1 MiB buffered ends a stream as Express `res.end()` does: no new frame, the buffered ones still go out
+  (a reading client with a large replay gets its first MiB and its L moves on); a send still unfinished 5 s later
+  (the client does not read) cancels the response.
 Reads go through the SSE pool (sse/dbpool.py, 2 connections).
 
 Connect (streamEvents, sse/stream.py): register the stream (live events are buffered), read the watermark, replay
@@ -40,6 +42,7 @@ import contextlib
 import json
 import logging
 import signal
+import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -61,6 +64,8 @@ RECONNECT_MIN_S = 0.5
 RECONNECT_MAX_S = 10.0
 SENT_CAP = 10_000
 MAX_BUFFERED_BYTES = 1024 * 1024
+#: A frame the server has not taken within this long after the 1 MiB limit: the client does not read.
+STUCK_SEND_S = 5.0
 LISTEN = "LISTEN notifications"
 APPLICATION_NAME = "agrotrace-django-api-sse-listen"
 
@@ -101,6 +106,9 @@ class Stream:
         self._forget = forget
         #: The task that sends the response (cancelled to end a stream whose client does not read).
         self.task: asyncio.Task | None = None
+        #: Set by the response generator while a frame is handed to the server (`yield`): the send is in progress.
+        self.sending_since: float | None = None
+        self.stuck_after_s: float = STUCK_SEND_S
 
     # ── output ──
     def write(self, chunk: str) -> None:
@@ -110,12 +118,28 @@ class Stream:
         self.pending_bytes += len(chunk.encode("utf-8"))
         self._wake.set()
         if self.pending_bytes > MAX_BUFFERED_BYTES:
-            log.warning("sse client does not read; stream ended", extra={"userId": self.user_id})
-            self.pending.clear()
-            self.pending_bytes = 0
+            # Express `res.end()` after `writableLength > 1 MiB`: no new frame is accepted, but what is buffered still
+            # goes out — a reading client with a large replay gets its first MiB and its L moves forward. Only a send
+            # that does not finish (the client does not read) ends the response by cancelling its task.
+            log.warning("sse stream over 1 MiB buffered; ended", extra={"userId": self.user_id})
             self.end()
-            if self.task is not None and self.task is not asyncio.current_task():
-                self.task.cancel()  # the response is stuck in a send that waits for the client to read
+            self._watch_stuck()
+
+    def _watch_stuck(self) -> None:
+        if self.task is None or self.task.done():
+            return
+        asyncio.get_running_loop().call_later(self.stuck_after_s, self._check_stuck)
+
+    def _check_stuck(self) -> None:
+        task = self.task
+        if task is None or task.done():
+            return
+        since = self.sending_since
+        if since is not None and time.monotonic() - since >= self.stuck_after_s:
+            log.warning("sse client does not read; stream cancelled", extra={"userId": self.user_id})
+            task.cancel()
+        elif self.pending or since is not None:
+            self._watch_stuck()  # still draining: look again
 
     def take(self) -> str | None:
         if not self.pending:

@@ -59,7 +59,9 @@ async def events(h: Hub, s: Stream, last_seq: str | None, *, ping_s: float = PIN
         while True:
             chunk = s.take()
             while chunk is not None:
+                s.sending_since = time.monotonic()
                 yield chunk
+                s.sending_since = None
                 chunk = s.take()
             if s.closed:
                 return

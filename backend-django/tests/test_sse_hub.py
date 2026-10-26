@@ -212,22 +212,80 @@ def test_dedupe_by_id_within_a_stream():
     assert [f[1] for f in frames(s)] == ["notification"]
 
 
-def test_more_than_1_mib_buffered_ends_the_stream():
+def _frames_of(chunks):
+    return [FRAME.match(c) for c in chunks]
+
+
+class ReplayHub:
+    """A hub whose connect sequence replays `rows` notifications above L in one synchronous loop (as the real one
+    does for a long absence), then `unread`."""
+
+    def __init__(self, rows: int):
+        self.rows = rows
+
+    def register(self, s):
+        pass
+
+    async def connect_sequence(self, s, last):
+        start = int(last or 0)
+        for seq in range(start + 1, start + self.rows + 1):
+            s.send({"id": f"n{seq}", "seq": seq, "type": "COMPLAINT", "isRead": False, "createdAt": "t",
+                    "payload": {"publicCode": "AT-2026-990003", "productName": "x" * 300}})
+        s.flush()
+        s.unread(0)
+
+
+def test_a_reading_client_with_a_replay_over_1_mib_gets_the_first_mib_and_its_l_moves_on():
+    """Review I1: Express `res.end()` still flushes what is buffered; the client reconnects from a later L."""
     async def go():
-        s = Stream("u", int(time.time()) + 60)
-        s.buffer = None
-        victim = asyncio.create_task(asyncio.sleep(30))
-        s.task = victim
-        gone = []
-        s._forget = gone.append
-        s.write("x" * (512 * 1024))
-        assert not s.closed
-        s.write("y" * (512 * 1024 + 1))
-        assert s.closed and gone == [s] and s.pending_bytes == 0
-        await asyncio.sleep(0)
-        assert victim.cancelled() or victim.cancelling()
-        s.write("z")
-        assert s.take() is None
+        hub = ReplayHub(6000)  # ~ 2.6 MiB of frames
+        last = None
+        progress = []
+        for _ in range(3):
+            s = Stream("u", int(time.time()) + 600)
+            got = [c async for c in stream_mod.events(hub, s, last)]
+            ids = [int(m.group(1)) for m in _frames_of(got) if m.group(2) == "notification"]
+            assert ids, "nothing delivered"
+            assert ids == list(range(ids[0], ids[0] + len(ids)))  # in order, no gap
+            assert sum(len(c.encode()) for c in got) > 1024 * 1024
+            assert s.closed and not s.task.cancelled()
+            progress.append(ids[-1])
+            last = str(ids[-1])
+        assert progress[0] < progress[1] < progress[2]
+
+    run(go())
+
+
+def test_a_client_that_does_not_read_is_cancelled_after_1_mib():
+    async def go():
+        s = Stream("u", int(time.time()) + 600)
+        s.stuck_after_s = 0.2
+
+        class Idle:
+            def register(self, st):
+                pass
+
+            async def connect_sequence(self, st, last):
+                st.flush()
+                st.unread(0)
+
+        gen = stream_mod.events(Idle(), s, None)
+
+        async def client():
+            await gen.__anext__()  # takes the first frame, then never reads again: the send is stuck
+            await asyncio.sleep(30)
+
+        task = asyncio.create_task(client())
+        await asyncio.sleep(0.05)
+        assert s.task is task and s.sending_since is not None  # the generator sits in its send
+        for i in range(4000):
+            s.send({"id": f"x{i}", "seq": i + 1, "type": "COMPLAINT", "payload": {"p": "y" * 300}, "isRead": False,
+                    "createdAt": "t"})
+        assert s.closed
+        assert not task.done()  # not at once: the buffered frames would still go to a reading client
+        await asyncio.sleep(0.5)
+        assert task.cancelled()
+        await gen.aclose()
 
     run(go())
 
