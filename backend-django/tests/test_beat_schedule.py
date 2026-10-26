@@ -61,7 +61,7 @@ def _wait_for(ran: list[str], n: int) -> None:
 
 def test_the_registered_jobs_are_the_budget_jobs_of_this_task():
     assert set(jobs.REGISTRY) <= set(config.BEAT_JOBS)
-    assert {"lab-escalation", "outbox-sweeper"} <= set(jobs.REGISTRY)
+    assert set(jobs.REGISTRY) == set(config.BEAT_JOBS)  # all four since Task 12
     assert len(config.BEAT_JOBS) == 4  # beat-django DJANGO_DB_POOL_MAX 4: one connection per job
     assert jobs.REGISTRY["lab-escalation"].period_ms is None  # SCHEDULER_TICK_MS
 

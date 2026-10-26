@@ -25,6 +25,7 @@ urlpatterns = [
     path("api/v1/", include("agrotrace.modules.recalls.urls")),
     path("api/v1/", include("agrotrace.modules.complaints.urls")),
     path("api/v1/", include("agrotrace.modules.public.urls")),
+    path("api/v1/", include("agrotrace.modules.notifications.urls")),
 ]
 
 handler400 = "agrotrace.core.problem.handler400"

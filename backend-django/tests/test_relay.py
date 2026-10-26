@@ -101,7 +101,9 @@ def _insert(event_id, *, type_="vsd.import", published_days_ago=None, backend="d
 def test_the_handled_types_are_the_registered_tasks():
     import importlib
 
-    assert HANDLED_TYPES == ("vsd.import", "lab.escalate", "recall.requested", "rating.recalculate")
+    assert HANDLED_TYPES == ("vsd.import", "lab.escalate", "recall.requested", "rating.recalculate",
+                             "notification.dispatch")
+    assert set(HANDLED_TYPES) == set(outbox.EVENT_TYPES)  # every type of the envelope enum (Task 12)
     assert set(app.conf.imports) == set(HANDLER_MODULES.values())
     for type_, module in HANDLER_MODULES.items():
         importlib.import_module(module)
@@ -149,11 +151,11 @@ def test_the_request_never_waits_on_the_broker(broker, rows):
 
 
 def test_types_without_a_handler_stay_unpublished(broker, rows):
-    def fn(tx):
-        rows.append(outbox.enqueue(tx, "notification.dispatch", {}))  # its handler lands with Task 12
-
-    with_tx(fn)
-    assert relay.relay().wait_idle()
+    # Every enum type has a handler since Task 12; the filter (Ruling Q12) still holds for any other row.
+    event_id = str(uuid.uuid4())
+    _insert(event_id, type_="test.unhandled")
+    rows.append(event_id)
+    assert relay.flush(rows) == (0, False)
     outbox_sweeper.run()
     assert all(s["task_id"] not in rows for s in broker.sent)
     assert all(_row(r)["published_at"] is None for r in rows)
@@ -225,7 +227,7 @@ def test_the_sweeper_publishes_and_keeps_the_retention(broker, rows):
     _insert(express, backend="express")
     _insert(old, published_days_ago=8)
     _insert(recent, published_days_ago=6)
-    _insert(unhandled, type_="notification.dispatch")
+    _insert(unhandled, type_="test.unhandled")
     rows.extend([fresh, express, old, recent, unhandled])
     seen_old, seen_recent = str(uuid.uuid4()), str(uuid.uuid4())
     sql.execute("INSERT INTO processed_events (event_id, backend, processed_at) VALUES "

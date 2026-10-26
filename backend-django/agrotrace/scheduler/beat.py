@@ -4,7 +4,8 @@ Celery Beat with the ticks executed IN the beat process (plan 3, «Beat»): `cel
 SCHEDULER_TICK_MS or the job's own), but an entry that is due is run by `guarded_tick` on a thread of a pool with one
 thread per job (a job's tick never overlaps itself) — no tick is ever a broker message (`producer` is None: the
 queue carries only the five event types of the envelope). The one job that talks to the broker is `outbox-sweeper`,
-which publishes outbox rows (infra/relay.py). Every job also runs once right at start.
+which publishes outbox rows (infra/relay.py); `notification-delivery` sends mail and Telegram messages on its own job
+thread (modules/notifications/delivery.py). Every job also runs once right at start.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from agrotrace.core import config
 from agrotrace.scheduler import jobs
 from agrotrace.scheduler.jobs import (  # noqa: F401  # importing registers the job
     lab_escalation,
+    notification_delivery,
     outbox_sweeper,
     recall_task_overdue,
 )

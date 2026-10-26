@@ -38,7 +38,7 @@ def _notes(user_ids: list[str]) -> list[tuple[str, str, str, str]]:
 
 def test_both_types_are_published_now():
     assert {"recall.requested", "rating.recalculate"} <= set(HANDLED_TYPES)
-    assert "notification.dispatch" not in HANDLED_TYPES  # Task 12
+    assert "notification.dispatch" in HANDLED_TYPES  # Task 12
 
 
 def test_recall_requested_fans_out_once(world):

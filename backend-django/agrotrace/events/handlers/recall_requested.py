@@ -12,7 +12,8 @@ operation that created it; the handler only fans out, in ONE transaction that st
      retries).
 
 Notifications (1) and (2) are written by the storage half of notification.dispatch (modules/notifications/
-dispatch.py): IN_APP DELIVERED, EMAIL/TELEGRAM PENDING — their delivery is Task 12's. A redelivered event finds its
+dispatch.py): IN_APP DELIVERED, EMAIL/TELEGRAM PENDING, sent after the commit by the delivery half (modules/
+notifications/delivery.py, `mode='fresh'`; the event is acknowledged without waiting). A redelivered event finds its
 claim and creates nothing.
 """
 
@@ -25,6 +26,7 @@ from agrotrace.core.tx import Tx, with_tx
 from agrotrace.events.claim import claim
 from agrotrace.events.tasks import event_task
 from agrotrace.infra import outbox
+from agrotrace.modules.notifications import delivery
 from agrotrace.modules.notifications.dispatch import insert_notifications
 
 
@@ -72,4 +74,4 @@ def handle(envelope: dict[str, Any]) -> list[str]:
 
 @event_task("recall.requested")
 def recall_requested(envelope: dict[str, Any]) -> None:
-    handle(envelope)
+    delivery.deliver(handle(envelope), mode="fresh")

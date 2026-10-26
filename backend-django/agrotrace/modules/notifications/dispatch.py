@@ -1,8 +1,7 @@
 """
 The storage half of the `notification.dispatch` algorithm (contracts/events/notification.dispatch.schema.json,
 contracts/rules/notifications.json), the port of backend-express/src/modules/notifications/dispatch.ts, shared by every
-handler that creates notifications inside its own transaction (lab.escalate here; recall.requested — Task 10;
-notification.dispatch — Task 12).
+handler that creates notifications inside its own transaction (lab.escalate, recall.requested, notification.dispatch).
 
 Recipients: `userIds` as is, all users of `orgIds`, the heads (`is_org_admin`) of `orgHeadIds`, every user having a
 role of `roles`; only ACTIVE, non-deleted users; the union deduplicated by user id (ordered by id). Per user: one
@@ -11,7 +10,7 @@ or every hub would get a duplicate with another payload, D-M1) and per external 
 `channels.email` is true or the type is forced (RECALL, RECALL_TASK, OVERDUE), TELEGRAM when Telegram is linked and
 (`channels.telegram` is true or the type is forced). Every row carries `payload`.
 
-Sending the PENDING rows (3 attempts, NOT_CONFIGURED) is the delivery half — Task 12; until then they stay PENDING.
+Sending the PENDING rows after the commit (3 attempts, NOT_CONFIGURED) is the delivery half (delivery.py).
 """
 
 from __future__ import annotations

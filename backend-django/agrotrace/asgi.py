@@ -22,13 +22,15 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "agrotrace.settings")
 from django.core.asgi import get_asgi_application  # noqa: E402
 
 from agrotrace.core import context  # noqa: E402
+from agrotrace.sse import hub as sse_hub  # noqa: E402
 
 django_application = get_asgi_application()
 log = logging.getLogger("agrotrace.asgi")
 
-#: Callables run at lifespan start-up / shutdown (later tasks register the SSE hub and the metrics server).
-STARTUP: list = []
-SHUTDOWN: list = []
+#: Callables run at lifespan start-up / shutdown: the SSE hub (its LISTEN session exists from the start, as in Express;
+#: it closes first at shutdown), later the metrics server (Task 14).
+STARTUP: list = [sse_hub.start]
+SHUTDOWN: list = [sse_hub.close]
 
 
 async def _lifespan(receive, send) -> None:
