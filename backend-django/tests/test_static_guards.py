@@ -28,7 +28,8 @@ FOR_UPDATE = re.compile(r"\bfor\s+update\b", re.I)
 #: XLSX cells; the 1e21 threshold of JSON.stringify; a Pillow resampling factor; monotonic-clock seconds.
 FLOAT_EXCEPTIONS = {"core/body.py", "core/render.py", "infra/xlsx_scan.py", "core/audit.py", "infra/images.py",
                     "infra/lanes.py", "modules/health/views.py",
-                    "infra/pdf.py"}  # page layout in PostScript points (Task 13), no stored decimals
+                    "infra/pdf.py",  # page layout in PostScript points (Task 13), no stored decimals
+                    "core/metrics.py"}  # Prometheus samples are floats (seconds, NaN for an unknown gauge), Task 14
 #: Names of durations in seconds (`CONFIRM_TIMEOUT_S`, `timeout=`, `connect_timeout`, `self._down_until`).
 DURATION_NAME = re.compile(r"(_S|_until)$|timeout", re.I)
 
