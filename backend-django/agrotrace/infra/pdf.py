@@ -250,7 +250,8 @@ class _Writer:
             parts: list[str] = []
             run: list[str] = []
             for i, (g, c) in enumerate(zip(gs, s, strict=True)):
-                used.setdefault(g, c)
+                if g:  # a character the face lacks is .notdef (gid 0), which maps to U+0000 (_font)
+                    used.setdefault(g, c)
                 k = face.kern(gs[i - 1], g) if i else 0
                 if k:
                     parts.append(f"<{''.join(run)}>")
@@ -312,7 +313,10 @@ class _Writer:
         cid = add(f"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{name} /CIDSystemInfo << /Registry (Adobe) "
                   f"/Ordering (Identity) /Supplement 0 >> /FontDescriptor {desc} 0 R /W [{widths}] "
                   "/CIDToGIDMap /Identity >>")
-        entries = [f"<{g:04X}> <{''.join(f'{u:04X}' for u in _utf16(c))}>" for g, c in sorted(used.items())]
+        # pdfkit (EmbeddedFont: `unicode = [[0]]`): .notdef, the glyph of every character the face lacks, maps to
+        # U+0000 — never to the first missing character it happened to draw.
+        mapped = {**used, 0: "\x00"}
+        entries = [f"<{g:04X}> <{''.join(f'{u:04X}' for u in _utf16(c))}>" for g, c in sorted(mapped.items())]
         cmap = ["/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) "
                 "/Ordering (UCS) /Supplement 0 >> def /CMapName /Adobe-Identity-UCS def /CMapType 2 def "
                 "1 begincodespacerange <0000> <FFFF> endcodespacerange"]
