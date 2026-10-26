@@ -218,3 +218,12 @@ def test_fresh_delivery_runs_on_the_send_slots_and_holds_no_connection_across_an
     assert [_state(i)["delivery_status"] for i in ids] == ["DELIVERED"] * 4
     assert held == [False] * 4
     assert threads and all(t.startswith("notify-send") for t in threads) and len(threads) <= 2
+
+
+def test_a_stale_tick_claims_no_new_row_after_its_budget(monkeypatch):
+    """Review M2: a hung SMTP server ends the beat tick after ~4 minutes (and with it the advisory key)."""
+    taken = []
+    monkeypatch.setattr(delivery, "deliver_one", lambda i, mode: (taken.append((i, mode)), time.sleep(0.2)))
+    assert delivery.deliver(["a", "b", "c", "d", "e"], mode="stale", budget_s=0.3) == 2
+    assert taken == [("a", "stale"), ("b", "stale")]
+    assert delivery.SWEEP_TICK_BUDGET_S == 240 and delivery.sweep.__defaults__ == (240,)

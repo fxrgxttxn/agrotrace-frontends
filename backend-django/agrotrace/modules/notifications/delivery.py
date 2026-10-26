@@ -54,6 +54,8 @@ CLAIM_STALE_SEC = 300
 #: One attempt (either channel) that has not finished within this long counts as failed (N5).
 ATTEMPT_TIMEOUT_S = 30
 SWEEP_BATCH = 100
+#: A stale sweep tick claims no new row after this long (review M2 ruling).
+SWEEP_TICK_BUDGET_S = 240
 
 Mode = Literal["fresh", "stale"]
 Status = Literal["DELIVERED", "FAILED", "NOT_CONFIGURED"]
@@ -242,11 +244,12 @@ def _slot_job(notification_id: str) -> None:
         connections.close_all()
 
 
-def deliver(ids: list[str], *, mode: Mode) -> None:
+def deliver(ids: list[str], *, mode: Mode, budget_s: float | None = None) -> int:
     """`fresh` (worker): the rows go to the send slots, returns at once. `stale` (beat): sent one after another on
-    the calling thread and its connection. Never raises for a failed row."""
+    the calling thread and its connection; once `budget_s` has passed no further row is claimed (the rest stay for
+    the next tick). Never raises for a failed row. Returns how many rows were handed on or taken."""
     if not ids:
-        return
+        return 0
     if mode == "fresh":
         pool = _slots()
         for i in ids:
@@ -254,12 +257,20 @@ def deliver(ids: list[str], *, mode: Mode) -> None:
             with _pool_lock:
                 _inflight.add(fut)
             fut.add_done_callback(_forget)
-        return
+        return len(ids)
+    started = time.monotonic()
+    taken = 0
     for i in ids:
+        if budget_s is not None and time.monotonic() - started >= budget_s:
+            log.info("notification-delivery tick budget spent; the rest waits for the next tick",
+                     extra={"left": len(ids) - taken})
+            break
+        taken += 1
         try:
             deliver_one(i, "stale")
         except Exception as e:
             log.error("notification delivery crashed", exc_info=e, extra={"notificationId": i})
+    return taken
 
 
 def _forget(fut: Future) -> None:
@@ -296,13 +307,14 @@ def shutdown() -> None:
         pool.shutdown(wait=True)
 
 
-def sweep() -> int:
+def sweep(budget_s: float = SWEEP_TICK_BUDGET_S) -> int:
     """One `notification-delivery` tick: the PENDING EMAIL/TELEGRAM rows whose sender died — `coalesce(claimed_at,
     created_at)` older than 5 minutes, oldest first, at most 100 — each claimed (`stale`) and sent within the rest of
-    its 3-attempt budget; how many were taken."""
+    its 3-attempt budget; how many were taken. Serial, as the brief prescribes; after
+    `budget_s` (4 minutes) no new row is claimed, so a hung SMTP server ends the tick (and its advisory key) and the
+    rest waits for the next tick (review M2)."""
     ids = [r["id"] for r in sql.all(
         "SELECT id::text AS id FROM notifications WHERE delivery_status = 'PENDING' AND channel <> 'IN_APP' "
         f"AND coalesce(claimed_at, created_at) < {_STALE} ORDER BY created_at LIMIT %s",
         [CLAIM_STALE_SEC, SWEEP_BATCH])]
-    deliver(ids, mode="stale")
-    return len(ids)
+    return deliver(ids, mode="stale", budget_s=budget_s)
