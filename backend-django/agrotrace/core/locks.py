@@ -34,7 +34,11 @@ def lock[M: models.Model](
     strength: Strength = "no key update",
     skip_locked: bool = False,
 ) -> list[M]:
-    """The rows of `table_model` with these ids, locked in one statement `ORDER BY id`; missing ids are absent."""
+    """The rows of `table_model` with these ids, locked in one statement `ORDER BY id`; missing ids are absent.
+
+    Kept as the plan's core.locks interface (Task 1, «Interfaces — Produces»), though no module calls it today: every
+    module locks with raw SQL in its own statement or `lock_batches` (final review M5). tests/test_tx.py covers it, and
+    test_static_guards.py still refuses `lock(..., strength='update')` should a module start to use it."""
     assert connection.in_atomic_block, "lock() outside a transaction locks nothing"
     wanted = sorted({str(i) for i in ids})
     if not wanted:
