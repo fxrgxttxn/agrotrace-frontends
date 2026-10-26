@@ -172,3 +172,60 @@ def test_no_float_in_decimal_arithmetic():
     assert bad == []
     assert {"domain/rules.py", "modules/rating/services.py", "modules/recalls/engine.py"} <= \
         {rel for rel, _ in sources()}
+
+
+#: Task 11 review N4 — `a / b` and `math.*` / `statistics.*` give floats without any `float(` or float literal. The
+#: allowed forms (everything else fails the guard): a path join (`ROOT / 'contracts'`: a str or f-string operand, or a
+#: left operand that is itself a path — `ROOT`, `DIST`, `files`, `Path(…)`), and a millisecond setting converted to
+#: seconds (`…_MS / 1000`, `timeout_ms / 1000`, `base_ms * … / 1000`). FLOAT_EXCEPTIONS files are skipped as above.
+#: Decimal division (`Decimal / Decimal` stays exact) is not used today; a future one is added here by file with its
+#: reason, never by widening the patterns.
+DIV_ALLOWED: dict[str, str] = {}
+_PATHS = re.compile(r"(^|\.)(ROOT|DIST|files)$|^Path\(")
+_MS = re.compile(r"_ms\b|_MS\b")
+
+
+def _allowed_div(node: ast.BinOp) -> bool:
+    left, right = node.left, node.right
+    if any(isinstance(x, ast.JoinedStr) or (isinstance(x, ast.Constant) and isinstance(x.value, str))
+           for x in (left, right)):
+        return True
+    if isinstance(left, ast.BinOp) and isinstance(left.op, ast.Div) and _allowed_div(left):
+        return True  # ROOT / 'a' / 'b'
+    if _PATHS.search(ast.unparse(left)):
+        return True
+    return (isinstance(right, ast.Constant) and right.value == 1000 and _MS.search(ast.unparse(left)) is not None)
+
+
+def numeric_offences(rel: str, tree: ast.AST) -> list[str]:
+    bad = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div) and not _allowed_div(node):
+            bad.append(f"{rel}:{node.lineno} division {ast.unparse(node)}")
+        if isinstance(node, ast.AugAssign) and isinstance(node.op, ast.Div):
+            bad.append(f"{rel}:{node.lineno} /= {ast.unparse(node)}")
+        if isinstance(node, ast.Call) and dotted(node.func).split(".")[0] in ("math", "statistics"):
+            bad.append(f"{rel}:{node.lineno} {dotted(node.func)}()")
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names = [node.module] if isinstance(node, ast.ImportFrom) else [a.name for a in node.names]
+            if any(n in ("math", "statistics") for n in names):
+                bad.append(f"{rel}:{node.lineno} import {', '.join(n for n in names if n)}")
+    return bad
+
+
+def test_no_true_division_or_math_in_numeric_code():
+    bad = []
+    for rel, tree in sources():
+        if rel in FLOAT_EXCEPTIONS or rel in DIV_ALLOWED:
+            continue
+        bad += numeric_offences(rel, tree)
+    assert bad == []
+
+
+def test_the_division_guard_catches_what_it_guards():
+    sample = ast.parse(
+        "a = mass / count\nb = ROOT / 'x' / f'{y}.json'\nc = config.get().X_MS / 1000\nimport math\n"
+        "d = math.floor(x)\ne = total\ne /= 3\nf = statistics.mean(xs)\ng = n // 2\nh = base_ms * 2 ** k / 1000\n")
+    found = sorted(numeric_offences("sample.py", sample), key=lambda f: int(f.split(":")[1].split(" ")[0]))
+    assert [f.split(" ", 1)[1].split(" ")[0] for f in found] == ["division", "import", "math.floor()", "/=",
+                                                                  "statistics.mean()"]
