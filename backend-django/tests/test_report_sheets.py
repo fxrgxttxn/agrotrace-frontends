@@ -236,3 +236,18 @@ def test_access_and_parameter_order(world):
     with pytest.raises(AppProblem) as e:
         service.download(insp, "org", {"format": "pdf", "id": str(uuid.uuid4())})
     assert (e.value.status, e.value.code) == (404, "NOT_FOUND")
+
+
+def test_xlsx_widths_and_numbers_as_exceljs_writes_them():
+    """Widths min(60, max(8, longest + 2)) over the header and the first 200 rows (UTF-16 units); a column of the
+    default width 9 gets no `<col>` (exceljs `isCustomWidth`); numbers as JS prints them."""
+    from agrotrace.infra.xlsx_write import _sheet_xml, js_number
+
+    xml = "".join(_sheet_xml(["Вид", "Глубина", "x" * 70, "Код"],
+                             [[("text", "RAW"), ("int", 0), ("text", "a"), ("text", "😀" * 4)]]))
+    assert '<col min="1" max="1" width="8" customWidth="1"/>' in xml
+    assert 'min="2"' not in xml  # 7 + 2 = 9: the default
+    assert '<col min="3" max="3" width="60" customWidth="1"/>' in xml
+    assert '<col min="4" max="4" width="10" customWidth="1"/>' in xml  # 4 emoji = 8 UTF-16 units
+    assert [js_number(v) for v in ("12.300", "0.000", "100.000", "0.01", 7, "123456789.999")] == \
+        ["12.3", "0", "100", "0.01", "7", "123456789.999"]

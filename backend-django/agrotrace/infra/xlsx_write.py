@@ -29,8 +29,10 @@ CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 STYLE = {"header": 1, "int": 2, "dec2": 3, "mass": 4}
 FORMATS = {"int": "0", "mass": "0.000", "dec2": "0.00"}
 WIDTH_ROWS = 200
+#: exceljs writes no `<col>` for a column of its default width 9 (`Column.isCustomWidth`).
+DEFAULT_WIDTH = 9
 #: XML 1.0 forbids these characters; SpreadsheetML escapes them as `_xHHHH_` (and a literal `_xHHHH_` as `_x005F_…`).
-_ILLEGAL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]|_(?=x[0-9A-Fa-f]{4}_)|[\ud800-\udfff]")
+_ILLEGAL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]|_(?=x[0-9A-Fa-f]{4}_)|[\ud800-\udfff]")
 
 
 def _esc(s: str) -> str:
@@ -82,9 +84,10 @@ def _sheet_xml(header: Sequence[str], rows: Sequence[Sequence[tuple[str, Any]]])
     yield (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="{NS}" xmlns:r="{R_NS}">'
            f'<dimension ref="A1:{last}"/><sheetViews><sheetView workbookViewId="0"/></sheetViews>'
            '<sheetFormatPr defaultRowHeight="15"/>')
-    if header:
-        yield "<cols>" + "".join(f'<col min="{i + 1}" max="{i + 1}" width="{w}" customWidth="1"/>'
-                                 for i, w in enumerate(_widths(header, rows))) + "</cols>"
+    cols = [f'<col min="{i + 1}" max="{i + 1}" width="{w}" customWidth="1"/>'
+            for i, w in enumerate(_widths(header, rows)) if w != DEFAULT_WIDTH]
+    if cols:
+        yield "<cols>" + "".join(cols) + "</cols>"
     yield "<sheetData>"
     cols = [_col(i) for i in range(len(header))]
     yield '<row r="1">' + "".join(_text_cell(f"{cols[i]}1", h, STYLE["header"]) for i, h in enumerate(header)) + \
