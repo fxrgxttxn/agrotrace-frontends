@@ -78,3 +78,41 @@ def test_the_compose_commands():
     assert worker[worker.index("--prefetch-multiplier") + 1] == "1"
     beat = compose["services"]["beat-django"]["command"]
     assert beat[beat.index("-S") + 1] == "agrotrace.scheduler.beat:InProcessScheduler"
+
+
+def test_a_call_soon_from_a_pool_thread_wakes_the_consumer_hub():
+    """Late acks of `-P threads` are `call_soon`s into the kombu hub, which polls up to 1 s between looks at its ready
+    list: our consumer writes a self-pipe registered as a hub reader, so the poll returns at once."""
+    import os
+    import select
+    import threading
+
+    from agrotrace import celery_app
+
+    class FakeHub:
+        def __init__(self):
+            self.readers = {}
+            self.ready = []
+
+        def call_soon(self, p):
+            self.ready.append(p)
+
+        def add_reader(self, fd, cb):
+            self.readers[fd] = cb
+
+    c = celery_app.Consumer.__new__(celery_app.Consumer)
+    c.hub = FakeHub()
+    c._wake_pipe = None
+    t = threading.Thread(target=lambda: c.call_soon(lambda: None))
+    t.start()
+    t.join()
+    r, _w = c._wake_pipe
+    assert len(c.hub.ready) == 1 and r in c.hub.readers
+    assert select.select([r], [], [], 0)[0] == [r]  # readable: a poll returns at once
+    c.hub.readers[r]()
+    assert select.select([r], [], [], 0)[0] == []  # drained
+    c.hub.readers.clear()  # a hub reset (connection restart): registered again on the next call
+    c.call_soon(lambda: None)
+    assert r in c.hub.readers
+    os.close(r)
+    os.close(_w)

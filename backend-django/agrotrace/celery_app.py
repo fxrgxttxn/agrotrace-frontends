@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "agrotrace.settings")
 
@@ -53,10 +54,48 @@ def queue_arguments(name: str = QUEUE) -> dict:
 
 
 class Consumer(_CeleryConsumer):
-    """Celery's consumer without the DelayedDelivery bootstep (no `celery_delayed_*` topology, ever)."""
+    """Celery's consumer without the DelayedDelivery bootstep (no `celery_delayed_*` topology, ever), whose event loop
+    is woken when a pool thread hands it work.
+
+    With `-P threads` a task's ack (late ack) — and with it the broker's next delivery, prefetch being 2 — is a
+    `call_soon` from the pool thread into the consumer's kombu hub; the hub only looks at its ready list between polls
+    of up to 1 s and has no wake-up of its own, so every settle waited ~1 s (a busy `vsd.import` re-scheduled through
+    the delay queue took a second per message: documents.test «worker concurrency», R92/P56). A self-pipe registered as a
+    hub reader is written after every `call_soon`: the poll returns at once and the ack goes out."""
 
     class Blueprint(_CeleryConsumer.Blueprint):
         default_steps = [s for s in _CeleryConsumer.Blueprint.default_steps if "delayed_delivery" not in s]
+
+    _wake_pipe: tuple[int, int] | None = None
+    _wake_lock = threading.Lock()
+
+    def call_soon(self, p, *args, **kwargs):
+        promise = super().call_soon(p, *args, **kwargs)
+        if self.hub is not None:
+            self._wake()
+        return promise
+
+    def _wake(self) -> None:
+        with self._wake_lock:
+            if self._wake_pipe is None:
+                r, w = os.pipe()
+                os.set_blocking(r, False)
+                os.set_blocking(w, False)
+                self._wake_pipe = (r, w)
+            r, w = self._wake_pipe
+            if r not in self.hub.readers:  # (re)registered after a hub reset (connection restart)
+                self.hub.add_reader(r, self._drain_wake)
+        try:
+            os.write(w, b"x")
+        except BlockingIOError:
+            pass  # the pipe is full: the hub is woken anyway
+
+    def _drain_wake(self) -> None:
+        try:
+            while os.read(self._wake_pipe[0], 4096):  # type: ignore[index]
+                pass
+        except BlockingIOError:
+            pass
 
 
 app = Celery("agrotrace", set_as_current=True)
