@@ -78,9 +78,10 @@ final class BatchView
         if ($ids === []) {
             return [];
         }
-        $marks = implode(',', array_fill(0, count($ids), '?'));
+        $unique = array_values(array_unique($ids));
+        $marks = implode(',', array_fill(0, count($unique), '?'));
         $byId = [];
-        foreach (DB::select('SELECT '.self::COLUMNS.self::FROM." WHERE b.id IN ({$marks})", array_values(array_unique($ids))) as $r) {
+        foreach (DB::select('SELECT '.self::COLUMNS.self::FROM." WHERE b.id IN ({$marks})", $unique) as $r) {
             $byId[$r->id] = $r;
         }
         $out = [];
