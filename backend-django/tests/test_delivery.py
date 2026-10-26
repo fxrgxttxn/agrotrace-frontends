@@ -227,3 +227,35 @@ def test_a_stale_tick_claims_no_new_row_after_its_budget(monkeypatch):
     assert delivery.deliver(["a", "b", "c", "d", "e"], mode="stale", budget_s=0.3) == 2
     assert taken == [("a", "stale"), ("b", "stale")]
     assert delivery.SWEEP_TICK_BUDGET_S == 240 and delivery.sweep.__defaults__ == (240,)
+
+
+def test_shutdown_waits_only_for_the_sends_in_flight_and_leaves_queued_rows_to_the_stale_sweep(user, monkeypatch):
+    """Final review M7: the slots finish the sends they started; the rows still queued are dropped unclaimed (PENDING,
+    no stamp), and the beat's stale sweep sends them after 5 minutes — warm shutdown never outlasts the grace period
+    on a large fan-out."""
+    ids = [_row(user) for _ in range(6)]
+    started = threading.Semaphore(0)
+    release = threading.Event()
+
+    def blocking_send(*_a):
+        started.release()
+        assert release.wait(10)
+
+    monkeypatch.setattr(mailer, "send_once", blocking_send)
+    monkeypatch.setattr(mailer, "configured", lambda: True)
+    delivery.deliver(ids, mode="fresh")
+    for _ in range(2):  # both slots are sending
+        assert started.acquire(timeout=10)
+    stopper = threading.Thread(target=delivery.shutdown)
+    stopper.start()
+    time.sleep(0.2)
+    assert stopper.is_alive()  # it waits for the two sends in flight
+    release.set()
+    stopper.join(10)
+    assert not stopper.is_alive()
+    assert delivery.idle(1)
+    states = [_state(i) for i in ids]
+    sent = [s for s in states if s["delivery_status"] == "DELIVERED"]
+    left = [s for s in states if s["delivery_status"] == "PENDING"]
+    assert len(sent) == 2 and len(left) == 4, states
+    assert all(s["stamp"] is None and s["attempts"] == 0 for s in left), left

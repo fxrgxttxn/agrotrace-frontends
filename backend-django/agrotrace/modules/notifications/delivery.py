@@ -21,7 +21,7 @@ Processes (P61 budget, D-I5):
   threads and returns at once (the event is acknowledged independently, decision 6 of Express Tasks 12-13); a row is
   claimed only once a slot takes it, so its claim never ages while it waits. A send thread holds a pool connection
   only for the claim, a renewal or a write (autocommit statements; core.sql gives the connection back after each), never
-  across SMTP/Telegram. The worker's shutdown waits for the sends in flight (`shutdown()`).
+  across SMTP/Telegram. The worker's shutdown waits only for the sends in flight (`shutdown()`).
 - beat — the job `notification-delivery` (`sweep()`) sends `mode='stale'` synchronously on the job's thread and its
   pinned connection (one connection per job), without threads of its own.
 Texts: infra.i18n.notification_message (`email.subject`/`email.body`, `telegram`), Russian. A rare duplicate email
@@ -299,12 +299,14 @@ def idle(timeout: float | None = None) -> bool:
 
 
 def shutdown() -> None:
-    """The worker stops: every started send finishes first (the slots take nothing new)."""
+    """The worker stops: the sends in flight finish first; the rows still queued are dropped unclaimed (PENDING, no
+    stamp) and the beat's stale sweep sends them after 5 minutes, so a large fan-out never keeps the worker in warm
+    shutdown past its grace period (final review M7)."""
     global _pool
     with _pool_lock:
         pool, _pool = _pool, None
     if pool is not None:
-        pool.shutdown(wait=True)
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def sweep(budget_s: float = SWEEP_TICK_BUDGET_S) -> int:
