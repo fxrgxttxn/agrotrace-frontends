@@ -176,25 +176,42 @@ def test_no_float_in_decimal_arithmetic():
 
 #: Task 11 review N4 — `a / b` and `math.*` / `statistics.*` give floats without any `float(` or float literal. The
 #: allowed forms (everything else fails the guard): a path join (`ROOT / 'contracts'`: a str or f-string operand, or a
-#: left operand that is itself a path — `ROOT`, `DIST`, `files`, `Path(…)`), and a millisecond setting converted to
-#: seconds (`…_MS / 1000`, `timeout_ms / 1000`, `base_ms * … / 1000`). FLOAT_EXCEPTIONS files are skipped as above.
-#: Decimal division (`Decimal / Decimal` stays exact) is not used today; a future one is added here by file with its
-#: reason, never by widening the patterns.
+#: left operand named `ROOT`, `DIST` or `files`), and a millisecond setting converted to seconds (`…_MS / 1000`,
+#: `timeout_ms / 1000`, `base_ms * … / 1000`). FLOAT_EXCEPTIONS files are skipped as above. Review M4: exact AST
+#: shapes, not text patterns. Decimal division (`Decimal / Decimal` stays exact) is not used today; a future one is
+#: added here by file with its reason, never by widening the shapes.
 DIV_ALLOWED: dict[str, str] = {}
-_PATHS = re.compile(r"(^|\.)(ROOT|DIST|files)$|^Path\(")
-_MS = re.compile(r"_ms\b|_MS\b")
+_PATH_NAMES = {"ROOT", "DIST", "files"}
+
+
+def _last_name(node: ast.AST) -> str | None:
+    """`x` of a Name, `y` of an Attribute `….y`; None for anything else (calls, subscripts, expressions)."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _is_ms(node: ast.AST) -> bool:
+    """A millisecond setting: a Name/Attribute ending in `_ms`/`_MS`, or such a name times something (`base_ms * …`)."""
+    name = _last_name(node)
+    if name is not None:
+        return name.endswith(("_ms", "_MS"))
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult) and _is_ms(node.left)
 
 
 def _allowed_div(node: ast.BinOp) -> bool:
+    """`… / 'str'` or `… / f'…'` (a path join), `ROOT|DIST|files / …` (a Name or Attribute with that last name),
+    a chain of those, `<ms setting> / 1000`."""
     left, right = node.left, node.right
-    if any(isinstance(x, ast.JoinedStr) or (isinstance(x, ast.Constant) and isinstance(x.value, str))
-           for x in (left, right)):
+    if isinstance(right, ast.JoinedStr) or (isinstance(right, ast.Constant) and isinstance(right.value, str)):
+        return True
+    if _last_name(left) in _PATH_NAMES:
         return True
     if isinstance(left, ast.BinOp) and isinstance(left.op, ast.Div) and _allowed_div(left):
-        return True  # ROOT / 'a' / 'b'
-    if _PATHS.search(ast.unparse(left)):
-        return True
-    return (isinstance(right, ast.Constant) and right.value == 1000 and _MS.search(ast.unparse(left)) is not None)
+        return True  # ROOT / 'a' / b
+    return isinstance(right, ast.Constant) and right.value == 1000 and _is_ms(left)
 
 
 def numeric_offences(rel: str, tree: ast.AST) -> list[str]:
@@ -225,7 +242,9 @@ def test_no_true_division_or_math_in_numeric_code():
 def test_the_division_guard_catches_what_it_guards():
     sample = ast.parse(
         "a = mass / count\nb = ROOT / 'x' / f'{y}.json'\nc = config.get().X_MS / 1000\nimport math\n"
-        "d = math.floor(x)\ne = total\ne /= 3\nf = statistics.mean(xs)\ng = n // 2\nh = base_ms * 2 ** k / 1000\n")
+        "d = math.floor(x)\ne = total\ne /= 3\nf = statistics.mean(xs)\ng = n // 2\nh = base_ms * 2 ** k / 1000\n"
+        "i = Path(p).stat().st_size / n\nj = f(x_ms) / 1000\nk = total_ms / 3\nl = Path(ROOT) / 'a'\n")
     found = sorted(numeric_offences("sample.py", sample), key=lambda f: int(f.split(":")[1].split(" ")[0]))
     assert [f.split(" ", 1)[1].split(" ")[0] for f in found] == ["division", "import", "math.floor()", "/=",
-                                                                  "statistics.mean()"]
+                                                                  "statistics.mean()", "division", "division",
+                                                                  "division"]
