@@ -25,9 +25,9 @@ class DictionaryView(ContractView):
 
 
 class DictionaryEntryView(ContractView):
-    """`/dictionaries/{name}/{id}` (PUT, DELETE) — and `/dictionaries/{name}/import` (POST), the same two segments."""
+    """`/dictionaries/{name}/{id}` (PUT, DELETE)."""
 
-    operation_ids = {"PUT": "updateDictionaryEntry", "DELETE": "deleteDictionaryEntry", "POST": "importDictionary"}
+    operation_ids = {"PUT": "updateDictionaryEntry", "DELETE": "deleteDictionaryEntry"}
 
     def put(self, request, name, id):
         name = store.dict_name(name)
@@ -40,8 +40,24 @@ class DictionaryEntryView(ContractView):
         services.remove(self.principal, name, row_id)  # type: ignore[arg-type]
         return Response(status=204)
 
-    def post(self, request, name, id):
-        # Only `/dictionaries/{name}/import` reaches here: the method guard answers 405 for POST on any other id.
+
+_entry_view = DictionaryEntryView.as_view()
+
+
+class DictionaryImportView(ContractView):
+    """`/dictionaries/{name}/import` (POST). `import` is also an id of `/dictionaries/{name}/{id}`: PUT and DELETE on it
+    are that path's operations (400 `validation.uuid`, as Express routes them) — handed to DictionaryEntryView, so this
+    route declares POST only (the generated schema binds it to importDictionary alone, test_schema_parity). Any other
+    method never gets here: the method guard answers 405 with the contract's `Allow` first."""
+
+    operation_id = "importDictionary"
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.method in ("PUT", "DELETE"):
+            return _entry_view(request, name=kwargs["name"], id="import")
+        return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, name):
         name = store.dict_name(name)
         upload = read_single_file(request, max_bytes=services.IMPORT_MAX_BYTES)
         return Response(services.import_dictionary(self.principal, name, upload.data))  # type: ignore[arg-type]
