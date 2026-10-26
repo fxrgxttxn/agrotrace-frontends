@@ -58,11 +58,26 @@ def _context(_, __, event: dict) -> dict:
     return event
 
 
+def _plain(value: Any, depth: int = 0) -> bool:
+    """Whether `value` is plain JSON data (scalars, str-keyed dicts, lists/tuples of them). Anything else — Django's
+    `request` (its repr carries the query string: access_token, sig/exp), an ASGI scope object, a socket — is never
+    copied into a line: `str(obj)` of a library object can hold a secret that `mask()` cannot see (P8)."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return True
+    if depth > 32:
+        return False
+    if isinstance(value, Mapping):
+        return all(isinstance(k, str) and _plain(v, depth + 1) for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return all(_plain(v, depth + 1) for v in value)
+    return False
+
+
 def _record_fields(_, __, event: dict) -> dict:
     record: logging.LogRecord | None = event.get("_record")
     if record is not None:
         for k, v in vars(record).items():
-            if k not in _RECORD_ATTRS and not k.startswith("_") and k not in event:
+            if k not in _RECORD_ATTRS and not k.startswith("_") and k not in event and _plain(v):
                 event[k] = v
     return event
 
@@ -108,6 +123,10 @@ def configure(process: str) -> None:
         lg = logging.getLogger(name)
         lg.handlers[:] = []
         lg.propagate = True
+    # Django's `log_response` (every response >= 400: "Unauthorized: /path", with the request, whose repr holds the
+    # query string) is silenced: the access log (path only, R88 M1) and render_exception already record every outcome
+    # once, as Express does (backend-express/src/http/access-log.ts).
+    logging.getLogger("django.request").setLevel(logging.CRITICAL + 1)
     structlog.configure(
         processors=[*shared, structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
         logger_factory=structlog.stdlib.LoggerFactory(),
