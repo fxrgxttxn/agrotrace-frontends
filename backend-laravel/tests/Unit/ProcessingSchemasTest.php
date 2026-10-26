@@ -75,26 +75,49 @@ function codeTokens(string $file, ?string $from = null, ?string $to = null): arr
     return $out;
 }
 
-it('no float on the processing / mass balance / lab result path (T8 review M3)', function (string $file, ?string $from, ?string $to, bool $noArithmetic) {
+/**
+ * The float guard (T8 review M3, T9 review M3): what it refuses in $tokens, in order.
+ * - (float), (double) — T_DOUBLE_CAST — and `(real)`; float literals (T_DNUMBER);
+ * - the float functions, called plainly or fully qualified (`round(`, `\round(`);
+ * - `+`, `-`, `+=`, `-=`, `++`, `--` unless one side is an integer literal (`$version + 1`, `$page - 1`): PHP turns a
+ *   decimal string into a float under them (`'0.1' + $m`) — decimals go through bcmath (Decimal) only;
+ * - with $noMulDiv: `/`, `*`, `**`, `/=`, `*=`, `**=` (the mass path is bcmath only).
+ *
+ * @param  list<array{0: string, 1: string}>  $tokens
+ * @return list<string>
+ */
+function floatGuard(array $tokens, bool $noMulDiv): array
+{
+    $floatFns = ['floatval', 'doubleval', 'round', 'floor', 'ceil', 'intdiv', 'fmod', 'fdiv', 'pow', 'sqrt'];
     $bad = [];
-    $prev = '';
-    foreach (codeTokens($file, $from, $to) as [$name, $text]) {
+    foreach ($tokens as $i => [$name, $text]) {
+        $prev = $tokens[$i - 1][0] ?? '';
+        $next = $tokens[$i + 1][0] ?? '';
         // `(real)` no longer compiles on PHP 8, but is refused all the same.
         if ($name === 'T_STRING' && strtolower($text) === 'real' && $prev === '(') {
             $bad[] = '(real)';
         }
-        $prev = $name;
-        // (float), (double): T_DOUBLE_CAST; float literals; the float functions.
-        if ($name === 'T_DOUBLE_CAST' || $name === 'T_DNUMBER'
-            || ($name === 'T_STRING' && in_array(strtolower($text), ['floatval', 'doubleval', 'round', 'floor', 'ceil', 'intdiv', 'fmod', 'fdiv', 'pow', 'sqrt'], true))) {
+        if ($name === 'T_DOUBLE_CAST' || $name === 'T_DNUMBER') {
             $bad[] = $text;
         }
-        // Plain / and * (and **, /=, *=, **=) on the mass path: bcmath only there.
-        if ($noArithmetic && in_array($name, ['/', '*', 'T_POW', 'T_DIV_EQUAL', 'T_MUL_EQUAL', 'T_POW_EQUAL'], true)) {
+        if (in_array($name, ['T_STRING', 'T_NAME_FULLY_QUALIFIED'], true) && in_array(strtolower(ltrim($text, '\\')), $floatFns, true)
+            && ! in_array($prev, ['T_OBJECT_OPERATOR', 'T_NULLSAFE_OBJECT_OPERATOR', 'T_DOUBLE_COLON', 'T_FUNCTION'], true)) {
+            $bad[] = $text;
+        }
+        if (in_array($name, ['+', '-', 'T_PLUS_EQUAL', 'T_MINUS_EQUAL', 'T_INC', 'T_DEC'], true)
+            && $prev !== 'T_LNUMBER' && $next !== 'T_LNUMBER') {
+            $bad[] = $text;
+        }
+        if ($noMulDiv && in_array($name, ['/', '*', 'T_POW', 'T_DIV_EQUAL', 'T_MUL_EQUAL', 'T_POW_EQUAL'], true)) {
             $bad[] = $text;
         }
     }
-    expect($bad)->toBe([]);
+
+    return $bad;
+}
+
+it('no float on the processing / mass balance / lab result / recall / rating paths (T8 review M3, T9 review M3)', function (string $file, ?string $from, ?string $to, bool $noMulDiv) {
+    expect(floatGuard(codeTokens($file, $from, $to), $noMulDiv))->toBe([]);
 })->with([
     ['app/Actions/Processing/ProcessBatches.php', null, null, true],
     ['app/Domain/Rules.php', 'function checkMassBalance', 'function canUseAsInput', true],
@@ -104,14 +127,39 @@ it('no float on the processing / mass balance / lab result path (T8 review M3)',
     ['app/Actions/Lab/LabActions.php', null, null, false],
     ['app/Actions/Lab/LabView.php', null, null, true],
     ['app/Actions/Recalls/Engine.php', null, null, true],
+    // Task 10: the recall views (massUsedKg as stored), the operations (integer paging), the overdue job, the rating.
+    ['app/Actions/Recalls/RecallView.php', null, null, true],
+    ['app/Actions/Recalls/RecallsActions.php', null, null, false],
+    ['app/Scheduler/Jobs/RecallTaskOverdue.php', null, null, true],
+    ['app/Actions/Rating/Rating.php', null, null, true],
 ]);
 
-it('the float guard sees what it must refuse', function () {
-    $file = 'storage/framework/float-guard-probe.php';
-    file_put_contents(base_path($file), '<?php $a = (double) $x; $b = $g * $keep / 10000; $c = 1.5; $d = round($e);');
+it('the float guard refuses every form it must, and only those (T9 review M3)', function () {
+    $file = 'storage/framework/float-guard-probe-'.bin2hex(random_bytes(4)).'.php';
+    file_put_contents(base_path($file), <<<'PHP'
+        <?php
+        $a = (double) $x; $a2 = (float) $x;
+        $b = $g * $keep / 10000; $b2 = $g ** 2; $b3 /= $d; $b4 *= $d; $b5 **= 2;
+        $c = 1.5; $c2 = 1e3;
+        $d = round($e); $d2 = \round($e); $d3 = \floatval($e); $d4 = floor($e); $d5 = \intdiv($e, 2);
+        $f = '0.1' + $m; $f2 = $m - $n; $f3 += $m; $f4 -= $m; $f5++; --$f6;
+        // allowed: integer literals beside + and -, a method or static call named like a float function
+        $ok = $version + 1; $ok2 = $page - 1; $ok3 = 1 + $n; $ok4 = -1; $ok5 = $o->round($x); $ok6 = Decimal::floor($x);
+        PHP);
     try {
-        $names = array_column(codeTokens($file), 0);
-        expect($names)->toContain('T_DOUBLE_CAST', 'T_DNUMBER', '*', '/');
+        expect(floatGuard(codeTokens($file), true))->toBe([
+            '(double)', '(float)',
+            '*', '/', '**', '/=', '*=', '**=',
+            '1.5', '1e3',
+            'round', '\round', '\floatval', 'floor', '\intdiv',
+            '+', '-', '+=', '-=', '++', '--',
+        ]);
+        // Without the mass-path flag, * / ** and their assignments pass; everything else is still refused.
+        expect(floatGuard(codeTokens($file), false))->toBe([
+            '(double)', '(float)', '1.5', '1e3',
+            'round', '\round', '\floatval', 'floor', '\intdiv',
+            '+', '-', '+=', '-=', '++', '--',
+        ]);
     } finally {
         unlink(base_path($file));
     }

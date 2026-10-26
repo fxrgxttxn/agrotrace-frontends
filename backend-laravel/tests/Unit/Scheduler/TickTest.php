@@ -11,8 +11,10 @@
  *   until it is released; SIGTERM lets the running tick finish, then the process exits 0.
  */
 
+use App\Infrastructure\Db\Tx;
 use App\Scheduler\JobRun;
 use App\Scheduler\Jobs\LabEscalation;
+use App\Scheduler\LockLost;
 use App\Scheduler\ScheduledJob;
 use App\Scheduler\Tick;
 use App\Scheduler\TickConfigError;
@@ -112,6 +114,86 @@ it('a registry entry skips its tick while the lock is held elsewhere (JobRun →
     }
     expect((new JobRun(LabEscalation::class, 'agrotrace.scheduler.lab-escalation'))())->toBeTrue();
     expect(count($runs))->toBe(1);
+});
+
+/** Whether a fresh session can take $lock now (and gives it back at once). */
+function lockIsFree(string $lock): bool
+{
+    $other = otherSession();
+    try {
+        $free = $other->selectOne('SELECT pg_try_advisory_lock(hashtext(?)) AS ok', [$lock])->ok === true;
+        if ($free) {
+            $other->select('SELECT pg_advisory_unlock(hashtext(?))', [$lock]);
+        }
+
+        return $free;
+    } finally {
+        $other->disconnect();
+    }
+}
+
+it('a session killed mid-tick aborts the tick at its next statement — never a silent reconnect without the lock (T9 M4)', function () {
+    $this->requireDatabase();
+    $lock = 'agrotrace.scheduler.tick-test-'.bin2hex(random_bytes(3));
+    $after = false;
+    $thrown = null;
+    try {
+        Tick::locked($lock, function () use (&$after) {
+            $pid = DB::selectOne('SELECT pg_backend_pid() AS pid')->pid;
+            $other = otherSession();
+            $other->select('SELECT pg_terminate_backend(?)', [$pid]);
+            $other->disconnect();
+            DB::select('SELECT 1'); // Laravel would reconnect here and go on
+            $after = true;
+        });
+    } catch (Throwable $e) {
+        $thrown = $e;
+    }
+    expect($thrown)->toBeInstanceOf(LockLost::class);
+    expect($after)->toBeFalse();
+    expect(lockIsFree($lock))->toBeTrue();
+    // The guard is gone with the tick: the process's connection reconnects normally again.
+    expect(DB::selectOne('SELECT 1 AS one')->one)->toBe(1);
+});
+
+it('a disconnect inside the tick is refused the same way; a transaction on the lost session fails, not retried elsewhere', function () {
+    $this->requireDatabase();
+    $lock = 'agrotrace.scheduler.tick-test-'.bin2hex(random_bytes(3));
+    expect(fn () => Tick::locked($lock, function () {
+        DB::disconnect();
+        DB::select('SELECT 1');
+    }))->toThrow(LockLost::class);
+    expect(lockIsFree($lock))->toBeTrue();
+    $writes = 0;
+    expect(fn () => Tick::locked($lock, function () use (&$writes) {
+        DB::disconnect();
+        Tx::run(function () use (&$writes) {
+            $writes++;
+        });
+    }))->toThrow(LockLost::class);
+    expect($writes)->toBe(0);
+    expect(DB::selectOne('SELECT 1 AS one')->one)->toBe(1);
+});
+
+it('a session lost after the tick\'s last statement, or a lock no longer held at the unlock, is reported (LockLost)', function () {
+    $this->requireDatabase();
+    $lock = 'agrotrace.scheduler.tick-test-'.bin2hex(random_bytes(3));
+    expect(fn () => Tick::locked($lock, function () {
+        $pid = DB::selectOne('SELECT pg_backend_pid() AS pid')->pid;
+        $other = otherSession();
+        $other->select('SELECT pg_terminate_backend(?)', [$pid]);
+        $other->disconnect();
+    }))->toThrow(LockLost::class);
+    expect(lockIsFree($lock))->toBeTrue();
+    expect(fn () => Tick::locked($lock, fn () => DB::select('SELECT pg_advisory_unlock(hashtext(?))', [$lock])))
+        ->toThrow(LockLost::class, 'not held to the end');
+    // The job's own error wins over the lock report.
+    expect(fn () => Tick::locked($lock, function () {
+        DB::disconnect();
+        throw new RuntimeException('job failed');
+    }))->toThrow(RuntimeException::class, 'job failed');
+    expect(lockIsFree($lock))->toBeTrue();
+    expect(DB::selectOne("SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()")->n)->toBe(0);
 });
 
 /**

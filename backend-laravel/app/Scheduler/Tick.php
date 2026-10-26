@@ -4,9 +4,11 @@ namespace App\Scheduler;
 
 use App\Infrastructure\Db\Tx;
 use Illuminate\Console\Scheduling\Event;
+use Illuminate\Database\Connection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use LogicException;
+use ReflectionProperty;
 use Throwable;
 
 /**
@@ -108,27 +110,74 @@ final class Tick
     /**
      * Runs $fn under the session advisory lock $lockName on this process's connection; false — the lock is held by
      * another session and the tick is skipped. Never inside a transaction (the lock outlives it).
+     *
+     * The lock lives exactly as long as the session that took it (T9 review M4). While $fn runs, that session is the
+     * only one it may use: Laravel would silently reconnect after a lost connection (pg_terminate_backend, a network
+     * blip, a DB::disconnect()) outside a transaction and carry on without the lock, overlapping another scheduler.
+     * Here a reconnect throws LockLost instead, so the tick is aborted at its next statement. The unlock is checked
+     * too — on the same backend pid, returning true; anything else (the session gone after $fn's last statement, the
+     * lock not held any more) is LockLost as well. Either way the connection is dropped and the next tick reconnects
+     * normally.
+     *
+     * @throws LockLost
      */
     public static function locked(string $lockName, callable $fn): bool
     {
         if (Tx::active()) {
             throw new LogicException('Tick::locked inside a transaction');
         }
-        if (DB::selectOne('SELECT pg_try_advisory_lock(hashtext(?)) AS ok', [$lockName])->ok !== true) {
+        /** @var Connection $db */
+        $db = DB::connection();
+        $taken = $db->selectOne('SELECT pg_try_advisory_lock(hashtext(?)) AS ok, pg_backend_pid() AS pid', [$lockName]);
+        if ($taken->ok !== true) {
             return false;
         }
+        $pid = (int) $taken->pid;
+        $restore = self::reconnectorOf($db);
+        $db->setReconnector(function () use ($lockName, $pid): never {
+            throw new LockLost("scheduler: the session (pid {$pid}) holding {$lockName} is gone; the tick is aborted");
+        });
+        $error = null;
         try {
             $fn();
+        } catch (Throwable $e) {
+            $error = $e;
+        }
+        $released = false;
+        $why = null;
+        try {
+            $row = $db->selectOne('SELECT pg_advisory_unlock(hashtext(?)) AS ok, pg_backend_pid() AS pid', [$lockName]);
+            $released = $row->ok === true && (int) $row->pid === $pid;
+            $why = $released ? null : "unlock returned {$row->ok} on pid {$row->pid}";
+        } catch (Throwable $e) {
+            $why = $e->getMessage();
         } finally {
-            try {
-                DB::select('SELECT pg_advisory_unlock(hashtext(?))', [$lockName]);
-            } catch (Throwable $e) {
-                // The session is in doubt: drop it, PostgreSQL releases its session locks with it.
-                Log::warning('scheduler: advisory unlock failed; the connection is dropped', ['lock' => $lockName, 'err' => $e->getMessage()]);
-                DB::disconnect();
-            }
+            $db->setReconnector($restore);
+        }
+        if (! $released) {
+            // The session is in doubt: drop it, PostgreSQL releases its session locks with it.
+            Log::warning('scheduler: the advisory lock was lost or not released; the connection is dropped',
+                ['lock' => $lockName, 'pid' => $pid, 'err' => $why]);
+            DB::disconnect();
+        }
+        if ($error !== null) {
+            throw $error;
+        }
+        if (! $released) {
+            throw new LockLost("scheduler: {$lockName} was not held to the end of the tick ({$why})");
         }
 
         return true;
+    }
+
+    /** The connection's current reconnector (Laravel has no getter). */
+    private static function reconnectorOf(Connection $db): callable
+    {
+        $r = (new ReflectionProperty(Connection::class, 'reconnector'))->getValue($db);
+        if (! is_callable($r)) {
+            throw new LogicException('the database connection has no reconnector');
+        }
+
+        return $r;
     }
 }
