@@ -153,9 +153,16 @@ final class ProcessBatches
                                 params: ['parentCode' => $parent->public_code, 'childCode' => $b->public_code]);
                         }
                     }
-                    foreach ($inputs as $j => $parent) {
-                        DB::insert('INSERT INTO batch_links (parent_batch_id, child_batch_id, mass_used_kg, created_at)
-                             VALUES (?, ?, ?, ?::timestamptz)', [$parent->id, $b->id, $input['inputs'][$j]['massUsedKg'], $now]);
+                    // One multi-row INSERT per output, as Express (≤ 50 inputs, chunked for safety; T8 review M2).
+                    foreach (array_chunk($inputs, 500, true) as $chunk) {
+                        $rows = [];
+                        $bindings = [];
+                        foreach ($chunk as $j => $parent) {
+                            $rows[] = '(?, ?, ?, ?::timestamptz)';
+                            array_push($bindings, $parent->id, $b->id, $input['inputs'][$j]['massUsedKg'], $now);
+                        }
+                        DB::insert('INSERT INTO batch_links (parent_batch_id, child_batch_id, mass_used_kg, created_at) VALUES '
+                            .implode(', ', $rows), $bindings);
                     }
                     $b->status = 'Approved';
                     $b->version = $version;
@@ -176,9 +183,13 @@ final class ProcessBatches
                 ];
             });
 
-        $outputs = array_map(fn (string $id) => BatchView::card($id, $p), $outputIds);
-        SlotHolder::release();
-        PublicCache::dropCodes($codes);
+        try {
+            $outputs = array_map(fn (string $id) => BatchView::card($id, $p), $outputIds);
+        } finally {
+            // The inputs' public pages are dropped whatever happens to the card reads (T8 review M1); no slot held (P61).
+            SlotHolder::release();
+            PublicCache::dropCodes($codes);
+        }
 
         return ['outputs' => $outputs, 'balance' => $balance];
     }

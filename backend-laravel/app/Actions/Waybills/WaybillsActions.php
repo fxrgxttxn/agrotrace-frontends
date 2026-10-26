@@ -266,13 +266,15 @@ final class WaybillsActions
      */
     private static function finish(Principal $p, string $id, array $codes): array
     {
-        $view = self::view($p, $id);
-        if ($codes !== []) {
-            SlotHolder::release();
-            PublicCache::dropCodes($codes);
+        try {
+            return self::view($p, $id);
+        } finally {
+            // Dropped whatever happens to the view read (T8 review M1).
+            if ($codes !== []) {
+                SlotHolder::release();
+                PublicCache::dropCodes($codes);
+            }
         }
-
-        return $view;
     }
 
     /**
