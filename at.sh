@@ -650,6 +650,7 @@ case "$cmd" in
     "$0" django:test
     "$0" api:test django --reset
     "$0" api:test django --ratelimits
+    "$0" cross:test express django
     # --- end django ---
     # --- laravel (plan 5) ---
     # --- end laravel ---
