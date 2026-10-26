@@ -22,7 +22,7 @@ def post(body: bytes, headers=None):
 def test_unreadable_json_is_root_invalid(body):
     r = post(body)
     assert r.status == 400
-    assert r.headers["content-type"] == "application/problem+json"
+    assert r.headers["content-type"] == "application/problem+json; charset=utf-8"
     assert r.json()["errors"] == {"_root": ["validation.invalid"]}
     assert r.headers["x-backend"] == "django"
 

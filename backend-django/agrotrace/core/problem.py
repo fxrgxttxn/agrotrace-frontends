@@ -53,7 +53,8 @@ TITLES: dict[str, str] = {
 #: JSON body limit — the gateway's client_max_body_size (12 MiB, R34/R79).
 JSON_BODY_LIMIT_BYTES = 12 * 1024 * 1024
 
-PROBLEM_MEDIA_TYPE = "application/problem+json"
+#: As Express (`res.type("application/problem+json")` adds the charset): `application/problem+json; charset=utf-8`.
+PROBLEM_MEDIA_TYPE = "application/problem+json; charset=utf-8"
 
 
 def problem_type(code: str) -> str:

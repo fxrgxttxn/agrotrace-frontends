@@ -26,7 +26,7 @@ def render(exc):
     res = exception_handler(exc, {})
     body = json.loads(res.content)
     problem_schema_validator().validate(body)
-    assert res["Content-Type"] == "application/problem+json"
+    assert res["Content-Type"] == "application/problem+json; charset=utf-8"
     assert body["status"] == res.status_code
     assert body["type"] == problem_type(body["code"])
     return res.status_code, body

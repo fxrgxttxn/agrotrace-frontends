@@ -50,7 +50,7 @@ def test_methods_and_strict_paths(method, path, status, allow):
     assert r.headers.get("allow") == allow
     assert r.headers["x-backend"] == "django"
     if status >= 400:
-        assert r.headers["content-type"] == "application/problem+json"
+        assert r.headers["content-type"] == "application/problem+json; charset=utf-8"
 
 
 def test_docs_page_and_assets():

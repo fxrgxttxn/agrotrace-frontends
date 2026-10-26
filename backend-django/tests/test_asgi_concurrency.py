@@ -118,5 +118,5 @@ def test_lane_bounds_and_memory_limit():
                                  b"/api/v1/docs/%E0%A4%A", b"/api/v1/health/%ff"])
 def test_raw_path_refusals(raw):
     r = asyncio.run(call("GET", raw.decode("latin-1"), raw_path=raw))
-    assert r.status == 404 and r.headers["content-type"] == "application/problem+json"
+    assert r.status == 404 and r.headers["content-type"] == "application/problem+json; charset=utf-8"
     assert r.headers["x-backend"] == "django"
