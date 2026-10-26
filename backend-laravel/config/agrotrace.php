@@ -85,6 +85,8 @@ return [
     'telegram' => [
         'token' => env('TELEGRAM_BOT_TOKEN'),
         'username' => env('TELEGRAM_BOT_USERNAME', 'agrotrace_bot'),
+        // The Bot API base (Express TELEGRAM_API_URL): sendMessage of the delivery, getUpdates of the poller.
+        'api_url' => env('TELEGRAM_API_URL', 'https://api.telegram.org'),
     ],
     // packages/i18n/locales/ru.json (the `mail.*` templates): a copy in the image, the repository's file in php-tools.
     'i18n_path' => env('I18N_PATH'),

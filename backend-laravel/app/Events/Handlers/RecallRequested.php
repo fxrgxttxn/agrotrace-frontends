@@ -26,7 +26,8 @@ use stdClass;
  *      relays it after the commit, the sweeper retries.
  *
  * Notifications go through Notifications\Insert (IN_APP DELIVERED — the table trigger notifies SSE; EMAIL/TELEGRAM
- * PENDING for the delivery half, Task 12). A redelivered event finds its claim and writes nothing.
+ * PENDING, sent by the consumer after the ack — Notifications\Delivery). A redelivered event finds its claim and writes
+ * nothing.
  */
 final class RecallRequested implements EventHandler
 {

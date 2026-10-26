@@ -25,6 +25,9 @@ final class RequestContext
     /** @var list<callable> */
     private array $afterResponse = [];
 
+    /** @var list<string> */
+    private array $pendingNotifications = [];
+
     private ?string $eventRequestId = null;
 
     public function begin(?string $requestId, ?string $clientIp): void
@@ -97,6 +100,26 @@ final class RequestContext
     {
         $out = $this->eventIds;
         $this->eventIds = [];
+
+        return $out;
+    }
+
+    /**
+     * PENDING EMAIL/TELEGRAM notification rows a handler committed (Notifications\Insert, after the commit): the
+     * consumer sends them once the delivery is acknowledged (Notifications\Delivery::sendOwn).
+     *
+     * @param  list<string>  $ids
+     */
+    public function addPendingNotifications(array $ids): void
+    {
+        array_push($this->pendingNotifications, ...$ids);
+    }
+
+    /** @return list<string> */
+    public function takePendingNotifications(): array
+    {
+        $out = $this->pendingNotifications;
+        $this->pendingNotifications = [];
 
         return $out;
     }

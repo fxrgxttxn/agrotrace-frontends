@@ -17,6 +17,7 @@ use App\Infrastructure\Amqp\Broker;
 use App\Infrastructure\Amqp\BrokerUnavailable;
 use App\Infrastructure\Amqp\ConfirmPublisher;
 use App\Infrastructure\Db\Tx;
+use App\Infrastructure\Outbox\Outbox;
 use App\Infrastructure\Outbox\Relay;
 use App\Scheduler\Jobs\OutboxSweep;
 use Illuminate\Support\Facades\DB;
@@ -160,19 +161,16 @@ it('a relay killed mid-confirm loses nothing: its session ends, the next pass pu
     expect((int) outboxState($id)->attempts)->toBe(1);
 });
 
-it('picks only this backend\'s unpublished rows of handled types, oldest first, at most 100 (Q12)', function () {
-    expect(EventHandlers::types())->toBe(['vsd.import', 'lab.escalate', 'recall.requested', 'rating.recalculate']);
+it('picks only this backend\'s unpublished rows, oldest first, at most 100; every outbox type has its handler (Q12)', function () {
+    expect(EventHandlers::types())->toBe(['vsd.import', 'lab.escalate', 'recall.requested', 'rating.recalculate', 'notification.dispatch']);
+    expect(array_values(array_diff(Outbox::TYPES, EventHandlers::types())))->toBe([]);
     $old = outboxRow(createdAgo: '3 minutes');
     $new = outboxRow(createdAgo: '1 minute');
-    $unhandled = outboxRow('notification.dispatch', createdAgo: '5 minutes');
     $express = outboxRow('vsd.import', 'express', createdAgo: '4 minutes');
     try {
         expect((new OutboxSweep(fakeRelay($this->log, 'sweeper')))->sweep())->toBe(2);
         expect(array_column(FakePublisher::sends($this->log), 'id'))->toBe([$old, $new]);
-        expect(outboxState($unhandled)->published_at)->toBeNull();
         expect(outboxState($express)->published_at)->toBeNull();
-        // The relay ignores an unhandled id as well (it stays for the task that registers its handler).
-        expect(fakeRelay($this->log, 'relay')->publish([$unhandled]))->toBe(0);
         for ($i = 0; $i < 105; $i++) {
             outboxRow();
         }

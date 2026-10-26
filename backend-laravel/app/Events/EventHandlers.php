@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use App\Events\Handlers\LabEscalate;
+use App\Events\Handlers\NotificationDispatch;
 use App\Events\Handlers\RatingRecalculate;
 use App\Events\Handlers\RecallRequested;
 use App\Events\Handlers\VsdImport;
@@ -21,6 +22,7 @@ final class EventHandlers
         'lab.escalate' => LabEscalate::class,
         'recall.requested' => RecallRequested::class,
         'rating.recalculate' => RatingRecalculate::class,
+        'notification.dispatch' => NotificationDispatch::class,
     ];
 
     /** @return list<string> */

@@ -17,7 +17,7 @@ use stdClass;
  * in the SAME transaction as the state change; its `payload` is the whole envelope (contracts/events/envelope):
  * id (UUIDv4 = AMQP message_id), type, occurredAt (the clock at the INSERT, R59), backend, requestId (from the request
  * context; null outside a request), data. After the commit the id joins RequestContext::eventIds() for the relay
- * (Plan 5 Task 12); an attempt that rolls back or is retried leaves nothing behind.
+ * (the relay process, after the response); an attempt that rolls back or is retried leaves nothing behind.
  */
 final class Outbox
 {

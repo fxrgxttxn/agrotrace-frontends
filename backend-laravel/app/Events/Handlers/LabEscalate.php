@@ -13,7 +13,7 @@ use stdClass;
  * `lab.escalate` (contracts/events/lab.escalate.schema.json, R56; Express events/consumers/lab-escalate.ts): LAB_OVERDUE
  * for the heads of the lab organization and every inspector (contracts/rules/notifications.json), in ONE transaction
  * that starts with the processed_events claim — a redelivery writes nothing. Payload: the event's data plus the
- * laboratory's name. The PENDING EMAIL/TELEGRAM rows are sent by the delivery half (Task 12); until then they wait.
+ * laboratory's name. The consumer sends the PENDING EMAIL/TELEGRAM rows after the ack (Notifications\Delivery).
  */
 final class LabEscalate implements EventHandler
 {

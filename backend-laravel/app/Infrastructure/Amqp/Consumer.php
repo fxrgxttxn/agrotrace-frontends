@@ -31,6 +31,9 @@ use Throwable;
  *   channel. A handler that fails while stopping, or gives up because of it (StopSignal, Stopping), is not retried
  *   any more. It is returned unacknowledged (nack requeue): a shutdown never dead-letters an event (Ruling: Express
  *   rejects it; see the Task 6 report).
+ * - Notifications (P45, P49): the PENDING EMAIL/TELEGRAM rows a handled event committed are sent by this process after
+ *   the ack (`$deliver`, Notifications\Delivery::sendOwn) — the broker's next delivery waits for them (prefetch 1),
+ *   as the brief's «после коммита и ack процесс-потребитель отправляет только свои PENDING-строки» asks.
  */
 final class Consumer
 {
@@ -46,6 +49,7 @@ final class Consumer
      * @param  array<string, EventHandler>  $handlers  type => handler
      * @param  list<int>  $retryDelaysMs
      * @param  null|Closure(int): void  $sleepMs
+     * @param  null|Closure(list<string>): void  $deliver  sends the committed PENDING notification rows
      */
     public function __construct(
         private readonly array $handlers,
@@ -54,6 +58,7 @@ final class Consumer
         private readonly array $retryDelaysMs = self::RETRY_DELAYS_MS,
         ?Closure $sleepMs = null,
         private readonly ?Relay $relay = null,
+        private readonly ?Closure $deliver = null,
     ) {
         $this->sleepMs = $sleepMs ?? function (int $ms): void {
             // In 100 ms steps so a stop request (SIGTERM, async signals) ends a retry pause promptly.
@@ -122,6 +127,15 @@ final class Consumer
             false => $channel->reject($deliveryTag, false),
             null => $channel->nack($deliveryTag, true),
         };
+        // P45/P49: after the commit and the ack, this process sends the PENDING rows its handler inserted.
+        $pending = app(RequestContext::class)->takePendingNotifications();
+        if ($pending !== [] && $this->deliver !== null) {
+            try {
+                ($this->deliver)($pending);
+            } catch (Throwable $e) {
+                Log::error('notification delivery failed', ['eventId' => $envelope->id, 'err' => $e->getMessage()]);
+            }
+        }
     }
 
     /**

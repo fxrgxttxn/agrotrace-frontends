@@ -5,6 +5,7 @@ namespace App\Notifications;
 use App\Contract\RulesRepo;
 use App\Infrastructure\Db\Tx;
 use App\Support\Json;
+use App\Support\RequestContext;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 use stdClass;
@@ -12,15 +13,15 @@ use stdClass;
 /**
  * The storage half of the `notification.dispatch` algorithm (contracts/events/notification.dispatch.schema.json,
  * contracts/rules/notifications.json; Express notifications/dispatch.ts), shared by the handlers that create
- * notifications inside their own transaction (lab.escalate now; recall.requested — Task 10; notification.dispatch —
- * Task 12).
+ * notifications inside their own transaction (lab.escalate, recall.requested, notification.dispatch).
  *
  * Recipients: `userIds` as is, all users of `orgIds`, the heads (`is_org_admin`) of `orgHeadIds`, every user having a
  * role of `roles`; only ACTIVE, non-deleted users; the union deduplicated by user id (ordered by id). Per user: one
  * IN_APP row (DELIVERED; the table trigger emits pg_notify for SSE) and per external channel one PENDING row — EMAIL
  * when `channels.email` is true or the type is forced (RECALL, RECALL_TASK, OVERDUE), TELEGRAM when Telegram is linked
- * and (`channels.telegram` is true or the type is forced). Every row carries `payload`. Sending the PENDING rows after
- * the commit is the delivery half (Task 12); until then they stay PENDING.
+ * and (`channels.telegram` is true or the type is forced). Every row carries `payload`. The PENDING ids join the
+ * context after the commit (RequestContext::addPendingNotifications); the consumer sends them once the event is
+ * acknowledged (Delivery::sendOwn) — a rolled-back or retried attempt leaves none behind.
  */
 final class Insert
 {
@@ -98,6 +99,10 @@ final class Insert
                     $pending[] = $r->id;
                 }
             }
+        }
+        if ($pending !== []) {
+            $ctx = app(RequestContext::class);
+            Tx::afterCommit(fn () => $ctx->addPendingNotifications($pending));
         }
 
         return $pending;

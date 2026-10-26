@@ -9,6 +9,7 @@ use App\Infrastructure\Amqp\BrokerUnavailable;
 use App\Infrastructure\Amqp\Consumer;
 use App\Infrastructure\Amqp\VsdLane;
 use App\Infrastructure\Outbox\Relay;
+use App\Notifications\Delivery;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use PhpAmqpLib\Exception\AMQPProtocolChannelException;
@@ -38,8 +39,11 @@ final class Consume extends Command
     public function handle(): int
     {
         // The handlers' own outbox events go out right after their commit on a separate confirm connection.
+        // After the ack, the handler's PENDING EMAIL/TELEGRAM rows are sent by this process, one by one (P45, P49).
+        $delivery = Delivery::forWorker();
         $consumer = new Consumer(EventHandlers::resolve(), VsdLane::fromConfig(),
-            relay: Relay::fromConfig('agrotrace-laravel-worker-relay-'.getmypid()));
+            relay: Relay::fromConfig('agrotrace-laravel-worker-relay-'.getmypid()),
+            deliver: fn (array $ids) => $delivery->sendOwn($ids));
         $broker = Broker::fromConfig('agrotrace-laravel-worker-'.getmypid());
         pcntl_async_signals(true);
         foreach ([SIGTERM, SIGINT] as $sig) {

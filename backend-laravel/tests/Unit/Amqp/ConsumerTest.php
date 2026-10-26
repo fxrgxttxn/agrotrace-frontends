@@ -298,3 +298,26 @@ it('stopping: an unreadable message or an unhandled type is also cancelled befor
     $consumer->handle($body, [], 9, $ch);
     expect($ch->calls)->toBe(['cancel', 'reject 9 no-requeue']);
 })->with(['not json', envelopeBody('lab.escalate')]);
+
+it('after the ack, the PENDING notification rows the handler committed are handed to the delivery (P45, P49)', function () {
+    $calls = [];
+    $ch = new FakeChannel;
+    $handler = new class implements EventHandler
+    {
+        public function handle(stdClass $envelope): void
+        {
+            // What Notifications\Insert does after the handler's commit (Tx::afterCommit).
+            app(RequestContext::class)->addPendingNotifications(['p1', 'p2']);
+        }
+    };
+    $consumer = new Consumer(['notification.dispatch' => $handler, 'rating.recalculate' => new RecordingHandler],
+        new VsdLane(laneFile()), sleepMs: $this->sleep,
+        deliver: function (array $ids) use (&$calls, $ch) {
+            $calls[] = ['ids' => $ids, 'settled' => $ch->calls];
+        });
+    $consumer->handle(envelopeBody('notification.dispatch', 'n1'), [], 4, $ch);
+    expect($calls)->toBe([['ids' => ['p1', 'p2'], 'settled' => ['ack 4']]]);
+    // A handler that inserted nothing: no delivery call; ids never leak into the next event.
+    $consumer->handle(envelopeBody('rating.recalculate', 'r1'), [], 5, $ch);
+    expect($calls)->toHaveCount(1);
+});
