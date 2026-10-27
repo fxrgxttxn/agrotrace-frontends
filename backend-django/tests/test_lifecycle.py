@@ -60,3 +60,22 @@ def test_beat_close_arms_the_watchdog_and_cancels_it_once_closed(monkeypatch):
     sched.close()
     assert armed == [config.get().SHUTDOWN_TIMEOUT_MS, {"wait": True, "cancel_futures": True}]
     assert Timer.cancelled
+
+
+def test_the_api_arms_the_watchdog_on_the_first_sigterm_then_runs_the_previous_handler(monkeypatch):
+    """Re-review m1: as Express's api, the signal itself arms the exit(1) at SHUTDOWN_TIMEOUT_MS + 2 s."""
+    import signal
+
+    from agrotrace import asgi
+
+    installed = {}
+    calls: list[str] = []
+    armed: list[int] = []
+    monkeypatch.setattr(signal, "getsignal", lambda sig: lambda s, f: calls.append("uvicorn"))
+    monkeypatch.setattr(signal, "signal", lambda sig, fn: installed.setdefault(sig, fn))
+    monkeypatch.setattr(lifecycle, "exit_after", lambda ms: armed.append(ms))
+    assert asgi.STARTUP[-1] is asgi._arm_shutdown_watchdog
+    lifecycle.exit_after_on_sigterm(4321)
+    installed[signal.SIGTERM](signal.SIGTERM, None)
+    installed[signal.SIGTERM](signal.SIGTERM, None)
+    assert armed == [4321] and calls == ["uvicorn", "uvicorn"]

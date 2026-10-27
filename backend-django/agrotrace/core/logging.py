@@ -118,7 +118,7 @@ def configure(process: str) -> None:
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level)
-    # uvicorn.access is left as uvicorn set it (`--no-access-log`: silenced; AccessLogMiddleware logs requests).
+    # uvicorn.access is left as uvicorn set it (serve.py `access_log=False`: silenced; AccessLogMiddleware logs requests).
     for name in ("django", "django.request", "django.server", "uvicorn", "uvicorn.error", "celery"):
         lg = logging.getLogger(name)
         lg.handlers[:] = []

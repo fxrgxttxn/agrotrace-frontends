@@ -1,5 +1,5 @@
 """
-The api process: `uvicorn agrotrace.asgi:application --workers 1` (one process, P61 as revised by SP4).
+The api process: `python -m agrotrace.serve` (uvicorn, one worker: one process, P61 as revised by SP4).
 
 `application` wraps Django's ASGI handler:
 - `lifespan` (Django does not handle it): at start-up the configuration is checked (settings already loaded it — a bad
@@ -22,7 +22,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "agrotrace.settings")
 
 from django.core.asgi import get_asgi_application  # noqa: E402
 
-from agrotrace.core import context, metrics  # noqa: E402
+from agrotrace.core import context, lifecycle, metrics  # noqa: E402
 from agrotrace.sse import hub as sse_hub  # noqa: E402
 
 django_application = get_asgi_application()
@@ -46,9 +46,16 @@ async def _stop_metrics() -> None:
         server.server_close()
 
 
+async def _arm_shutdown_watchdog() -> None:
+    from agrotrace.core import config
+
+    lifecycle.exit_after_on_sigterm(config.get().SHUTDOWN_TIMEOUT_MS)
+
+
 #: Callables run at lifespan start-up / shutdown: the SSE hub (its LISTEN session exists from the start, as in Express;
-#: it closes first at shutdown) and the metrics server on METRICS_PORT.
-STARTUP: list = [sse_hub.start, _start_metrics]
+#: it closes first at shutdown), the metrics server on METRICS_PORT, and the shutdown watchdog on SIGTERM (last, so it
+#: wraps the handler the hub chained onto uvicorn's; core/lifecycle.py).
+STARTUP: list = [sse_hub.start, _start_metrics, _arm_shutdown_watchdog]
 SHUTDOWN: list = [sse_hub.close, _stop_metrics]
 
 

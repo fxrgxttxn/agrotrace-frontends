@@ -3,7 +3,8 @@ Process stop of the three Django processes, as backend-express/src/lifecycle.ts 
 what an orderly stop may take, and a stop still running 2 s after it ends the process with exit code 1 ("shutdown
 timed out"), so a stuck dependency never keeps `docker compose stop` waiting for its own SIGKILL.
 
-- api — uvicorn's `timeout_graceful_shutdown` (agrotrace/serve.py): in-flight requests get SHUTDOWN_TIMEOUT_MS;
+- api — uvicorn's `timeout_graceful_shutdown` (agrotrace/serve.py): in-flight requests get SHUTDOWN_TIMEOUT_MS; the
+  watchdog starts on the first SIGTERM (`exit_after_on_sigterm`, armed at lifespan start-up, asgi.py);
 - worker — the watchdog starts on Celery's `worker_shutting_down` (celery_app.py);
 - beat — the watchdog starts when the scheduler closes (scheduler/beat.py) and is cancelled once it has closed.
 """
@@ -34,3 +35,27 @@ def exit_after(timeout_ms: int, *, _exit: Callable[[int], object] = os._exit) ->
     timer.daemon = True
     timer.start()
     return timer
+
+
+def exit_after_on_sigterm(timeout_ms: int) -> None:
+    """api: the first SIGTERM also arms the watchdog, then the handler installed before (uvicorn's, chained by the SSE
+    hub) runs as before — Express's api arms its `exit(1)` on the signal too. Off the main thread: nothing to do."""
+    import signal
+
+    try:
+        previous = signal.getsignal(signal.SIGTERM)
+    except (ValueError, OSError):  # pragma: no cover - not the main thread
+        return
+    if not callable(previous):
+        return
+    armed: list[threading.Timer] = []
+
+    def handler(signum, frame):
+        if not armed:
+            armed.append(exit_after(timeout_ms))
+        previous(signum, frame)
+
+    try:
+        signal.signal(signal.SIGTERM, handler)
+    except (ValueError, OSError):  # pragma: no cover
+        pass
