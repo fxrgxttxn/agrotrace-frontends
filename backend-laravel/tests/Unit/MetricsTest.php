@@ -10,10 +10,12 @@
 use App\Http\Middleware\Metrics;
 use App\Infrastructure\Metrics\HttpMetrics;
 use App\Infrastructure\Metrics\ScrapeGauges;
+use App\Octane\EndOfRequest;
 use App\Support\RequestContext;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\Request;
 use Illuminate\Testing\TestResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Tests\TestCase;
 
 uses(TestCase::class);
@@ -163,4 +165,58 @@ it('a gauge that fails, times out or is being read by another scrape is NaN, nev
     }
     // The lock is given back after every read.
     expect(apcu_exists('agrotrace_metrics_read:queue_messages'))->toBeFalse();
+});
+
+/** The `_sum` of one series of http_request_duration_seconds. */
+function durationSum(string $text, string $method, string $route, string $status): ?float
+{
+    $re = '/^http_request_duration_seconds_sum\{method="'.preg_quote($method, '/').'",route="'.preg_quote($route, '/')
+        .'",status="'.$status.'",backend="laravel"\} (\S+)$/m';
+
+    return preg_match($re, $text, $m) ? (float) $m[1] : null;
+}
+
+it('ends the duration when the response is sent, not after the after-response work queued before it (review I1)', function () {
+    $request = Request::create('/api/v1/auth/password/forgot', 'POST');
+    $request->server->set('REQUEST_URI', '/api/v1/auth/password/forgot');
+    $ctx = app(RequestContext::class);
+    (new Metrics)->handle($request, function () use ($ctx) {
+        // A mail delivery (Mailer::send) registered during the request runs after the response, before the metrics.
+        $ctx->afterResponse(fn () => usleep(300_000));
+
+        return response('', 202);
+    });
+    EndOfRequest::finish(app());
+    $sum = durationSum(app(HttpMetrics::class)->render(), 'POST', '/auth/password/forgot', '202');
+    expect($sum)->not->toBeNull()->toBeLessThan(0.2);
+});
+
+it('a stream gives one observation with its status, however often the end of the request runs', function () {
+    $request = Request::create('/api/v1/events/stream', 'GET');
+    $request->server->set('REQUEST_URI', '/api/v1/events/stream');
+    (new Metrics)->handle($request, fn () => new StreamedResponse(fn () => null, 200));
+    EndOfRequest::finish(app()); // Kernel::terminate
+    EndOfRequest::finish(app()); // Octane RequestTerminated
+    expect(durationCounts(app(HttpMetrics::class)->render()))->toBe(['GET /events/stream 200' => 1]);
+});
+
+it('499: a client seen gone, or an aborted write of a whole response; a stream whose headers went keeps its status', function () {
+    $plain = response('x', 200);
+    $stream = new StreamedResponse(fn () => null, 200);
+    expect(Metrics::status($plain, clientGone: false, aborted: false))->toBe(200)
+        ->and(Metrics::status($plain, clientGone: false, aborted: true))->toBe(499)
+        ->and(Metrics::status($plain, clientGone: true, aborted: false))->toBe(499)
+        ->and(Metrics::status($stream, clientGone: false, aborted: true))->toBe(200)
+        ->and(Metrics::status(response('', 204), clientGone: true, aborted: true))->toBe(499);
+});
+
+it('the listener 404 is Express\'s text, byte for byte, for any other method or path', function () {
+    foreach (['/METRICS', '/nope'] as $uri) {
+        $res = scrape($uri);
+        $res->assertStatus(404);
+        expect($res->getContent())->toBe("not found\n")->and($res->headers->get('Content-Type'))->toBe('text/plain; charset=utf-8');
+    }
+    $request = Request::create('/metrics', 'POST', server: [Metrics::LISTENER_VAR => '1', 'REQUEST_URI' => '/metrics']);
+    $res = app(Kernel::class)->handle($request);
+    expect($res->getStatusCode())->toBe(404)->and($res->getContent())->toBe("not found\n");
 });

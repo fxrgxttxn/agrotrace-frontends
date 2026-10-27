@@ -21,6 +21,9 @@ final class EnvConfig
 
     public const FIXED_CONNECTIONS = 1 + 3 + 4;
 
+    /** FrankenPHP behind the HAProxy front (docker/Caddyfile `http://:8080`, bound to 127.0.0.1). */
+    public const INTERNAL_PORT = 8080;
+
     public const PROCESSES = ['api', 'relay', 'worker', 'scheduler', 'cli', 'test'];
 
     /**
@@ -63,6 +66,20 @@ final class EnvConfig
         // Per user (T12 re-review I1): one account within its `user` rate limit must not take every place.
         self::int($p, 'SSE_MAX_STREAMS_PER_USER', $get('SSE_MAX_STREAMS_PER_USER'), 10, 1, 4096);
         self::int($p, 'HEALTH_TIMEOUT_MS', $get('HEALTH_TIMEOUT_MS'), 2000, 100, 30000);
+        // Express config.ts: the API port (the HAProxy front), the metrics port (the Caddy block) and the grace of the
+        // requests/handlers in flight on SIGTERM (docker/entrypoint.sh derives Caddy's grace_period, HAProxy's
+        // hard-stop-after and supervisord's stopwaitsecs = timeout + 2 s from it).
+        $port = self::int($p, 'PORT', $get('PORT'), 8000, 1, 65535);
+        $metricsPort = self::int($p, 'METRICS_PORT', $get('METRICS_PORT'), 9464, 1, 65535);
+        foreach (['PORT' => $port, 'METRICS_PORT' => $metricsPort] as $name => $value) {
+            if ($value === self::INTERNAL_PORT) {
+                $p[] = "{$name}: ".self::INTERNAL_PORT." is FrankenPHP's internal listener (127.0.0.1, docker/Caddyfile)";
+            }
+        }
+        if ($port !== null && $port === $metricsPort) {
+            $p[] = 'METRICS_PORT: must differ from PORT';
+        }
+        self::int($p, 'SHUTDOWN_TIMEOUT_MS', $get('SHUTDOWN_TIMEOUT_MS'), 10000, 0, 120000);
         // P50 (Express config.ts): data rows per report sheet; only the test stand lowers it.
         self::int($p, 'REPORT_MAX_ROWS', $get('REPORT_MAX_ROWS'), 50000, 1, 50000);
         // L5: a period the Scheduler can express (App\Scheduler\Tick, the port's deviation from Express's 100…3 600 000).

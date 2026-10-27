@@ -1,8 +1,8 @@
 # api-laravel: FrankenPHP with the Octane worker (L3, L4, L15). Started as `frankenphp run --config` (supervisord-api.conf):
 # `artisan octane:frankenphp` would drop the workers' stdout (the JSON log lines) and reformat stderr.
-#   127.0.0.1:8080 — the API, behind the HAProxy front on :8000 (docker/haproxy-api.cfg: Go refuses malformed
+#   127.0.0.1:8080 — the API, behind the HAProxy front on :PORT (8000) (docker/haproxy-api.cfg: Go refuses malformed
 #                    %-escapes with its own 400 before PHP runs) — the gateway proxies <front>-laravel.localhost/api/ to :8000;
-#   :9464 — Prometheus /metrics only (METRICS_PORT, P54/L15; App\Http\Middleware\Metrics), never behind the gateway.
+#   :METRICS_PORT (9464) — Prometheus /metrics only (METRICS_PORT, P54/L15; App\Http\Middleware\Metrics), never behind the gateway.
 # :8000 and :9464 are `expose`d inside the `at` network only (docker-compose.yml), never published.
 #
 # SSE (Task 12 step 2): GET /api/v1/events/stream runs on FrankenPHP's classic threads (public/sse.php, Laravel booted
@@ -15,6 +15,9 @@
 	admin off
 	auto_https off
 	skip_install_trust
+	# SHUTDOWN_TIMEOUT_MS (Express config): on SIGTERM the requests in flight get this long (docker/entrypoint.sh
+	# exports it, ≥ 1 ms); supervisord kills what is still running 2 s later (stopwaitsecs, the exit watchdog).
+	grace_period {$AGROTRACE_GRACE_MS:10000}ms
 	log {
 		output stderr
 		format json
@@ -60,24 +63,18 @@ http://:8080 {
 	import app
 }
 
-# METRICS_PORT (P54, L15): only `GET /metrics`, handed to the Octane workers with the server variable
-# AGROTRACE_METRICS_LISTENER=1 (App\Http\Middleware\Metrics answers it with the exposition and does not measure it; a
-# client cannot set a server variable — its headers arrive as HTTP_*). Everything else is a plain 404.
-http://:9464 {
+# METRICS_PORT (P54, L15; default 9464, read like Express's config): every request goes to the Octane workers with the
+# server variable AGROTRACE_METRICS_LISTENER=1 — a client cannot set a server variable, its headers arrive as HTTP_*.
+# App\Http\Middleware\Metrics answers `GET /metrics` (exactly as written) with the exposition and anything else with
+# Express's `404 not found\n`; neither is measured.
+http://:{$METRICS_PORT:9464} {
 	header -Server
-	@metrics {
-		method GET
-		path /metrics
+	request_body {
+		max_size 64KiB
 	}
-	handle @metrics {
-		root * /app/public
-		rewrite * /frankenphp-worker.php
-		php {
-			env AGROTRACE_METRICS_LISTENER 1
-		}
-	}
-	handle {
-		header Content-Type "text/plain; charset=utf-8"
-		respond "not found" 404
+	root * /app/public
+	rewrite * /frankenphp-worker.php
+	php {
+		env AGROTRACE_METRICS_LISTENER 1
 	}
 }

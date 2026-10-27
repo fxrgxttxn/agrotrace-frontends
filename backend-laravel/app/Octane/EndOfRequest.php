@@ -26,6 +26,9 @@ final class EndOfRequest
     {
         if ($app->bound(RequestContext::class)) {
             $ctx = $app->make(RequestContext::class);
+            // The response is out: the end of the request's measured duration, before the relay and the
+            // after-response work (a mail delivery) that follow (Express's metrics end on `finish`).
+            $ctx->markSent();
             // The relay (L4 order: right after the response): the committed events go to the relay process — a
             // non-blocking datagram, never a wait on the broker (RelayNotifier; a failed hand-off is caught up by the relay).
             try {

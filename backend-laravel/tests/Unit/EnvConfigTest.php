@@ -65,3 +65,15 @@ it('refuses to start api-laravel without APCu (the SSE stream caps), other proce
     expect(EnvConfig::problems(validEnv(), apcu: true))->toBe([]);
     expect(EnvConfig::problems(validEnv(['SSE_MAX_STREAMS_PER_USER' => '0'])))->toHaveCount(1);
 });
+
+it('PORT, METRICS_PORT and SHUTDOWN_TIMEOUT_MS are validated as Express validates them (exit 78 otherwise)', function () {
+    expect(EnvConfig::problems(validEnv(['PORT' => '8000', 'METRICS_PORT' => '9464', 'SHUTDOWN_TIMEOUT_MS' => '0'])))->toBe([]);
+    expect(EnvConfig::problems(validEnv(['SHUTDOWN_TIMEOUT_MS' => '120000', 'PORT' => '1', 'METRICS_PORT' => '65535'])))->toBe([]);
+    foreach ([['PORT', '0'], ['PORT', '65536'], ['PORT', 'http'], ['METRICS_PORT', '-1'], ['SHUTDOWN_TIMEOUT_MS', '120001'], ['SHUTDOWN_TIMEOUT_MS', '1.5']] as [$k, $v]) {
+        $p = EnvConfig::problems(validEnv([$k => $v]));
+        expect($p)->toHaveCount(1)->and($p[0])->toStartWith("{$k}:");
+    }
+    // One listener each: the API front, the metrics block, and FrankenPHP's internal 127.0.0.1:8080.
+    expect(EnvConfig::problems(validEnv(['PORT' => '9000', 'METRICS_PORT' => '9000'])))->toHaveCount(1);
+    expect(EnvConfig::problems(validEnv(['PORT' => '8080'])))->toHaveCount(1);
+});

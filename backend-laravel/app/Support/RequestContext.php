@@ -43,6 +43,20 @@ final class RequestContext
         return $this->clientGone;
     }
 
+    private ?int $sentAt = null;
+
+    /** EndOfRequest: the response has been sent (hrtime ns) — before any after-response work; the first call wins. */
+    public function markSent(): void
+    {
+        $this->sentAt ??= hrtime(true);
+    }
+
+    /** When the response was sent (hrtime ns), null before EndOfRequest ran — the end of the metrics' duration. */
+    public function sentAt(): ?int
+    {
+        return $this->sentAt;
+    }
+
     public function begin(?string $requestId, ?string $clientIp): void
     {
         $this->requestId = $requestId;

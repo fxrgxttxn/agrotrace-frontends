@@ -157,6 +157,8 @@ services:
       OCTANE_WORKERS: ${OCTANE_WORKERS:-32}
       DB_SLOTS: ${DB_SLOTS:-11}
       REDIS_PREFIX: ''
+      # Pinned like api-express: the healthcheck, the gateway upstream and `expose` all say 8000 (METRICS_PORT: 9464).
+      PORT: '8000'
     expose: ["8000", "9464"]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8000/api/v1/health/live"]
@@ -173,6 +175,8 @@ services:
     # of 10 queued datagrams per socket fills during one slow confirm; 4096 rides out ~10 s of a 400 req/s burst. The
     # relay also catches dropped ids up from the outbox itself, so this sets latency, not correctness.
     sysctls: { net.unix.max_dgram_qlen: 4096 }
+    # 15 s covers SHUTDOWN_TIMEOUT_MS (10 s) + the 2 s of supervisord's stopwaitsecs in all three services
+    # (docker/entrypoint.sh); a SHUTDOWN_TIMEOUT_MS above 13000 (accepted up to 120000, as in Express) needs more here.
     stop_grace_period: 15s
     networks: [at]
   # supervisord: 2 × agrotrace:consume (the worker's two channels of agrotrace.laravel.jobs, L1, L2); the Telegram
