@@ -2,6 +2,7 @@
 
 namespace App\Http;
 
+use App\Support\RequestContext;
 use Illuminate\Http\Request;
 
 /**
@@ -30,14 +31,19 @@ final class ClientConnection
 
     private const ESTABLISHED = '01';
 
-    /** @return callable(): bool */
+    /**
+     * A client seen gone is also marked on the request's RequestContext (the metrics record the request as 499).
+     *
+     * @return callable(): bool
+     */
     public static function watcher(Request $request, string $procTcp = '/proc/net/tcp'): callable
     {
         $peer = self::peer($request->server->get('REMOTE_ADDR'), $request->server->get('REMOTE_PORT'));
+        $ctx = app()->bound(RequestContext::class) ? app(RequestContext::class) : null;
         $lastCheck = 0.0;
         $gone = false;
 
-        return function () use ($peer, $procTcp, &$lastCheck, &$gone): bool {
+        return function () use ($peer, $procTcp, $ctx, &$lastCheck, &$gone): bool {
             if ($gone || $peer === null) {
                 return $gone;
             }
@@ -49,6 +55,9 @@ final class ClientConnection
             $table = self::table($procTcp);
             if ($table !== null) {
                 $gone = self::goneIn($table, $peer);
+                if ($gone) {
+                    $ctx?->markClientGone();
+                }
             }
 
             return $gone;

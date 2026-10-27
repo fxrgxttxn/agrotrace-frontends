@@ -30,6 +30,19 @@ final class RequestContext
 
     private ?string $eventRequestId = null;
 
+    private bool $clientGone = false;
+
+    /** App\Http\ClientConnection saw the client go away during this request (the metrics' 499, P54). */
+    public function markClientGone(): void
+    {
+        $this->clientGone = true;
+    }
+
+    public function clientGone(): bool
+    {
+        return $this->clientGone;
+    }
+
     public function begin(?string $requestId, ?string $clientIp): void
     {
         $this->requestId = $requestId;

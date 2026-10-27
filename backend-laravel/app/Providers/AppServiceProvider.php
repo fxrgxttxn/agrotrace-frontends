@@ -10,6 +10,8 @@ use App\Infrastructure\Db\DbSlots;
 use App\Infrastructure\Db\PgConnector;
 use App\Infrastructure\Db\TxState;
 use App\Infrastructure\Mercury\Mercury;
+use App\Infrastructure\Metrics\HttpMetrics;
+use App\Infrastructure\Metrics\ScrapeGauges;
 use App\Infrastructure\Outbox\Relay;
 use App\Infrastructure\Storage\ObjectStore;
 use App\Scheduler\Jobs\OutboxSweep;
@@ -38,6 +40,9 @@ final class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ObjectStore::class);
         $this->app->singleton(StopSignal::class);
         $this->app->singleton(IdemStore::class, RedisIdemStore::class);
+        // The HTTP series live in APCu (shared by the api's threads); the instance only holds the registry (P54, L15).
+        $this->app->singleton(HttpMetrics::class);
+        $this->app->singleton(ScrapeGauges::class);
         $this->app->bind(Mercury::class, fn () => Mercury::fromConfig());
         $this->app->bind(Relay::class, fn () => Relay::fromConfig('agrotrace-laravel-'.config('agrotrace.process')));
         // The sweeper keeps its confirm channel across ticks (one broker connection per job process).

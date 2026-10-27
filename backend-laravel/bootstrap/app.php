@@ -2,7 +2,7 @@
 
 /*
  * The application (Plan 5 Task 1). The global middleware stack is replaced as a whole (port notes):
- *   RequestContextMw → BackendHeader → AccessLog → ContractGate → JsonBody
+ *   Metrics → RequestContextMw → BackendHeader → AccessLog → ContractGate → JsonBody
  * — no HandleCors (it would answer OPTIONS itself), TrustProxies (P9: the last X-Forwarded-For hop is read by
  * RequestContextMw), ValidatePostSize (its own 413), TrimStrings / ConvertEmptyStringsToNull (R36) or
  * PreventRequestsDuringMaintenance. Every exception is rendered by App\Http\Problem\Renderer (RFC 7807, contract
@@ -14,6 +14,7 @@ use App\Http\Middleware\BackendHeader;
 use App\Http\Middleware\ContractGate;
 use App\Http\Middleware\Idempotency;
 use App\Http\Middleware\JsonBody;
+use App\Http\Middleware\Metrics;
 use App\Http\Middleware\Operation;
 use App\Http\Middleware\RequestContextMw;
 use App\Http\Problem\Problem;
@@ -32,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->use([
+            Metrics::class,
             RequestContextMw::class,
             BackendHeader::class,
             AccessLog::class,

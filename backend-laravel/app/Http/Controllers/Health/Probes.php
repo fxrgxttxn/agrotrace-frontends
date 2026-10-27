@@ -63,8 +63,8 @@ final class Probes
         }
     }
 
-    /** The PostgreSQL server answers an SSLRequest ('S' or 'N') within the budget. */
-    private static function pgAnswers(string $host, int $port, float $timeout): void
+    /** The PostgreSQL server answers an SSLRequest ('S' or 'N') within the budget (also the metrics gauge, ScrapeGauges). */
+    public static function pgAnswers(string $host, int $port, float $timeout): void
     {
         $deadline = microtime(true) + $timeout;
         $s = @stream_socket_client("tcp://{$host}:{$port}", $errno, $err, $timeout);

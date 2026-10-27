@@ -120,6 +120,16 @@ final class Contract
     }
 
     /**
+     * The contract path template (without `/api/v1`) this raw path matches — the most specific one, as ContractGate
+     * routes it (`/api/v1/batches/<id>` → `/batches/{id}`, `/users/me` before `/users/{id}`), whatever the method; null
+     * when no template matches (the `route` label `unmatched` of the metrics, P54).
+     */
+    public function templateFor(string $rawPath): ?string
+    {
+        return $this->candidates($rawPath)[0][0]['template'] ?? null;
+    }
+
+    /**
      * The methods the contract declares for this raw path, upper case, in contract order (the `Allow` of a 405, P3);
      * null when no contract template matches the path.
      *

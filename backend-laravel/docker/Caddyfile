@@ -2,7 +2,7 @@
 # `artisan octane:frankenphp` would drop the workers' stdout (the JSON log lines) and reformat stderr.
 #   127.0.0.1:8080 — the API, behind the HAProxy front on :8000 (docker/haproxy-api.cfg: Go refuses malformed
 #                    %-escapes with its own 400 before PHP runs) — the gateway proxies <front>-laravel.localhost/api/ to :8000;
-#   :9464 — Prometheus /metrics only (METRICS_PORT, P54/L15; implemented in Task 14), never behind the gateway.
+#   :9464 — Prometheus /metrics only (METRICS_PORT, P54/L15; App\Http\Middleware\Metrics), never behind the gateway.
 # :8000 and :9464 are `expose`d inside the `at` network only (docker-compose.yml), never published.
 #
 # SSE (Task 12 step 2): GET /api/v1/events/stream runs on FrankenPHP's classic threads (public/sse.php, Laravel booted
@@ -60,15 +60,24 @@ http://:8080 {
 	import app
 }
 
+# METRICS_PORT (P54, L15): only `GET /metrics`, handed to the Octane workers with the server variable
+# AGROTRACE_METRICS_LISTENER=1 (App\Http\Middleware\Metrics answers it with the exposition and does not measure it; a
+# client cannot set a server variable — its headers arrive as HTTP_*). Everything else is a plain 404.
 http://:9464 {
+	header -Server
 	@metrics {
 		method GET
 		path /metrics
 	}
 	handle @metrics {
-		import app
+		root * /app/public
+		rewrite * /frankenphp-worker.php
+		php {
+			env AGROTRACE_METRICS_LISTENER 1
+		}
 	}
 	handle {
-		respond 404
+		header Content-Type "text/plain; charset=utf-8"
+		respond "not found" 404
 	}
 }

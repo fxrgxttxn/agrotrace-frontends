@@ -19,6 +19,7 @@
         "php-amqplib/php-amqplib": "^3.7",
         "phpoffice/phpspreadsheet": "^5.10",
         "pragmarx/google2fa": "^8.0",
+        "promphp/prometheus_client_php": "^2.14",
         "tecnickcom/tcpdf": "6.11.4"
     },
     "require-dev": {
