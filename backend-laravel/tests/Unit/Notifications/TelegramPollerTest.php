@@ -196,14 +196,21 @@ it('links a chat through GETDEL tgcode:{code}, once', function () {
     }
 });
 
-it('puts the code back when the link cannot be written, so the update seen again links it (review minor 9)', function () {
+it('puts the code back when the link cannot be written — only while it is still the user\'s current code', function () {
+    $user = '11111111-1111-4111-8111-'.bin2hex(random_bytes(6));
     $code = 'test'.bin2hex(random_bytes(4));
-    $raw = json_encode(['userId' => '11111111-1111-4111-8111-111111111111']);
+    $raw = json_encode(['userId' => $user]);
     $this->redis->set("tgcode:{$code}", $raw, ['ex' => 60]);
+    $this->redis->set("tgcode-user:{$user}", $code, ['ex' => 60]);
     config(['database.connections.pgsql.url' => 'postgres://none:none@127.0.0.1:1/none']);
     DB::purge('pgsql');
     expect(fn () => Poller::linkByCode($this->redis, $code, '1'))->toThrow(QueryException::class);
     expect($this->redis->get("tgcode:{$code}"))->toBe($raw);
     expect($this->redis->pttl("tgcode:{$code}"))->toBeGreaterThan(55_000)->toBeLessThanOrEqual(60_000);
-    $this->redis->del("tgcode:{$code}");
+
+    // A newer code issued meanwhile (MeActions replaces tgcode-user): the superseded one stays gone.
+    $this->redis->set("tgcode-user:{$user}", 'newer', ['ex' => 60]);
+    expect(fn () => Poller::linkByCode($this->redis, $code, '1'))->toThrow(QueryException::class);
+    expect($this->redis->exists("tgcode:{$code}"))->toBe(0);
+    $this->redis->del("tgcode:{$code}", "tgcode-user:{$user}");
 });

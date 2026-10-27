@@ -30,6 +30,9 @@ final class Poller
 
     public const RELEASE = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0";
 
+    /** linkByCode's put-back: `tgcode:{code}` again (NX, its remaining PX) only while `tgcode-user:{id}` is that code. */
+    public const PUT_BACK = "if redis.call('GET', KEYS[2]) == ARGV[2] and redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[3], 'NX') then return 1 end return 0";
+
     /** JavaScript `/^\/start(?:@\w+)?\s+(\S+)\s*$/` — \s is ECMAScript white space, \w ASCII, `$` the end of input. */
     public const START = '/^\/start(?:@[A-Za-z0-9_]+)?[\t\n\x{0B}\f\r \x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+'
         .'([^\t\n\x{0B}\f\r \x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+)'
@@ -180,9 +183,10 @@ final class Poller
 
     /**
      * `GETDEL tgcode:{code}` (one-time) → `users.telegram_chat_id`; false when the code is unknown or the user gone.
-     * A failed UPDATE (the DB unreachable) puts the code back for the rest of its life (SET NX: a code is never
-     * shared) and rethrows, so the update — seen again, the offset did not move past it — links it then (review
-     * minor 9; Express loses the code).
+     * A failed UPDATE (the DB unreachable) puts the code back for the rest of its life and rethrows, so the update —
+     * seen again, the offset did not move past it — links it then (review minor 9; Express loses the code). The
+     * put-back is atomic (PUT_BACK) and only while the code is still the user's current one: a newer code issued in the
+     * meantime (MeActions deletes the previous one) is never joined by the superseded one (re-review 1, minor 2).
      */
     public static function linkByCode(Redis $redis, string $code, string $chatId): bool
     {
@@ -201,7 +205,7 @@ final class Poller
             $n = DB::update('UPDATE users SET telegram_chat_id = ?::bigint WHERE id = ?::uuid AND deleted_at IS NULL', [$chatId, $userId]);
         } catch (Throwable $e) {
             if (is_int($ttlMs) && $ttlMs > 0) {
-                $redis->set($key, $raw, ['nx', 'px' => $ttlMs]);
+                $redis->eval(self::PUT_BACK, [$key, "tgcode-user:{$userId}", $raw, $code, (string) $ttlMs], 2);
             }
             throw $e;
         } finally {
