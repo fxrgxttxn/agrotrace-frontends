@@ -131,7 +131,39 @@ jobs:
       - run: ./at.sh laravel:lint
       - uses: ./.github/actions/pnpm-store-save
         if: always()
-  # api-laravel (tests/api, cross pairs, docs:test laravel) is filled in Plan 5 Task 14.
+  api-laravel:
+    name: api (tests/api, tests/cross against Laravel)
+    runs-on: ubuntu-latest
+    # Pinned so every run sees the same demo data (`./at.sh reset` → db/seed with SEED_NOW).
+    env:
+      SEED_NOW: '2026-09-24T12:00:00Z'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh up infra
+      - run: ./at.sh reset
+      # Express is the other side of the cross pairs below.
+      - run: ./at.sh up express
+      # api-laravel, worker-laravel, scheduler-laravel (built from this commit).
+      - run: ./at.sh up laravel
+      # The HAProxy front's rules against the running api-laravel (malformed %-escapes, the JSON 413, headers; Q8).
+      - run: ./at.sh laravel:stack
+      # The parity suite (P10 api-test profile) incl. the permission matrix, the metrics and the contract coverage
+      # check, which is enforced on this full run (tests/api/contract-coverage.test.ts).
+      - run: ./at.sh api:test laravel
+      # Review Focus 4: the same suite with the backend's processes in Moscow time — every date rule is UTC.
+      - run: ./at.sh api:test laravel --reset --tz Europe/Moscow
+      # P10: the [ratelimit] tests against the plain backend (no RATE_LIMIT_OVERRIDES).
+      - run: ./at.sh api:test laravel --ratelimits
+      # tests/cross (session + interop, SP5) on the real pairs, in both orders.
+      - run: ./at.sh cross:test express laravel
+      - run: ./at.sh cross:test laravel express
+      - run: ./at.sh docs:test laravel
+      - if: failure()
+        run: docker compose logs --no-color --tail 500 api-laravel worker-laravel scheduler-laravel
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
   # --- end laravel ---
 
   ds:
