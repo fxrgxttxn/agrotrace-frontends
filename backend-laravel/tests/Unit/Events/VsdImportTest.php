@@ -131,7 +131,7 @@ it('two failed calls, then the document: IMPORTED with attempts 3, the back-off 
     expect($audit[0]->actor_id)->toBeNull();
 });
 
-it('six failed calls: FAILED with attempts 6, last_error cut to 500 characters, pauses 2^k for the five between', function () {
+it('six failed calls: FAILED with attempts 6, last_error is the short text Express stores, never the transport text (final review M4), pauses 2^k for the five between', function () {
     $this->f = vsdFixture();
     $calls = 0;
     Http::fake(function () use (&$calls) {
@@ -144,8 +144,7 @@ it('six failed calls: FAILED with attempts 6, last_error cut to 500 characters, 
     $row = vsdRow($this->f['doc']);
     expect($row->import_status)->toBe('FAILED');
     expect((int) $row->attempts)->toBe(6);
-    expect(mb_strlen((string) $row->last_error))->toBe(500);
-    expect($row->last_error)->toStartWith('mercury: xxx');
+    expect($row->last_error)->toBe('mercury: fetch failed');
     expect(vsdClaimed($this->eventId))->toBeTrue();
 });
 
