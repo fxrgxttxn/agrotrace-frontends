@@ -15,9 +15,9 @@
 	admin off
 	auto_https off
 	skip_install_trust
-	# SHUTDOWN_TIMEOUT_MS (Express config): on SIGTERM the requests in flight get this long (docker/entrypoint.sh
-	# exports it, ≥ 1 ms); supervisord kills what is still running 2 s later (stopwaitsecs, the exit watchdog).
-	grace_period {$AGROTRACE_GRACE_MS:10000}ms
+	# FrankenPHP stops after the HAProxy front (supervisord-api.conf priorities), which already gave the requests in
+	# flight SHUTDOWN_TIMEOUT_MS and closed their connections: no client is left to wait for (final review M1).
+	grace_period 1s
 	log {
 		output stderr
 		format json

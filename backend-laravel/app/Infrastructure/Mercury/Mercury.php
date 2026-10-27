@@ -65,9 +65,10 @@ final class Mercury
         } catch (ConnectionException $e) {
             $timedOut = str_contains($e->getMessage(), 'timed out') || str_contains($e->getMessage(), 'cURL error 28');
 
-            return ['ok' => false, 'error' => 'mercury: '.($timedOut ? "timeout after {$this->timeoutMs} ms" : $e->getMessage())];
-        } catch (Throwable $e) {
-            return ['ok' => false, 'error' => 'mercury: '.$e->getMessage()];
+            // last_error as Express stores it (final review M4): fetch's `fetch failed`, never cURL's text with the URL.
+            return ['ok' => false, 'error' => 'mercury: '.($timedOut ? "timeout after {$this->timeoutMs} ms" : 'fetch failed')];
+        } catch (Throwable) {
+            return ['ok' => false, 'error' => 'mercury: fetch failed'];
         }
         if ($res->status() !== 200) {
             return ['ok' => false, 'error' => 'mercury: HTTP '.$res->status()];

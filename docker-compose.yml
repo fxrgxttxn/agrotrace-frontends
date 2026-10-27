@@ -175,12 +175,14 @@ services:
     # of 10 queued datagrams per socket fills during one slow confirm; 4096 rides out ~10 s of a 400 req/s burst. The
     # relay also catches dropped ids up from the outbox itself, so this sets latency, not correctness.
     sysctls: { net.unix.max_dgram_qlen: 4096 }
-    # 15 s covers SHUTDOWN_TIMEOUT_MS (10 s) + the 2 s of supervisord's stopwaitsecs in all three services
-    # (docker/entrypoint.sh); a SHUTDOWN_TIMEOUT_MS above 13000 (accepted up to 120000, as in Express) needs more here.
-    stop_grace_period: 15s
+    # supervisord stops the api's programs one after another (docker/supervisord-api.conf): usually within
+    # SHUTDOWN_TIMEOUT_MS + 4 s (14 s at the default 10 s), at most SHUTDOWN_TIMEOUT_MS + 12 s when every program runs
+    # to its SIGKILL bound — 25 s covers that up to SHUTDOWN_TIMEOUT_MS 13000 (accepted up to 120000, as in Express;
+    # a longer one needs more here).
+    stop_grace_period: 25s
     networks: [at]
-  # supervisord: 2 × agrotrace:consume (the worker's two channels of agrotrace.laravel.jobs, L1, L2); the Telegram
-  # poller joins in Task 12.
+  # supervisord: 2 × agrotrace:consume (the worker's two channels of agrotrace.laravel.jobs, L1, L2) and the Telegram
+  # poller agrotrace:telegram-poll. Stops within SHUTDOWN_TIMEOUT_MS + 2 s per program (the poller first, at once).
   worker-laravel:
     image: agrotrace/backend-laravel:dev
     pull_policy: never

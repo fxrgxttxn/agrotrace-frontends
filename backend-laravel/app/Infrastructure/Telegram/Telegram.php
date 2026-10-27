@@ -3,8 +3,11 @@
 namespace App\Infrastructure\Telegram;
 
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Promise\CancellationException;
 use GuzzleHttp\Promise\PromiseInterface;
 use Psr\Http\Message\ResponseInterface;
 use Throwable;
@@ -99,13 +102,32 @@ final class Telegram implements UpdatesPort
             $ok = is_array($json) && ($json['ok'] ?? false) === true;
             if ($res->getStatusCode() < 200 || $res->getStatusCode() > 299 || ! $ok) {
                 $description = is_array($json) && is_string($json['description'] ?? null) ? $json['description'] : '';
-                throw new TelegramError(trim("telegram {$method}: {$res->getStatusCode()} {$description}"));
+                throw new TelegramError($this->masked(trim("telegram {$method}: {$res->getStatusCode()} {$description}")));
             }
 
             return $json['result'] ?? null;
         }, function (mixed $reason) use ($method) {
-            throw new TelegramError("telegram {$method}: ".($reason instanceof Throwable ? $reason->getMessage() : 'failed'), 0,
-                $reason instanceof Throwable ? $reason : null);
+            // P8 (final review I1): Guzzle's transport errors end with `for <uri>`, and the URI holds the bot token —
+            // the error says only what failed, as Express's fetch does (`fetch failed`), and chains nothing.
+            throw new TelegramError("telegram {$method}: ".self::transportError($reason));
         });
+    }
+
+    /** A transport failure in a few words: `timeout` (cURL 28), `aborted` (a cancelled long poll) or `fetch failed`. */
+    private static function transportError(mixed $reason): string
+    {
+        if ($reason instanceof CancellationException) {
+            return 'aborted';
+        }
+        $context = $reason instanceof RequestException || $reason instanceof ConnectException ? $reason->getHandlerContext() : [];
+
+        return ($context['errno'] ?? null) === 28 || ($reason instanceof Throwable && str_contains($reason->getMessage(), 'cURL error 28'))
+            ? 'timeout' : 'fetch failed';
+    }
+
+    /** The token never leaves this class in a message (an API description could echo it). */
+    private function masked(string $text): string
+    {
+        return $this->token === null || $this->token === '' ? $text : str_replace($this->token, '***', $text);
     }
 }

@@ -5,9 +5,9 @@ set -e
 php /app/artisan agrotrace:preflight
 # Express's PORT / METRICS_PORT / SHUTDOWN_TIMEOUT_MS (validated above). PORT is the HAProxy front
 # (docker/haproxy-api.cfg), METRICS_PORT the Caddy block (docker/Caddyfile). On SIGTERM the requests and handlers in
-# flight get SHUTDOWN_TIMEOUT_MS (Caddy grace_period, HAProxy hard-stop-after; ≥ 1 ms, since 0 would mean "no limit"
-# to both); supervisord SIGKILLs what still runs 2 s later (stopwaitsecs of the supervisord-*.conf programs) — the
-# exit watchdog of Express's onShutdown.
+# flight get SHUTDOWN_TIMEOUT_MS (HAProxy's hard-stop-after in api-laravel, ≥ 1 ms since 0 would mean "no limit"); supervisord
+# SIGKILLs what still runs 2 s later (stopwaitsecs = AGROTRACE_STOP_WAIT_SECS of the long-running programs) — the exit
+# watchdog of Express's onShutdown. The api's stop order and the bounds of its other programs: supervisord-api.conf.
 PORT=${PORT:-8000}
 METRICS_PORT=${METRICS_PORT:-9464}
 SHUTDOWN_TIMEOUT_MS=${SHUTDOWN_TIMEOUT_MS:-10000}

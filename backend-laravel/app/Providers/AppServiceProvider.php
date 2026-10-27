@@ -7,6 +7,7 @@ use App\Http\Idempotency\IdemStore;
 use App\Http\Idempotency\RedisIdemStore;
 use App\Http\Routing\ContractRouteCollection;
 use App\Infrastructure\Db\DbSlots;
+use App\Infrastructure\Db\PgConnection;
 use App\Infrastructure\Db\PgConnector;
 use App\Infrastructure\Db\TxState;
 use App\Infrastructure\Mercury\Mercury;
@@ -17,6 +18,7 @@ use App\Infrastructure\Storage\ObjectStore;
 use App\Scheduler\Jobs\OutboxSweep;
 use App\Support\RequestContext;
 use App\Support\StopSignal;
+use Illuminate\Database\Connection;
 use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 
@@ -48,6 +50,8 @@ final class AppServiceProvider extends ServiceProvider
         // The sweeper keeps its confirm channel across ticks (one broker connection per job process).
         $this->app->singleton(OutboxSweep::class, fn ($app) => new OutboxSweep($app->make(Relay::class)));
         $this->app->bind('db.connector.pgsql', fn ($app) => new PgConnector($app->make(DbSlots::class)));
+        // Query errors without their bound values (final review M2).
+        Connection::resolverFor('pgsql', fn ($pdo, $database, $prefix, $config) => new PgConnection($pdo, $database, $prefix, $config));
 
         // Dispatch by the operation ContractGate matched on the raw path (review I1).
         $this->app->extend('router', function (Router $router) {

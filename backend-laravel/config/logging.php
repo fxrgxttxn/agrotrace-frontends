@@ -23,6 +23,13 @@ return [
             'driver' => 'monolog',
             'handler' => NullHandler::class,
         ],
+        // PHP/vendor deprecations are silent, as in Express (final review M3). Declared here, not left to
+        // HandleExceptions: it adds this channel to the base application's config only, and an Octane request
+        // sandbox without it logged `EMERGENCY: Unable to create configured logger` as a non-JSON block.
+        'deprecations' => [
+            'driver' => 'monolog',
+            'handler' => NullHandler::class,
+        ],
         'emergency' => [
             'path' => 'php://stderr',
         ],

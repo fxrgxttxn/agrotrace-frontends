@@ -14,11 +14,12 @@ use Illuminate\Support\Facades\Log;
  * events from the Octane workers (RelayNotifier) and publishes them, and catches up from the outbox at start, on a
  * sender's drop marker and periodically. Requests never wait on the broker. The process holds at most ONE
  * PostgreSQL connection, from the container's DbSlots (P61). SIGTERM/SIGINT: unbind, drain, flush the pending ids
- * within FLUSH_SEC (inside supervisord's stopwaitsecs = 12), exit.
+ * within FLUSH_SEC, exit (supervisord stops the relay after the HAProxy front and FrankenPHP, docker/supervisord-api.conf:
+ * short, so the container's stop stays within its grace; what is left pending stays in the outbox for the sweeper).
  */
 final class RelayDaemon extends Command
 {
-    public const FLUSH_SEC = 8.0;
+    public const FLUSH_SEC = 2.0;
 
     protected $signature = 'agrotrace:relay';
 
