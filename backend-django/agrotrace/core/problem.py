@@ -233,7 +233,12 @@ def handler404(request, exception=None):
 
 
 def handler500(request):
-    # Called by Django inside its `except` (django.request has logged the error already).
+    # Called by Django inside its `except` for an error outside DRF (a plain async view such as the SSE stream, a
+    # middleware, a failed render). django.request is silenced (core/logging.py), so the error is logged here, once,
+    # as render_exception logs DRF's: path only, never the query, with its traceback (Express's error handler).
     exc = sys.exc_info()[1]
-    problem = to_problem(exc) if exc is not None else None
-    return problem_response(problem or AppProblem(500, "INTERNAL"))
+    if exc is None:
+        log.error("unhandled error", extra={"path": getattr(request, "path", None),
+                                            "method": getattr(request, "method", None)})
+        return problem_response(AppProblem(500, "INTERNAL"))
+    return render_exception(exc, request)

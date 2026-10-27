@@ -206,3 +206,25 @@ def test_a_record_attribute_that_is_not_json_data_is_never_written(lines):
     assert len(got) == 1
     assert "LEAKED-SECRET" not in json.dumps(got[0]) and "request" not in got[0]
     assert got[0]["status_code"] == 401 and got[0]["nested"] == {"ok": [1, "a", None]}
+
+
+def test_an_error_django_turns_into_a_500_is_logged_once_with_its_traceback_and_no_token(lines, monkeypatch):
+    """Re-review R1: a plain (non-DRF) view that raises — here the SSE view with no hub — reaches handler500, which
+    logs it like render_exception (path only, exc_info); django.request stays silent."""
+    from agrotrace.core import ratelimit
+    from agrotrace.sse import hub as sse_hub
+
+    monkeypatch.setattr(ratelimit, "hit", lambda *a, **k: None)
+    monkeypatch.setattr(sse_hub, "hub", lambda: None)
+    token = _bearer_token()
+    r = asyncio.run(call("GET", f"/api/v1/events/stream?access_token={token}"))
+    assert r.status == 500
+    got = lines()
+    for ln in got:
+        assert token not in json.dumps(ln, ensure_ascii=False), ln
+    errors = [ln for ln in got if ln.get("msg") == "unhandled error"]
+    assert len(errors) == 1, got
+    assert errors[0]["path"] == "/api/v1/events/stream" and errors[0]["level"] == "error"
+    assert "no SSE hub" in errors[0]["exception"]
+    access = [ln for ln in got if ln.get("msg") == "request" and ln.get("path") == "/api/v1/events/stream"]
+    assert len(access) == 1 and access[0]["status"] == 500
