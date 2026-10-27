@@ -178,10 +178,17 @@ final class Poller
         }
     }
 
-    /** `GETDEL tgcode:{code}` (one-time) → `users.telegram_chat_id`; false when the code is unknown or the user gone. */
+    /**
+     * `GETDEL tgcode:{code}` (one-time) → `users.telegram_chat_id`; false when the code is unknown or the user gone.
+     * A failed UPDATE (the DB unreachable) puts the code back for the rest of its life (SET NX: a code is never
+     * shared) and rethrows, so the update — seen again, the offset did not move past it — links it then (review
+     * minor 9; Express loses the code).
+     */
     public static function linkByCode(Redis $redis, string $code, string $chatId): bool
     {
-        $raw = $redis->rawCommand('GETDEL', "tgcode:{$code}");
+        $key = "tgcode:{$code}";
+        $ttlMs = $redis->pttl($key);
+        $raw = $redis->rawCommand('GETDEL', $key);
         if (! is_string($raw)) {
             return false;
         }
@@ -192,6 +199,11 @@ final class Poller
         }
         try {
             $n = DB::update('UPDATE users SET telegram_chat_id = ?::bigint WHERE id = ?::uuid AND deleted_at IS NULL', [$chatId, $userId]);
+        } catch (Throwable $e) {
+            if (is_int($ttlMs) && $ttlMs > 0) {
+                $redis->set($key, $raw, ['nx', 'px' => $ttlMs]);
+            }
+            throw $e;
         } finally {
             // The poller holds no connection between links (one in the worker's budget, P61).
             DB::disconnect();

@@ -2,6 +2,8 @@
 
 namespace App\Infrastructure\Mail;
 
+use App\Infrastructure\Net\BoundedResolver;
+use RuntimeException;
 use Symfony\Component\Mailer\Exception\TransportException;
 use Symfony\Component\Mailer\Transport\Smtp\Stream\AbstractStream;
 
@@ -11,7 +13,8 @@ use Symfony\Component\Mailer\Transport\Smtp\Stream\AbstractStream;
  * some byte arrives within it: a server that trickles its reply never times out, and no signal handler runs before
  * the C call returns (SIGALRM measured: a 3 s alarm fired at 13 s). Here every read is a stream_select bounded by the
  * smaller of the idle timeout (10 s) and what is left of the attempt's deadline, so an attempt ends by its deadline
- * whatever the server does. Plain TCP only (the transport runs with auto_tls off, as before).
+ * whatever the server does. The host name is looked up within the same bounds (App\Infrastructure\Net\BoundedResolver).
+ * Plain TCP only (the transport runs with auto_tls off, as before).
  */
 final class DeadlineStream extends AbstractStream
 {
@@ -21,7 +24,12 @@ final class DeadlineStream extends AbstractStream
 
     private string $buffer = '';
 
-    public function __construct(private readonly float $deadline, private readonly float $idleSec = 10.0) {}
+    private readonly BoundedResolver $resolver;
+
+    public function __construct(private readonly float $deadline, private readonly float $idleSec = 10.0, ?BoundedResolver $resolver = null)
+    {
+        $this->resolver = $resolver ?? new BoundedResolver;
+    }
 
     public function setHost(string $host): static
     {
@@ -65,10 +73,16 @@ final class DeadlineStream extends AbstractStream
 
     public function initialize(): void
     {
+        // The name lookup is part of the attempt too: getaddrinfo inside stream_socket_client would block unbounded.
+        try {
+            $ip = $this->resolver->ipv4($this->host, microtime(true) + $this->left());
+        } catch (RuntimeException $e) {
+            throw new TransportException(sprintf('Connection could not be established with host "%s:%d": %s', $this->host, $this->port, $e->getMessage()));
+        }
         $timeout = $this->left();
         $errno = 0;
         $errstr = '';
-        $stream = @stream_socket_client("tcp://{$this->host}:{$this->port}", $errno, $errstr, $timeout);
+        $stream = @stream_socket_client("tcp://{$ip}:{$this->port}", $errno, $errstr, $timeout);
         if ($stream === false) {
             throw new TransportException(sprintf('Connection could not be established with host "%s:%d": %s', $this->host, $this->port, $errstr));
         }

@@ -17,6 +17,7 @@ use App\Infrastructure\Telegram\UpdatesPort;
 use GuzzleHttp\Promise\Promise;
 use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Promise\Utils;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\EngFixture;
 use Tests\TestCase;
@@ -193,4 +194,16 @@ it('links a chat through GETDEL tgcode:{code}, once', function () {
     } finally {
         $fx->cleanup();
     }
+});
+
+it('puts the code back when the link cannot be written, so the update seen again links it (review minor 9)', function () {
+    $code = 'test'.bin2hex(random_bytes(4));
+    $raw = json_encode(['userId' => '11111111-1111-4111-8111-111111111111']);
+    $this->redis->set("tgcode:{$code}", $raw, ['ex' => 60]);
+    config(['database.connections.pgsql.url' => 'postgres://none:none@127.0.0.1:1/none']);
+    DB::purge('pgsql');
+    expect(fn () => Poller::linkByCode($this->redis, $code, '1'))->toThrow(QueryException::class);
+    expect($this->redis->get("tgcode:{$code}"))->toBe($raw);
+    expect($this->redis->pttl("tgcode:{$code}"))->toBeGreaterThan(55_000)->toBeLessThanOrEqual(60_000);
+    $this->redis->del("tgcode:{$code}");
 });
