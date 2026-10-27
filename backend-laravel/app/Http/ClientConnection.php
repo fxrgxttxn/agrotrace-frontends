@@ -14,8 +14,10 @@ use Illuminate\Http\Request;
  * observable is the TCP connection itself: the request reaches FrankenPHP (127.0.0.1:8080) from the HAProxy front, and
  * HAProxy, with `option abortonclose` (docker/haproxy-api.cfg), closes that connection as soon as the client closes
  * its own — the gateway's nginx does the same towards HAProxy (proxy_ignore_client_abort off). So the client is gone
- * when no socket of the peer address (REMOTE_ADDR:REMOTE_PORT, either end) is ESTABLISHED in /proc/net/tcp any more.
- * Unknown (no peer port, IPv6, no /proc) → never gone: the lane's deadline still bounds the job.
+ * when no socket of the peer address (REMOTE_ADDR:REMOTE_PORT, either end) is ESTABLISHED in /proc/net/tcp (or
+ * /proc/net/tcp6: an IPv6 peer, or an IPv4 one on a dual-stack socket, which appears there as ::ffff:a.b.c.d — read as
+ * the IPv4 address it is) any more. Unknown (no peer port, no /proc) → never gone: the lane's deadline still bounds
+ * the job.
  */
 final class ClientConnection
 {
@@ -44,8 +46,8 @@ final class ClientConnection
                 return false;
             }
             $lastCheck = $now;
-            $table = @file_get_contents($procTcp);
-            if (is_string($table) && $table !== '') {
+            $table = self::table($procTcp);
+            if ($table !== null) {
                 $gone = self::goneIn($table, $peer);
             }
 
@@ -53,7 +55,24 @@ final class ClientConnection
         };
     }
 
-    /** `0100007F:DFC0` (the /proc/net/tcp form: IPv4 bytes little-endian, port big-endian, upper-case hex), or null. */
+    /**
+     * /proc/net/tcp and /proc/net/tcp6 as one table, every IPv4-mapped address of the latter written in the IPv4 form
+     * of the former (so a peer() matches whichever table holds its socket); null — nothing readable.
+     */
+    public static function table(string $procTcp = '/proc/net/tcp'): ?string
+    {
+        $v4 = @file_get_contents($procTcp);
+        $v6 = @file_get_contents($procTcp.'6');
+        $table = (is_string($v4) ? $v4 : '').(is_string($v6) ? preg_replace('/\b0{16}FFFF0000([0-9A-F]{8}):/', '$1:', $v6) : '');
+
+        return $table !== '' ? $table : null;
+    }
+
+    /**
+     * The /proc/net/tcp form of an address and port, or null: `0100007F:DFC0` for IPv4 (bytes little-endian, port
+     * big-endian, upper-case hex) and for an IPv4-mapped IPv6 address (`::ffff:127.0.0.1`); 32 hex digits for any other
+     * IPv6 address, as /proc/net/tcp6 writes it (each 32-bit word little-endian).
+     */
     public static function peer(mixed $addr, mixed $port): ?string
     {
         if (! is_string($addr) || ! is_scalar($port) || ! ctype_digit((string) $port)) {
@@ -61,11 +80,19 @@ final class ClientConnection
         }
         $p = (int) $port;
         $packed = @inet_pton($addr);
-        if ($packed === false || strlen($packed) !== 4 || $p < 1 || $p > 65535) {
+        if ($packed === false || $p < 1 || $p > 65535) {
             return null;
         }
+        if (strlen($packed) === 16 && str_starts_with($packed, str_repeat("\0", 10)."\xFF\xFF")) {
+            $packed = substr($packed, 12);
+        }
+        $hex = match (strlen($packed)) {
+            4 => bin2hex(strrev($packed)),
+            16 => implode('', array_map(fn (string $w) => bin2hex(strrev($w)), str_split($packed, 4))),
+            default => null,
+        };
 
-        return strtoupper(bin2hex(strrev($packed))).':'.sprintf('%04X', $p);
+        return $hex === null ? null : strtoupper($hex).':'.sprintf('%04X', $p);
     }
 
     /** Whether no line of the table has $peer as its local or remote address in state ESTABLISHED. */

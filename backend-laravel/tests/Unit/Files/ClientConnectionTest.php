@@ -21,7 +21,11 @@ function tcpLine(int $sl, string $local, string $remote, string $state): string
 it('writes the peer as /proc/net/tcp does and refuses what it cannot judge', function () {
     expect(ClientConnection::peer('127.0.0.1', '57280'))->toBe('0100007F:DFC0');
     expect(ClientConnection::peer('172.18.0.5', 8080))->toBe('050012AC:1F90');
-    expect(ClientConnection::peer('::1', '57280'))->toBeNull();
+    // IPv6 as /proc/net/tcp6 writes it (each 32-bit word little-endian); an IPv4-mapped one as the IPv4 it is.
+    expect(ClientConnection::peer('::1', '57280'))->toBe('00000000000000000000000001000000:DFC0');
+    expect(ClientConnection::peer('2001:db8::7', '1'))->toBe('B80D0120000000000000000007000000:0001');
+    expect(ClientConnection::peer('::ffff:172.18.0.5', 8080))->toBe('050012AC:1F90');
+    expect(ClientConnection::peer('not-an-ip', '1'))->toBeNull();
     expect(ClientConnection::peer('127.0.0.1', null))->toBeNull();
     expect(ClientConnection::peer(null, '1'))->toBeNull();
     expect(ClientConnection::peer('127.0.0.1', '0'))->toBeNull();
@@ -61,4 +65,21 @@ it('watches the request\'s peer, at most every 150 ms, and stays gone', function
     expect($unknown())->toBeFalse();
     $noProc = ClientConnection::watcher($request, '/nonexistent');
     expect($noProc())->toBeFalse();
+});
+
+it('reads tcp and tcp6 as one table, IPv4-mapped addresses of tcp6 in the IPv4 form', function () {
+    $file = tempnam(sys_get_temp_dir(), 'tcp');
+    file_put_contents($file, TCP_HEADER.tcpLine(0, '0100007F:1F90', '0100007F:DFC0', '01'));
+    expect(ClientConnection::table($file))->toBe(TCP_HEADER.tcpLine(0, '0100007F:1F90', '0100007F:DFC0', '01'));
+    // A dual-stack listener: the IPv4 client 172.18.0.9:51234 appears in tcp6 as ::ffff:172.18.0.9.
+    file_put_contents($file.'6', TCP_HEADER.tcpLine(0, '0000000000000000FFFF00000100007F:1F40', '0000000000000000FFFF0000090012AC:C822', '01')
+        .tcpLine(1, '00000000000000000000000001000000:1F40', 'B80D0120000000000000000007000000:0001', '01'));
+    $table = ClientConnection::table($file);
+    expect(ClientConnection::goneIn($table, (string) ClientConnection::peer('172.18.0.9', 51234)))->toBeFalse();
+    expect(ClientConnection::goneIn($table, (string) ClientConnection::peer('::ffff:172.18.0.9', 51234)))->toBeFalse();
+    expect(ClientConnection::goneIn($table, (string) ClientConnection::peer('2001:db8::7', 1)))->toBeFalse();
+    expect(ClientConnection::goneIn($table, (string) ClientConnection::peer('2001:db8::8', 1)))->toBeTrue();
+    unlink($file.'6');
+    unlink($file);
+    expect(ClientConnection::table($file))->toBeNull();
 });
