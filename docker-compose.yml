@@ -151,6 +151,8 @@ services:
     env_file: [.env]
     environment:
       AGROTRACE_PROCESS: api
+      # Pinned like api-express: the healthcheck, the gateway upstream and EXPOSE all say 8000.
+      PORT: '8000'
       APP_DATABASE_URL: "${APP_DATABASE_URL}"
       DJANGO_DB_POOL_MAX: '7'
       DJANGO_SSE_POOL_MAX: '2'
@@ -167,6 +169,8 @@ services:
       redis: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
       minio: { condition: service_healthy }
+    # 15 s covers SHUTDOWN_TIMEOUT_MS (10 s) + the 2 s watchdog margin of all three processes (core/lifecycle.py); a
+    # SHUTDOWN_TIMEOUT_MS above 13000 (accepted up to 120000, as in Express) needs a longer grace here.
     stop_grace_period: 15s
     networks: [at]
   # Celery worker on agrotrace.django.jobs only (2 threads, prefetch 1; no gossip/mingle/heartbeat, no remote control).
