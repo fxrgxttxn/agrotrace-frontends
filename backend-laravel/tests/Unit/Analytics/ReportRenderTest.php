@@ -8,10 +8,12 @@
  */
 
 use App\Actions\Reports\Queue;
+use App\Actions\Reports\ReportSpool;
 use App\Infrastructure\Pdf\LabelPdf;
 use App\Infrastructure\Pdf\PdfText;
 use App\Infrastructure\Reports\ReportCanvas;
 use App\Infrastructure\Reports\ReportPdf;
+use App\Infrastructure\Reports\ReportStream;
 use App\Infrastructure\Reports\XlsxWriter;
 use App\Infrastructure\Sandbox\LaneOptions;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -28,20 +30,56 @@ function renderLane(): LaneOptions
 function renderJob(string $format, array $sheets): string
 {
     $ticket = Queue::admit(renderLane());
+    $spool = spoolOf($sheets);
     try {
-        return $ticket->render(json_encode([
+        return $ticket->render([json_encode([
             'format' => $format,
             'title' => 'Реестр партий',
             'periodLine' => 'Период: 2026-03-01 — 2026-03-30 (UTC)',
             'generatedLine' => 'Сформирован: 2026-03-31 10:15 UTC',
             'generatedAt' => '2026-03-31T10:15:42.123Z',
             'fontDir' => $format === 'pdf' ? LabelPdf::fontDir() : null,
-            'sheets' => $sheets,
-        ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+        ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n", $spool->stream()]);
     } finally {
+        $spool->close();
         $ticket->release();
     }
 }
+
+/** @param  list<array{name: string, header: list<string>, rows: list<list<array{0: string, 1: string|int|null}>>}>  $sheets */
+function spoolOf(array $sheets): ReportSpool
+{
+    $spool = new ReportSpool;
+    foreach ($sheets as $s) {
+        $spool->sheet($s['name'], $s['header']);
+        foreach ($s['rows'] as $row) {
+            $spool->row($row);
+        }
+    }
+
+    return $spool;
+}
+
+it('the job stream: the head, then sheets whose rows are read lazily; rows left unread are skipped', function () {
+    $spool = spoolOf(sampleSheets());
+    expect($spool->counts())->toBe([3, 3]);
+    $in = fopen('php://temp', 'w+b');
+    fwrite($in, "{\"format\":\"xlsx\"}\n");
+    stream_copy_to_stream($spool->stream(), $in);
+    rewind($in);
+    $job = new ReportStream($in);
+    expect($job->head())->toBe(['format' => 'xlsx']);
+    $seen = [];
+    foreach ($job->sheets() as $i => $s) {
+        // The first sheet: only its first row is read; the second sheet still starts at its own line.
+        $seen[] = [$s['name'], $s['header'], $i === 0 ? [$s['rows']->current()] : iterator_to_array($s['rows'], false)];
+    }
+    expect(array_column($seen, 0))->toBe(['Партии', 'Организация']);
+    expect($seen[0][1])->toBe(sampleSheets()[0]['header']);
+    expect($seen[0][2])->toBe([sampleSheets()[0]['rows'][0]]);
+    expect($seen[1][2])->toBe(sampleSheets()[1]['rows']);
+    $spool->close();
+});
 
 function sampleSheets(): array
 {
@@ -173,21 +211,40 @@ it('PDF canvas: cached widths equal TCPDF\'s, a run is the text object Text() wr
             expect($pdf->measure($s, $weight, 7.0))->toEqualWithDelta(PdfText::widthOf($pdf, $s, $weight, 7.0), 1e-9);
         }
     }
-    // The same line through TCPDF's Text() (PdfText::drawLine) and through the canvas: the same text objects.
-    $objects = function (callable $draw): array {
+    // The same line through TCPDF's Text() (PdfText::drawLine) and through the canvas (T13 review M2): the same text
+    // objects (position and escaped UTF-16 string, parentheses and a backslash included), each in the text colour,
+    // and the same embedded font subsets (the canvas registers its glyphs for subsetting as Cell() does).
+    $render = function (callable $draw): string {
         $pdf = ReportPdf::canvas(LabelPdf::fontDir());
         $pdf->setCompression(false);
         $pdf->AddPage('L', 'A4');
         $draw($pdf);
-        preg_match_all('/BT ([\d.]+ [\d.]+) Td \[\((.*?)\)\] TJ ET/s', $pdf->Output('', 'S'), $m, PREG_SET_ORDER);
+
+        return $pdf->Output('', 'S');
+    };
+    $objects = function (string $out): array {
+        preg_match_all('/BT ([\d.]+ [\d.]+) Td \[\(((?:\\\\.|[^\\\\])*?)\)\] TJ ET/s', $out, $m, PREG_SET_ORDER);
 
         return array_map(fn (array $x) => [$x[1], $x[2]], $m);
     };
-    $line = 'Партия AT-2026-000001 «Заря» №5';
-    $viaText = $objects(fn (ReportCanvas $p) => PdfText::drawLine($p, $line, 'regular', 7.0, 40.5, 100.25));
-    $viaCanvas = $objects(fn (ReportCanvas $p) => $p->drawRuns($line, 'regular', 7.0, 40.5, 100.25));
-    expect($viaText)->toHaveCount(count(PdfText::runs($line)));
-    expect($viaCanvas)->toBe($viaText);
+    $fonts = function (string $out): array {
+        preg_match_all('/\/Length1 \d+.*?stream\r?\n(.*?)\r?\nendstream/s', $out, $m);
+
+        return $m[1];
+    };
+    foreach (['Партия AT-2026-000001 «Заря» №5', 'Скобки (a\\b) и ) одна; ёЁ щъ', 'only latin (x)\\'] as $line) {
+        $viaText = $render(fn (ReportCanvas $p) => PdfText::drawLine($p, $line, 'regular', 7.0, 40.5, 100.25));
+        $viaCanvas = $render(fn (ReportCanvas $p) => $p->drawRuns($line, 'regular', 7.0, 40.5, 100.25));
+        $runs = count(PdfText::runs($line));
+        expect($objects($viaText))->toHaveCount($runs);
+        expect($objects($viaCanvas))->toBe($objects($viaText));
+        expect(substr_count($viaCanvas, 'q 0.200000 0.160784 0.121569 rg BT'))->toBe($runs);
+        expect(substr_count($viaText, 'q 0.200000 0.160784 0.121569 rg BT'))->toBe($runs);
+        expect($fonts($viaText))->not->toBeEmpty();
+        expect($fonts($viaCanvas))->toBe($fonts($viaText));
+    }
+    expect(implode('', array_column($objects($render(fn (ReportCanvas $p) => $p->drawRuns('a(b)c\\d', 'regular', 7.0, 1, 1))), 1)))
+        ->toContain('\\(')->toContain('\\)')->toContain('\\\\');
 });
 
 it('PDF wrapping: on spaces, and a word wider than the column between characters', function () {

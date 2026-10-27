@@ -19,6 +19,10 @@ use TCPDF_STATIC;
  *   (TCPDF_FONTS::UTF8StringToArray).
  * Measured (php-tools, 50 000 rows × 12 columns): 105 s through Text() and GetStringWidth() — at the edge of the 120 s
  * deadline — and 28 s with this canvas.
+ *
+ * It reads TCPDF's protected state (`_out`, `CurrentFont`, `FontAscent`, `FontDescent`, `TextColor`, `k`, `h`), so
+ * TCPDF is pinned to the exact version it was checked against (composer.json `tecnickcom/tcpdf` 6.11.4, T13 review M3);
+ * an upgrade must pass ReportRenderTest's canvas-equivalence test (text objects, colour, font subsets) first.
  */
 final class ReportCanvas extends TCPDF
 {

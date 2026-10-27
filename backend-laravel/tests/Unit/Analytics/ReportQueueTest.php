@@ -11,6 +11,7 @@
 use App\Actions\Reports\Queue;
 use App\Actions\Reports\ReportAborted;
 use App\Actions\Reports\ReportsActions;
+use App\Actions\Reports\ReportSpool;
 use App\Http\Problem\Problem;
 use App\Http\Query\QueryReader;
 use App\Infrastructure\Sandbox\LaneOptions;
@@ -128,12 +129,30 @@ it('a render that throws is a 500 defect, a child that dies is 503 report-busy',
     $ticket->release();
     // Over the child's memory: PHP's fatal error ends it — the lane's `too-complex`, so 503 as a crashed renderer.
     $small = new LaneOptions('report', Queue::WAITING, 20.0, '64M', dirname($o->dir()));
-    $rows = array_fill(0, 40000, array_fill(0, 12, ['text', 'ячейка отчёта']));
-    $job = json_encode(['format' => 'xlsx', 'title' => 't', 'periodLine' => '', 'generatedLine' => '',
-        'generatedAt' => '2026-03-31T10:15:42.123Z', 'fontDir' => null,
-        'sheets' => [['name' => 'Лист', 'header' => array_fill(0, 12, 'h'), 'rows' => $rows]]], JSON_THROW_ON_ERROR);
+    $spool = new ReportSpool;
+    $spool->sheet('Лист', array_fill(0, 12, 'h'));
+    for ($i = 0; $i < 40000; $i++) {
+        $spool->row(array_fill(0, 12, ['text', "ячейка отчёта {$i}"]));
+    }
+    $head = json_encode(['format' => 'xlsx', 'title' => 't', 'periodLine' => '', 'generatedLine' => '',
+        'generatedAt' => '2026-03-31T10:15:42.123Z', 'fontDir' => null], JSON_THROW_ON_ERROR)."\n";
     $ticket = Queue::admit($small);
-    $e = reportBusy(fn () => $ticket->render($job));
+    $e = reportBusy(fn () => $ticket->render([$head, $spool->stream()]));
     $ticket->release();
+    $spool->close();
     expect([$e->status, $e->params])->toBe([503, ['reason' => 'report-busy']]);
+    // Whatever ended the child, its temporary directory is gone (T13 review M4).
+    expect(glob($small->dir().'/job-*'))->toBe([]);
+    expect(glob($o->dir().'/job-*'))->toBe([]);
+});
+
+it('a place whose deadline passed while its data was read starts no child (T13 review M5)', function () {
+    $o = queueLane(0.2);
+    $ticket = Queue::admit($o); // the running place: no wait
+    usleep(250_000);
+    $started = microtime(true);
+    $e = reportBusy(fn () => $ticket->render("{\"format\":\"xlsx\"}\n"));
+    $ticket->release();
+    expect($e->status)->toBe(503);
+    expect(microtime(true) - $started)->toBeLessThan(0.05); // no child started and warmed
 });

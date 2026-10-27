@@ -25,8 +25,11 @@ final class LaneTicket
         private $wait,
     ) {}
 
-    /** @param  null|callable(): bool  $clientGone */
-    public function run(string $script, string $input, ?callable $clientGone = null): string
+    /**
+     * @param  string|list<string|resource>  $input  the child's stdin (Lane::execute)
+     * @param  null|callable(): bool  $clientGone
+     */
+    public function run(string $script, string|array $input, ?callable $clientGone = null): string
     {
         if ($this->used || ($this->run === null && $this->wait === null)) {
             throw new LaneRefused('too-complex', 'the ticket was used or released');
@@ -45,6 +48,11 @@ final class LaneTicket
         if ($this->wait !== null) {
             Lane::unlock($this->wait);
             $this->wait = null;
+        }
+
+        // A place whose deadline passed while its input was prepared (the report's data read) starts no child.
+        if (microtime(true) >= $this->deadline) {
+            throw new LaneRefused('too-complex', 'deadline missed before the child started');
         }
 
         return Lane::execute($script, $input, $this->o, $this->deadline);

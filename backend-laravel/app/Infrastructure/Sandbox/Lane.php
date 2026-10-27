@@ -76,8 +76,9 @@ final class Lane
      *
      * @return list<string>
      */
-    public static function command(string $script, LaneOptions $o, float $budgetSec): array
+    public static function command(string $script, LaneOptions $o, float $budgetSec, ?string $tmpDir = null): array
     {
+        $tmp = $tmpDir !== null ? ['-d', "sys_temp_dir={$tmpDir}"] : [];
         $php = (string) config('agrotrace.sandbox.php', 'php');
         $budget = max(0.001, $budgetSec);
         $data = self::bytes($o->memoryLimit) + self::CHILD_DATA_HEADROOM;
@@ -90,6 +91,7 @@ final class Lane
             '-d', 'auto_prepend_file='.dirname(__DIR__, 3).'/resources/sandbox/limits.php',
             '-d', 'agrotrace.sandbox_ready_sec='.self::READY_SEC,
             '-d', 'agrotrace.sandbox_budget_sec='.sprintf('%.3F', $budget),
+            ...$tmp,
             $script,
         ];
     }
@@ -107,11 +109,76 @@ final class Lane
         };
     }
 
-    /** Runs one job in a fresh child, the running slot already held (LaneTicket). */
-    public static function execute(string $script, string $input, LaneOptions $o, float $deadline): string
+    /**
+     * Writes $data to the child's stdin (non-blocking) by $deadline — a child that stops reading cannot hold the
+     * caller past the job's deadline. False when the child closed its stdin (it ended early: its stdout decides).
+     *
+     * @param  resource  $pipe
+     */
+    private static function writeAll($pipe, string $data, float $deadline): bool
+    {
+        $len = strlen($data);
+        for ($written = 0; $written < $len;) {
+            $left = $deadline - microtime(true);
+            if ($left <= 0) {
+                throw new LaneRefused('too-complex', 'deadline missed while writing the input');
+            }
+            $r = $e = null;
+            $w = [$pipe];
+            $ready = @stream_select($r, $w, $e, (int) $left, (int) (fmod($left, 1) * 1e6));
+            if ($ready === false) {
+                return false;
+            }
+            if ($ready === 0) {
+                continue; // not writable yet: the deadline check above decides
+            }
+            $n = @fwrite($pipe, substr($data, $written, 1 << 16));
+            if ($n === false) {
+                return false;
+            }
+            $written += $n;
+        }
+
+        return true;
+    }
+
+    /**
+     * Runs one job in a fresh child, the running slot already held (LaneTicket). $input — the child's stdin: a string,
+     * or parts written in order (strings, and streams copied to their end). The child gets a temporary directory of
+     * its own (`sys_temp_dir`), removed here whatever ends the child — a child killed on its deadline leaves no files.
+     *
+     * @param  string|list<string|resource>  $input
+     */
+    public static function execute(string $script, string|array $input, LaneOptions $o, float $deadline): string
+    {
+        $tmp = $o->dir().'/job-'.bin2hex(random_bytes(8));
+        if (! @mkdir($tmp, 0700, true)) {
+            throw new LaneRefused('too-complex', 'no temporary directory for the child');
+        }
+        try {
+            return self::executeIn($tmp, $script, $input, $o, $deadline);
+        } finally {
+            self::removeTree($tmp);
+        }
+    }
+
+    private static function removeTree(string $dir): void
+    {
+        foreach (glob("{$dir}/{,.}*", GLOB_BRACE) ?: [] as $f) {
+            $base = basename($f);
+            if ($base === '.' || $base === '..') {
+                continue;
+            }
+            is_dir($f) && ! is_link($f) ? self::removeTree($f) : @unlink($f);
+        }
+        @rmdir($dir);
+    }
+
+    /** @param  string|list<string|resource>  $input */
+    private static function executeIn(string $tmp, string $script, string|array $input, LaneOptions $o, float $deadline): string
     {
         $proc = proc_open(
-            self::command($script, $o, $deadline - microtime(true)),
+            self::command($script, $o, $deadline - microtime(true), $tmp),
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']],
             $pipes,
         );
@@ -126,15 +193,24 @@ final class Lane
                 throw new LaneRefused('too-complex', 'the child did not report ready');
             }
             $deadline += microtime(true) - $startedAt;
-            stream_set_blocking($pipes[0], true);
-            $written = 0;
-            $len = strlen($input);
-            while ($written < $len) {
-                $n = @fwrite($pipes[0], substr($input, $written, 1 << 20));
-                if ($n === false || $n === 0) {
-                    throw new LaneRefused('too-complex', 'the child stopped reading');
+            stream_set_blocking($pipes[0], false);
+            foreach (is_array($input) ? $input : [$input] as $part) {
+                if (is_string($part)) {
+                    if (! self::writeAll($pipes[0], $part, $deadline)) {
+                        break;
+                    }
+
+                    continue;
                 }
-                $written += $n;
+                while (! feof($part)) {
+                    $chunk = fread($part, 1 << 20);
+                    if ($chunk === false) {
+                        throw new LaneRefused('too-complex', 'the job input could not be read');
+                    }
+                    if (! self::writeAll($pipes[0], $chunk, $deadline)) {
+                        break 2;
+                    }
+                }
             }
             fclose($pipes[0]);
             unset($pipes[0]);

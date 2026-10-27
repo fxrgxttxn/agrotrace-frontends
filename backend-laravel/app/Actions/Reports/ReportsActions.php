@@ -84,6 +84,7 @@ final class ReportsActions
         $maxRows = (int) config('agrotrace.report_max_rows', 50000);
 
         $ticket = Queue::admit();
+        $report = null;
         try {
             [$report, $now] = Window::snapshot(function (string $now) use ($type, $range, $id, $head, $maxRows, $p): array {
                 $w = Window::resolve($range['from'], $range['to'], Window::dateOf($now));
@@ -98,20 +99,19 @@ final class ReportsActions
                 throw Problem::validation(['type' => ['validation.report.tooManyRows']]);
             }
             $at = (string) Iso::fromPg($now);
-            $job = [
+            // The child's stdin: the job's head as one JSON line, then the spooled sheets (ReportSpool) — streamed,
+            // never one string of the whole report in this thread (review I1).
+            $head = json_encode([
                 'format' => $format,
                 'title' => $report->title,
                 'periodLine' => $report->periodLine,
                 'generatedLine' => 'Сформирован: '.Sheets::minute($at).' UTC',
                 'generatedAt' => $at,
                 'fontDir' => $format === 'pdf' ? LabelPdf::fontDir() : null,
-                'sheets' => $report->sheets,
-            ];
-            $bytes = $ticket->render(
-                json_encode($job, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-                $clientGone,
-            );
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n";
+            $bytes = $ticket->render([$head, $report->spool->stream()], $clientGone);
         } finally {
+            $report?->spool->close();
             $ticket->release();
         }
 

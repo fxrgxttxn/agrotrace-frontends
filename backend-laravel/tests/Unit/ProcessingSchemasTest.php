@@ -84,11 +84,17 @@ function codeTokens(string $file, ?string $from = null, ?string $to = null): arr
 /** Functions whose result is an integer (an operand of `+`/`-` the guard accepts). */
 const INT_FUNCTIONS = ['count', 'strlen', 'mb_strlen', 'strspn', 'strcspn'];
 
+/** Functions that write their arguments by reference: the 0-based index of the first out-parameter. */
+const BYREF_FROM_ARG = ['preg_match' => 2, 'preg_match_all' => 2, 'parse_str' => 1, 'exec' => 1, 'sscanf' => 2,
+    'settype' => 0, 'str_replace' => 3, 'str_ireplace' => 3, 'preg_replace' => 4, 'preg_replace_callback' => 4,
+    'array_push' => 0, 'array_pop' => 0, 'array_shift' => 0, 'sort' => 0, 'usort' => 0];
+
 /**
  * Variables of $tokens known to hold integers: `int`/`?int` typed parameters and properties, and variables assigned
  * an `(int)` cast, a lone integer literal or an INT_FUNCTIONS call — and ONLY such (T11 review M4): one other
  * assignment anywhere in the scanned slice (`$k = $t->massKg`, `$k .= …`, `$k /= …`, a `foreach … as $k` /
- * `=> $k` target, a `[$k, …] =` / `list($k) =` destructuring) makes the variable not an integer. Names are judged
+ * `=> $k` target, a `[$k, …] =` / `list($k) =` destructuring; and, T13 review M1, every other compound assignment
+ * (`*=`, `<<=`, `|=`, …), a reference `&$k`, an out-parameter of BYREF_FROM_ARG) makes the variable not an integer. Names are judged
  * per slice, not per function scope: a name reused for a non-integer elsewhere in the file is refused everywhere.
  *
  * @param  list<array{0: string, 1: string}>  $tokens
@@ -141,6 +147,23 @@ function intVariables(array $tokens): array
                 }
             }
         }
+        // Out-parameters of the by-reference functions (T13 review M1): every variable from that argument on.
+        if ($name === 'T_STRING' && isset(BYREF_FROM_ARG[strtolower($text)]) && ($tokens[$i + 1][0] ?? '') === '(') {
+            $arg = 0;
+            for ($j = $i + 2, $depth = 0; isset($tokens[$j]); $j++) {
+                $t = $tokens[$j][0];
+                $depth += in_array($t, ['(', '['], true) ? 1 : (in_array($t, [')', ']'], true) ? -1 : 0);
+                if ($depth < 0) {
+                    break;
+                }
+                if ($t === ',' && $depth === 0) {
+                    $arg++;
+                }
+                if ($t === 'T_VARIABLE' && $arg >= BYREF_FROM_ARG[strtolower($text)]) {
+                    $other[$tokens[$j][1]] = true;
+                }
+            }
+        }
         if ($name !== 'T_VARIABLE') {
             continue;
         }
@@ -148,8 +171,14 @@ function intVariables(array $tokens): array
         if ($prev[0] === 'T_STRING' && strtolower($prev[1]) === 'int') {
             $vars[$text] = true;
         }
+        // A reference (`&$k`: `use (&$k)`, `foreach (… as &$k)`, a by-reference parameter, `=& $k`) can be written
+        // through anywhere.
+        if ($prev[0] === 'T_AMPERSAND_FOLLOWED_BY_VAR_OR_VARARG') {
+            $other[$text] = true;
+        }
         $op = $tokens[$i + 1][0] ?? '';
-        if (in_array($op, ['T_CONCAT_EQUAL', 'T_DIV_EQUAL', 'T_POW_EQUAL', 'T_MOD_EQUAL', 'T_COALESCE_EQUAL'], true)) {
+        if (in_array($op, ['T_CONCAT_EQUAL', 'T_DIV_EQUAL', 'T_POW_EQUAL', 'T_MOD_EQUAL', 'T_COALESCE_EQUAL',
+            'T_MUL_EQUAL', 'T_SL_EQUAL', 'T_SR_EQUAL', 'T_OR_EQUAL', 'T_AND_EQUAL', 'T_XOR_EQUAL'], true)) {
             $other[$text] = true;
         }
         // `$a->b = …` and `$a[…] = …` assign a property or an element, not the variable.
@@ -321,9 +350,12 @@ it('the float guard refuses every form it must, and only those (T9 review M3, T1
         // refused: a variable once an integer, assigned anything else anywhere in the slice (T11 review M4)
         $z = 0; $z = $t->massKg; $bad = $z + 1; $q = 1; foreach ($rows as $q) {} $bad2 = $q - 1; $w = 1; [$w] = $pair; $bad3 = $w + 1;
         $u = 2; $u .= $m; $bad4 = $u - 1; $ix = 0; $list[$ix] = $m; $ok12 = $ix + 1;
+        // refused too: compound assignments, by-reference out-parameters and references (T13 review M1)
+        $y1 = 1; $y1 &= $mask; $bad5 = $y1 + 1; $y2 = 1; preg_match($re, $s, $y2); $bad6 = $y2 - 1;
+        $y3 = 1; $fn = function () use (&$y3) {}; $bad7 = $y3 + 1; $y4 = 1; $y4 <<= 1; $bad8 = $y4 + 1; $y5 = 1; $y5 |= $x; $bad9 = $y5 - 1;
         PHP);
     try {
-        $plusMinus = ['+', '-', '+=', '-=', '++', '--', '+', '-', '+', '+', '-', '+', '+=', '+', '-', '+', '-'];
+        $plusMinus = ['+', '-', '+=', '-=', '++', '--', '+', '-', '+', '+', '-', '+', '+=', '+', '-', '+', '-', '+', '-', '+', '+', '-'];
         expect(floatGuard(codeTokens($file), true))->toBe([
             '(double)', '(float)',
             '*', '/', '**', '/=', '*=', '**=',
@@ -337,6 +369,9 @@ it('the float guard refuses every form it must, and only those (T9 review M3, T1
             'round', '\round', '\floatval', 'floor', '\intdiv',
             ...$plusMinus,
         ]);
+        // `*=` outside a mass-path file passes itself, but leaves no integer behind (T13 review M1).
+        file_put_contents(base_path($file), '<?php $k = 1; $k *= $mass; $r = $k + 1; $j = 2; $ok = $j + 1;');
+        expect(floatGuard(codeTokens($file), false))->toBe(['+']);
     } finally {
         unlink(base_path($file));
     }

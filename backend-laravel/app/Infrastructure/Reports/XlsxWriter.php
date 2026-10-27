@@ -37,10 +37,12 @@ final class XlsxWriter
     private const DEFAULT_WIDTH = 9;
 
     /**
-     * @param  list<array{name: string, header: list<string>, rows: list<list<array{0: string, 1: string|int|null}>>}>  $sheets
+     * The sheets and their rows may be generators (ReportStream): each row is read once, in order.
+     *
+     * @param  iterable<array{name: string, header: list<string>, rows: iterable<list<array{0: string, 1: string|int|null}>>}>  $sheets
      * @param  string  $createdAt  the snapshot's instant (`YYYY-MM-DDTHH:MM:SS.mmmZ`)
      */
-    public static function write(array $sheets, string $createdAt): string
+    public static function write(iterable $sheets, string $createdAt): string
     {
         $wb = new Spreadsheet;
         $wb->removeSheetByIndex(0);
@@ -64,12 +66,18 @@ final class XlsxWriter
                 $cell->setValueExplicit($title, DataType::TYPE_STRING);
                 $cell->setXfIndex($bold->getIndex());
             }
-            foreach ($s['rows'] as $r => $cells) {
+            $longest = array_map(self::jsLength(...), $s['header']);
+            $r = 0;
+            foreach ($s['rows'] as $cells) {
+                if ($r < self::WIDTH_ROWS) {
+                    $longest = self::longest($longest, $cells);
+                }
+                $r++;
                 foreach ($cells as $i => [$type, $v]) {
                     if ($v === null) {
                         continue;
                     }
-                    $cell = $ws->getCell([$i + 1, $r + 2]);
+                    $cell = $ws->getCell([$i + 1, $r + 1]);
                     if ($type === 'text') {
                         $cell->setValueExplicit((string) $v, DataType::TYPE_STRING);
                     } else {
@@ -78,7 +86,7 @@ final class XlsxWriter
                     }
                 }
             }
-            foreach (self::widths($s['header'], $s['rows']) as $i => $w) {
+            foreach (self::columnWidths($longest) as $i => $w) {
                 // exceljs writes no <col> for a column of its default width 9 (Column.isCustomWidth): neither here.
                 if ($w !== self::DEFAULT_WIDTH) {
                     $ws->getColumnDimensionByColumn($i + 1)->setWidth($w);
@@ -148,17 +156,35 @@ final class XlsxWriter
      */
     public static function widths(array $header, array $rows): array
     {
-        $out = [];
-        $sample = array_slice($rows, 0, self::WIDTH_ROWS);
-        foreach ($header as $i => $title) {
-            $longest = self::jsLength($title);
-            foreach ($sample as $row) {
-                $longest = max($longest, self::jsLength((string) ($row[$i][1] ?? '')));
-            }
-            $out[] = min(60, max(8, $longest + 2));
+        $longest = array_map(self::jsLength(...), $header);
+        foreach (array_slice($rows, 0, self::WIDTH_ROWS) as $row) {
+            $longest = self::longest($longest, $row);
         }
 
-        return $out;
+        return self::columnWidths($longest);
+    }
+
+    /**
+     * @param  list<int>  $longest  per column, the longest text so far
+     * @param  list<array{0: string, 1: string|int|null}>  $row
+     * @return list<int>
+     */
+    private static function longest(array $longest, array $row): array
+    {
+        foreach ($longest as $i => $n) {
+            $longest[$i] = max($n, self::jsLength((string) ($row[$i][1] ?? '')));
+        }
+
+        return $longest;
+    }
+
+    /**
+     * @param  list<int>  $longest
+     * @return list<int>
+     */
+    private static function columnWidths(array $longest): array
+    {
+        return array_map(fn (int $n): int => min(60, max(8, $n + 2)), $longest);
     }
 
     /** JavaScript's String.length: UTF-16 code units. */

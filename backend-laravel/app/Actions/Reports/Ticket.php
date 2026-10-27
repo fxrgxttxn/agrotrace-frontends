@@ -19,14 +19,18 @@ final class Ticket
 {
     public function __construct(private readonly LaneTicket $lane) {}
 
-    /** @param  null|callable(): bool  $clientGone */
-    public function render(string $jobJson, ?callable $clientGone = null): string
+    /**
+     * @param  string|list<string|resource>  $job  the child's stdin: the job head line, then the spooled sheets
+     *                                             (resources/sandbox/report-render.php)
+     * @param  null|callable(): bool  $clientGone
+     */
+    public function render(string|array $job, ?callable $clientGone = null): string
     {
         if (Tx::active() || app(DbSlots::class)->held()) {
             throw new LogicException('Ticket::render() with a DB slot held (P61)');
         }
         try {
-            $out = $this->lane->run(base_path('resources/sandbox/report-render.php'), $jobJson, $clientGone);
+            $out = $this->lane->run(base_path('resources/sandbox/report-render.php'), $job, $clientGone);
         } catch (LaneRefused $e) {
             throw $e->reason === 'aborted' ? new ReportAborted : Queue::busy();
         }

@@ -24,7 +24,7 @@ final class ReportPdf
 
     /**
      * @param  array{title: string, periodLine: string, generatedLine: string, generatedAt: string, fontDir: string,
-     *   sheets: list<array{name: string, header: list<string>, rows: list<list<string>>}>}  $d
+     *   sheets: iterable<array{name: string, header: list<string>, rows: iterable<list<string>>}>}  $d  rows read once, in order
      */
     public static function render(array $d): string
     {

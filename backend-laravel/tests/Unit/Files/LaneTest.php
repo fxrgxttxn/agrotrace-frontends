@@ -198,3 +198,14 @@ function xlSlackLane(): float
 
     return is_string($s) && is_numeric($s) ? (float) $s : 3.0;
 }
+
+it('the child gets a temporary directory of its own, removed even when the deadline kills it (T13 review M4)', function () {
+    $o = laneOpts(0.5);
+    $note = tempnam(sys_get_temp_dir(), 'lane-note-');
+    expect(laneRefusal(fn () => Lane::run(laneFixture('tmp-hang'), $note, $o)))->toBe('too-complex');
+    $written = (string) file_get_contents($note);
+    @unlink($note);
+    expect($written)->toStartWith($o->dir().'/job-');
+    expect(file_exists($written))->toBeFalse();
+    expect(glob($o->dir().'/job-*'))->toBe([]);
+});
