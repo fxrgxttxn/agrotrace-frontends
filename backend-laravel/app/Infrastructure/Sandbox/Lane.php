@@ -26,8 +26,6 @@ namespace App\Infrastructure\Sandbox;
  */
 final class Lane
 {
-    private const POLL_US = 5_000;
-
     /** The longest start-up (until `ready`) a child is given; it is not charged to the job's deadline. */
     public const READY_SEC = 30;
 
@@ -37,6 +35,22 @@ final class Lane
     /** @param  null|callable(): bool  $clientGone */
     public static function run(string $script, string $input, LaneOptions $o, ?callable $clientGone = null): string
     {
+        $ticket = self::admit($o);
+        try {
+            return $ticket->run($script, $input, $clientGone);
+        } finally {
+            $ticket->release();
+        }
+    }
+
+    /**
+     * Enqueues a job before its input exists: the ticket holds the running slot when it is free, else a waiting one,
+     * and the job's deadline starts now — so a caller takes its place before preparing the input (downloadReport:
+     * admission before any data is read, P52). No free place → `too-complex` at once. The ticket is released by
+     * LaneTicket::release (or its destruction).
+     */
+    public static function admit(LaneOptions $o): LaneTicket
+    {
         $dir = $o->dir();
         if (! is_dir($dir)) {
             @mkdir($dir, 0777, true);
@@ -44,37 +58,16 @@ final class Lane
         $deadline = microtime(true) + $o->deadlineSec;
         $run = self::tryLock("{$dir}/run.lock");
         $wait = null;
-        try {
-            if ($run === null) {
-                for ($i = 0; $i < $o->waiting && $wait === null; $i++) {
-                    $wait = self::tryLock("{$dir}/wait-{$i}.lock");
-                }
-                if ($wait === null) {
-                    throw new LaneRefused('too-complex', 'queue full');
-                }
-                while ($run === null) {
-                    if ($clientGone !== null && $clientGone()) {
-                        throw new LaneRefused('aborted', 'client gone while waiting');
-                    }
-                    if (microtime(true) >= $deadline) {
-                        throw new LaneRefused('too-complex', 'deadline missed while waiting');
-                    }
-                    usleep(self::POLL_US);
-                    $run = self::tryLock("{$dir}/run.lock");
-                }
-                self::unlock($wait);
-                $wait = null;
+        if ($run === null) {
+            for ($i = 0; $i < $o->waiting && $wait === null; $i++) {
+                $wait = self::tryLock("{$dir}/wait-{$i}.lock");
             }
-
-            return self::execute($script, $input, $o, $deadline);
-        } finally {
-            if ($wait !== null) {
-                self::unlock($wait);
-            }
-            if ($run !== null) {
-                self::unlock($run);
+            if ($wait === null) {
+                throw new LaneRefused('too-complex', 'queue full');
             }
         }
+
+        return new LaneTicket($o, $deadline, $run, $wait);
     }
 
     /**
@@ -114,7 +107,8 @@ final class Lane
         };
     }
 
-    private static function execute(string $script, string $input, LaneOptions $o, float $deadline): string
+    /** Runs one job in a fresh child, the running slot already held (LaneTicket). */
+    public static function execute(string $script, string $input, LaneOptions $o, float $deadline): string
     {
         $proc = proc_open(
             self::command($script, $o, $deadline - microtime(true)),
@@ -226,8 +220,12 @@ final class Lane
         return $out;
     }
 
-    /** @return resource|null */
-    private static function tryLock(string $file)
+    /**
+     * A slot file flock'ed without waiting (LaneTicket too).
+     *
+     * @return resource|null
+     */
+    public static function tryLock(string $file)
     {
         $h = @fopen($file, 'c');
         if ($h === false) {
@@ -242,7 +240,7 @@ final class Lane
     }
 
     /** @param  resource  $h */
-    private static function unlock($h): void
+    public static function unlock($h): void
     {
         flock($h, LOCK_UN);
         fclose($h);

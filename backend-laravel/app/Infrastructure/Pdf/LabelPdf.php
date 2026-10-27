@@ -18,18 +18,6 @@ use TCPDF_FONTS;
  */
 final class LabelPdf
 {
-    /** key => [@fontsource package, file] — the keys contain none of TCPDF's style words (bold, regular, …). */
-    private const FONTS = [
-        'at_r_cyr' => ['onest', 'onest-cyrillic-400-normal'],
-        'at_r_lat' => ['onest', 'onest-latin-400-normal'],
-        'at_b_cyr' => ['onest', 'onest-cyrillic-600-normal'],
-        'at_b_lat' => ['onest', 'onest-latin-600-normal'],
-        'at_m_cyr' => ['jetbrains-mono', 'jetbrains-mono-cyrillic-500-normal'],
-        'at_m_lat' => ['jetbrains-mono', 'jetbrains-mono-latin-500-normal'],
-    ];
-
-    private const WEIGHT = ['regular' => 'at_r', 'bold' => 'at_b', 'mono' => 'at_m'];
-
     public const TAGLINE = 'Сканируйте, чтобы узнать происхождение партии';
 
     public static function qrLabel(string $publicCode, string $productName, string $originName, string $png, int $createdAt): string
@@ -55,9 +43,7 @@ final class LabelPdf
         $pdf->SetTitle("QR {$publicCode}");
         $pdf->setDocCreationTimestamp($createdAt);
         $pdf->setDocModificationTimestamp($createdAt);
-        foreach (array_keys(self::FONTS) as $key) {
-            $pdf->AddFont($key, '', "{$dir}/{$key}.php");
-        }
+        PdfText::register($pdf, $dir);
         $pdf->AddPage();
         $w = $pdf->getPageWidth();
         $width = $w - 56;
@@ -70,50 +56,6 @@ final class LabelPdf
         return $pdf->Output('', 'S');
     }
 
-    /** Express `isCyr`: Cyrillic (U+0400–U+04FF) and `№` take the cyrillic face. */
-    private static function isCyr(string $ch): bool
-    {
-        $cp = mb_ord($ch, 'UTF-8');
-
-        return ($cp >= 0x0400 && $cp <= 0x04FF) || $cp === 0x2116;
-    }
-
-    /**
-     * Express `splitRuns`: a space keeps the script of the run before it.
-     *
-     * @return list<array{cyr: bool, s: string}>
-     */
-    private static function runs(string $text): array
-    {
-        $parts = [];
-        foreach (mb_str_split($text, 1, 'UTF-8') as $ch) {
-            $last = $parts === [] ? null : count($parts) - 1;
-            $cyr = $ch === ' ' && $last !== null ? $parts[$last]['cyr'] : self::isCyr($ch);
-            if ($last !== null && $parts[$last]['cyr'] === $cyr) {
-                $parts[$last]['s'] .= $ch;
-            } else {
-                $parts[] = ['cyr' => $cyr, 's' => $ch];
-            }
-        }
-
-        return $parts;
-    }
-
-    private static function face(string $weight, bool $cyr): string
-    {
-        return self::WEIGHT[$weight].($cyr ? '_cyr' : '_lat');
-    }
-
-    private static function widthOf(TCPDF $pdf, string $text, string $weight, float $size): float
-    {
-        $sum = 0.0;
-        foreach (self::runs($text) as $r) {
-            $sum += $pdf->GetStringWidth($r['s'], self::face($weight, $r['cyr']), '', $size);
-        }
-
-        return $sum;
-    }
-
     /** Draws $text centred in a box starting at ($x, $y); returns the y below the last line (Express `paragraph`). */
     private static function paragraph(TCPDF $pdf, string $text, string $weight, float $size, float $x, float $y, float $width): float
     {
@@ -121,7 +63,7 @@ final class LabelPdf
         $line = '';
         foreach (explode(' ', $text) as $word) {
             $next = $line !== '' ? "{$line} {$word}" : $word;
-            if ($line !== '' && self::widthOf($pdf, $next, $weight, $size) > $width) {
+            if ($line !== '' && PdfText::widthOf($pdf, $next, $weight, $size) > $width) {
                 $lines[] = $line;
                 $line = $word;
             } else {
@@ -133,9 +75,9 @@ final class LabelPdf
         }
         $pdf->SetTextColor(0x33, 0x29, 0x1F);
         foreach ($lines as $l) {
-            $cx = $x + ($width - self::widthOf($pdf, $l, $weight, $size)) / 2;
-            foreach (self::runs($l) as $r) {
-                $face = self::face($weight, $r['cyr']);
+            $cx = $x + ($width - PdfText::widthOf($pdf, $l, $weight, $size)) / 2;
+            foreach (PdfText::runs($l) as $r) {
+                $face = PdfText::face($weight, $r['cyr']);
                 $pdf->SetFont($face, '', $size);
                 $pdf->Text($cx, $y, $r['s']);
                 $cx += $pdf->GetStringWidth($r['s'], $face, '', $size);
@@ -162,7 +104,7 @@ final class LabelPdf
         }
         try {
             flock($lock, LOCK_EX);
-            foreach (self::FONTS as $key => [$pkg, $file]) {
+            foreach (PdfText::FONTS as $key => [$pkg, $file]) {
                 if (is_file("{$dir}/{$key}.php")) {
                     continue;
                 }
@@ -188,7 +130,7 @@ final class LabelPdf
 
     private static function built(string $dir): bool
     {
-        foreach (array_keys(self::FONTS) as $key) {
+        foreach (array_keys(PdfText::FONTS) as $key) {
             if (! is_file("{$dir}/{$key}.php")) {
                 return false;
             }

@@ -93,6 +93,8 @@ it('gives every request a fresh context and frees the DB slot at the end of the 
 
             return response()->json($seen);
         })->name('getDashboard');
+        // The probe replaces the real getDashboard route (same method and URI): the name lookup must see it.
+        $app->make('router')->getRoutes()->refreshNameLookups();
 
         $send = function (string $id) use ($worker, $client) {
             $r = Request::create('/api/v1/analytics/dashboard', 'GET', server: ['HTTP_X_REQUEST_ID' => $id, 'REMOTE_ADDR' => '10.0.0.9']);

@@ -63,6 +63,8 @@ return [
         'region' => env('S3_REGION', 'us-east-1'),
     ],
     'health_timeout_ms' => (int) env('HEALTH_TIMEOUT_MS', 2000),
+    // P50: data rows per report sheet (1…50 000, the contract's default 50 000; the api-test profile lowers it to 13).
+    'report_max_rows' => (int) env('REPORT_MAX_ROWS', 50000),
     // Open SSE streams per api-laravel process (App\Sse\StreamAdmission; one classic FrankenPHP thread each).
     'sse_max_streams' => (int) env('SSE_MAX_STREAMS', 200),
     // …of them, per user (the frontends open one per tab).

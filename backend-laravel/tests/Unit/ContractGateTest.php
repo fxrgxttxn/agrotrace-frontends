@@ -7,6 +7,7 @@
  */
 
 use App\Contract\Contract;
+use App\Http\Routing\ContractRouteCollection;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -76,8 +77,20 @@ it('treats HEAD as GET', function () {
     expect($res->headers->get('Allow'))->toBe('POST');
 });
 
+/** The application's routes without getDashboard: a declared operation with no route (every one is routed now). */
+function withoutGetDashboardRoute(): void
+{
+    $routes = new ContractRouteCollection;
+    foreach (Route::getRoutes()->getRoutes() as $route) {
+        if ($route->getName() !== 'getDashboard') {
+            $routes->add($route);
+        }
+    }
+    Route::setRoutes($routes);
+}
+
 it('answers 404 for a declared operation that has no route yet', function () {
-    // getDashboard is routed only in Task 13, the last operation task.
+    withoutGetDashboardRoute();
     $res = $this->raw('GET', '/api/v1/analytics/dashboard');
     $res->assertStatus(404);
     expect(problemOf($res)['code'])->toBe('NOT_FOUND');
@@ -155,6 +168,7 @@ it('dispatches the operation ContractGate matched on the raw path, not Laravel\'
 });
 
 it('answers 404 for a declared operation whose route has another name (no fallback to Laravel matching)', function () {
+    withoutGetDashboardRoute();
     Route::get('/api/v1/analytics/dashboard', fn () => 'wrong')->name('notGetDashboard');
     $this->raw('GET', '/api/v1/analytics/dashboard')->assertStatus(404);
 });

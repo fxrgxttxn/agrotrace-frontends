@@ -63,6 +63,8 @@ final class EnvConfig
         // Per user (T12 re-review I1): one account within its `user` rate limit must not take every place.
         self::int($p, 'SSE_MAX_STREAMS_PER_USER', $get('SSE_MAX_STREAMS_PER_USER'), 10, 1, 4096);
         self::int($p, 'HEALTH_TIMEOUT_MS', $get('HEALTH_TIMEOUT_MS'), 2000, 100, 30000);
+        // P50 (Express config.ts): data rows per report sheet; only the test stand lowers it.
+        self::int($p, 'REPORT_MAX_ROWS', $get('REPORT_MAX_ROWS'), 50000, 1, 50000);
         // L5: a period the Scheduler can express (App\Scheduler\Tick, the port's deviation from Express's 100…3 600 000).
         $tick = self::int($p, 'SCHEDULER_TICK_MS', $get('SCHEDULER_TICK_MS'), Tick::DEFAULT_MS, 100, 3_600_000);
         if ($tick !== null) {

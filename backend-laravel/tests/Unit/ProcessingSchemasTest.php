@@ -86,7 +86,10 @@ const INT_FUNCTIONS = ['count', 'strlen', 'mb_strlen', 'strspn', 'strcspn'];
 
 /**
  * Variables of $tokens known to hold integers: `int`/`?int` typed parameters and properties, and variables assigned
- * an `(int)` cast, a lone integer literal or an INT_FUNCTIONS call.
+ * an `(int)` cast, a lone integer literal or an INT_FUNCTIONS call — and ONLY such (T11 review M4): one other
+ * assignment anywhere in the scanned slice (`$k = $t->massKg`, `$k .= …`, `$k /= …`, a `foreach … as $k` /
+ * `=> $k` target, a `[$k, …] =` / `list($k) =` destructuring) makes the variable not an integer. Names are judged
+ * per slice, not per function scope: a name reused for a non-integer elsewhere in the file is refused everywhere.
  *
  * @param  list<array{0: string, 1: string}>  $tokens
  * @return array<string, true>
@@ -94,7 +97,50 @@ const INT_FUNCTIONS = ['count', 'strlen', 'mb_strlen', 'strspn', 'strcspn'];
 function intVariables(array $tokens): array
 {
     $vars = [];
+    $other = [];
+    $inForeach = false;
+    $brackets = [];
     foreach ($tokens as $i => [$name, $text]) {
+        if ($name === 'T_FOREACH') {
+            $inForeach = true;
+        }
+        if ($name === 'T_AS' && $inForeach) {
+            // Every variable between `as` and the closing `)` of the foreach is assigned an element or a key.
+            for ($j = $i + 1, $depth = 0; isset($tokens[$j]); $j++) {
+                $depth += $tokens[$j][0] === '(' ? 1 : ($tokens[$j][0] === ')' ? -1 : 0);
+                if ($depth < 0) {
+                    break;
+                }
+                if ($tokens[$j][0] === 'T_VARIABLE') {
+                    $other[$tokens[$j][1]] = true;
+                }
+            }
+            $inForeach = false;
+        }
+        // Destructuring: `[ … ] =` and `list( … ) =` assign every variable inside.
+        // A `[` after an operand is an index (`$a[$i] = …` assigns an element), elsewhere an array literal.
+        if ($name === '[') {
+            $literal = ! in_array($tokens[$i - 1][0] ?? '', ['T_VARIABLE', 'T_STRING', ']', ')', '}'], true);
+            $brackets[] = $literal ? $i : null;
+        }
+        if ($name === 'T_LIST' && ($tokens[$i + 1][0] ?? '') === '(') {
+            $listAt = $i;
+        }
+        $assigned = ($tokens[$i + 1][0] ?? '') === '=';
+        $from = null;
+        if ($name === ']' && $brackets !== []) {
+            $from = array_pop($brackets);
+        } elseif ($name === ')' && isset($listAt) && $assigned) {
+            $from = $listAt;
+            unset($listAt);
+        }
+        if ($from !== null && $assigned) {
+            for ($j = $from + 1; $j < $i; $j++) {
+                if ($tokens[$j][0] === 'T_VARIABLE') {
+                    $other[$tokens[$j][1]] = true;
+                }
+            }
+        }
         if ($name !== 'T_VARIABLE') {
             continue;
         }
@@ -102,7 +148,12 @@ function intVariables(array $tokens): array
         if ($prev[0] === 'T_STRING' && strtolower($prev[1]) === 'int') {
             $vars[$text] = true;
         }
-        if (($tokens[$i + 1][0] ?? '') !== '=') {
+        $op = $tokens[$i + 1][0] ?? '';
+        if (in_array($op, ['T_CONCAT_EQUAL', 'T_DIV_EQUAL', 'T_POW_EQUAL', 'T_MOD_EQUAL', 'T_COALESCE_EQUAL'], true)) {
+            $other[$text] = true;
+        }
+        // `$a->b = …` and `$a[…] = …` assign a property or an element, not the variable.
+        if ($op !== '=' || in_array($prev[0], ['T_OBJECT_OPERATOR', 'T_NULLSAFE_OBJECT_OPERATOR', 'T_DOUBLE_COLON'], true)) {
             continue;
         }
         [$n1, $t1] = $tokens[$i + 2] ?? ['', ''];
@@ -110,8 +161,11 @@ function intVariables(array $tokens): array
         if ($n1 === 'T_INT_CAST' || ($n1 === 'T_LNUMBER' && $n2 === ';')
             || ($n1 === 'T_STRING' && in_array(strtolower($t1), INT_FUNCTIONS, true) && $n2 === '(')) {
             $vars[$text] = true;
+        } else {
+            $other[$text] = true;
         }
     }
+    $vars = array_diff_key($vars, $other);
 
     return $vars;
 }
@@ -242,6 +296,10 @@ it('no float on the processing / mass balance / lab result / recall / rating / c
     // Task 11: the complaint operations (integer paging) and the public page (lab summary counts).
     ['app/Actions/Complaints/ComplaintsActions.php', null, null, false],
     ['app/Actions/Public/PublicBatchBuilder.php', null, null, true],
+    // Task 13: the dashboards (shares and hours through Decimal), the report sheets and the download (T11 review M4).
+    ['app/Actions/Analytics/Dashboard.php', null, null, true],
+    ['app/Actions/Reports/Sheets.php', null, null, true],
+    ['app/Actions/Reports/ReportsActions.php', null, null, true],
 ]);
 
 it('the float guard refuses every form it must, and only those (T9 review M3, T10 review M1)', function () {
@@ -260,9 +318,12 @@ it('the float guard refuses every form it must, and only those (T9 review M3, T1
         $v = (int) $t->version; $n = count($xs); $k = 0;
         $ok = $v + 1; $ok2 = $page - 1; $ok3 = 1 + $n; $ok4 = -1; $ok5 = $o->round($x); $ok6 = Decimal::floor($x);
         $ok7 = (int) $t->version + 1; $ok8 = count($xs) - 1; $ok9 = $size + $page; $k++; $ok10 = 1 + (int) $x; $ok11 = strlen($s) - $k;
+        // refused: a variable once an integer, assigned anything else anywhere in the slice (T11 review M4)
+        $z = 0; $z = $t->massKg; $bad = $z + 1; $q = 1; foreach ($rows as $q) {} $bad2 = $q - 1; $w = 1; [$w] = $pair; $bad3 = $w + 1;
+        $u = 2; $u .= $m; $bad4 = $u - 1; $ix = 0; $list[$ix] = $m; $ok12 = $ix + 1;
         PHP);
     try {
-        $plusMinus = ['+', '-', '+=', '-=', '++', '--', '+', '-', '+', '+', '-', '+', '+='];
+        $plusMinus = ['+', '-', '+=', '-=', '++', '--', '+', '-', '+', '+', '-', '+', '+=', '+', '-', '+', '-'];
         expect(floatGuard(codeTokens($file), true))->toBe([
             '(double)', '(float)',
             '*', '/', '**', '/=', '*=', '**=',

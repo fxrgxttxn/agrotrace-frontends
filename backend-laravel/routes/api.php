@@ -9,6 +9,7 @@
 
 use App\Contract\Contract;
 use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Analytics\AnalyticsController;
 use App\Http\Controllers\Audit\AuditController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Batches\BatchesController;
@@ -153,6 +154,10 @@ $op('GET', '/public/captcha', [PublicController::class, 'getCaptchaChallenge'], 
 $op('GET', '/notifications', [NotificationsController::class, 'listNotifications'], 'listNotifications');
 $op('POST', '/notifications/read', [NotificationsController::class, 'markNotificationsRead'], 'markNotificationsRead');
 $op('GET', '/events/stream', [StreamController::class, 'open'], 'streamEvents');
+
+// Analytics: dashboards and reports (Task 13).
+$op('GET', '/analytics/dashboard', [AnalyticsController::class, 'getDashboard'], 'getDashboard');
+$op('GET', '/reports/{type}', [AnalyticsController::class, 'downloadReport'], 'downloadReport');
 
 // Swagger UI (spec 8.3) — outside the contract, as in Express.
 Route::get('/api/v1/docs', [DocsController::class, 'page']);
