@@ -18,10 +18,10 @@ beforeEach(function () {
     if (! function_exists('apcu_enabled') || ! apcu_enabled()) {
         $this->fail('APCu is off in the CLI (docker/php.ini: apc.enable_cli = 1)');
     }
-    apcu_delete(StreamAdmission::KEY);
+    apcu_delete(new APCUIterator('/^agrotrace:sse:open-streams/'));
 });
 
-afterEach(fn () => apcu_delete(StreamAdmission::KEY));
+afterEach(fn () => apcu_delete(new APCUIterator('/^agrotrace:sse:open-streams/')));
 
 it('admits up to the cap, refuses past it without holding a place, and gives a place back once', function () {
     $a = new StreamAdmission(2);
@@ -95,4 +95,49 @@ it('answers a stream past the cap at once: 200, the SSE headers, only `retry:` (
     $ms = (int) substr($body, 7);
     expect($ms)->toBeGreaterThanOrEqual(5000)->toBeLessThanOrEqual(15000);
     expect(apcu_fetch(StreamAdmission::KEY))->toBe(3); // the refused stream holds no place
+})->group('integration');
+
+it('caps the streams of one user too: past it nothing is held, and other users still get in', function () {
+    $mine = [new StreamAdmission(10, 'u1', 2), new StreamAdmission(10, 'u1', 2)];
+    foreach ($mine as $a) {
+        expect($a->enter())->toBeTrue();
+    }
+    $third = new StreamAdmission(10, 'u1', 2);
+    expect($third->enter())->toBeFalse();
+    expect($third->openOfUser())->toBe(2);
+    expect($third->open())->toBe(2);
+    $other = new StreamAdmission(10, 'u2', 2);
+    expect($other->enter())->toBeTrue();
+    expect($other->open())->toBe(3);
+    // The global cap refuses after the user's place was taken: that place is given back.
+    $full = new StreamAdmission(3, 'u3', 2);
+    expect($full->enter())->toBeFalse();
+    expect($full->openOfUser())->toBe(0);
+    expect($full->open())->toBe(3);
+    $mine[0]->leave();
+    $mine[0]->leave();
+    expect($third->enter())->toBeTrue();
+    foreach ([$mine[1], $third, $other] as $a) {
+        $a->leave();
+    }
+    expect($other->open())->toBe(0);
+    expect($third->openOfUser())->toBe(0);
+    expect($other->openOfUser())->toBe(0);
+});
+
+it('answers a user past their own cap with the same immediate `retry:`', function () {
+    config([
+        'agrotrace.jwt_secret' => 'jwt_test_secret_of_at_least_32_bytes!!',
+        'agrotrace.rate_limit_overrides' => '{"user":100000}',
+        'agrotrace.sse_max_streams' => 200,
+        'agrotrace.sse_max_streams_per_user' => 2,
+    ]);
+    $user = '11111111-1111-4111-8111-'.bin2hex(random_bytes(6));
+    apcu_store(StreamAdmission::KEY.':'.$user, 2);
+    $token = Jwt::issue($user, '22222222-2222-4222-8222-222222222222', ['FARMER'], false);
+    $res = $this->raw('GET', '/api/v1/events/stream?access_token='.$token);
+    expect($res->getStatusCode())->toBe(200);
+    expect(streamedBody($res->baseResponse))->toMatch('/^retry: \d+\n\n$/D');
+    expect(apcu_fetch(StreamAdmission::KEY.':'.$user))->toBe(2);
+    expect((int) apcu_fetch(StreamAdmission::KEY))->toBe(0);
 })->group('integration');

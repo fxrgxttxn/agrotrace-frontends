@@ -56,3 +56,12 @@ it('exits 78 from artisan agrotrace:preflight', function () {
     expect($code)->toBe(78);
     expect(implode("\n", $out))->toContain('invalid configuration')->toContain('DB_SLOTS');
 });
+
+it('refuses to start api-laravel without APCu (the SSE stream caps), other processes do not need it', function () {
+    $p = EnvConfig::problems(validEnv(), apcu: false);
+    expect($p)->toHaveCount(1);
+    expect($p[0])->toStartWith('APCu:');
+    expect(EnvConfig::problems(validEnv(['AGROTRACE_PROCESS' => 'worker']), apcu: false))->toBe([]);
+    expect(EnvConfig::problems(validEnv(), apcu: true))->toBe([]);
+    expect(EnvConfig::problems(validEnv(['SSE_MAX_STREAMS_PER_USER' => '0'])))->toHaveCount(1);
+});

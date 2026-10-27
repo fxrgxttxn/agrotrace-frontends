@@ -2,18 +2,24 @@
 
 namespace App\Sse;
 
+use Illuminate\Support\Facades\Log;
+
 /**
- * The cap on open SSE streams of one api-laravel process (fix round 1, I1). Each stream holds one of FrankenPHP's
- * classic threads for up to 15 minutes, and the pool is fixed (docker/entrypoint.sh: SSE_MAX_STREAMS +
- * ADMISSION_THREADS). A request that finds every thread busy is parked by FrankenPHP with no answer at all — not
- * even its 401 or 429 — so the count is kept here, below the pool: past SSE_MAX_STREAMS a stream is answered at once
- * (StreamController: a 200 with only `retry:`, which an EventSource follows by reconnecting later; a problem
- * response would end it for good, and the operation declares no 503), and the spare threads stay free for those
- * answers. Express has no stream cap of its own (none per user either), so neither is there one per user here.
+ * The caps on open SSE streams of one api-laravel process (fix round 1, I1; fix round 2: per user). Each stream holds
+ * one of FrankenPHP's classic threads for up to 15 minutes, and the pool is fixed (docker/entrypoint.sh:
+ * SSE_MAX_STREAMS + ADMISSION_THREADS). A request that finds every thread busy is parked by FrankenPHP with no answer
+ * at all — not even its 401 or 429 — so the count is kept here, below the pool: past SSE_MAX_STREAMS, or past
+ * SSE_MAX_STREAMS_PER_USER streams of one user, a stream is answered at once (StreamController: a 200 with only
+ * `retry:`, which an EventSource follows by reconnecting later; a problem response would end it for good, and the
+ * operation declares no 503), and the spare threads stay free for those answers. Express has neither cap: it has no
+ * pool to exhaust. The global cap is this port's own, and the per-user one keeps a single account (within its `user`
+ * rate limit) from taking every place (ruling, T12 re-review 1). The frontends open one stream per tab
+ * (api-client openEventStream), so 10 per user is ten tabs.
  *
- * The count is one APCu entry, shared by every thread of the process (FrankenPHP is one process; a restart starts
- * from zero with the streams gone). A stream gives its place back exactly once: in a `finally` and, should PHP die
- * on a fatal error, in a shutdown function (StreamController). Without APCu every stream is admitted, as before.
+ * The counts are APCu entries (`…:open-streams` and `…:open-streams:{userId}`), shared by every thread of the process
+ * (FrankenPHP is one process; a restart starts from zero with the streams gone). A stream gives its places back
+ * exactly once: in a `finally` and, should PHP die on a fatal error, in a shutdown function (StreamController).
+ * api-laravel does not start without APCu (EnvConfig); should it still be off, every stream is admitted (logged).
  */
 final class StreamAdmission
 {
@@ -21,21 +27,27 @@ final class StreamAdmission
 
     private bool $held = false;
 
-    public function __construct(private readonly int $cap, private readonly string $key = self::KEY) {}
+    public function __construct(
+        private readonly int $cap,
+        private readonly string $userId = '',
+        private readonly int $userCap = PHP_INT_MAX,
+        private readonly string $key = self::KEY,
+    ) {}
 
-    /** Takes a place; false — the cap is reached (nothing is held then). */
+    /** Takes a place; false — a cap is reached (nothing is held then). */
     public function enter(): bool
     {
         if (! function_exists('apcu_inc') || ! apcu_enabled()) {
+            Log::error('sse: APCu is off, the stream caps are not enforced');
+
             return true;
         }
-        apcu_add($this->key, 0);
-        $n = apcu_inc($this->key);
-        if ($n === false) {
-            return true;
+        $user = $this->userKey();
+        if (! self::inc($user, $this->userCap)) {
+            return false;
         }
-        if ($n > $this->cap) {
-            $this->decrement();
+        if (! self::inc($this->key, $this->cap)) {
+            self::dec($user);
 
             return false;
         }
@@ -44,12 +56,13 @@ final class StreamAdmission
         return true;
     }
 
-    /** Gives the place back; a second call does nothing. */
+    /** Gives the places back; a second call does nothing. */
     public function leave(): void
     {
         if ($this->held) {
             $this->held = false;
-            $this->decrement();
+            self::dec($this->key);
+            self::dec($this->userKey());
         }
     }
 
@@ -59,12 +72,40 @@ final class StreamAdmission
         return function_exists('apcu_fetch') ? max(0, (int) apcu_fetch($this->key)) : 0;
     }
 
-    private function decrement(): void
+    /** Streams of this user counted now. */
+    public function openOfUser(): int
     {
-        $n = apcu_dec($this->key);
+        return function_exists('apcu_fetch') ? max(0, (int) apcu_fetch($this->userKey())) : 0;
+    }
+
+    private function userKey(): string
+    {
+        return "{$this->key}:{$this->userId}";
+    }
+
+    /** One more on $key unless that passes $cap (then nothing changes). An APCu failure admits. */
+    private static function inc(string $key, int $cap): bool
+    {
+        apcu_add($key, 0);
+        $n = apcu_inc($key);
+        if ($n === false) {
+            return true;
+        }
+        if ($n > $cap) {
+            self::dec($key);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static function dec(string $key): void
+    {
+        $n = apcu_dec($key);
         // Below zero only after APCu lost the entry while streams were open (an expunge): count from zero again.
         if (is_int($n) && $n < 0) {
-            apcu_cas($this->key, $n, 0);
+            apcu_cas($key, $n, 0);
         }
     }
 }

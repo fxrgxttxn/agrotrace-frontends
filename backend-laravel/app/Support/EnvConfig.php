@@ -25,9 +25,10 @@ final class EnvConfig
 
     /**
      * @param  array<string, string|false|null>  $env  variable → value (false/null = unset)
+     * @param  null|bool  $apcu  whether APCu works in this image's PHP (extension loaded, apc.enabled); null — check it
      * @return list<string>
      */
-    public static function problems(array $env): array
+    public static function problems(array $env, ?bool $apcu = null): array
     {
         $p = [];
         $get = fn (string $k): ?string => isset($env[$k]) && $env[$k] !== false ? (string) $env[$k] : null;
@@ -59,6 +60,8 @@ final class EnvConfig
         self::int($p, 'OCTANE_WORKERS', $get('OCTANE_WORKERS'), 32, 1, 1024);
         // Classic FrankenPHP threads for the SSE streams (docker/Caddyfile, Task 12): one per open stream.
         self::int($p, 'SSE_MAX_STREAMS', $get('SSE_MAX_STREAMS'), 200, 1, 4096);
+        // Per user (T12 re-review I1): one account within its `user` rate limit must not take every place.
+        self::int($p, 'SSE_MAX_STREAMS_PER_USER', $get('SSE_MAX_STREAMS_PER_USER'), 10, 1, 4096);
         self::int($p, 'HEALTH_TIMEOUT_MS', $get('HEALTH_TIMEOUT_MS'), 2000, 100, 30000);
         // L5: a period the Scheduler can express (App\Scheduler\Tick, the port's deviation from Express's 100…3 600 000).
         $tick = self::int($p, 'SCHEDULER_TICK_MS', $get('SCHEDULER_TICK_MS'), Tick::DEFAULT_MS, 100, 3_600_000);
@@ -72,6 +75,12 @@ final class EnvConfig
         $process = $get('AGROTRACE_PROCESS') ?? 'cli';
         if (! in_array($process, self::PROCESSES, true)) {
             $p[] = 'AGROTRACE_PROCESS: must be one of '.implode(', ', self::PROCESSES);
+        }
+        // The SSE stream caps live in APCu (App\Sse\StreamAdmission): without it every stream would be admitted and the
+        // classic threads could fill up again, parking requests unanswered (T12 re-review M4).
+        $apcu ??= extension_loaded('apcu') && filter_var(ini_get('apc.enabled'), FILTER_VALIDATE_BOOL);
+        if ($process === 'api' && ! $apcu) {
+            $p[] = 'APCu: api-laravel needs the apcu extension with apc.enabled = 1 (the SSE stream caps, App\Sse\StreamAdmission)';
         }
         $level = $get('LOG_LEVEL');
         if ($level !== null && ! in_array($level, ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'], true)) {
