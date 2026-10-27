@@ -9,7 +9,16 @@ use RuntimeException;
  * lookup). PHP resolves a `tcp://name:port` with getaddrinfo, which blocks inside C with no limit of its own, so the
  * name is looked up here first, the way glibc does it for the stand: /etc/hosts, then A queries over UDP to the
  * nameservers of /etc/resolv.conf (its `search` and `ndots`), every wait a stream_select bounded by the deadline.
- * An IP literal is returned as it is. IPv4 only, as everything of the stand.
+ * An IP literal is returned as it is. Every A record of the answer is returned, in its order, so the caller can fail
+ * over from one address to the next (DeadlineStream does, as PHP's own connect walks getaddrinfo's list).
+ *
+ * Known gaps against glibc (fine for the stand's Docker DNS, `nameserver 127.0.0.11` / `ndots:0`; integration
+ * backlog, ruling T12 re-review 1):
+ * - IPv4 only: no AAAA query, so a host with only AAAA records does not resolve;
+ * - UDP only: a truncated answer (TC bit) is taken as it is, with no retry over TCP;
+ * - one try per nameserver, at most TRY_SEC each: resolv.conf's `timeout`, `attempts` and `rotate` are ignored;
+ * - no nsswitch: /etc/hosts first, then DNS, always;
+ * - /etc/hosts gives its first matching IPv4 line only.
  */
 final class BoundedResolver
 {
@@ -22,16 +31,25 @@ final class BoundedResolver
         private readonly int $port = 53,
     ) {}
 
-    /** @param  float  $deadline  microtime(true) by which the answer must be known */
+    /** The first address of ipv4s(). */
     public function ipv4(string $host, float $deadline): string
+    {
+        return $this->ipv4s($host, $deadline)[0];
+    }
+
+    /**
+     * @param  float  $deadline  microtime(true) by which the answer must be known
+     * @return non-empty-list<string>
+     */
+    public function ipv4s(string $host, float $deadline): array
     {
         $bare = rtrim($host, '.');
         if (filter_var($bare, FILTER_VALIDATE_IP) !== false) {
-            return $bare;
+            return [$bare];
         }
         $fromHosts = $this->fromHosts($bare);
         if ($fromHosts !== null) {
-            return $fromHosts;
+            return [$fromHosts];
         }
         [$servers, $search, $ndots] = $this->conf();
         if ($servers === []) {
@@ -55,8 +73,12 @@ final class BoundedResolver
         throw new RuntimeException("cannot resolve \"{$host}\"");
     }
 
-    /** An address; null — the name has none (NXDOMAIN, no A record); false — no usable answer in time. */
-    private function query(string $server, string $name, float $deadline): string|null|false
+    /**
+     * The addresses; null — the name has none (NXDOMAIN, no A record); false — no usable answer in time.
+     *
+     * @return non-empty-list<string>|null|false
+     */
+    private function query(string $server, string $name, float $deadline): array|null|false
     {
         $left = $deadline - microtime(true);
         if ($left <= 0) {
@@ -96,7 +118,7 @@ final class BoundedResolver
                 }
 
                 return match ($h['flags'] & 0xF) {
-                    0 => self::firstA($res, $h['qd'], $h['an']),
+                    0 => self::allA($res, $h['qd'], $h['an']),
                     3 => null,
                     default => false,
                 };
@@ -108,27 +130,32 @@ final class BoundedResolver
         }
     }
 
-    /** The first IN A record of the answer section (a CNAME chain comes first in it), else null. */
-    private static function firstA(string $res, int $qd, int $an): ?string
+    /**
+     * The IN A records of the answer section in order (a CNAME chain comes first in it), else null.
+     *
+     * @return non-empty-list<string>|null
+     */
+    private static function allA(string $res, int $qd, int $an): ?array
     {
         $at = 12;
         for ($i = 0; $i < $qd; $i++) {
             $at = self::skipName($res, $at) + 4;
         }
+        $out = [];
         for ($i = 0; $i < $an && $at < strlen($res); $i++) {
             $at = self::skipName($res, $at);
             if ($at + 10 > strlen($res)) {
-                return null;
+                break;
             }
             $rr = unpack('ntype/nclass/Nttl/nlen', $res, $at);
             $at += 10;
             if ($rr['type'] === 1 && $rr['class'] === 1 && $rr['len'] === 4 && $at + 4 <= strlen($res)) {
-                return (string) inet_ntop(substr($res, $at, 4));
+                $out[] = (string) inet_ntop(substr($res, $at, 4));
             }
             $at += $rr['len'];
         }
 
-        return null;
+        return $out !== [] ? $out : null;
     }
 
     private static function skipName(string $res, int $at): int

@@ -25,7 +25,7 @@ function dnsName(string $name): string
 
 /**
  * A nameserver on 127.0.0.1 (child process): smtp.test → CNAME real.test → 10.1.2.3, short.corp.test → 10.9.9.9,
- * silent.test → never answers, anything else → NXDOMAIN.
+ * multi.test → 127.0.0.2 and 127.0.0.1, silent.test → never answers, anything else → NXDOMAIN.
  *
  * @return array{0: int, 1: int} [port, pid]
  */
@@ -59,6 +59,10 @@ function fakeNameserver(): array
             } elseif ($qname === 'short.corp.test') {
                 $an = "\xC0\x0C".pack('nnNn', 1, 1, 60, 4).inet_pton('10.9.9.9');
                 $count = 1;
+            } elseif ($qname === 'multi.test') {
+                $an = "\xC0\x0C".pack('nnNn', 1, 1, 60, 4).inet_pton('127.0.0.2')
+                    ."\xC0\x0C".pack('nnNn', 1, 1, 60, 4).inet_pton('127.0.0.1');
+                $count = 2;
             } elseif ($qname === 'silent.test') {
                 continue;
             }
@@ -109,4 +113,16 @@ it('ends a lookup the nameserver never answers at the deadline, and the SMTP att
     $stream = (new DeadlineStream(microtime(true) + 0.4, 10.0, $this->resolver))->setHost('silent.test')->setPort(25);
     expect(fn () => $stream->initialize())->toThrow(TransportException::class, 'Connection could not be established with host "silent.test:25"');
     expect(microtime(true) - $t)->toBeLessThan(0.8);
+});
+
+it('returns every A record, and the SMTP connect fails over to the next address', function () {
+    expect($this->resolver->ipv4s('multi.test', microtime(true) + 2))->toBe(['127.0.0.2', '127.0.0.1']);
+    $srv = stream_socket_server('tcp://127.0.0.1:0'); // nothing listens on 127.0.0.2 at that port: refused
+    $name = (string) stream_socket_get_name($srv, false);
+    $port = (int) substr($name, strrpos($name, ':') + 1);
+    $stream = (new DeadlineStream(microtime(true) + 2, 10.0, $this->resolver))->setHost('multi.test')->setPort($port);
+    $stream->initialize();
+    expect(stream_socket_accept($srv, 1))->not->toBeFalse();
+    $stream->terminate();
+    fclose($srv);
 });

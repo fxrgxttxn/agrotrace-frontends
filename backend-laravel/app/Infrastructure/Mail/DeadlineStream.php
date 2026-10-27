@@ -75,14 +75,21 @@ final class DeadlineStream extends AbstractStream
     {
         // The name lookup is part of the attempt too: getaddrinfo inside stream_socket_client would block unbounded.
         try {
-            $ip = $this->resolver->ipv4($this->host, microtime(true) + $this->left());
+            $ips = $this->resolver->ipv4s($this->host, microtime(true) + $this->left());
         } catch (RuntimeException $e) {
             throw new TransportException(sprintf('Connection could not be established with host "%s:%d": %s', $this->host, $this->port, $e->getMessage()));
         }
-        $timeout = $this->left();
-        $errno = 0;
+        // Each address in turn, as PHP's own connect walks getaddrinfo's list; all within the attempt's deadline.
+        $stream = false;
         $errstr = '';
-        $stream = @stream_socket_client("tcp://{$ip}:{$this->port}", $errno, $errstr, $timeout);
+        foreach ($ips as $ip) {
+            $errno = 0;
+            $stream = @stream_socket_client(sprintf(str_contains($ip, ':') ? 'tcp://[%s]:%d' : 'tcp://%s:%d', $ip, $this->port), $errno, $errstr, $this->left());
+            if ($stream !== false) {
+                break;
+            }
+        }
+        $timeout = $this->left();
         if ($stream === false) {
             throw new TransportException(sprintf('Connection could not be established with host "%s:%d": %s', $this->host, $this->port, $errstr));
         }
