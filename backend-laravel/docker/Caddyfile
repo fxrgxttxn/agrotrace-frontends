@@ -7,8 +7,9 @@
 #
 # SSE (Task 12 step 2): GET /api/v1/events/stream runs on FrankenPHP's classic threads (public/sse.php, Laravel booted
 # per stream), not on an Octane worker — a stream lives up to the token's 15 minutes and would hold a worker that long.
-# num_threads (docker/entrypoint.sh) = OCTANE_WORKERS (the workers' own threads) + 2 + SSE_MAX_STREAMS (classic threads:
-# one per open stream). Static on purpose: FrankenPHP 1.4's max_threads scaling started threads too slowly for 150
+# num_threads (docker/entrypoint.sh) = OCTANE_WORKERS (the workers' own threads) + SSE_MAX_STREAMS (classic threads:
+# one per open stream, counted by App\Sse\StreamAdmission) + 16 classic threads for the answers that end at once (401,
+# 429, the cap's `retry:`). Static on purpose: FrankenPHP 1.4's max_threads scaling started threads too slowly for 150
 # streams opened at once (measured: p50 7 s to the first byte, a third not served in 14 s; static: all within 0.3 s).
 {
 	admin off
@@ -20,7 +21,7 @@
 		level WARN
 	}
 	frankenphp {
-		num_threads {$FRANKENPHP_NUM_THREADS:234}
+		num_threads {$FRANKENPHP_NUM_THREADS:248}
 		worker {
 			file /app/public/frankenphp-worker.php
 			num {$OCTANE_WORKERS:32}

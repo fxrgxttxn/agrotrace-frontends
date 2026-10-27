@@ -36,4 +36,10 @@ final class SseFrame
     {
         return "event: reauth\ndata: ".Json::encode(['reason' => 'TOKEN_EXPIRED'])."\n\n";
     }
+
+    /** The whole answer to a stream past the cap (StreamAdmission): the EventSource reconnects after $ms. */
+    public static function retry(int $ms): string
+    {
+        return "retry: {$ms}\n\n";
+    }
 }

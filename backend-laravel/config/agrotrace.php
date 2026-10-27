@@ -63,6 +63,8 @@ return [
         'region' => env('S3_REGION', 'us-east-1'),
     ],
     'health_timeout_ms' => (int) env('HEALTH_TIMEOUT_MS', 2000),
+    // Open SSE streams per api-laravel process (App\Sse\StreamAdmission; one classic FrankenPHP thread each).
+    'sse_max_streams' => (int) env('SSE_MAX_STREAMS', 200),
     // Access tokens and signed file URLs (R28, R88 M2, P12): one secret shared by the three backends.
     'jwt_secret' => (string) env('JWT_SECRET', ''),
     // Links in letters (R82): `${PUBLIC_BASE_URL}/password/reset/{token}`, `${PUBLIC_BASE_URL}/invite/{token}`.
