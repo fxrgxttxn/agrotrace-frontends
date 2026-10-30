@@ -7,11 +7,15 @@ event a worker handles) and the record's fields. Secrets never reach the logs (P
 
 from __future__ import annotations
 
+import decimal
+import enum
 import logging
 import os
 import sys
+import uuid
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from datetime import time as clock_time
 from typing import Any
 
 import structlog
@@ -64,6 +68,11 @@ def _plain(value: Any, depth: int = 0) -> bool:
     copied into a line: `str(obj)` of a library object can hold a secret that `mask()` cannot see (P8)."""
     if value is None or isinstance(value, (bool, int, float, str)):
         return True
+    # Value types whose text is the value itself (rendered with str): ids, instants, amounts, enum members.
+    if isinstance(value, (uuid.UUID, date, clock_time, decimal.Decimal)):
+        return True
+    if isinstance(value, enum.Enum):
+        return _plain(value.value, depth + 1)
     if depth > 32:
         return False
     if isinstance(value, Mapping):

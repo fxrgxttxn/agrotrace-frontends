@@ -9,6 +9,7 @@
  */
 
 use App\Sse\RespError;
+use App\Sse\SseFrame;
 use App\Sse\Stream;
 use App\Sse\StreamIo;
 use App\Sse\StreamStore;
@@ -190,14 +191,19 @@ final class FakeIo implements StreamIo
         return $this->taken === null ? 0 : $this->written - $this->taken;
     }
 
-    /** @return list<string> event names, with `notification` as `n:<seq>` */
+    /** @return list<string> event names after the leading `retry: 3000` (PL8), with `notification` as `n:<seq>` */
     public function events(): array
     {
+        $frames = $this->frames;
+        if ($frames !== [] && $frames[0] === SseFrame::retry(Stream::ADMITTED_RETRY_MS)) {
+            array_shift($frames);
+        }
+
         return array_map(function (string $f): string {
             preg_match('/^(?:id: (\d+)\n)?event: (\w+)\n/', $f, $m);
 
             return $m[2] === 'notification' ? 'n:'.$m[1] : ($m[2] === 'unread' ? 'unread:'.json_decode(substr($f, strpos($f, 'data: ') + 6))->count : $m[2]);
-        }, $this->frames);
+        }, $frames);
     }
 }
 
@@ -234,7 +240,8 @@ it('connect: unread first; a live row → notification (id = seq) then unread; n
     $s->run();
     expect($io->events())->toBe(['unread:0', 'n:101', 'unread:1', 'unread:1', 'ping', 'reauth']);
     expect($s->endReason)->toBe('reauth');
-    expect($io->frames[1])->toStartWith("id: 101\nevent: notification\ndata: {\"id\":\"00000000-0000-4000-8000-000000000101\",\"seq\":101,");
+    expect($io->frames[0])->toBe("retry: 3000\n\n");
+    expect($io->frames[2])->toStartWith("id: 101\nevent: notification\ndata: {\"id\":\"00000000-0000-4000-8000-000000000101\",\"seq\":101,");
 });
 
 it('replay for L: seq > L; unread rows below L created ≤ 60 s before row L; only seq > L without row L', function () {

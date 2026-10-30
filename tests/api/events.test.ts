@@ -250,4 +250,48 @@ describe('GET /events/stream', () => {
       other.events.filter((e) => e.event === 'notification' && e.data.type === 'WAYBILL_INCOMING'),
     ).toEqual([]);
   });
+  /** `count` unread IN_APP rows for `userId`, inserted as another backend's worker would (about 0.8 KB per frame). */
+  async function burst(userId: string, count: number): Promise<string[]> {
+    const seqs: string[] = [];
+    const productName = 'Партия '.repeat(40);
+    for (let i = 0; i < count; i++) {
+      const [row] = await fixtureWrite<{ id: string; seq: string }>(
+        `INSERT INTO notifications (user_id, type, payload, channel, delivery_status)
+         VALUES ($1, 'COMPLAINT', $2, 'IN_APP', 'DELIVERED') RETURNING id, seq`,
+        [
+          userId,
+          JSON.stringify({ complaintId: randomUUID(), batchId: randomUUID(), publicCode: 'AT-2026-999999', productName }),
+        ],
+      );
+      seqs.push(row!.seq);
+    }
+    return seqs;
+  }
+
+  it('a replay larger than 1 MiB reaches a reading client whole, in seq order, then unread (PL7)', async () => {
+    const user = await freshOrg('PROCESSOR');
+    const seqs = await burst(user.userId, 2200);
+    const s = await stream({ token: user.client.accessToken!, lastEventId: seqs[0]! });
+    const unread = await s.next('unread', 60000);
+    const replayed = s.events.slice(0, s.events.indexOf(unread)).filter((e) => e.event === 'notification');
+    expect(replayed.map((e) => e.id)).toEqual(seqs.slice(1));
+    expect(s.bytes).toBeGreaterThan(1024 * 1024);
+    expect(unread.data).toEqual({ count: 2200 });
+  }, 120000);
+
+  it('the late-commit part of a replay holds at most the 100 highest seqs below Last-Event-ID (PL7)', async () => {
+    const user = await freshOrg('PROCESSOR');
+    const seqs = await burst(user.userId, 150);
+    const last = seqs.at(-1)!;
+    const s = await stream({ token: user.client.accessToken!, header: last });
+    const unread = await s.next('unread', 30000);
+    const replayed = s.events.slice(0, s.events.indexOf(unread)).filter((e) => e.event === 'notification');
+    expect(replayed.map((e) => e.id)).toEqual(seqs.slice(-101, -1));
+  }, 60000);
+
+  it('an admitted stream starts with retry: 3000 (PL8)', async () => {
+    const s = await stream({ token: receiver.client.accessToken! });
+    await s.next('unread');
+    expect(s.blocks[0]).toBe('retry: 3000');
+  });
 });

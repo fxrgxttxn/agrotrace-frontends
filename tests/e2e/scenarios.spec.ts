@@ -56,6 +56,54 @@ async function openTest(page: Page, code: string) {
   await expect(title(page)).toHaveText(`Анализ ${code}`);
 }
 
+// On a real backend the specs share one world: the recall below (a laboratory FAIL on Petrov's farm) lowers the farm's
+// rating under 70 (BR-09), after which each of its harvests goes to a laboratory (LOW_RATING). So the file runs in
+// order in one worker, UC-02 first; other files still run in parallel.
+test.describe.configure({ mode: 'default' });
+
+test('UC-02: a farmer registers a harvest and ships it to a processor, who accepts it', async ({ page }) => {
+  const w = await watch(page);
+  await signIn(page, 'petrov@agrotrace.test', w);
+  // A field without recent pesticides: the risk model may still sample a code (BR-03, 20 %) — such a batch waits for
+  // its laboratory, so the next harvest is registered.
+  let batch = await harvest(page, 'Пастбище у Колокши', 'Молоко сырое коровье', '800');
+  for (let i = 0; batch.toLab && i < 4; i++)
+    batch = await harvest(page, 'Пастбище у Колокши', 'Молоко сырое коровье', '800');
+  expect(batch.toLab).toBe(false);
+  const { code } = batch;
+  await expect(page.getByText('Допущена', { exact: true }).first()).toBeVisible();
+
+  await page.goto('/waybills/new');
+  await expect(title(page)).toHaveText('Новая накладная');
+  await page.getByRole('combobox', { name: 'Получатель' }).fill('ООО «Молк');
+  await page.getByRole('listbox', { name: 'Получатель' }).getByRole('option').first().click();
+  // The native checkbox under the design-system box (README «Флажок»): Space toggles it, as for a keyboard user.
+  const pick = page.getByRole('checkbox', { name: `Выбрать ${code}` });
+  await pick.focus();
+  await page.keyboard.press('Space');
+  await expect(pick).toBeChecked();
+  await page.getByRole('button', { name: 'Создать накладную' }).click();
+  await expect(title(page)).toHaveText(/^WB-\d{4}-\d{6}$/, { timeout: 20000 });
+  const number = (await title(page).textContent())!;
+  await expect(page.getByText(`Черновик ${number} создан`)).toBeVisible();
+  await page.getByRole('button', { name: 'Отгрузить' }).click();
+  await expect(page.getByText(`Накладная ${number} отправлена, партии в пути`)).toBeVisible();
+  await expect(page.getByText('Отправлена', { exact: true }).first()).toBeVisible();
+  await signOut(page);
+
+  await signIn(page, 'molkombinat.head@agrotrace.test', w);
+  await page.goto('/waybills?direction=incoming&status=SENT');
+  await expect(title(page)).toHaveText('Накладные');
+  await page.getByRole('main').getByRole('link', { name: number }).click();
+  await expect(title(page)).toHaveText(number);
+  await page.getByLabel(`Фактическая масса ${code}`).fill('800');
+  await page.getByRole('button', { name: 'Принять' }).click();
+  await expect(page.getByText(`Накладная ${number} принята`)).toBeVisible();
+  await page.goto('/stock');
+  await expect(page.getByRole('main').getByText(code)).toBeVisible();
+  expect(unexpected(w)).toEqual([]);
+});
+
 test('end-to-end recall: harvest → laboratory FAIL → recall → withdrawal → warning on the QR page', async ({
   page,
 }) => {
@@ -124,49 +172,6 @@ test('end-to-end recall: harvest → laboratory FAIL → recall → withdrawal �
   await expect(page.getByRole('heading', { level: 2, name: 'Партия отозвана' })).toBeVisible();
   await expect(page.getByText('Не употребляйте продукт из этой партии.')).toBeVisible();
   await expect(page.getByText('Отозвана', { exact: true })).toBeVisible();
-  expect(unexpected(w)).toEqual([]);
-});
-
-test('UC-02: a farmer registers a harvest and ships it to a processor, who accepts it', async ({ page }) => {
-  const w = await watch(page);
-  await signIn(page, 'petrov@agrotrace.test', w);
-  // A field without recent pesticides: the risk model may still sample a code (BR-03, 20 %) — such a batch waits for
-  // its laboratory, so the next harvest is registered.
-  let batch = await harvest(page, 'Пастбище у Колокши', 'Молоко сырое коровье', '800');
-  for (let i = 0; batch.toLab && i < 4; i++)
-    batch = await harvest(page, 'Пастбище у Колокши', 'Молоко сырое коровье', '800');
-  expect(batch.toLab).toBe(false);
-  const { code } = batch;
-  await expect(page.getByText('Допущена', { exact: true }).first()).toBeVisible();
-
-  await page.goto('/waybills/new');
-  await expect(title(page)).toHaveText('Новая накладная');
-  await page.getByRole('combobox', { name: 'Получатель' }).fill('ООО «Молк');
-  await page.getByRole('listbox', { name: 'Получатель' }).getByRole('option').first().click();
-  // The native checkbox under the design-system box (README «Флажок»): Space toggles it, as for a keyboard user.
-  const pick = page.getByRole('checkbox', { name: `Выбрать ${code}` });
-  await pick.focus();
-  await page.keyboard.press('Space');
-  await expect(pick).toBeChecked();
-  await page.getByRole('button', { name: 'Создать накладную' }).click();
-  await expect(title(page)).toHaveText(/^WB-\d{4}-\d{6}$/, { timeout: 20000 });
-  const number = (await title(page).textContent())!;
-  await expect(page.getByText(`Черновик ${number} создан`)).toBeVisible();
-  await page.getByRole('button', { name: 'Отгрузить' }).click();
-  await expect(page.getByText(`Накладная ${number} отправлена, партии в пути`)).toBeVisible();
-  await expect(page.getByText('Отправлена', { exact: true }).first()).toBeVisible();
-  await signOut(page);
-
-  await signIn(page, 'molkombinat.head@agrotrace.test', w);
-  await page.goto('/waybills?direction=incoming&status=SENT');
-  await expect(title(page)).toHaveText('Накладные');
-  await page.getByRole('main').getByRole('link', { name: number }).click();
-  await expect(title(page)).toHaveText(number);
-  await page.getByLabel(`Фактическая масса ${code}`).fill('800');
-  await page.getByRole('button', { name: 'Принять' }).click();
-  await expect(page.getByText(`Накладная ${number} принята`)).toBeVisible();
-  await page.goto('/stock');
-  await expect(page.getByRole('main').getByText(code)).toBeVisible();
   expect(unexpected(w)).toEqual([]);
 });
 

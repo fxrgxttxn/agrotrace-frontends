@@ -78,6 +78,16 @@ export async function settle(page: Page): Promise<void> {
 /** axe-core with the WCAG 2.0/2.1 A and AA rules on the whole page, no exclusions (polish P1: the unit of a disabled
  * input group now has 4.5:1 — --c-ink-disabled): one line per violation (rule id and the nodes it found). */
 export async function a11y(page: Page): Promise<string[]> {
+  // A toast of a live notification (a real backend's SSE: another spec's complaint reaches the inspector) may be fading
+  // in at this moment; axe would measure its text at a partial opacity. Finite animations are let finish first.
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+        .map((a) => a.finished.catch(() => undefined)),
+    ),
+  );
   const axe = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']);
   const { violations } = await axe.analyze();
   return violations.map((v) => `${v.id} (${v.impact}): ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);

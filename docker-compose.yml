@@ -81,11 +81,14 @@ services:
   gateway:
     build: { context: ./gateway }
     # No `depends_on`: the gateway must start with no backend containers running at all (nginx
-    # resolves api-<back> at request time via the Docker resolver, not at startup). Frontend dist
-    # bind mounts (./frontend-<front>/dist -> /srv/<front>, overriding the baked-in placeholder,
-    # R6) are added by the plans that create those directories.
+    # resolves api-<back> at request time via the Docker resolver, not at startup). Each frontend's
+    # checkout directory is mounted at /srv/src/<front>; /srv/<front> is a symlink to its build (dist,
+    # Svelte: build) or to the placeholder, made at start and after `./at fe:build` (gateway/40-fronts.sh, PL2).
     volumes:
       - ./packages/design-system:/srv/ds:ro
+      - ./frontend-react:/srv/src/react:ro
+      - ./frontend-angular:/srv/src/angular:ro
+      - ./frontend-svelte:/srv/src/svelte:ro
     # GATEWAY_PORT (.env.example default: 80) is the host port; override it in a local,
     # uncommitted .env when 80 is already taken on the machine. Also passed into the container
     # itself (R80): nginx's own $server_port is always 80 (the port it listens on *inside* the

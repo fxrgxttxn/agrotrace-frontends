@@ -204,6 +204,7 @@ describe('access tokens', () => {
 describe('small parsers', () => {
   it('clientIp: IPv4-mapped IPv6 → IPv4; non-IP → null', () => {
     expect(clientIp('::ffff:10.1.2.3')).toBe('10.1.2.3');
+    expect(clientIp('::FFFF:10.1.2.3')).toBe('10.1.2.3');
     expect(clientIp('2001:db8::1')).toBe('2001:db8::1');
     expect(clientIp('10.0.0.1')).toBe('10.0.0.1');
     expect(clientIp('evil, 1.2.3.4')).toBeNull();

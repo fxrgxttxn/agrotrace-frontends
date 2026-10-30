@@ -31,6 +31,9 @@ const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 16000, 30000];
  * CLOSED connections and/or rejected `refresh()` calls — that never reach a successful open. Reset
  * on `es.onopen`, same as the backoff. */
 const MAX_CONSECUTIVE_FAILURES = 10;
+/** PL9: how many forwarded notification ids a stream remembers to drop repeats — a replay (P46: the unread rows of
+ * the last 60 s are sent again on reconnect; a backend may replay a whole unread burst) must not show a toast twice. */
+const SEEN_NOTIFICATION_IDS = 1000;
 
 /** Opens the `GET /events/stream` SSE connection and manages reconnection:
  * - `reauth` (server-initiated): close immediately (so the browser doesn't auto-reconnect with the
@@ -60,6 +63,8 @@ export function openEventStream(opts: OpenEventStreamOptions): { close(): void }
   let backoffIndex = 0;
   let consecutiveFailures = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Ids of forwarded notifications, oldest first (the Set keeps insertion order); kept across reconnects.
+  const seen = new Set<string>();
 
   function buildUrl(): string {
     const params = new URLSearchParams({ access_token: opts.token() ?? '' });
@@ -75,6 +80,14 @@ export function openEventStream(opts: OpenEventStreamOptions): { close(): void }
         data = JSON.parse(event.data) as unknown;
       } catch {
         data = event.data;
+      }
+      if (type === 'notification') {
+        const nid = (data as { id?: unknown } | null)?.id;
+        if (typeof nid === 'string') {
+          if (seen.has(nid)) return;
+          seen.add(nid);
+          if (seen.size > SEEN_NOTIFICATION_IDS) seen.delete(seen.values().next().value as string);
+        }
       }
       opts.onEvent({ type, data, id: event.lastEventId || undefined });
     };

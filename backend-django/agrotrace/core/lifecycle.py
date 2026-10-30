@@ -42,20 +42,22 @@ def exit_after_on_sigterm(timeout_ms: int) -> None:
     hub) runs as before — Express's api arms its `exit(1)` on the signal too. Off the main thread: nothing to do."""
     import signal
 
-    try:
-        previous = signal.getsignal(signal.SIGTERM)
-    except (ValueError, OSError):  # pragma: no cover - not the main thread
-        return
-    if not callable(previous):
-        return
     armed: list[threading.Timer] = []
+    # SIGINT (Ctrl-C) stops the api as SIGTERM does, so it arms the same watchdog (Express handles both).
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            previous = signal.getsignal(sig)
+        except (ValueError, OSError):  # pragma: no cover - not the main thread
+            return
+        if not callable(previous):
+            continue
 
-    def handler(signum, frame):
-        if not armed:
-            armed.append(exit_after(timeout_ms))
-        previous(signum, frame)
+        def handler(signum, frame, previous=previous):
+            if not armed:
+                armed.append(exit_after(timeout_ms))
+            previous(signum, frame)
 
-    try:
-        signal.signal(signal.SIGTERM, handler)
-    except (ValueError, OSError):  # pragma: no cover
-        pass
+        try:
+            signal.signal(sig, handler)
+        except (ValueError, OSError):  # pragma: no cover
+            pass

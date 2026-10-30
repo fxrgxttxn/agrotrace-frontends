@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -46,9 +45,13 @@ Handler = Callable[[dict[str, Any]], None]
 #: One process-wide slot per exclusive lane (R92: one `vsd.import` handler at a time).
 LANES: dict[str, threading.Lock] = {"vsd": threading.Lock()}
 
+#: Set when the worker starts its warm shutdown (celery_app.py): a handler that fails from then on is not retried and
+#: not dead-lettered — its delivery goes back to the queue (PL13), as on Express and Laravel.
+STOPPING = threading.Event()
+
 
 def _sleep(seconds: float) -> None:  # tests replace it
-    time.sleep(seconds)
+    STOPPING.wait(seconds)
 
 
 class EventTask(Task):
@@ -91,6 +94,10 @@ class EventTask(Task):
                 type(self).handler(envelope)
                 return
             except Exception as e:
+                if STOPPING.is_set():
+                    log.warning("event handler failed while stopping; left to the broker",
+                                extra={"err": str(e), "eventId": envelope.get("id"), "type": self.name})
+                    raise Reject(e, requeue=True) from e
                 if attempt >= len(RETRY_DELAYS_S):
                     log.error("event handler failed; dead-lettering", exc_info=e,
                               extra={"eventId": envelope.get("id"), "type": self.name})

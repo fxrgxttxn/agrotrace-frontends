@@ -21,10 +21,12 @@ git clone <repo-url> && cd agrotrace
 ./at.sh up infra      # postgres, redis, rabbitmq, minio (+ minio-init), mailpit
 ./at.sh db:migrate
 ./at.sh seed
-./at.sh up gateway
+./at.sh up all
 ```
 
-Open **http://localhost:${GATEWAY_PORT}/** (`GATEWAY_PORT` defaults to `80`, see below).
+Open **http://localhost:${GATEWAY_PORT}/** (`GATEWAY_PORT` defaults to `80`, see below): the start page links to the
+nine combinations `http://{react,angular,svelte}-{express,django,laravel}.localhost:${GATEWAY_PORT}/`, all on one
+database. Known limitations of the final system: [known-limitations.md](known-limitations.md).
 
 ## `.env` variables
 
@@ -70,7 +72,7 @@ freely, it's never committed.
 | `./at.sh lint`          | Runs the repo-wide ESLint flat config (`eslint .`) once — it already covers every package in one pass.                                                                                                                                                                                                                             |
 | `./at.sh typecheck`     | `pnpm -r typecheck` — `tsc --noEmit` in every package that defines that script.                                                                                                                                                                                                                                                    |
 | `./at.sh fmt <path…>`   | Formats the given paths with Prettier; no arguments or a flag is refused (P13).                                                                                                                                                                                                                                                                            |
-| `./at.sh up` / `up all` | Builds (see below) and starts every service.                                                                                                                                                                                                                                                                                       |
+| `./at.sh up` / `up all` | The 3×3 matrix: `up infra` (postgres and rabbitmq are never recreated), `minio-init`, the three production front builds (skipped with `AT_SKIP_FE_BUILD=1`), then the nine backend services and the gateway with `--no-deps`; prints the nine addresses. |
 | `./at.sh up infra`      | Builds and starts postgres, redis, rabbitmq, minio, mailpit and mercury-mock, then runs `minio-init` (creates the `agrotrace` bucket).                                                                                                                                                                                                              |
 | `./at.sh up gateway`    | Builds and starts just the gateway, then prints the URL to open. The gateway needs no backend running — it resolves `api-<backend>` at request time.                                                                                                                                                                               |
 | `./at.sh up <front> <back>` | One combination (spec §14.4), e.g. `./at up react django`: `up infra`, then the backend's services (`api-*`, `worker-*`, and `beat-django` / `scheduler-laravel`) plus the gateway; prints `http://<front>-<back>.localhost:<GATEWAY_PORT>/`. Fails with a clear message while a backend's services are not in `docker-compose.yml` yet; `AT_DRY_RUN=1` prints the docker commands instead. |
@@ -89,6 +91,10 @@ freely, it's never committed.
 | `./at.sh ds:test`       | Runs the design-system showcase's Playwright suite (visual + accessibility) inside the `playwright` Compose service.                                                                                                                                                                                                               |
 | `./at.sh docs:test [back]` | Starts the backend (default `express`) and the gateway, then checks in the `playwright` service (Chromium, network `at`) that `http://react-<back>.localhost/api/v1/docs` renders Swagger UI under the gateway's CSP with no console error, CSP violation or request to another origin (`tests/ds/api-docs`). |
 | `./at.sh gw:test`       | Brings up the `gwtest`-profile stub backend (a running `api-express` is stopped for the run and started again), checks the gateway's _loaded_ nginx config (`nginx -T`) for a couple of invariants, runs `tests/gateway`, then tears the stub down — pass or fail. Requires `./at.sh up gateway` first.                                                                                               |
+| `./at.sh fe:build <front> [--mock]` | The production build of a front (`--mock`: the build with the in-browser mock backend for the stands). When the main gateway runs, it is pointed at the new build at once (`/srv/<front>` is a symlink to `frontend-<front>/dist` or `frontend-svelte/build`, made by `gateway/40-fronts.sh`); a host with no build shows the placeholder «Сборка фронтенда ещё не подключена». |
+| `./at.sh e2e [front] [back] [playwright args…]` | The shared Playwright suite `tests/e2e` on `http://<front>-<back>.localhost` (defaults `react mock`). A real backend is always reached through the main gateway, with the e2e profile on its api for the run (`docker-compose.e2e.yml`: rate limits lifted, DaData off) and the other backends' schedulers paused; run `./at.sh reset` first. `mock` runs against the front's stand (`fe:gateway`). |
+| `./at.sh e2e:matrix [playwright args…]` | `tests/e2e` on all nine pairs, each after `./at.sh reset`; the table `front back rc seconds` goes to stdout and `tests/e2e/test-results/matrix-summary.txt`; fails if any pair failed (about 2 minutes per pair). |
+| `./at.sh cross:test [a] [b]` | `tests/cross` against `api-<a>` and `api-<b>` on one database (spec §14.1: all six ordered pairs of distinct backends). Run `./at.sh reset` before it: the e2e suite lowers a demo farm's rating, after which its harvests always go to a laboratory. |
 | `./at.sh psql`          | Opens `psql` against the dev database as `agrotrace_owner`.                                                                                                                                                                                                                                                                        |
 | `./at.sh check`         | Quick liveness check of postgres, redis, rabbitmq and the minio, mailpit and mercury-mock HTTP endpoints.                                                                                                                                                                                                                                                |
 
@@ -114,6 +120,9 @@ harmless for services without a `build:` key (postgres, redis, rabbitmq, minio, 
 often already bound to 80. Set `GATEWAY_PORT` in `.env` to a free port (e.g. `GATEWAY_PORT=8088`)
 and re-run `./at.sh up gateway` — the start page URL it prints, and `X-Forwarded-Port` on every
 proxied request, follow automatically.
+
+**A combination shows «Сборка фронтенда ещё не подключена».** That front has no production build yet (or it
+was deleted): run `./at.sh fe:build <front>` — a running gateway picks it up at once, no restart needed.
 
 **File changes aren't picked up on Windows.** Docker Desktop's bind mount of the repo into Linux
 containers (9p on WSL2, or an older virtiofs/osxfs-style backend) can miss filesystem change

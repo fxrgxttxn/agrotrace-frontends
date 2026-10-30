@@ -51,6 +51,45 @@ describe('openEventStream', () => {
     expect(onEvent).toHaveBeenNthCalledWith(2, { type: 'unread', data: { count: 3 }, id: undefined });
   });
 
+  it('drops a notification whose id was already forwarded, also after a reconnect (P46 replay, PL9)', async () => {
+    const onEvent = vi.fn();
+    openEventStream({
+      token: () => 't',
+      onEvent,
+      refresh: vi.fn(async () => 't2'),
+      EventSourceImpl: MockEventSource as unknown as typeof EventSource,
+    });
+    const first = MockEventSource.instances[0]!;
+    first.emit('notification', { id: 'n1', seq: 1 }, '1');
+    first.emit('notification', { id: 'n1', seq: 1 }, '1');
+    first.emit('reauth', { reason: 'TOKEN_EXPIRED' });
+    await vi.waitFor(() => expect(MockEventSource.instances).toHaveLength(2));
+    const second = MockEventSource.instances[1]!;
+    second.emit('notification', { id: 'n1', seq: 1 }, '1');
+    second.emit('notification', { id: 'n2', seq: 2 }, '2');
+    second.emit('unread', { count: 2 });
+    second.emit('unread', { count: 2 });
+    const types = onEvent.mock.calls.map(([e]) => e as { type: string; data: { id?: string } });
+    expect(types.filter((e) => e.type === 'notification').map((e) => e.data.id)).toEqual(['n1', 'n2']);
+    expect(types.filter((e) => e.type === 'unread')).toHaveLength(2);
+  });
+
+  it('remembers at most 1000 notification ids, forgetting the oldest first', () => {
+    const onEvent = vi.fn();
+    openEventStream({
+      token: () => 't',
+      onEvent,
+      refresh: vi.fn(),
+      EventSourceImpl: MockEventSource as unknown as typeof EventSource,
+    });
+    const source = MockEventSource.instances[0]!;
+    for (let i = 0; i <= 1000; i++) source.emit('notification', { id: `n${i}` }, String(i));
+    onEvent.mockClear();
+    source.emit('notification', { id: 'n1000' }, '1000');
+    source.emit('notification', { id: 'n0' }, '0');
+    expect(onEvent.mock.calls.map(([e]) => (e as { data: { id: string } }).data.id)).toEqual(['n0']);
+  });
+
   it('on reauth: closes the stream, refreshes, and reopens with the new token and lastEventId', async () => {
     const onEvent = vi.fn();
     let token = 'old';

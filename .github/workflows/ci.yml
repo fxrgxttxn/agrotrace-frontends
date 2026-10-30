@@ -44,6 +44,9 @@ jobs:
       - run: ./at.sh pnpm --filter @agrotrace/contracts run lint:openapi
       # Every workspace package outside tests/* (R83); tests/* run in the db, gateway and ds jobs.
       - run: ./at.sh test
+      # The domain rules (packages/domain, the Express domain) held to their coverage bar (vitest.config.ts, ≥ 90 %
+      # lines; spec §15.5 asks ≥ 70 %) — Django and Laravel enforce theirs in their unit jobs.
+      - run: ./at.sh pnpm --filter @agrotrace/domain test:coverage
       - run: ./at.sh at:test
       - uses: ./.github/actions/pnpm-store-save
         if: always()
@@ -263,3 +266,56 @@ jobs:
           path: tests/e2e/test-results/run
       - uses: ./.github/actions/pnpm-store-save
         if: always()
+
+  # --- integration (plan 8) ---
+  # Spec §14.3: the shared e2e suite on every front × backend pair against the real backend, through the main gateway
+  # (the e2e profile lifts the rate limits for the run, PL4).
+  e2e-real:
+    name: e2e (tests/e2e, ${{ matrix.front }} × ${{ matrix.back }})
+    runs-on: ubuntu-latest
+    env:
+      SEED_NOW: '2026-09-24T12:00:00Z'
+    strategy:
+      fail-fast: false
+      matrix:
+        front: [react, angular, svelte]
+        back: [express, django, laravel]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh up infra
+      - run: ./at.sh reset
+      - run: ./at.sh fe:build ${{ matrix.front }}
+      - run: ./at.sh up ${{ matrix.front }} ${{ matrix.back }}
+      - run: ./at.sh e2e ${{ matrix.front }} ${{ matrix.back }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-real-${{ matrix.front }}-${{ matrix.back }}
+          path: tests/e2e/test-results/run
+      - if: failure()
+        run: docker compose logs --no-color --tail 500 api-${{ matrix.back }} gateway
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+
+  # Spec §14.1: tests/cross on all six ordered pairs — the express pairs run in the backend jobs, these are the rest.
+  cross-ports:
+    name: cross (tests/cross, django ↔ laravel)
+    runs-on: ubuntu-latest
+    env:
+      SEED_NOW: '2026-09-24T12:00:00Z'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/pnpm-store-restore
+      - run: ./at.sh install
+      - run: ./at.sh up infra
+      - run: ./at.sh reset
+      - run: ./at.sh cross:test django laravel
+      - run: ./at.sh reset
+      - run: ./at.sh cross:test laravel django
+      - if: failure()
+        run: docker compose logs --no-color --tail 500 api-django api-laravel
+      - uses: ./.github/actions/pnpm-store-save
+        if: always()
+  # --- end integration ---

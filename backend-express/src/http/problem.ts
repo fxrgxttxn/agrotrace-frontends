@@ -142,6 +142,18 @@ interface HttpParserError extends Error {
   expose?: boolean;
 }
 
+/** SQLSTATEs of a lost or refused database connection (class 08 without 08P01, a protocol violation), as on django
+ * and laravel. */
+const CONNECTION_LOST = new Set(['08000', '08001', '08003', '08004', '08006', '08007']);
+const SOCKET_ERRORS = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN']);
+
+/** The database (or another service) went away under the request: node-pg reports a dropped session with no code. */
+function isConnectionLost(err: unknown): boolean {
+  const e = err as { code?: unknown; message?: unknown } | null;
+  if (typeof e?.code === 'string' && (CONNECTION_LOST.has(e.code) || SOCKET_ERRORS.has(e.code))) return true;
+  return typeof e?.message === 'string' && /^Connection terminated( unexpectedly)?$/.test(e.message);
+}
+
 /** Maps any thrown value to the problem the client gets; null = unexpected (500). */
 export function toProblem(err: unknown): AppProblem | null {
   if (err instanceof AppProblem) return err;
@@ -152,7 +164,7 @@ export function toProblem(err: unknown): AppProblem | null {
   // P61: the database budget is exhausted — no pool connection in time, or a statement/lock wait past the session's
   // statement_timeout (57014) / lock_timeout (55P03): the infrastructure is unavailable, not the request wrong.
   const pgCode = (err as { code?: unknown } | null)?.code;
-  if (isPoolTimeout(err) || pgCode === '57014' || pgCode === '55P03')
+  if (isPoolTimeout(err) || pgCode === '57014' || pgCode === '55P03' || isConnectionLost(err))
     return new AppProblem(503, 'BACKEND_UNAVAILABLE');
   const e = err as HttpParserError;
   switch (e?.type) {

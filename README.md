@@ -22,8 +22,6 @@ schema and API contract, so the same product can be built and compared three dif
 
 ## Repository layout
 
-This reflects the repository as it stands after Plan 0 (foundation); later plans add
-`backend-{express,django,laravel}/` and `frontend-{react,angular,svelte}/` alongside it.
 
 ```
 agrotrace/
@@ -36,9 +34,13 @@ agrotrace/
     domain/  validation/  i18n/  api-client/  design-system/
   gateway/             nginx routing, start page, gwtest stub upstream
   mercury-mock/        emulator of the external «Меркурий» veterinary system
-  backend-express/     Express backend (Plan 1): api, worker, scheduler from one image
+  backend-express/     Express backend: api, worker, scheduler from one image
+  backend-django/      Django backend: api (uvicorn), worker (Celery), beat
+  backend-laravel/     Laravel backend: api (Octane/FrankenPHP), worker, scheduler
+  frontend-react/  frontend-angular/  frontend-svelte/   the three SPAs
   tests/
-    api/  at/  db/  ds/  gateway/  shared test suites (tests/api: HTTP contract suite for every backend)
+    api/  cross/  e2e/  at/  db/  ds/  gateway/   shared suites: tests/api — the HTTP contract suite for every
+                       backend; tests/cross — two backends on one DB; tests/e2e — Playwright on every front × backend
   infra/               postgres/rabbitmq/minio init and config
   docs/                spec, deploy guide, demo accounts, plans (docs/superpowers/plans/)
   .github/             CI (ci.yml) and its local composite actions
@@ -57,11 +59,24 @@ git clone <repo-url> && cd agrotrace
 ./at.sh up infra      # postgres, redis, rabbitmq, minio, mailpit, mercury-mock
 ./at.sh db:migrate    # applies db/migrations
 ./at.sh seed          # loads the demo world (accounts: docs/demo-accounts.md)
-./at.sh up gateway    # builds and starts the nginx gateway
+./at.sh up all        # builds the three frontends, starts the three backends and the gateway
 ```
 
 Then open **http://localhost:${GATEWAY_PORT}/** (`${GATEWAY_PORT}` defaults to `80`; see
-`.env`). The design-system showcase is at `/_ds/`.
+`.env`) — the start page links to all nine combinations:
+
+| | Express | Django | Laravel |
+|---|---|---|---|
+| **React** | `react-express.localhost` | `react-django.localhost` | `react-laravel.localhost` |
+| **Angular** | `angular-express.localhost` | `angular-django.localhost` | `angular-laravel.localhost` |
+| **Svelte** | `svelte-express.localhost` | `svelte-django.localhost` | `svelte-laravel.localhost` |
+
+All nine share one database: data entered through any of them is seen by all. `./at.sh reset` restores the demo
+world. The design-system showcase is at `/_ds/`. One combination only: `./at.sh up <front> <back>`.
+
+Tests across the matrix: `./at.sh e2e <front> <back>` (the shared Playwright suite against a real backend),
+`./at.sh e2e:matrix` (all nine, each after a reset), `./at.sh cross:test <a> <b>` (two backends on one DB).
+Known limitations of the final system: **[docs/known-limitations.md](docs/known-limitations.md)**.
 
 For every other command (`test`, `lint`, `typecheck`, `db:test`, `seed:test`, `ds:test`,
 `gw:test`, `reset`, `down`, …), service ports, environment variables and troubleshooting, see
@@ -90,3 +105,4 @@ The report, in Russian: **[docs/reports/databases.md](docs/reports/databases.md)
   organization and the objects the defense scenario walks through.
 - [Deployment guide](docs/deploy.md) — prerequisites, environment variables, all `./at.sh`
   commands, service URLs, troubleshooting.
+- [Known limitations](docs/known-limitations.md) — what the final system deliberately leaves as is, and why.

@@ -203,6 +203,38 @@ it('PDF: A4 landscape over several pages', function () {
     expect($bytes)->toContain('/MediaBox [0.000000 0.000000 841.890000 595.276000]');
 });
 
+it('PDF: a cell taller than a page continues over the next pages, no line below the bottom margin (PL14)', function () {
+    $render = fn (string $text): string => ReportPdf::render([
+        'title' => 'Жалобы', 'periodLine' => 'Период: 2026-10-01 — 2026-10-30 (UTC)',
+        'generatedLine' => 'Сформирован: 2026-10-30 09:00 UTC', 'generatedAt' => '2026-10-30T09:00:00Z',
+        'fontDir' => LabelPdf::fontDir(),
+        'sheets' => [[
+            'name' => 'Жалобы',
+            'header' => ['Дата', 'Партия', 'Продукт', 'Тип', 'Текст', 'Статус', 'Решение', 'Инспектор', 'Решена'],
+            'rows' => [['2026-10-30', 'AT-2026-000001', 'Молоко', 'Качество', $text, 'NEW', '', '', '']],
+        ]],
+    ]);
+    // Baselines of every text object, in PDF units from the bottom of the page (content streams inflated).
+    $baselines = function (string $pdf): array {
+        preg_match_all('/\/Filter \/FlateDecode[^>]*>>\s*stream\r?\n(.*?)\r?\nendstream/s', $pdf, $m);
+        $ys = [];
+        foreach ($m[1] as $z) {
+            $plain = @gzuncompress($z);
+            if ($plain !== false && preg_match_all('/BT [\d.]+ (-?[\d.]+) Td/', $plain, $t)) {
+                array_push($ys, ...array_map('floatval', $t[1]));
+            }
+        }
+
+        return $ys;
+    };
+    $pages = fn (string $pdf): int => preg_match_all('/\/Type\s*\/Page[^s]/', $pdf);
+    expect($pages($render('коротко')))->toBe(1);
+    $tall = $render(mb_substr(str_repeat('жалоба ', 286), 0, 2000));
+    expect($pages($tall))->toBeGreaterThanOrEqual(2);
+    expect($baselines($tall))->not->toBeEmpty();
+    expect(min($baselines($tall)))->toBeGreaterThan(20.0);
+});
+
 it('PDF canvas: cached widths equal TCPDF\'s, a run is the text object Text() writes', function () {
     $pdf = ReportPdf::canvas(LabelPdf::fontDir());
     $pdf->AddPage('L', 'A4');

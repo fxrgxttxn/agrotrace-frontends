@@ -30,6 +30,7 @@ import { ROLE_OF_TYPE } from '../users/roles.js';
 import { registrationIdentity } from './registration.js';
 import {
   createRefreshToken,
+  lockUserRefresh,
   revokeAllRefreshTokens,
   rotateRefreshToken,
   type RefreshOutcome,
@@ -372,6 +373,8 @@ export function authService(c: Container) {
       const hash = await hashPassword(input.password);
       await withTx(db, async (tx) => {
         const now = await txNow(tx);
+        // R52: the user's refresh lock before its `users` row, as every other path that takes both (and laravel).
+        await lockUserRefresh(tx, entry.userId);
         const r = await tx
           .updateTable('users')
           .set({ password_hash: hash, failed_logins: 0, locked_until: null, updated_at: now })

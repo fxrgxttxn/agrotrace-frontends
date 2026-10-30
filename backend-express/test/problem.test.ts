@@ -131,6 +131,15 @@ describe('problem handler', () => {
       status: 404,
       code: 'NOT_FOUND',
     });
+    // A lost or refused database connection → 503, as on django and laravel; a protocol violation (08P01) stays 500.
+    for (const err of [
+      Object.assign(new Error('x'), { code: '08006' }),
+      Object.assign(new Error('x'), { code: '08001' }),
+      Object.assign(new Error('connect ECONNREFUSED 10.0.0.5:5432'), { code: 'ECONNREFUSED' }),
+      new Error('Connection terminated unexpectedly'),
+    ])
+      expect(toProblem(err)?.body(), err.message).toMatchObject({ status: 503, code: 'BACKEND_UNAVAILABLE' });
+    expect(toProblem(Object.assign(new Error('x'), { code: '08P01' }))).toBeNull();
     // Other exposed 4xx http-errors map by status, never with the library message; 5xx and non-exposed stay 500.
     const httpErr = (status: number, expose = true) =>
       Object.assign(new Error('lib text'), { status, expose });

@@ -18,9 +18,17 @@
 	# FrankenPHP stops after the HAProxy front (supervisord-api.conf priorities), which already gave the requests in
 	# flight SHUTDOWN_TIMEOUT_MS and closed their connections: no client is left to wait for (final review M1).
 	grace_period 1s
+	# Caddy's own error lines carry the request; its URI may hold the SSE `access_token` or a signed link's `sig`/`exp`
+	# (P8): the filter drops the URI and the headers, as the gateway and the access log keep the path only.
 	log {
 		output stderr
-		format json
+		format filter {
+			wrap json
+			fields {
+				request>uri delete
+				request>headers delete
+			}
+		}
 		level WARN
 	}
 	frankenphp {

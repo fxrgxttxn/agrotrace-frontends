@@ -1,0 +1,18 @@
+# The e2e profile (Plan 8, PL4): `./at e2e <front> <express|django|laravel>` layers this file over docker-compose.yml on
+# api-<back> for the run and restores the plain configuration on exit. The suite signs in many roles from one address
+# and walks every route of a role within a minute, so the contract's rate limits (deployment configuration,
+# RATE_LIMIT_OVERRIDES) are lifted; registration takes DaData's "unavailable" path (no key → MANUAL_CHECK) whatever
+# the local .env holds. The rate limits themselves are tested by `./at api:test <back> --ratelimits`.
+services:
+  api-express:
+    environment:
+      RATE_LIMIT_OVERRIDES: '{"user":100000,"login-ip":100000,"complaint-ip":100000}'
+      DADATA_API_KEY: ''
+  api-django:
+    environment:
+      RATE_LIMIT_OVERRIDES: '{"user":100000,"login-ip":100000,"complaint-ip":100000}'
+      DADATA_API_KEY: ''
+  api-laravel:
+    environment:
+      RATE_LIMIT_OVERRIDES: '{"user":100000,"login-ip":100000,"complaint-ip":100000}'
+      DADATA_API_KEY: ''

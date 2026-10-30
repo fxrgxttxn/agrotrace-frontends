@@ -113,9 +113,36 @@ describe('request bodies', () => {
     });
   });
 
+  it('a lone surrogate escape in a string or key → the malformed-JSON 400; a valid pair is accepted (PL11)', async () => {
+    for (const body of [
+      '{"email":"a@b.ru","password":"x\\ud800y"}',
+      '{"email":"a@b.ru","password":"\\udc00"}',
+      '{"email":"a@b.ru","password":"p","\\ud800":1}',
+    ]) {
+      const res = await api().post('/auth/login', body, { headers: { 'content-type': 'application/json' } });
+      expect(res.status, body).toBe(400);
+      expect(res.body, body).toMatchObject({ code: 'VALIDATION', errors: { _root: ['validation.invalid'] } });
+    }
+    const pair = await api().post('/auth/login', '{"email":"a@b.ru","password":"\\ud83c\\udf3e"}', {
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(pair.status).toBe(401);
+  });
+
   it('a JSON body larger than 12 MiB → 413 FILE_TOO_LARGE problem with params.maxBytes', async () => {
     const body = JSON.stringify({ email: 'a@b.ru', password: 'x'.repeat(MAX_BODY) });
-    const res = await api().post('/auth/login', body, { headers: { 'content-type': 'application/json' } });
+    // A server may answer 413 and close while the body is still being sent: the client then sees a write error
+    // (EPIPE/ECONNRESET) before it reads the answer. Only that is retried (up to 3 times); the answer is checked as is.
+    let res!: Awaited<ReturnType<ReturnType<typeof api>['post']>>;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        res = await api().post('/auth/login', body, { headers: { 'content-type': 'application/json' } });
+        break;
+      } catch (err) {
+        const code = (err as { cause?: { code?: string } }).cause?.code;
+        if (attempt >= 3 || (code !== 'EPIPE' && code !== 'ECONNRESET')) throw err;
+      }
+    }
     await expectProblem(res, 413, 'FILE_TOO_LARGE');
     expect(res.body.params).toEqual({ maxBytes: MAX_BODY });
   });

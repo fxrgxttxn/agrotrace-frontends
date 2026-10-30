@@ -65,7 +65,7 @@ describe('merge-proof shared files (SP3)', () => {
     (file) => {
       const text = readFileSync(`${REPO}${file}`, 'utf8');
       expect(text.split('\n').slice(0, 3).join('\n')).toMatch(/Merge convention \(SP3\)/);
-      const found = markers(file).filter((m) => !m.includes('express'));
+      const found = markers(file).filter((m) => !m.includes('express') && !m.includes('integration'));
       expect(found.length).toBeGreaterThanOrEqual(4);
       expect(found.length % 4).toBe(0);
       for (let i = 0; i < found.length; i += 4) expect(found.slice(i, i + 4)).toEqual(pairs);
@@ -507,8 +507,13 @@ describe('fe:* (Plan 2): frontend build, tests, the separate React gateway, the 
         'playwright-angular',
       ),
     ]);
-    // No stand of the front running: the main gateway; GATEWAY_HOST always wins.
-    expect(e2e(['angular', 'django'], { AT_DRY_STAND: '0' })).toEqual([cmd('angular', 'django', 'gateway')]);
+    // A real backend: always the main gateway (PL5), the e2e profile on its api for the run, restored on exit (PL4).
+    expect(e2e(['angular', 'django'], { AT_DRY_STAND: '1' })).toEqual([
+      '+ docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --no-build --no-deps --wait api-django',
+      cmd('angular', 'django', 'gateway'),
+      '+ docker compose up -d --no-build --no-deps --wait api-django',
+    ]);
+    // GATEWAY_HOST always wins.
     expect(e2e(['react'], { GATEWAY_HOST: 'gw-x' })).toEqual([cmd('react', 'mock', 'gw-x')]);
   });
 

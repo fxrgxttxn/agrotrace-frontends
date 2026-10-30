@@ -48,6 +48,9 @@ final class Stream
 
     public const PAGE = 500;
 
+    /** PL8: the reconnect delay every admitted stream announces first. */
+    public const ADMITTED_RETRY_MS = 3000;
+
     public const USER_CHANNEL = 'agrotrace:laravel:sse:user:';
 
     public const CONTROL_CHANNEL = 'agrotrace:laravel:sse:control';
@@ -116,6 +119,7 @@ final class Stream
     public function run(): void
     {
         $t0 = ($this->clock)();
+        $this->write(SseFrame::retry(self::ADMITTED_RETRY_MS));
         try {
             $this->connect();
         } catch (Throwable $e) {

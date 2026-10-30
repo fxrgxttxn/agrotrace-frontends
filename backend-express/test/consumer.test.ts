@@ -180,4 +180,23 @@ describe('worker consumer (R92, P56)', () => {
     await stopped;
     expect(broker.log).toEqual(['cancel tag-1', 'cancel tag-3', 'ch1 ack r-1', 'ch1 close', 'ch3 close']);
   });
+  it('a delivery whose handler fails while stopping is neither acked nor rejected: the broker requeues it (PL13)', async () => {
+    const broker = fakeBroker({ delayQueue: true });
+    let fail!: (e: Error) => void;
+    const consumer = startConsumer({
+      amqp: broker.amqp,
+      logger,
+      handlers: { 'rating.recalculate': () => new Promise<void>((_r, j) => (fail = j)) },
+    });
+    await tick();
+    broker.channels[0]!.deliver!(envelope('r-2', 'rating.recalculate'));
+    await tick();
+    broker.log.length = 0;
+    const stopped = consumer.stop();
+    await tick();
+    fail(new Error('connection terminated'));
+    await stopped;
+    expect(broker.log.filter((l) => / (ack|reject|nack) /.test(l))).toEqual([]);
+    expect(broker.log).toContain('ch1 close');
+  });
 });

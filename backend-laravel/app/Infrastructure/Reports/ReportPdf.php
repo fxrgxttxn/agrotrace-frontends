@@ -9,8 +9,8 @@ use App\Infrastructure\Pdf\PdfText;
  * design-system fonts with Cyrillic (PdfText), the heading `AgroTrace — <title>`, the period and generation lines,
  * then a section per sheet (subheading = sheet name) with the same table: equal column widths, cell text wrapped on
  * spaces and a word wider than its column broken between characters, a thin rule under every row, the header row
- * repeated on every new page. As in Express, a row taller than a whole page is drawn from the top of a new page and
- * runs past its bottom (cross-backend backlog).
+ * repeated on every new page. A row taller than a whole page (a 2000-character complaint) continues line by line on
+ * the next pages under the repeated header (PL14, as Express and Django).
  *
  * TCPDF, not dompdf (decision of Task 13): dompdf lays a table out as an HTML document — measured 84 s and ~2 GB for
  * 2 000 rows, so the contract's 50 000 rows could never meet the 120 s deadline; TCPDF draws the lines directly
@@ -56,23 +56,32 @@ final class ReportPdf
             }
             $y = self::paragraph($pdf, $sheet['name'], 'bold', 11, $left, $y, $width);
             $colW = $width / max(1, count($sheet['header']));
-            $row = function (array $cells, string $weight) use (&$row, &$y, $pdf, $sheet, $colW, $lh, $left, $width, $bottom, $newPage): void {
+            $headerH = max(array_map(fn (string $t): int => count(self::wrap($pdf, $t, 'bold', $colW - 4)), $sheet['header'])) * $lh + 3;
+            $row = function (array $cells, string $weight) use (&$row, &$y, $pdf, $sheet, $colW, $lh, $left, $width, $bottom, $newPage, $headerH): void {
                 $wrapped = array_map(fn (string $t): array => self::wrap($pdf, $t, $weight, $colW - 4), $cells);
-                $h = max(array_map('count', $wrapped)) * $lh + 3;
-                if ($y + $h > $bottom) {
+                $lines = max(array_map('count', $wrapped));
+                $h = $lines * $lh + 3;
+                // A row that fits on a page starts on the next one when it does not fit here; a taller one continues
+                // line by line on the next pages, under the repeated header (PL14).
+                if ($y + $h > $bottom && ($weight === 'bold' || $h <= $bottom - self::MARGIN - $headerH)) {
                     $newPage();
                     if ($weight !== 'bold') {
                         $row($sheet['header'], 'bold');
                     }
                 }
-                foreach ($wrapped as $i => $lines) {
-                    foreach ($lines as $k => $line) {
-                        if ($line !== '') {
-                            $pdf->drawRuns($line, $weight, self::SIZE, $left + $i * $colW, $y + $k * $lh);
+                for ($k = 0; $k < $lines; $k++) {
+                    if ($y + $lh > $bottom) {
+                        $newPage();
+                        $row($sheet['header'], 'bold');
+                    }
+                    foreach ($wrapped as $i => $cellLines) {
+                        if (($cellLines[$k] ?? '') !== '') {
+                            $pdf->drawRuns($cellLines[$k], $weight, self::SIZE, $left + $i * $colW, $y);
                         }
                     }
+                    $y += $lh;
                 }
-                $y += $h;
+                $y += 3;
                 $pdf->Line($left, $y - 1.5, $left + $width, $y - 1.5);
             };
             $row($sheet['header'], 'bold');

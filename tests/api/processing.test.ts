@@ -101,6 +101,19 @@ describe('processBatches: request checks', () => {
       ),
       { 'inputs[1].batchId': ['validation.duplicate'] },
     );
+    // PL10: uuids compare without case — the same batch in upper case is the same input.
+    const dupId = '0f0e0d0c-0b0a-4908-8706-050403020100';
+    expectErrors(
+      await processBatches(
+        p,
+        [
+          { batchId: dupId, massUsedKg: '1.000' },
+          { batchId: dupId.toUpperCase(), massUsedKg: '2.000' },
+        ],
+        [{ productId: UUID0, massKg: '1.000' }],
+      ),
+      { 'inputs[1].batchId': ['validation.duplicate'] },
+    );
   });
 
   it('references in one 400: unknown or invisible input, massUsedKg above the batch mass, unknown or deleted product', async () => {
