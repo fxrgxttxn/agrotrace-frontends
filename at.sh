@@ -598,7 +598,13 @@ e2e() (
   elif [ "$gw" = gateway-angular ]; then compose="$DCA"; service=playwright-angular
   else compose="$DC"; service=playwright; fi
   # A real backend: the other implementations' schedulers are stopped for the run (SP1); mock needs nothing.
-  if [ "$back" != mock ]; then quiet_schedulers "$back"; trap wake_schedulers EXIT; fi
+  # The e2e profile (docker-compose.e2e.yml, PL4) on api-<back> for the run, the plain configuration back on exit.
+  if [ "$back" != mock ]; then
+    quiet_schedulers "$back"
+    e2e_restore() { local rc=0; run $DC up -d --no-build --no-deps --wait "api-$back" || rc=$?; wake_schedulers; return "$rc"; }
+    trap e2e_restore EXIT
+    run $DC -f docker-compose.yml -f docker-compose.e2e.yml up -d --no-build --no-deps --wait "api-$back"
+  fi
   run $compose run --rm -e FRONT="$front" -e BACK="$back" -e GATEWAY_HOST="$gw" -e GATEWAY_PORT=80 \
     -w //repo/tests/e2e $service npx --no-install playwright test "$@"
 )
