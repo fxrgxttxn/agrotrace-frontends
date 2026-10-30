@@ -18,11 +18,13 @@ export function acceptRequestId(value: string | string[] | undefined): string {
 /**
  * The client IP: Express `req.ip` with `trust proxy` = 1 (app.ts) — the last `X-Forwarded-For` entry, i.e. the peer
  * the gateway saw (nginx appends it with `$proxy_add_x_forwarded_for`); without the header, the socket peer. IPv4
- * mapped into IPv6 (`::ffff:10.0.0.1`) is shown as plain IPv4. A forwarded value that is not an IP literal falls back to the socket peer (requestId).
+ * mapped into IPv6 (`::ffff:10.0.0.1`, in any case — hex digits are case-free, so `::FFFF:` is the same client and
+ * the same rate-limit bucket, as on django and laravel) is shown as plain IPv4. A forwarded value that is not an IP
+ * literal falls back to the socket peer (requestId).
  */
 export function clientIp(raw: string | undefined): string | null {
   if (!raw) return null;
-  const ip = raw.startsWith('::ffff:') && isIP(raw.slice(7)) === 4 ? raw.slice(7) : raw;
+  const ip = raw.toLowerCase().startsWith('::ffff:') && isIP(raw.slice(7)) === 4 ? raw.slice(7) : raw;
   return isIP(ip) ? ip : null;
 }
 
