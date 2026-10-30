@@ -584,8 +584,21 @@ e2e() (
 # ── Per-backend helpers (the hooks the per-backend commands call) ───────────────────────────────────────────────────
 # --- django (plan 3) ---
 # django_test_hook [pytest args…]: the body of `django:test`, run after `prepare_test_db agrotrace_test_django`
-# (TEST_DATABASE_URL / TEST_APP_DATABASE_URL exported, stand lock held). Plan 3 Task 1 replaces this stub.
-django_test_hook() { echo "django:test: added by Plan 3 (Task 1 fills django_test_hook in at.sh)" >&2; return 1; }
+# (TEST_DATABASE_URL / TEST_APP_DATABASE_URL exported, stand lock held). Builds the backend-django image (pytest and
+# ruff are in it, D-M5) and runs, with the working tree's backend-django/ and docker-compose.yml mounted read-only,
+# `pytest [args…]` against agrotrace_test_django as the app role (TEST_DATABASE_URL inside = TEST_APP_DATABASE_URL),
+# then `ruff check`; fails if either fails. MSYS_NO_PATHCONV keeps Git Bash from rewriting the container paths.
+# A run without pytest arguments is a full run: it also measures agrotrace/domain and fails under the §14.1 bar
+# (70 %, backend-django/pyproject.toml [tool.coverage]). `-m stand` runs the stand checks (the broker topology) against
+# the running stand (`./at up django` first).
+django_test_hook() {
+  [ $# -eq 0 ] && set -- --cov --cov-report=term
+  run $DC build api-django
+  run env MSYS_NO_PATHCONV=1 $DC run --rm --no-deps -e "TEST_DATABASE_URL=$TEST_APP_DATABASE_URL" \
+    -e AGROTRACE_PROCESS=test -v ./backend-django:/app/backend-django:ro \
+    -v ./docker-compose.yml:/app/docker-compose.yml:ro \
+    api-django sh -c 'rc=0; pytest "$@" || rc=$?; ruff check . || rc=1; exit $rc' pytest "$@"
+}
 # --- end django ---
 # --- laravel (plan 5) ---
 # laravel_test_hook [pest args…]: the body of `laravel:test`, run after `prepare_test_db agrotrace_test_laravel`
@@ -638,6 +651,10 @@ case "$cmd" in
     "$0" api:test express --ratelimits
     # --- end express ---
     # --- django (plan 3) ---
+    "$0" django:test
+    "$0" api:test django --reset
+    "$0" api:test django --ratelimits
+    "$0" cross:test express django
     # --- end django ---
     # --- laravel (plan 5) ---
     # --- end laravel ---

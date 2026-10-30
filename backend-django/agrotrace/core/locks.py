@@ -1,0 +1,62 @@
+"""
+Row locks of the protocol R47/R52 (contract info.description, P57): one total order for every operation —
+waybill → recall → labTest → complaint → organization → batches (all affected rows in ONE statement `ORDER BY id`) →
+recallTasks (`ORDER BY id`) → other rows. The default strength is `FOR NO KEY UPDATE` (Django's `select_for_update()`
+would be `FOR UPDATE`, which conflicts with `FOR KEY SHARE` — the deadlock I2 of Express's final review); `update`
+is only for the physical deletion of a dictionary row and deleteField (test_static_guards.py ALLOWED); jobs and the
+sweeper take `skip_locked`. A lock outside a transaction locks nothing: it is refused.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any, Literal
+
+from django.db import connection, models
+
+if TYPE_CHECKING:
+    from agrotrace.core.tx import Tx
+
+Strength = Literal["no key update", "update", "share", "key share"]
+
+_CLAUSE: dict[str, str] = {
+    "no key update": "NO KEY UPDATE",
+    "update": "UPDATE",
+    "share": "SHARE",
+    "key share": "KEY SHARE",
+}
+
+
+def lock[M: models.Model](
+    table_model: type[M],
+    ids: Iterable[str],
+    *,
+    strength: Strength = "no key update",
+    skip_locked: bool = False,
+) -> list[M]:
+    """The rows of `table_model` with these ids, locked in one statement `ORDER BY id`; missing ids are absent.
+
+    Kept as the plan's core.locks interface (Task 1, «Interfaces — Produces»), though no module calls it today: every
+    module locks with raw SQL in its own statement or `lock_batches` (final review M5). tests/test_tx.py covers it, and
+    test_static_guards.py still refuses `lock(..., strength='update')` should a module start to use it."""
+    assert connection.in_atomic_block, "lock() outside a transaction locks nothing"
+    wanted = sorted({str(i) for i in ids})
+    if not wanted:
+        return []
+    table = connection.ops.quote_name(table_model._meta.db_table)
+    pk = connection.ops.quote_name(table_model._meta.pk.column)
+    clause = "FOR " + _CLAUSE[strength] + (" SKIP LOCKED" if skip_locked else "")
+    query = f"SELECT * FROM {table} WHERE {pk} = ANY(%s::uuid[]) ORDER BY {pk} {clause}"
+    return list(table_model.objects.raw(query, [wanted]))
+
+
+def lock_batches(tx: Tx, ids: Iterable[str], columns: str) -> list[dict[str, Any]]:
+    """The R52 `batches` lock — the ONE statement form every operation uses (waybills, processing, lab results, the
+    recall engine): the rows of `ids` (deleted ones included — visibility is the caller's check) `FOR NO KEY UPDATE
+    OF b`, ordered by id, so two operations over overlapping sets always lock in the same order. `columns` — the
+    select list over the alias `b`; missing ids are simply absent."""
+    wanted = sorted({str(i) for i in ids})
+    if not wanted:
+        return []
+    return tx.all(f"SELECT {columns} FROM batches b WHERE b.id = ANY(%s::uuid[]) ORDER BY b.id FOR NO KEY UPDATE OF b",
+                  [wanted])

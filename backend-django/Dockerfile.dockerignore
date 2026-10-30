@@ -1,0 +1,24 @@
+# Build context = repository root (docker-compose.yml: context ., dockerfile backend-django/Dockerfile). BuildKit
+# reads this file instead of a root .dockerignore for this Dockerfile only.
+**/node_modules
+**/dist
+**/.svelte-kit
+**/.angular
+**/coverage
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+.git
+.env
+.superpowers
+docs
+*.docx
+db/seed/images
+db/migrations
+db/schema.sql
+tests/ds/*.png
+tests/ds/**/*.png
+packages/design-system/illustrations
+gateway
+infra
+!infra/rabbitmq/definitions.json

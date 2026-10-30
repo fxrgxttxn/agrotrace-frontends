@@ -1,0 +1,28 @@
+[project]
+name = "agrotrace-backend-django"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider -m 'not stand'"
+markers = ["stand: needs the running docker stand (./at.sh django:test -m stand)",
+           "relay: the outbox relay runs after commit (against a fake broker)"]
+filterwarnings = ["error::RuntimeWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+cache-dir = "/tmp/ruff-cache"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S102", "S307"]
+ignore = ["E501", "B008"]
+
+[tool.coverage.run]
+data_file = "/tmp/.coverage"
+# A full `./at.sh django:test` (no pytest arguments) runs with `--cov`: the domain layer, held to the §14.1 bar.
+source = ["agrotrace/domain"]
+
+[tool.coverage.report]
+fail_under = 70

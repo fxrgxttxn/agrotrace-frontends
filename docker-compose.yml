@@ -138,6 +138,71 @@ services:
     stop_grace_period: 15s
     networks: [at]
   # --- django (plan 3) ---
+  # ── Django backend (Plan 3): one image, three processes (spec 8.1, 14.4) ──
+  # `./at up django` (infra + these three) or `./at up <front> django` (+ gateway, which proxies
+  # http://<front>-django.localhost:<GATEWAY_PORT>/api/ to api-django:8000). All three connect as APP_DATABASE_URL
+  # (agrotrace_app, D-I8). Connection budget (P61, contract «Бюджет соединений»): api DJANGO_DB_POOL_MAX 7 +
+  # DJANGO_SSE_POOL_MAX 2 + LISTEN 1, worker 6, beat 4 = 20 — set here per service, never in .env.
+  api-django:
+    build: { context: ., dockerfile: backend-django/Dockerfile }
+    image: agrotrace/backend-django:dev
+    # agrotrace/serve.py: uvicorn on PORT (8000), one worker, SHUTDOWN_TIMEOUT_MS for in-flight requests on SIGTERM.
+    command: ["python", "-m", "agrotrace.serve"]
+    env_file: [.env]
+    environment:
+      AGROTRACE_PROCESS: api
+      # Pinned like api-express: the healthcheck, the gateway upstream and EXPOSE all say 8000.
+      PORT: '8000'
+      APP_DATABASE_URL: "${APP_DATABASE_URL}"
+      DJANGO_DB_POOL_MAX: '7'
+      DJANGO_SSE_POOL_MAX: '2'
+    # Prometheus /metrics (METRICS_PORT 9464, P54): inside the `at` network only — never published.
+    expose: ["9464"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/live', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    depends_on: &django-deps
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    # 15 s covers SHUTDOWN_TIMEOUT_MS (10 s) + the 2 s watchdog margin of all three processes (core/lifecycle.py); a
+    # SHUTDOWN_TIMEOUT_MS above 13000 (accepted up to 120000, as in Express) needs a longer grace here.
+    stop_grace_period: 15s
+    networks: [at]
+  # Celery worker on agrotrace.django.jobs only (2 threads, prefetch 1; no gossip/mingle/heartbeat, no remote control).
+  worker-django:
+    build: { context: ., dockerfile: backend-django/Dockerfile }
+    image: agrotrace/backend-django:dev
+    command: ["celery", "-A", "agrotrace.celery_app", "worker", "-Q", "agrotrace.django.jobs", "-P", "threads", "-c", "2",
+              "--prefetch-multiplier", "1", "--without-gossip", "--without-mingle", "--without-heartbeat",
+              "--loglevel", "INFO"]
+    env_file: [.env]
+    environment:
+      AGROTRACE_PROCESS: worker
+      APP_DATABASE_URL: "${APP_DATABASE_URL}"
+      DJANGO_DB_POOL_MAX: '6'
+    depends_on: *django-deps
+    stop_grace_period: 15s
+    networks: [at]
+  # Celery Beat whose ticks run in this process (scheduler/beat.py): no tick is a broker message; only the
+  # outbox-sweeper job publishes (outbox rows, infra/relay.py).
+  beat-django:
+    build: { context: ., dockerfile: backend-django/Dockerfile }
+    image: agrotrace/backend-django:dev
+    command: ["celery", "-A", "agrotrace.celery_app", "beat", "-S", "agrotrace.scheduler.beat:InProcessScheduler",
+              "--loglevel", "INFO"]
+    env_file: [.env]
+    environment:
+      AGROTRACE_PROCESS: beat
+      APP_DATABASE_URL: "${APP_DATABASE_URL}"
+      DJANGO_DB_POOL_MAX: '4'
+    depends_on: *django-deps
+    stop_grace_period: 15s
+    networks: [at]
   # --- end django ---
   # --- laravel (plan 5) ---
   # --- end laravel ---
