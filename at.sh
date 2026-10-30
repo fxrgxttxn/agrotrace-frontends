@@ -290,6 +290,22 @@ up_combo() (
   echo "$front + $back: http://${front}-${back}.localhost:${port}/"
 )
 
+# `./at up all`: the 3×3 matrix (spec §14.4) — infra (postgres/rabbitmq never recreated), the three production
+# front builds (skipped with AT_SKIP_FE_BUILD=1), the nine backend services and the gateway with --no-deps.
+up_all() (
+  set -euo pipefail
+  infra_up
+  run $DC up --build minio-init
+  if [ "${AT_SKIP_FE_BUILD:-}" != "1" ]; then
+    for f in react angular svelte; do run $T pnpm --filter "@agrotrace/frontend-$f" build; done
+  fi
+  run $DC up -d --build --no-deps --wait $(backend_services express) $(backend_services django)     $(backend_services laravel) gateway
+  port="$( (set -a; . ./.env; echo "${GATEWAY_PORT:-80}") )"
+  for b in express django laravel; do for f in react angular svelte; do
+    echo "http://${f}-${b}.localhost:${port}/"
+  done; done
+)
+
 # `./at up <back>`: infra + one backend's services (api, worker, scheduler), no gateway.
 up_backend() (
   set -euo pipefail
@@ -516,6 +532,10 @@ fe_build() (
     trap 'fe_gateway svelte up' EXIT
   fi
   run $T pnpm --filter "@agrotrace/frontend-$front" "$script"
+  # The main gateway serves the production build through a symlink (PL2): point it at the new build.
+  if [ "$script" = build ] && { [ "${AT_DRY_GATEWAY:-}" = "1" ] || { [ "${AT_DRY_RUN:-}" != "1" ]       && [ -n "$($DC ps -q --status running gateway 2>/dev/null)" ]; }; }; then
+    run $DC exec -T gateway sh /docker-entrypoint.d/40-fronts.sh
+  fi
 )
 
 # `fe:e2e-smoke <front> [playwright args…]`: the build through its gateway (started if needed; svelte: always
@@ -565,14 +585,16 @@ e2e() (
   front=react; back=mock
   case "${1:-}" in react|angular|svelte) front="$1"; shift ;; esac
   case "${1:-}" in mock|express|django|laravel) back="$1"; shift ;; esac
-  gw="$(e2e_gateway "$front")"
-  if [ "$front" = svelte ] && [ "$gw" = gateway ]; then
+  # A real backend is always reached through the main gateway (PL5); the stands serve only the mock builds.
+  if [ "$back" = mock ]; then gw="$(e2e_gateway "$front")"; else gw=gateway; fi
+  if [ "$front" = svelte ] && [ "$gw" = gateway ] && [ "$back" = mock ]; then
     # Polish P2: without its stand the run would only fail later on every page with a DNS error of Playwright.
     echo "e2e: the Svelte stand (gateway-svelte, compose project agrotrace-svelte) is not running —" \
       "build and start it first: ./at fe:build svelte --mock && ./at fe:gateway svelte up" >&2
     exit 1
   fi
-  if [ "$front" = svelte ]; then compose="$DCS"; service=playwright-svelte
+  if [ "$gw" = gateway ]; then compose="$DC"; service=playwright
+  elif [ "$front" = svelte ]; then compose="$DCS"; service=playwright-svelte
   elif [ "$gw" = gateway-angular ]; then compose="$DCA"; service=playwright-angular
   else compose="$DC"; service=playwright; fi
   # A real backend: the other implementations' schedulers are stopped for the run (SP1); mock needs nothing.
@@ -731,7 +753,7 @@ case "$cmd" in
         echo "Gateway up: http://localhost:${GATEWAY_PORT:-80}/  (design system: http://localhost:${GATEWAY_PORT:-80}/_ds/)" ;;
       react|angular|svelte) up_combo "$@" ;;
       express|django|laravel) up_backend "$1" ;;
-      all) run $DC up -d --build --wait ;;
+      all) up_all ;;
       *) echo "usage: ./at up [all|infra|gateway|<express|django|laravel>|<react|angular|svelte> <express|django|laravel>]" >&2; exit 2 ;;
     esac ;;
   down)        $DC down "$@" ;;

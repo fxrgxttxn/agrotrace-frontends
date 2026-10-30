@@ -16,12 +16,12 @@ ENV NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx
 ENV GATEWAY_PORT=80
 COPY nginx.conf.template /etc/nginx/templates/nginx.conf.template
 
-# R6: the placeholder (including a sample /assets/ file, so /assets/* has something real to serve
-# in tests) is baked into the image at /srv/{react,angular,svelte}. Later frontend plans bind-mount
-# their built dist/ over each of these directories, replacing the placeholder wholesale.
-COPY placeholder/ /srv/react/
-COPY placeholder/ /srv/angular/
-COPY placeholder/ /srv/svelte/
+# R6/PL2: the placeholder lives at /srv/placeholder; /srv/<front> is a symlink made by 40-fronts.sh at start — to the
+# front's build in its checkout directory bind-mounted at /srv/src/<front> (docker-compose.yml), or to the placeholder.
+COPY placeholder/ /srv/placeholder/
+RUN mkdir -p /srv/src/react /srv/src/angular /srv/src/svelte
+COPY --chmod=755 40-fronts.sh /docker-entrypoint.d/40-fronts.sh
+RUN sh /docker-entrypoint.d/40-fronts.sh
 
 COPY start/ /srv/start/
 
