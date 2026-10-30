@@ -123,6 +123,17 @@ describe('createWaybill', () => {
       }),
       { receiverOrgId: ['validation.notFound'], 'items[1].batchId': ['validation.duplicate'] },
     );
+    // PL10: uuids compare without case — the same batch in upper case repeats it.
+    expectErrors(
+      await createWaybill(farm.client, {
+        receiverOrgId: processor.orgId,
+        items: [
+          { batchId: b.id, massDeclaredKg: '1.000' },
+          { batchId: b.id.toUpperCase(), massDeclaredKg: '1.000' },
+        ],
+      }),
+      { 'items[1].batchId': ['validation.duplicate'] },
+    );
     // P36: a schema error elsewhere is reported alone (step 1) — the duplicate waits for step 2.
     expectErrors(
       await createWaybill(farm.client, {

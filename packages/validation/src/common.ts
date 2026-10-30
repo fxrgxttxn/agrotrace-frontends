@@ -119,12 +119,15 @@ export const password = z
 export const uuid = z.string({ errorMap }).uuid('validation.uuid');
 
 /** Calendar date, `YYYY-MM-DD` (contract `Date`). */
-export const isoDate = z.string({ errorMap }).regex(/^\d{4}-\d{2}-\d{2}$/, 'validation.date.format');
+export const isoDate = z.string({ errorMap }).regex(/^(?!0000-)\d{4}-\d{2}-\d{2}$/, 'validation.date.format');
 
-/** Instant in UTC with a `Z` suffix (contract `DateTime`). */
-export const isoDateTime = z
-  .string({ errorMap })
-  .datetime({ offset: false, message: 'validation.dateTime.format' });
+const DATE_TIME = z.string().datetime({ offset: false });
+
+/** Instant in UTC with a `Z` suffix (contract `DateTime`). The year 0000 is not a calendar year of the store (PL12). */
+export const isoDateTime = z.string({ errorMap }).superRefine((s, ctx) => {
+  if (s.startsWith('0000-') || !DATE_TIME.safeParse(s).success)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'validation.dateTime.format' });
+});
 
 /** Percent, exactly two decimal digits (contract `Percent`). */
 export const percent = z.string({ errorMap }).regex(/^\d{1,3}\.\d{2}$/, 'validation.percent.format');
@@ -184,7 +187,9 @@ export function noDuplicate<K extends string>(field: K) {
   return (items: Record<K, unknown>[], ctx: z.RefinementCtx): void => {
     const seen = new Set<unknown>();
     items.forEach((item, i) => {
-      const v = item[field];
+      // The compared fields are uuids, which compare without case (PL10).
+      const raw = item[field];
+      const v = typeof raw === 'string' ? raw.toLowerCase() : raw;
       if (seen.has(v))
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'validation.duplicate', path: [i, field] });
       seen.add(v);

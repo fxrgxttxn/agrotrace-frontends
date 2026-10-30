@@ -434,6 +434,11 @@ describe('treatments', () => {
     expectErrors(await createTreatment(client, field.id, await treatmentBody({ appliedAt: '2026-06-02' })), {
       appliedAt: ['validation.dateTime.format'],
     });
+    // PL12: the year 0000 has no instant in the calendar of the store — a format error, never a 500.
+    expectErrors(
+      await createTreatment(client, field.id, await treatmentBody({ appliedAt: '0000-06-01T00:00:00Z' })),
+      { appliedAt: ['validation.dateTime.format'] },
+    );
     // Order: 404 for the field before the references of the body.
     expectProblem(
       await createTreatment(client, UUID0, await treatmentBody({ substanceId: UUID0 })),

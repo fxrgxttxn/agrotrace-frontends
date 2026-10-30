@@ -137,7 +137,7 @@ final class Z
 
     public static function isoDate(): StringS
     {
-        return self::string()->regex('^\d{4}-\d{2}-\d{2}$', 'validation.date.format');
+        return self::string()->regex('^(?!0000-)\d{4}-\d{2}-\d{2}$', 'validation.date.format');
     }
 
     public static function isoDateTime(): StringS

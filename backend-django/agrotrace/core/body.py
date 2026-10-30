@@ -98,9 +98,34 @@ def decode_json_bytes(raw: bytes, content_type: str) -> Any:
     if m.group(1) not in "{[":
         raise root_invalid()
     try:
-        return js_json_parse(text)
+        value = js_json_parse(text)
     except (ValueError, RecursionError):
         raise root_invalid() from None
+    if _has_lone_surrogate(value):
+        raise root_invalid()
+    return value
+
+
+_SURROGATE = re.compile(r"[\ud800-\udfff]")
+
+
+def _has_lone_surrogate(value: Any) -> bool:
+    """PL11: a string or key with an unpaired surrogate escape (the parser joins a valid pair into one character, so
+    any surrogate left is lone) has no UTF-8 form and PostgreSQL would refuse it: the body is malformed JSON."""
+    stack = [value]
+    while stack:
+        v = stack.pop()
+        if isinstance(v, str):
+            if _SURROGATE.search(v):
+                return True
+        elif isinstance(v, dict):
+            for k, item in v.items():
+                if _SURROGATE.search(k):
+                    return True
+                stack.append(item)
+        elif isinstance(v, list):
+            stack.extend(v)
+    return False
 
 
 def read_json_body(request) -> tuple[Any, bytes]:

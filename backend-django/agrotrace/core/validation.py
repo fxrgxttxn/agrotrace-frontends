@@ -215,7 +215,7 @@ _EMAIL = r"^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.
 _UUID = r"^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$"
 _DATE_SRC = (r"((\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-((0[13578]|1[02])"
              r"-(0[1-9]|[12]\d|3[01])|(0[469]|11)-(0[1-9]|[12]\d|30)|(02)-(0[1-9]|1\d|2[0-8])))")
-_DATETIME = "^" + _DATE_SRC + r"T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z)$"
+_DATETIME = "^(?!0000-)" + _DATE_SRC + r"T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z)$"
 
 
 def Email() -> Field:  # noqa: N802
@@ -239,7 +239,7 @@ def Uuid() -> Field:  # noqa: N802
 
 
 def IsoDate() -> Field:  # noqa: N802
-    return Str([(_regex(r"^\d{4}-\d{2}-\d{2}$"), "validation.date.format")])
+    return Str([(_regex(r"^(?!0000-)\d{4}-\d{2}-\d{2}$"), "validation.date.format")])
 
 
 def IsoDateTime() -> Field:  # noqa: N802

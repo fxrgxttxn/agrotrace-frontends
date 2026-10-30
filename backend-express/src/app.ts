@@ -40,6 +40,9 @@ import { publicRouter } from './modules/public/routes.js';
 
 export const ROUTER_OPTIONS = { caseSensitive: true, strict: true } as const;
 
+/** A UTF-16 surrogate without its pair (PL11). */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
 export function createApp(c: Container): Express {
   const app = express();
   app.disable('x-powered-by');
@@ -65,6 +68,13 @@ export function createApp(c: Container): Express {
       limit: JSON_BODY_LIMIT_BYTES,
       strict: true,
       type: ['application/json', 'application/*+json'],
+      // PL11: a string or key holding a lone surrogate (no UTF-8 form; PostgreSQL would refuse it) makes the body
+      // malformed JSON — the reviver throws inside JSON.parse and body-parser reports entity.parse.failed → 400.
+      reviver: (key: string, value: unknown) => {
+        if (LONE_SURROGATE.test(key) || (typeof value === 'string' && LONE_SURROGATE.test(value)))
+          throw new SyntaxError('lone surrogate');
+        return value;
+      },
       // The raw bytes feed the Idempotency-Key fingerprint (http/idempotency.ts, R48).
       verify: (req, _res, buf) => {
         (req as typeof req & { rawBody?: Buffer }).rawBody = buf;
