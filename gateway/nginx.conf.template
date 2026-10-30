@@ -20,8 +20,9 @@ http {
   # Text assets compressed on request; the event stream never is (its location turns gzip off).
   gzip on;
   gzip_vary on;
+  gzip_comp_level 6;
   gzip_min_length 1024;
-  gzip_types text/css application/javascript image/svg+xml application/json;
+  gzip_types text/css application/javascript text/javascript application/json image/svg+xml;
 
   # /assets/ files are content-hashed and cached for a year, but only a found one: a 404 must not stick (FM14).
   map $status $assets_cache {

@@ -6,6 +6,8 @@
 set -eu
 for pair in react:dist angular:dist svelte:build; do
   f="${pair%%:*}"; out="${pair#*:}"
+  # A stand gateway bind-mounts its build at /srv/<front> directly: a real directory there is left as it is.
+  if [ -e "/srv/$f" ] && [ ! -L "/srv/$f" ]; then continue; fi
   if [ -f "/srv/src/$f/$out/index.html" ]; then
     ln -sfn "/srv/src/$f/$out" "/srv/$f"
   else

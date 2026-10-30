@@ -98,9 +98,12 @@
   .at-table td[data-primary] .at-table__primary > * {
     overflow-wrap: anywhere;
   }
+}
 
-  /* A long status (MANUAL_CHECK «Требует ручной проверки») wraps inside its chip instead of widening the table at
-     768 px (Plan 8 baseline: the organizations table scrolled by 5 px with a real backend's application rows). */
+/* Tablet widths only: a long status (MANUAL_CHECK «Требует ручной проверки») wraps inside its chip instead of widening
+   the table at 768 px (Plan 8 baseline: the organizations table scrolled by 5 px with a real backend's application
+   rows). From 1024 px a status stays on one line. */
+@media (min-width: 768px) and (max-width: 1023px) {
   .at-table .at-chip {
     white-space: normal;
   }

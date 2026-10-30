@@ -18,10 +18,10 @@ COPY nginx.conf.template /etc/nginx/templates/nginx.conf.template
 
 # R6/PL2: the placeholder lives at /srv/placeholder; /srv/<front> is a symlink made by 40-fronts.sh at start — to the
 # front's build in its checkout directory bind-mounted at /srv/src/<front> (docker-compose.yml), or to the placeholder.
+# The frontend stands (docker-compose.<front>-dev.yml) bind-mount a build at /srv/<front> itself; the script leaves it.
 COPY placeholder/ /srv/placeholder/
 RUN mkdir -p /srv/src/react /srv/src/angular /srv/src/svelte
 COPY --chmod=755 40-fronts.sh /docker-entrypoint.d/40-fronts.sh
-RUN sh /docker-entrypoint.d/40-fronts.sh
 
 COPY start/ /srv/start/
 
