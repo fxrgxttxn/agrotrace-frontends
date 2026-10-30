@@ -1,0 +1,7 @@
+HTTP/1.1 504 Gateway Timeout
+Content-Type: application/problem+json; charset=utf-8
+Content-Length: 112
+X-Backend: laravel
+Connection: close
+
+{"type":"/problems/backend-unavailable","title":"Backend unavailable","status":504,"code":"BACKEND_UNAVAILABLE"}

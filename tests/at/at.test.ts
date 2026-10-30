@@ -737,4 +737,61 @@ describe('shared-stand mutex (parallel backend worktrees)', () => {
 // --- django (plan 3) ---
 // --- end django ---
 // --- laravel (plan 5) ---
+describe('Laravel commands (Plan 5)', () => {
+  const plus = (out: string) => out.split('\n').filter((l) => l.startsWith('+ '));
+
+  it('laravel:test bundles the contract, then runs Pest in php-tools on agrotrace_test_laravel (args passed on)', () => {
+    const r = sh(['./at', 'laravel:test', 'tests/Unit/TxTest.php', '--filter', 'nested'], { AT_DRY_RUN: '1' });
+    expect(r.code, r.err).toBe(0);
+    expect(plus(r.out).slice(4)).toEqual([
+      '+ docker compose run --rm tools pnpm --filter @agrotrace/contracts bundle',
+      '+ docker compose run --rm -e TEST_DATABASE_URL -e TEST_APP_DATABASE_URL php-tools sh -c composer install --no-interaction --no-progress --quiet && vendor/bin/pest "$@" pest tests/Unit/TxTest.php --filter nested',
+    ]);
+  });
+
+  it('laravel:test --domain-coverage runs the domain suite with the 70 % coverage gate (spec 14.1)', () => {
+    const r = sh(['./at', 'laravel:test', '--domain-coverage'], { AT_DRY_RUN: '1' });
+    expect(r.code, r.err).toBe(0);
+    expect(plus(r.out).at(-1)).toBe(
+      '+ docker compose run --rm -e TEST_DATABASE_URL -e TEST_APP_DATABASE_URL php-tools sh -c composer install --no-interaction --no-progress --quiet && vendor/bin/pest -c phpunit.domain.xml --coverage --min=70 "$@" pest',
+    );
+  });
+
+  it('laravel:lint (Pint --test + Larastan) and composer run in php-tools without the stand lock', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'at-lock-'));
+    const held = join(dir, 'held.lock');
+    mkdirSync(held);
+    writeFileSync(
+      join(held, 'owner'),
+      `token=x\npid=${process.pid}\nhost=${hostname()}\nworktree=/wt\ncmd=reset\nstarted=now\n`,
+    );
+    const env = { AT_DRY_RUN: '1', AT_LOCK_DIR: held, AT_LOCK_TIMEOUT: '1', AT_LOCK_POLL: '0.1', AT_LOCK_NOTICE: '1' };
+    const lint = sh(['./at', 'laravel:lint'], env);
+    expect(lint.code, lint.err).toBe(0);
+    expect(plus(lint.out)).toEqual([
+      '+ docker compose run --rm --no-deps php-tools sh -c composer install --no-interaction --no-progress --quiet && vendor/bin/pint --test && vendor/bin/phpstan analyse --no-progress --memory-limit=1G',
+    ]);
+    const composer = sh(['./at', 'composer', 'require', 'x/y'], env);
+    expect(composer.code, composer.err).toBe(0);
+    expect(plus(composer.out)).toEqual(['+ docker compose run --rm --no-deps php-tools composer require x/y']);
+    rmSync(dir, { recursive: true });
+  });
+
+  it('api:test laravel restarts the three Laravel processes with the api-test profile, then restores them', () => {
+    const cmds = plus(sh(['./at', 'api:test', 'laravel', 'health'], { AT_DRY_RUN: '1' }).out);
+    const procs = 'api-laravel worker-laravel scheduler-laravel';
+    expect(cmds).toContain(`+ docker compose up -d --build --no-deps --wait ${procs}`);
+    expect(cmds.slice(-3)).toEqual([
+      `+ docker compose -f docker-compose.yml -f docker-compose.api-test.yml up -d --no-build --no-deps --wait ${procs}`,
+      '+ docker compose run --rm -e API_URL=http://api-laravel:8000/api/v1 -e API_BACKEND=laravel tools pnpm --filter @agrotrace/tests-api test health',
+      `+ docker compose up -d --no-build --no-deps --wait ${procs}`,
+    ]);
+  });
+
+  it('test:all runs the Laravel suites in its section', () => {
+    expect(testAll()).toMatch(
+      /# --- laravel \(plan 5\) ---\n {4}"\$0" laravel:test\n {4}"\$0" laravel:stack\n {4}"\$0" api:test laravel --reset\n {4}"\$0" api:test laravel --ratelimits\n {4}"\$0" cross:test express laravel\n {4}"\$0" cross:test laravel express\n {4}"\$0" docs:test laravel\n {4}# --- end laravel ---/,
+    );
+  });
+});
 // --- end laravel ---

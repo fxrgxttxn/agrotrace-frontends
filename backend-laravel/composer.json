@@ -1,0 +1,56 @@
+{
+    "name": "agrotrace/backend-laravel",
+    "description": "AgroTrace backend on Laravel 11 (Plan 5): api (Octane on FrankenPHP), worker and scheduler from one image.",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.3",
+        "ext-bcmath": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-pcntl": "*",
+        "ext-pdo_pgsql": "*",
+        "ext-redis": "*",
+        "aws/aws-sdk-php": "^3.330",
+        "bacon/bacon-qr-code": "^3.0",
+        "firebase/php-jwt": "^7.0",
+        "laravel/framework": "^11.31",
+        "laravel/octane": "^2.6",
+        "php-amqplib/php-amqplib": "^3.7",
+        "phpoffice/phpspreadsheet": "^5.10",
+        "pragmarx/google2fa": "^8.0",
+        "promphp/prometheus_client_php": "^2.14",
+        "tecnickcom/tcpdf": "6.11.4"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.0",
+        "laravel/pint": "^1.18",
+        "pestphp/pest": "^3.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true
+        }
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": []
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

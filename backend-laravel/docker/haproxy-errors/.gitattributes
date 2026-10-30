@@ -1,0 +1,2 @@
+# Raw HTTP responses (HAProxy errorfile): CRLF line ends are part of the format — never normalized.
+*.http -text

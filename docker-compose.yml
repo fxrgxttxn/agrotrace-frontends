@@ -205,6 +205,101 @@ services:
     networks: [at]
   # --- end django ---
   # --- laravel (plan 5) ---
+  # ── Laravel backend (Plan 5): one image, three processes (spec 8.1, 14.4) ──
+  # `./at up laravel` (infra + these three) or `./at up <front> laravel` (+ gateway). One build (api-laravel's), the
+  # same image for all three. The API (Octane on FrankenPHP) listens on 8000 inside the `at` network only; the
+  # gateway proxies http://<front>-laravel.localhost:<GATEWAY_PORT>/api/ to it; /metrics on 9464 (P54), never
+  # published. Laravel's variables come as ${VAR:-default}, so an older .env still boots (SP6). REDIS_PREFIX is empty:
+  # the Redis keys of the contract are shared byte for byte (SP7). Every process validates its environment first
+  # (docker/entrypoint.sh, exit 78).
+  api-laravel:
+    build: { context: ., dockerfile: backend-laravel/Dockerfile, target: prod }
+    image: agrotrace/backend-laravel:dev
+    env_file: [.env]
+    environment:
+      AGROTRACE_PROCESS: api
+      APP_KEY: ${LARAVEL_APP_KEY:-base64:254FIkwy02CvTimPdIThP60dSK3LJIYN/95NET9PL9A=}
+      OCTANE_WORKERS: ${OCTANE_WORKERS:-32}
+      DB_SLOTS: ${DB_SLOTS:-11}
+      REDIS_PREFIX: ''
+      # Pinned like api-express: the healthcheck, the gateway upstream and `expose` all say 8000 (METRICS_PORT: 9464).
+      PORT: '8000'
+    expose: ["8000", "9464"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8000/api/v1/health/live"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+      start_period: 5s
+    depends_on: &laravel-deps
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    # The Octane workers hand committed event ids to the relay process as Unix datagrams (Task 6). The kernel default
+    # of 10 queued datagrams per socket fills during one slow confirm; 4096 rides out ~10 s of a 400 req/s burst. The
+    # relay also catches dropped ids up from the outbox itself, so this sets latency, not correctness.
+    sysctls: { net.unix.max_dgram_qlen: 4096 }
+    # supervisord stops the api's programs one after another (docker/supervisord-api.conf): usually within
+    # SHUTDOWN_TIMEOUT_MS + 4 s (14 s at the default 10 s), at most SHUTDOWN_TIMEOUT_MS + 12 s when every program runs
+    # to its SIGKILL bound — 25 s covers that up to SHUTDOWN_TIMEOUT_MS 13000 (accepted up to 120000, as in Express;
+    # a longer one needs more here).
+    stop_grace_period: 25s
+    networks: [at]
+  # supervisord: 2 × agrotrace:consume (the worker's two channels of agrotrace.laravel.jobs, L1, L2) and the Telegram
+  # poller agrotrace:telegram-poll. Stops within SHUTDOWN_TIMEOUT_MS + 2 s per program (the poller first, at once).
+  worker-laravel:
+    image: agrotrace/backend-laravel:dev
+    pull_policy: never
+    command: ["supervisord", "-c", "/app/docker/supervisord-worker.conf"]
+    env_file: [.env]
+    environment:
+      AGROTRACE_PROCESS: worker
+      APP_KEY: ${LARAVEL_APP_KEY:-base64:254FIkwy02CvTimPdIThP60dSK3LJIYN/95NET9PL9A=}
+      OCTANE_WORKERS: ${OCTANE_WORKERS:-32}
+      DB_SLOTS: ${DB_SLOTS:-11}
+      REDIS_PREFIX: ''
+    depends_on:
+      <<: *laravel-deps
+      api-laravel: { condition: service_started }
+    stop_grace_period: 15s
+    networks: [at]
+  # supervisord: the four job processes `agrotrace:job <name>` (L5: lab-escalation, recall-task-overdue,
+  # notification-delivery, outbox-sweep), one PostgreSQL connection each. The service name is fixed (SP1:
+  # `api:test <other>` stops it by its compose label).
+  scheduler-laravel:
+    image: agrotrace/backend-laravel:dev
+    pull_policy: never
+    command: ["supervisord", "-c", "/app/docker/supervisord-scheduler.conf"]
+    env_file: [.env]
+    environment:
+      AGROTRACE_PROCESS: scheduler
+      APP_KEY: ${LARAVEL_APP_KEY:-base64:254FIkwy02CvTimPdIThP60dSK3LJIYN/95NET9PL9A=}
+      OCTANE_WORKERS: ${OCTANE_WORKERS:-32}
+      DB_SLOTS: ${DB_SLOTS:-11}
+      REDIS_PREFIX: ''
+    depends_on:
+      <<: *laravel-deps
+      api-laravel: { condition: service_started }
+    stop_grace_period: 15s
+    networks: [at]
+  # composer, Pest (pcov), Pint, Larastan over the mounted repository (`./at laravel:test|laravel:lint|composer`);
+  # vendor/ lives in the laravel-vendor volume, not in the working tree. No depends_on, like `tools`: a one-off run
+  # from a worktree would otherwise recreate the shared infra containers (their bind-mount paths differ per worktree,
+  # so does compose's config hash); the stand is up before (prepare_test_db, `./at up infra`).
+  php-tools:
+    build: { context: ., dockerfile: backend-laravel/Dockerfile, target: dev }
+    image: agrotrace/backend-laravel-tools:dev
+    profiles: [tools]
+    working_dir: /repo/backend-laravel
+    volumes:
+      - .:/repo
+      - laravel-vendor:/repo/backend-laravel/vendor
+    env_file: [.env]
+    environment:
+      AGROTRACE_PROCESS: test
+      REDIS_PREFIX: ''
+    networks: [at]
   # --- end laravel ---
   # Test-only stub of a real backend (./at.sh gw:test): a tiny node:http server, network-aliased
   # as api-express so the gateway's variable proxy_pass resolves it exactly like a real api-express
@@ -230,4 +325,5 @@ volumes:
   # --- django (plan 3) ---
   # --- end django ---
   # --- laravel (plan 5) ---
+  laravel-vendor: {}
   # --- end laravel ---

@@ -1,0 +1,80 @@
+# api-laravel: FrankenPHP with the Octane worker (L3, L4, L15). Started as `frankenphp run --config` (supervisord-api.conf):
+# `artisan octane:frankenphp` would drop the workers' stdout (the JSON log lines) and reformat stderr.
+#   127.0.0.1:8080 — the API, behind the HAProxy front on :PORT (8000) (docker/haproxy-api.cfg: Go refuses malformed
+#                    %-escapes with its own 400 before PHP runs) — the gateway proxies <front>-laravel.localhost/api/ to :8000;
+#   :METRICS_PORT (9464) — Prometheus /metrics only (METRICS_PORT, P54/L15; App\Http\Middleware\Metrics), never behind the gateway.
+# :8000 and :9464 are `expose`d inside the `at` network only (docker-compose.yml), never published.
+#
+# SSE (Task 12 step 2): GET /api/v1/events/stream runs on FrankenPHP's classic threads (public/sse.php, Laravel booted
+# per stream), not on an Octane worker — a stream lives up to the token's 15 minutes and would hold a worker that long.
+# num_threads (docker/entrypoint.sh) = OCTANE_WORKERS (the workers' own threads) + SSE_MAX_STREAMS (classic threads:
+# one per open stream, counted by App\Sse\StreamAdmission) + 16 classic threads for the answers that end at once (401,
+# 429, the cap's `retry:`). Static on purpose: FrankenPHP 1.4's max_threads scaling started threads too slowly for 150
+# streams opened at once (measured: p50 7 s to the first byte, a third not served in 14 s; static: all within 0.3 s).
+{
+	admin off
+	auto_https off
+	skip_install_trust
+	# FrankenPHP stops after the HAProxy front (supervisord-api.conf priorities), which already gave the requests in
+	# flight SHUTDOWN_TIMEOUT_MS and closed their connections: no client is left to wait for (final review M1).
+	grace_period 1s
+	log {
+		output stderr
+		format json
+		level WARN
+	}
+	frankenphp {
+		num_threads {$FRANKENPHP_NUM_THREADS:248}
+		worker {
+			file /app/public/frankenphp-worker.php
+			num {$OCTANE_WORKERS:32}
+			env APP_BASE_PATH /app
+			env APP_PUBLIC_PATH /app/public
+			env LARAVEL_OCTANE 1
+			env MAX_REQUESTS 500
+			env REQUEST_MAX_EXECUTION_TIME 0
+		}
+	}
+}
+
+(app) {
+	root * /app/public
+	# Express sends no Server header (review M2).
+	header -Server
+	# The JSON body limit (12 582 912 bytes) is the application's: Caddy's own 413 would not be problem+json.
+	request_body {
+		max_size 16MiB
+	}
+	# Every request goes to PHP (REQUEST_URI stays the raw original); no static files, no compression (SSE). The stream
+	# to a classic thread, everything else to the Octane workers.
+	@stream path /api/v1/events/stream
+	handle @stream {
+		rewrite * /sse.php
+		php
+	}
+	handle {
+		rewrite * /frankenphp-worker.php
+		php
+	}
+}
+
+http://:8080 {
+	bind 127.0.0.1
+	import app
+}
+
+# METRICS_PORT (P54, L15; default 9464, read like Express's config): every request goes to the Octane workers with the
+# server variable AGROTRACE_METRICS_LISTENER=1 — a client cannot set a server variable, its headers arrive as HTTP_*.
+# App\Http\Middleware\Metrics answers `GET /metrics` (exactly as written) with the exposition and anything else with
+# Express's `404 not found\n`; neither is measured.
+http://:{$METRICS_PORT:9464} {
+	header -Server
+	request_body {
+		max_size 64KiB
+	}
+	root * /app/public
+	rewrite * /frankenphp-worker.php
+	php {
+		env AGROTRACE_METRICS_LISTENER 1
+	}
+}

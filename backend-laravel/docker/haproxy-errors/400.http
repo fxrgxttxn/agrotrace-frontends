@@ -1,0 +1,7 @@
+HTTP/1.1 400 Bad Request
+Content-Type: application/problem+json; charset=utf-8
+Content-Length: 134
+X-Backend: laravel
+Connection: close
+
+{"type":"/problems/validation","title":"Validation failed","status":400,"code":"VALIDATION","errors":{"_root":["validation.invalid"]}}

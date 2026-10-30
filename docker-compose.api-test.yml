@@ -63,4 +63,25 @@ services:
       TZ: '${API_TEST_TZ:-UTC}'
   # --- end django ---
   # --- laravel (plan 5) ---
+  # The same profile for the Laravel processes, value for value as Express's above (P10, P35, P41, P50, P51).
+  api-laravel:
+    environment:
+      RATE_LIMIT_OVERRIDES: '{"user":100000,"login-ip":100000,"complaint-ip":100000}'
+      DADATA_API_KEY: ''
+      TELEGRAM_BOT_TOKEN: 'api-test-token'
+      TELEGRAM_BOT_USERNAME: 'agrotrace_test_bot'
+      REPORT_MAX_ROWS: '13'
+      TZ: '${API_TEST_TZ:-UTC}'
+  worker-laravel:
+    environment:
+      MERCURY_FAIL_PRODUCT_CODES: '99.99.99'
+      MERCURY_FAIL_MODE: '500'
+      MERCURY_RETRY_BASE_MS: '50'
+      TELEGRAM_BOT_TOKEN: ''
+      TZ: '${API_TEST_TZ:-UTC}'
+  scheduler-laravel:
+    environment:
+      SCHEDULER_TICK_MS: '1000'
+      TELEGRAM_BOT_TOKEN: ''
+      TZ: '${API_TEST_TZ:-UTC}'
   # --- end laravel ---

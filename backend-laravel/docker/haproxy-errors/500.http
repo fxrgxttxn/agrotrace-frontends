@@ -1,0 +1,7 @@
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/problem+json; charset=utf-8
+Content-Length: 92
+X-Backend: laravel
+Connection: close
+
+{"type":"/problems/internal","title":"Internal server error","status":500,"code":"INTERNAL"}
