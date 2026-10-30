@@ -441,21 +441,30 @@ def report_pdf(*, title: str, period_line: str, generated_line: str, generated_a
             y = MARGIN
         y = _paragraph(doc, name, "bold", 11, left, y, width)
         col_w = width / len(header)
+        header_h = max(len(wrap(doc, t, "bold", size, col_w - 4)) for t in header) * lh + 3
 
-        def row(cells: list[str], weight: str, header=header, col_w=col_w) -> None:
+        def row(cells: list[str], weight: str, header=header, col_w=col_w, header_h=header_h) -> None:
             nonlocal y
             wrapped = [wrap(doc, t, weight, size, col_w - 4) for t in cells]
-            h = max(len(ls) for ls in wrapped) * lh + 3
-            if y + h > bottom:
+            lines = max(len(ls) for ls in wrapped)
+            h = lines * lh + 3
+            # A row that fits on a page starts on the next one when it does not fit here; a row taller than a page
+            # (a 2000-character complaint, PL14) continues line by line on the next pages, under the repeated header.
+            if y + h > bottom and (weight == "bold" or h <= bottom - MARGIN - header_h):
                 doc.new_page()
                 y = MARGIN
                 if weight != "bold":
                     row(header, "bold")
-            for i, ls in enumerate(wrapped):
-                for k, ln in enumerate(ls):
-                    if ln:
-                        doc.text(ln, weight, size, left + i * col_w, y + k * lh)
-            y += h
+            for k in range(lines):
+                if y + lh > bottom:
+                    doc.new_page()
+                    y = MARGIN
+                    row(header, "bold")
+                for i, ls in enumerate(wrapped):
+                    if k < len(ls) and ls[k]:
+                        doc.text(ls[k], weight, size, left + i * col_w, y)
+                y += lh
+            y += 3
             doc.rule(left, left + width, y - 1.5)
 
         row(header, "bold")

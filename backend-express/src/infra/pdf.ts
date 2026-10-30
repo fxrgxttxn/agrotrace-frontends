@@ -240,17 +240,28 @@ export function reportPdf(d: ReportPdfInput): Promise<Buffer> {
     if (y > bottom - 60) newPage();
     y = paragraph(doc, sheet.name, 'bold', 11, { x: left, y, width });
     const colW = width / sheet.header.length;
+    const headerH = Math.max(...sheet.header.map((t) => wrap(doc, t, 'bold', size, colW - 4).length)) * lh + 3;
     const row = (cells: string[], weight: Weight) => {
       const wrapped = cells.map((t) => wrap(doc, t, weight, size, colW - 4));
-      const h = Math.max(...wrapped.map((l) => l.length)) * lh + 3;
-      if (y + h > bottom) {
+      const lines = Math.max(...wrapped.map((l) => l.length));
+      const h = lines * lh + 3;
+      // A row that fits on a page starts on the next one when it does not fit here; a row taller than a page (a
+      // 2000-character complaint, PL14) continues line by line on the next pages, under the repeated header.
+      if (y + h > bottom && (weight === 'bold' || h <= bottom - 28 - headerH)) {
         newPage();
         if (weight !== 'bold') drawHeader();
       }
-      wrapped.forEach((ls, i) =>
-        ls.forEach((l, k) => drawLine(doc, l, weight, size, left + i * colW, y + k * lh)),
-      );
-      y += h;
+      for (let k = 0; k < lines; k++) {
+        if (y + lh > bottom) {
+          newPage();
+          drawHeader();
+        }
+        wrapped.forEach((ls, i) => {
+          if (ls[k] !== undefined) drawLine(doc, ls[k]!, weight, size, left + i * colW, y);
+        });
+        y += lh;
+      }
+      y += 3;
       doc
         .moveTo(left, y - 1.5)
         .lineTo(left + width, y - 1.5)
