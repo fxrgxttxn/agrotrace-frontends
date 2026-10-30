@@ -146,7 +146,9 @@ app.conf.update(
 @worker_shutting_down.connect
 def _shutdown_watchdog(**_kwargs) -> None:
     """SIGTERM/SIGINT: a warm shutdown still running SHUTDOWN_TIMEOUT_MS + 2 s later ends the process (exit 1), as
-    Express's onShutdown (core/lifecycle.py)."""
+    Express's onShutdown (core/lifecycle.py). Handlers that fail from now on return their delivery to the queue (PL13)."""
     from agrotrace.core import lifecycle
+    from agrotrace.events import tasks
 
+    tasks.STOPPING.set()
     lifecycle.exit_after(config.get().SHUTDOWN_TIMEOUT_MS)

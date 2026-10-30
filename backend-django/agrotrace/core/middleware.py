@@ -20,6 +20,7 @@ The middlewares are async-capable: under ASGI only the view runs in a thread (Co
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 import re
@@ -192,7 +193,23 @@ class MethodGuardMiddleware(_Middleware):
         return None
 
 
+#: A JSON body above this size is parsed on a worker thread: parsing megabytes on the event loop would hold back the
+#: pings and notifications of every SSE stream of the process (Django final review M6).
+INLINE_PARSE_MAX_BYTES = 256 * 1024
+
+
 class JsonBodyMiddleware(_Middleware):
+    async def _acall(self, request):
+        length = request.META.get("CONTENT_LENGTH") or ""
+        if not (length.isdigit() and int(length) > INLINE_PARSE_MAX_BYTES):
+            return await super()._acall(request)
+        try:
+            early = await asyncio.to_thread(self.before, request)
+            response = early if early is not None else await self.get_response(request)
+            return self.after(request, response)
+        finally:
+            self.finish(request)
+
     def before(self, request):
         request.json_body = {}
         request.raw_body = b""

@@ -208,6 +208,20 @@ def test_a_record_attribute_that_is_not_json_data_is_never_written(lines):
     assert got[0]["status_code"] == 401 and got[0]["nested"] == {"ok": [1, "a", None]}
 
 
+def test_value_types_in_extras_are_written_as_text(lines):
+    """Rereview m3: an id, an instant or an amount is the value itself — written, not silently dropped."""
+    import datetime as dt
+    import decimal
+    import uuid as uuid_mod
+
+    bid = uuid_mod.UUID("0f0e0d0c-0b0a-4908-8706-050403020100")
+    logging.getLogger("agrotrace.test.types").warning("typed extras", extra={
+        "batchId": bid, "at": dt.datetime(2026, 10, 30, 9, 0, tzinfo=dt.UTC), "mass": decimal.Decimal("1.500")})
+    got = [ln for ln in lines() if ln.get("msg") == "typed extras"]
+    assert len(got) == 1
+    assert got[0]["batchId"] == str(bid) and got[0]["mass"] == "1.500" and got[0]["at"].startswith("2026-10-30")
+
+
 def test_an_error_django_turns_into_a_500_is_logged_once_with_its_traceback_and_no_token(lines, monkeypatch):
     """Re-review R1: a plain (non-DRF) view that raises — here the SSE view with no hub — reaches handler500, which
     logs it like render_exception (path only, exc_info); django.request stays silent."""

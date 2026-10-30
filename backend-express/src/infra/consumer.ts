@@ -81,7 +81,9 @@ export function startConsumer(deps: {
   let delayQueue = false;
   const inFlight = new Set<Promise<void>>();
 
-  async function runHandler(handler: EventHandler, event: EventEnvelope): Promise<boolean> {
+  /** `ok` — ack; `dead` — retries exhausted, reject to the DLQ; `stopped` — the process is stopping (PL13): neither
+   * ack nor reject, the broker returns the delivery to the queue when the channel closes. */
+  async function runHandler(handler: EventHandler, event: EventEnvelope): Promise<'ok' | 'dead' | 'stopped'> {
     for (let attempt = 0; ; attempt++) {
       try {
         // The handled event's requestId tags the handler's log lines (correlation with the API request, spec 14.5);
@@ -89,14 +91,21 @@ export function startConsumer(deps: {
         await runWithContext({ requestId: null, ip: null, eventRequestId: event.requestId }, () =>
           handler(event),
         );
-        return true;
+        return 'ok';
       } catch (err) {
-        if (attempt >= delays.length || stopping) {
+        if (stopping) {
+          logger.warn(
+            { err: (err as Error).message, eventId: event.id, type: event.type, requestId: event.requestId },
+            'event handler failed while stopping; left to the broker',
+          );
+          return 'stopped';
+        }
+        if (attempt >= delays.length) {
           logger.error(
             { err, eventId: event.id, type: event.type, requestId: event.requestId },
             'event handler failed; dead-lettering',
           );
-          return false;
+          return 'dead';
         }
         logger.warn(
           {
@@ -189,9 +198,9 @@ export function startConsumer(deps: {
     }
     if (isVsd) vsdBusy = true;
     try {
-      const ok = await runHandler(handler, event);
-      if (ok) ch.ack(msg);
-      else ch.reject(msg, false);
+      const outcome = await runHandler(handler, event);
+      if (outcome === 'ok') ch.ack(msg);
+      else if (outcome === 'dead') ch.reject(msg, false);
     } finally {
       if (isVsd) vsdBusy = false;
     }

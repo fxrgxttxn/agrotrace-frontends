@@ -6,6 +6,7 @@ copy → a 1 s pause and Reject(requeue=True)."""
 from __future__ import annotations
 
 import json
+import threading
 import uuid
 from contextlib import contextmanager
 
@@ -61,6 +62,25 @@ def test_a_failing_handler_is_retried_five_times_then_dead_lettered(sleeps):
     assert len(calls) == 6 and sleeps == [2, 4, 8, 16, 32]
     assert calls[0] == "req-1"  # the event's requestId tags the handler's context
     assert context.current() is None
+
+
+def test_a_handler_failing_while_the_worker_stops_goes_back_to_the_queue(sleeps, monkeypatch):
+    """PL13: no more retries and no DLQ once the warm shutdown began — Reject(requeue=True)."""
+    stopping = threading.Event()
+    monkeypatch.setattr(tasks, "STOPPING", stopping)
+    calls = []
+
+    def boom(envelope):
+        calls.append(1)
+        stopping.set()
+        raise RuntimeError("connection terminated")
+
+    task = _task("test.failing-on-stop", boom)
+    env = _envelope("test.failing-on-stop")
+    with delivered(task, env), pytest.raises(Reject) as err:
+        task.process(env)
+    assert err.value.requeue is True
+    assert len(calls) == 1 and sleeps == []
 
 
 def test_a_handler_that_recovers_returns(sleeps):
