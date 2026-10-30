@@ -240,6 +240,10 @@ describe('downloadReport: access and parameters', () => {
     expect(
       (await report(insp, 'complaints', { format: 'xlsx', from: '2019-01-02', to: '2020-01-02' })).status,
     ).toBe(200);
+    // PL12: a one-sided window at the end of the calendar is held to 0000-01-01 … 9999-12-31 — file names (and period
+    // labels) stay YYYY-MM-DD.
+    await xlsx(insp, 'complaints', { from: '9999-12-31' }, 'agrotrace-complaints_9999-12-31_9999-12-31');
+    await xlsx(insp, 'complaints', { to: '0000-01-01' }, 'agrotrace-complaints_0000-01-01_0000-01-01');
     const head = await loginAs('FARMER', { key: 'zarya.head' });
     expectErrors(await report(head, 'org', { format: 'xlsx', id: randomUUID() }), {
       id: ['validation.id.notAllowed'],

@@ -15,8 +15,12 @@ export interface Window {
 }
 
 const DAY = 86_400_000;
+const FIRST = Date.parse('0000-01-01T00:00:00Z');
+const LAST = Date.parse('9999-12-31T00:00:00Z');
+/** `date` ± `days`, held to 0000-01-01 … 9999-12-31 (PL12: period labels and file names stay `YYYY-MM-DD`, as on the
+ * other backends — never `+010000-01-28`). */
 const shift = (date: string, days: number): string =>
-  new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY).toISOString().slice(0, 10);
+  new Date(Math.min(LAST, Math.max(FIRST, Date.parse(`${date}T00:00:00Z`) + days * DAY))).toISOString().slice(0, 10);
 
 /** True when explicit bounds span more than 366 days (a default or one-sided window never does). */
 export const tooLong = (from: string | undefined, to: string | undefined): boolean =>
