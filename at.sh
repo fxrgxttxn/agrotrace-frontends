@@ -534,7 +534,7 @@ fe_build() (
   run $T pnpm --filter "@agrotrace/frontend-$front" "$script"
   # The main gateway serves the production build through a symlink (PL2): point it at the new build.
   if [ "$script" = build ] && { [ "${AT_DRY_GATEWAY:-}" = "1" ] || { [ "${AT_DRY_RUN:-}" != "1" ]       && [ -n "$($DC ps -q --status running gateway 2>/dev/null)" ]; }; }; then
-    run $DC exec -T gateway sh /docker-entrypoint.d/40-fronts.sh
+    run $DC exec -T gateway sh //docker-entrypoint.d/40-fronts.sh
   fi
 )
 
@@ -839,6 +839,18 @@ case "$cmd" in
   fe:e2e-smoke) fe_e2e_smoke "$@" ;;
   # `e2e [front] [back] [playwright args…]`: the shared parity suite (see e2e above).
   e2e) e2e "$@" ;;
+  # `e2e:matrix [playwright args…]`: tests/e2e on all nine front × backend pairs (spec §14.1), each after `reset`;
+  # the table `front back rc seconds` goes to stdout and tests/e2e/test-results/matrix-summary.txt; fails if any failed.
+  # The sub-commands take the stand lock themselves.
+  e2e:matrix)
+    summary=tests/e2e/test-results/matrix-summary.txt; mkdir -p tests/e2e/test-results; : > "$summary"; failed=0
+    for back in express django laravel; do for front in react angular svelte; do
+      start=$(date +%s); rc=0
+      "$0" reset >/dev/null && "$0" e2e "$front" "$back" "$@" || rc=$?
+      [ "$rc" = 0 ] || failed=1
+      echo "$front $back $rc $(( $(date +%s) - start ))" | tee -a "$summary"
+    done; done
+    exit $failed ;;
   # Per-backend commands (unit suites, linters, package managers):
   # --- django (plan 3) ---
   # `django:test [pytest args…]` (locked): Django's unit suite on its own DB agrotrace_test_django (SP2).

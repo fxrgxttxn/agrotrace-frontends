@@ -98,6 +98,12 @@
   .at-table td[data-primary] .at-table__primary > * {
     overflow-wrap: anywhere;
   }
+
+  /* A long status (MANUAL_CHECK «Требует ручной проверки») wraps inside its chip instead of widening the table at
+     768 px (Plan 8 baseline: the organizations table scrolled by 5 px with a real backend's application rows). */
+  .at-table .at-chip {
+    white-space: normal;
+  }
 }
 
 /* Numbers (masses, counts): right-aligned, tabular. */
@@ -335,6 +341,14 @@ th[aria-sort='descending'] > .at-table__sort::after {
      status chip and past the screen edge at 360 px. */
   .at-table[data-cards] td[data-primary] a,
   .at-table[data-cards] td[data-primary] .at-table__sub {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* So does a link with its caption in any other cell (the audit log's author «Морозова Елена Александровна» over a
+     long organization name): the value column never runs past the card at 360 px. */
+  .at-table[data-cards] td .at-table__primary a,
+  .at-table[data-cards] td .at-table__sub {
     white-space: normal;
     overflow-wrap: anywhere;
   }
