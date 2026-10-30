@@ -23,6 +23,10 @@ export interface SseStream {
   /** Every event received so far, in order. */
 
   events: SseEvent[];
+  /** Every block received so far, raw, in order — also those that dispatch no event (`retry:`, comments). */
+  blocks: string[];
+  /** Bytes of the body received so far. */
+  readonly bytes: number;
   /** The next unconsumed event of `type` (waits up to `timeoutMs`). */
   next(type: string, timeoutMs?: number): Promise<SseEvent>;
   /** Resolves when the server ended the stream. */
@@ -45,6 +49,8 @@ export async function openStream(opts: {
   const res = await fetch(url, { headers, signal: abort.signal });
   recordCall({ method: 'GET', path: '/events/stream', status: res.status });
   const events: SseEvent[] = [];
+  const blocks: string[] = [];
+  let bytes = 0;
   const consumed = new Set<SseEvent>();
   const waiters: (() => void)[] = [];
   const wake = () => waiters.splice(0).forEach((w) => w());
@@ -55,11 +61,13 @@ export async function openStream(opts: {
     let buf = '';
     try {
       for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+        bytes += chunk.length;
         buf += decoder.decode(chunk, { stream: true });
         let i: number;
         while ((i = buf.indexOf('\n\n')) >= 0) {
           const block = buf.slice(0, i);
           buf = buf.slice(i + 2);
+          blocks.push(block);
           const e: SseEvent = { event: 'message', data: undefined, raw: block };
           const data: string[] = [];
           for (const line of block.split('\n')) {
@@ -104,6 +112,10 @@ export async function openStream(opts: {
       bytes: Buffer.alloc(0),
     }),
     events,
+    blocks,
+    get bytes() {
+      return bytes;
+    },
     ended,
     async next(type, timeoutMs = 15000) {
       const until = Date.now() + timeoutMs;

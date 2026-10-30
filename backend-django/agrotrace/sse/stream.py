@@ -10,7 +10,7 @@ are buffered) → replay (`seq > L` + the 60 s window) → flush → `unread`; `
 `exp`, then the end. `Last-Event-ID` wins over `lastEventId`; a value that is not a sequence number (`^\\d+$`, at most
 18 digits) is treated as absent (the operation declares no 400).
 
-The body is only `id:` / `event:` / `data:` frames — no `retry:` and no comment before the first event. A client that
+The body starts with `retry: 3000` (PL8), then only `id:` / `event:` / `data:` frames, no comments. A client that
 goes away cancels the response task: `asyncio.CancelledError` in the generator, whose `finally` takes the stream out of
 the hub. No synchronous ORM call runs here (the reads are the SSE pool's, sse/dbpool.py).
 """
@@ -32,7 +32,7 @@ from agrotrace.core.patterns import ecma
 from agrotrace.core.problem import AppProblem, problem_response
 from agrotrace.security.jwt import verify_access_token
 from agrotrace.sse import hub as sse_hub
-from agrotrace.sse.hub import PING_S, Hub, Stream
+from agrotrace.sse.hub import ADMITTED_RETRY_MS, PING_S, Hub, Stream
 
 log = logging.getLogger("agrotrace.sse")
 
@@ -50,6 +50,7 @@ async def events(h: Hub, s: Stream, last_seq: str | None, *, ping_s: float = PIN
     s.task = asyncio.current_task()
     if getattr(h, "stopped", False) or getattr(h, "stopped_streams", False):
         return  # the process is shutting down: the client reconnects elsewhere
+    s.write(f"retry: {ADMITTED_RETRY_MS}\n\n")
     h.register(s)
     setup = asyncio.create_task(_connect(h, s, last_seq))
     next_ping = time.monotonic() + ping_s

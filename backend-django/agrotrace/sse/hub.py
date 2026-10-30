@@ -64,6 +64,11 @@ RECONNECT_MIN_S = 0.5
 RECONNECT_MAX_S = 10.0
 SENT_CAP = 10_000
 MAX_BUFFERED_BYTES = 1024 * 1024
+#: PL7: late-commit rows of a replay, and how long a replay waits for a full buffer to drain without progress.
+LATE_COMMIT_MAX_ROWS = 100
+REPLAY_DRAIN_TIMEOUT_S = 10.0
+#: PL8: the reconnect delay every admitted stream announces first.
+ADMITTED_RETRY_MS = 3000
 #: A frame the server has not taken within this long after the 1 MiB limit: the client does not read.
 STUCK_SEND_S = 5.0
 LISTEN = "LISTEN notifications"
@@ -103,6 +108,10 @@ class Stream:
         self.pending: deque[str] = deque()
         self.pending_bytes = 0
         self._wake = asyncio.Event()
+        #: Set whenever the response generator takes a frame (replay back-pressure, `drained`).
+        self._taken = asyncio.Event()
+        #: While the replay runs, a full buffer is waited out (`drained`) instead of ending the stream (PL7).
+        self.replaying = False
         self._forget = forget
         #: The task that sends the response (cancelled to end a stream whose client does not read).
         self.task: asyncio.Task | None = None
@@ -117,7 +126,7 @@ class Stream:
         self.pending.append(chunk)
         self.pending_bytes += len(chunk.encode("utf-8"))
         self._wake.set()
-        if self.pending_bytes > MAX_BUFFERED_BYTES:
+        if self.pending_bytes > MAX_BUFFERED_BYTES and not self.replaying:
             # Express `res.end()` after `writableLength > 1 MiB`: no new frame is accepted, but what is buffered still
             # goes out — a reading client with a large replay gets its first MiB and its L moves forward. Only a send
             # that does not finish (the client does not read) ends the response by cancelling its task.
@@ -146,7 +155,19 @@ class Stream:
             return None
         chunk = self.pending.popleft()
         self.pending_bytes -= len(chunk.encode("utf-8"))
+        self._taken.set()
         return chunk
+
+    async def drained(self) -> bool:
+        """Replay back-pressure (PL7): returns at once under 1 MiB pending, else once the client has read it down;
+        False — no frame taken for `REPLAY_DRAIN_TIMEOUT_S`, or the stream is over (the caller ends it)."""
+        while not self.closed and self.pending_bytes > MAX_BUFFERED_BYTES:
+            self._taken.clear()
+            try:
+                await asyncio.wait_for(self._taken.wait(), REPLAY_DRAIN_TIMEOUT_S)
+            except TimeoutError:
+                return False
+        return not self.closed
 
     async def wait(self, timeout: float) -> None:
         if self.pending or self.closed:
@@ -361,15 +382,32 @@ class Hub:
                 "AND channel = 'IN_APP'", [s.user_id]))
             given = int(last_seq) if last_seq is not None else 0
             if last_seq is not None:
+                # Rows after L, plus at most the 100 highest late-commit rows below it (PL7), by seq.
                 rows = await self.pool.all(
+                    "SELECT * FROM ("
                     "SELECT n.id::text AS id, n.seq, n.type, n.payload, n.is_read, n.created_at FROM notifications n "
-                    "WHERE n.user_id = %s AND n.channel = 'IN_APP' AND (n.seq > %s::bigint "
-                    "OR (n.seq < %s::bigint AND NOT n.is_read AND n.created_at >= ("
+                    "WHERE n.user_id = %s AND n.channel = 'IN_APP' AND n.seq > %s::bigint "
+                    "UNION ALL "
+                    "(SELECT n.id::text AS id, n.seq, n.type, n.payload, n.is_read, n.created_at FROM notifications n "
+                    "WHERE n.user_id = %s AND n.channel = 'IN_APP' "
+                    "AND n.seq < %s::bigint AND NOT n.is_read AND n.created_at >= ("
                     "SELECT l.created_at - make_interval(secs => %s) FROM notifications l "
-                    "WHERE l.seq = %s::bigint AND l.user_id = %s))) ORDER BY n.seq",
-                    [s.user_id, last_seq, last_seq, LATE_COMMIT_WINDOW_SEC, last_seq, s.user_id])
-                for r in rows:
-                    s.send(notification_view(r))
+                    "WHERE l.seq = %s::bigint AND l.user_id = %s) ORDER BY n.seq DESC LIMIT %s)"
+                    ") r ORDER BY r.seq",
+                    [s.user_id, last_seq, s.user_id, last_seq, LATE_COMMIT_WINDOW_SEC, last_seq, s.user_id,
+                     LATE_COMMIT_MAX_ROWS])
+                s.replaying = True
+                drained = True
+                try:
+                    for r in rows:
+                        s.send(notification_view(r))
+                        drained = await s.drained()
+                        if not drained:
+                            break
+                finally:
+                    s.replaying = False
+                if not drained:
+                    s.end()
             floor = max(given, current)
             if floor > s.watermark:
                 s.watermark = floor

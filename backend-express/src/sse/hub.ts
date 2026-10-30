@@ -14,7 +14,9 @@
  *   was lost (late commits), then `unread` — never the user's history (contract text).
  * - the session is kept alive (TCP keepalive) and probed every 30 s by re-issuing `LISTEN notifications` (a no-op that
  *   also keeps it recognisable in pg_stat_activity); a failed probe counts as a lost session;
- * - a client that does not read (more than 1 MiB buffered) loses its stream.
+ * - a client that does not read (more than 1 MiB buffered) loses its stream — for live events; the replay waits for the
+ *   buffer to drain instead (up to 10 s without progress), so a large replay reaches a reading client whole (PL7);
+ * - every admitted stream starts with `retry: 3000` (PL8).
  *
  * Connect (streamEvents): a response already closed by the client is dropped at once; otherwise register the stream
  * (live events are buffered), read the watermark, replay the missed rows, flush the buffer, send `unread`; `ping`
@@ -23,7 +25,7 @@
  *
  * Replay for L (contract text): the user's IN_APP rows with `seq > L`, plus unread rows with `seq < L` created at most
  * 60 s before row L — `seq` is taken at INSERT, so a transaction that inserted earlier but committed after row L was
- * sent has a lower seq (the T3-5 note for SSE); ordered by seq.
+ * sent has a lower seq (the T3-5 note for SSE) — at most the 100 highest of those (PL7); ordered by seq.
  */
 import { sql } from 'kysely';
 import pg from 'pg';
@@ -37,6 +39,11 @@ export const LATE_COMMIT_WINDOW_SEC = 60;
 export const PROBE_MS = 30_000;
 const SENT_CAP = 10_000;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
+/** PL7: late-commit rows of a replay, and how long a replay waits for a full buffer to drain. */
+export const LATE_COMMIT_MAX_ROWS = 100;
+export const REPLAY_DRAIN_TIMEOUT_MS = 10_000;
+/** PL8: the reconnect delay every admitted stream announces first. */
+export const ADMITTED_RETRY_MS = 3000;
 
 const isoSec = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
@@ -49,6 +56,8 @@ class Stream {
   /** Live notifications that arrived while the connect sequence was running. */
   buffer: NotificationView[] | null = [];
   closed = false;
+  /** While the replay runs, a full buffer is waited out ({@link drained}) instead of ending the stream. */
+  replaying = false;
   private timers: NodeJS.Timeout[] = [];
 
   constructor(
@@ -60,7 +69,27 @@ class Stream {
   write(chunk: string): void {
     if (this.closed) return;
     this.res.write(chunk);
-    if (this.res.writableLength > MAX_BUFFERED_BYTES) this.end();
+    if (!this.replaying && this.res.writableLength > MAX_BUFFERED_BYTES) this.end();
+  }
+
+  /** Replay back-pressure (PL7): resolves at once under 1 MiB buffered, else on `drain`; false — no drain within
+   * {@link REPLAY_DRAIN_TIMEOUT_MS} or the stream is over (the caller ends it). */
+  drained(): Promise<boolean> {
+    if (this.closed) return Promise.resolve(false);
+    if (this.res.writableLength <= MAX_BUFFERED_BYTES) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const done = (ok: boolean) => {
+        clearTimeout(t);
+        this.res.off('drain', onDrain);
+        this.res.off('close', onClose);
+        resolve(ok);
+      };
+      const onDrain = () => done(true);
+      const onClose = () => done(false);
+      const t = setTimeout(() => done(false), REPLAY_DRAIN_TIMEOUT_MS);
+      this.res.on('drain', onDrain);
+      this.res.on('close', onClose);
+    });
   }
 
   notification(n: NotificationView): void {
@@ -296,6 +325,9 @@ export function createSseHub(deps: {
       if (!set) streams.set(userId, (set = new Set()));
       set.add(s);
       res.on('close', () => s.dispose());
+      s.write(`retry: ${ADMITTED_RETRY_MS}
+
+`);
       s.timer(
         setInterval(
           () => s.write(`event: ping\ndata: ${JSON.stringify({ ts: isoSec(new Date()) })}\n\n`),
@@ -320,16 +352,30 @@ export function createSseHub(deps: {
         const given = lastSeq !== null ? BigInt(lastSeq) : 0n;
         if (lastSeq !== null) {
           const rows = await sql<Row>`
-            SELECT n.id, n.seq, n.type, n.payload, n.is_read, n.created_at
-              FROM notifications n
-             WHERE n.user_id = ${userId} AND n.channel = 'IN_APP'
-               AND (n.seq > ${lastSeq}::bigint
-                    OR (n.seq < ${lastSeq}::bigint AND NOT n.is_read
-                        AND n.created_at >= (SELECT l.created_at - make_interval(secs => ${LATE_COMMIT_WINDOW_SEC})
-                                               FROM notifications l
-                                              WHERE l.seq = ${lastSeq}::bigint AND l.user_id = ${userId})))
-             ORDER BY n.seq`.execute(db);
-          for (const r of rows.rows) s.send(notificationView(r));
+            SELECT * FROM (
+              SELECT n.id, n.seq, n.type, n.payload, n.is_read, n.created_at
+                FROM notifications n
+               WHERE n.user_id = ${userId} AND n.channel = 'IN_APP' AND n.seq > ${lastSeq}::bigint
+              UNION ALL
+              (SELECT n.id, n.seq, n.type, n.payload, n.is_read, n.created_at
+                 FROM notifications n
+                WHERE n.user_id = ${userId} AND n.channel = 'IN_APP'
+                  AND n.seq < ${lastSeq}::bigint AND NOT n.is_read
+                  AND n.created_at >= (SELECT l.created_at - make_interval(secs => ${LATE_COMMIT_WINDOW_SEC})
+                                         FROM notifications l
+                                        WHERE l.seq = ${lastSeq}::bigint AND l.user_id = ${userId})
+                ORDER BY n.seq DESC
+                LIMIT ${LATE_COMMIT_MAX_ROWS})
+            ) r
+            ORDER BY r.seq`.execute(db);
+          s.replaying = true;
+          let drained = true;
+          for (const r of rows.rows) {
+            s.send(notificationView(r));
+            if (!(drained = await s.drained())) break;
+          }
+          s.replaying = false;
+          if (!drained) s.end();
         }
         const floor = given > current ? given : current;
         if (floor > s.watermark) s.watermark = floor;

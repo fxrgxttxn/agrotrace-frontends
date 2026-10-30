@@ -213,12 +213,14 @@ def test_dedupe_by_id_within_a_stream():
 
 
 def _frames_of(chunks):
-    return [FRAME.match(c) for c in chunks]
+    """The event frames of a response body (the leading `retry:` of an admitted stream, PL8, is not one)."""
+    assert chunks and chunks[0] == "retry: 3000\n\n"
+    return [FRAME.match(c) for c in chunks[1:]]
 
 
 class ReplayHub:
-    """A hub whose connect sequence replays `rows` notifications above L in one synchronous loop (as the real one
-    does for a long absence), then `unread`."""
+    """A hub whose connect sequence replays `rows` notifications above L as the real one does for a long absence:
+    with replay back-pressure (`replaying`, `drained`, PL7), then `unread`."""
 
     def __init__(self, rows: int):
         self.rows = rows
@@ -228,30 +230,32 @@ class ReplayHub:
 
     async def connect_sequence(self, s, last):
         start = int(last or 0)
+        s.replaying = True
         for seq in range(start + 1, start + self.rows + 1):
             s.send({"id": f"n{seq}", "seq": seq, "type": "COMPLAINT", "isRead": False, "createdAt": "t",
                     "payload": {"publicCode": "AT-2026-990003", "productName": "x" * 300}})
+            if not await s.drained():
+                s.replaying = False
+                s.end()
+                return
+        s.replaying = False
         s.flush()
         s.unread(0)
 
 
-def test_a_reading_client_with_a_replay_over_1_mib_gets_the_first_mib_and_its_l_moves_on():
-    """Review I1: Express `res.end()` still flushes what is buffered; the client reconnects from a later L."""
+def test_a_reading_client_gets_a_replay_over_1_mib_whole():
+    """PL7: the replay waits for the buffer to drain instead of ending the stream at 1 MiB."""
     async def go():
         hub = ReplayHub(6000)  # ~ 2.6 MiB of frames
-        last = None
-        progress = []
-        for _ in range(3):
-            s = Stream("u", int(time.time()) + 600)
-            got = [c async for c in stream_mod.events(hub, s, last)]
-            ids = [int(m.group(1)) for m in _frames_of(got) if m.group(2) == "notification"]
-            assert ids, "nothing delivered"
-            assert ids == list(range(ids[0], ids[0] + len(ids)))  # in order, no gap
-            assert sum(len(c.encode()) for c in got) > 1024 * 1024
-            assert s.closed and not s.task.cancelled()
-            progress.append(ids[-1])
-            last = str(ids[-1])
-        assert progress[0] < progress[1] < progress[2]
+        s = Stream("u", int(time.time()) + 600)
+        got = []
+        async for c in stream_mod.events(hub, s, None):
+            got.append(c)
+            if c.startswith("event: unread"):
+                break
+        ids = [int(m.group(1)) for m in _frames_of(got) if m.group(2) == "notification"]
+        assert ids == list(range(1, 6001))
+        assert sum(len(c.encode()) for c in got) > 2 * 1024 * 1024
 
     run(go())
 
@@ -317,14 +321,14 @@ def test_reauth_at_exp_then_the_end_and_ping_without_milliseconds(user):
         async for chunk in stream_mod.events(NoDb(), s, None, ping_s=0.3):
             out.append(chunk)
         elapsed = time.monotonic() - t0
-        parsed = [FRAME.match(c) for c in out]
+        parsed = _frames_of(out)
         names = [m.group(2) for m in parsed]
         assert names[0] == "unread" and names[-1] == "reauth" and "ping" in names
         assert json.loads(parsed[-1].group(3)) == {"reason": "TOKEN_EXPIRED"}
         assert 0.9 < elapsed < 3.5
         ts = json.loads(next(m for m in parsed if m.group(2) == "ping").group(3))["ts"]
         assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", ts)
-        assert all(not c.startswith(("retry:", ":")) for c in out)
+        assert all(not c.startswith(("retry:", ":")) for c in out[1:])  # one retry: first (PL8), no comments
         assert s.closed
 
     run(go())
